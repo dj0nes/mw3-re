@@ -14,6 +14,7 @@
 #include "mech3/turret.h"
 #include "mech3/app_vehicle.h"
 
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <unordered_set>
@@ -43,6 +44,8 @@
 #include "mech3/mech_build.h"
 #include "mech3/mech_dead.h"
 #include "mech3/mech_net.h"
+#include "gamez/znetwork/znet_session.h"
+#include "gamez/znetwork/znet_dplay.h"
 #include "gamez/zutil/zutl_msgdll.h"
 #include "mech3/mech_lod.h"
 #include "mech3/mech_skin.h"
@@ -961,7 +964,19 @@ void wire_net(bool on) {
     if (!t.empty()) message_panel_add("%s", t.c_str());
   };
   nc.forget = [](NetMech& m) { ai::entities_forget(g_w.handle_of(g_w.engine, &m)); };  // 0x004aa6b0
+  nc.free = [](NetMech* m) {  // vt+0 (1), and off the program's own lists (as mech_free)
+    net_mech_unlist(m);
+    mission_ai_mech_forget(m, g_w.handle_of ? g_w.handle_of(g_w.engine, m) : 0);
+    m->release();
+    mech_objects().erase(m);
+    if (g_w.forget_object) g_w.forget_object(g_w.engine, m);
+    delete m;
+  };
   nc.view_outside = [] { program_view_set_camera(1); };  // 0x0040ae70(1)
+  nc.sensor_range = [](NetMech& m) { m.set_sensor_range(g_w.handle_of(g_w.engine, &m), m.sensor_range); };
+  nc.world_add = [](NetMech& m) {  // [0x00608c84] vt+0x00
+    if (zcls::Node* w = world_hooks().world) zcls::node_add_child(w, zn(m.node));
+  };
   nc.spawn_point = [](const char* name, float pos[3], float* yaw) {  // aiv.zrd's (0x004e0680)
     ai::AivRecord rec;
     const ai::AivRecord* r = g_launch.aiv_read_named(rec, name);
@@ -977,6 +992,51 @@ void wire_net(bool on) {
 
 void net_set_game_clear(void (*fn)()) { net_calls().game_clear = fn; }
 void net_set_launch_game(bool (*fn)(NetLaunchGame* out)) { g_launch_game = fn; }
+
+bool program_net_mech_check(NetMechSeen* out) {
+  Mech* me = launched_mech();
+  if (!me || !me->config || !me->pilot) return false;
+  znet::Hub hub;
+  znet::session() = znet::Session{};
+  znet::initialise(hub.endpoint());
+  if (!znet::host_session(znet::SessionDesc{}, "Host")) return false;
+  znet::Transport* b = hub.endpoint();
+  if (!b->join("loopback") || b->create_player("Bob", "Bob") != 2) return false;
+  const std::vector<uint32_t> p = me->config->packed();
+  const uint32_t n = p[0] & 0xffff;
+  std::vector<uint8_t> rec(n + 0xc, 0);
+  const int32_t head[3] = {2, 0, me->pilot->roster};
+  std::memcpy(rec.data(), head, 0xc);
+  std::memcpy(rec.data() + 0xc, p.data(), n);
+  b->set_data(false, 2, rec.data(), static_cast<uint32_t>(rec.size()));
+  znet::poll(-1);
+  const size_t before = znet::session().handlers.size();
+  net_start();
+  float at[3];
+  mech_world_position(me, at);
+  at[0] += 30.0f;
+  uint8_t state[0x40] = {0x0f, 0, 0x40, 0};
+  std::memcpy(state + 4, at, 12);
+  b->send(1, state, sizeof state, true, nullptr);
+  znet::poll(-1);
+  if (NetMech* m = net_mech(2)) {
+    out->made = 1, out->remote = m->remote, out->collides = m->collides;
+    out->torso_mode = m->torso ? m->torso->mode : -1;
+    out->in_world = zn(m->node)->parent_count() > 0;
+    float t[3];
+    mech_world_position(m, t);
+    out->moved = std::fabs(t[0] - at[0]) < 0.01f && std::fabs(t[2] - at[2]) < 0.01f;
+  }
+  out->configs = static_cast<int32_t>(net_game().configs.size());
+  out->config_named = out->configs == 1 && std::strcmp(net_game().configs.front()->name, "Bob's Config") == 0;
+  b->close();
+  znet::poll(-1);
+  out->after_leave = static_cast<int32_t>(net_game().mechs.size());
+  net_end();
+  out->handlers_after = static_cast<int32_t>(znet::session().handlers.size() - before);
+  znet::shutdown();
+  return true;
+}
 
 void wire_mech_build(const MechWiring* w) {
   if (!w) {

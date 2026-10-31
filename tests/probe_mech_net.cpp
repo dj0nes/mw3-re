@@ -15,6 +15,9 @@
 #include "gamez/znetwork/znet_session.h"
 #include "gamez/zutil/ztimer.h"
 #include "mech3/mech_net.h"
+#include "mech3/mech_reader.h"
+#include "mech3/mech_skin.h"
+#include "mech3/mech_config.h"
 
 namespace {
 using mech3::NetMech;
@@ -151,7 +154,7 @@ extern "C" int32_t probe_mech_net(const int32_t* ops, int32_t n, int32_t* out, i
       const uint8_t msg[8] = {6, 0, 8, 0};
       mech3::net_player_left(static_cast<uint32_t>(o[1]), msg, sizeof msg);
     } else if (o[0] == 3) {
-      for (int32_t k = 0; k < o[1]; ++k) g.missing.push_back("m");
+      for (int32_t k = 0; k < o[1]; ++k) g.missing.push_back(0);
       const bool was = g.running;
       g_cleared = 0;
       mech3::net_start();
@@ -165,7 +168,7 @@ extern "C" int32_t probe_mech_net(const int32_t* ops, int32_t n, int32_t* out, i
       g_player_mech = o[1], g_ff = o[2];
       for (int32_t k = 0; k < o[3]; ++k)
         g.configs.push_back((o[4] >> k & 1) ? nullptr : reinterpret_cast<mech3::Config*>(static_cast<uintptr_t>(k + 1)));
-      for (int32_t k = 0; k < o[5]; ++k) g.missing.push_back("m");
+      for (int32_t k = 0; k < o[5]; ++k) g.missing.push_back(0);
       mech3::net_end();
       log({62, static_cast<int32_t>(s.handlers.size()), 74, static_cast<int32_t>(g.configs.size()), 75,
            static_cast<int32_t>(g.missing.size())});
@@ -208,7 +211,7 @@ extern "C" int32_t probe_mech_net_launch(const int32_t* in, const uint32_t* blob
   c = mech3::NetCalls{};
   g_team = in[3], g_start = in[4], g_found = in[7], g_ff2 = in[12];
   std::memcpy(g_spawn, &in[8], 16);
-  c.dfn_load = [](int32_t r) { log({1, r}); };
+  c.dfn = [](int32_t r) -> const mech3::MechDfn* { log({1, r}); return nullptr; };
   c.team_of = [](uint32_t p) { log({2, static_cast<int32_t>(p)}); return static_cast<uint32_t>(g_team); };
   c.unlimited = [](mech3::Mech&, bool on) { log({3, on ? 1 : 0}); };
   c.scores_reset = [] { log({5}); };
@@ -262,6 +265,126 @@ extern "C" int32_t probe_mech_net_launch(const int32_t* in, const uint32_t* blob
   znet::session() = znet::Session{};
   c = mech3::NetCalls{};
   (void)t;
+  const int32_t n = static_cast<int32_t>(std::min<size_t>(lg.size(), static_cast<size_t>(cap)));
+  std::copy(lg.begin(), lg.begin() + n, out);
+  return n;
+}
+
+// The creation (0x0046d450) for test_mech_net_create.py. in: the sender,
+// whether it has a name, the record's size as asked, whether the get
+// succeeds, the dfn found, its skin count, the unpack's answer, Validate's,
+// the type's data loaded, host; then the record's words.
+namespace {
+int32_t g_c[16];
+std::vector<uint8_t> g_rec;
+mech3::MechDfn* g_dfn;
+mech3::SkinSet* g_skins;
+mech3::Config* g_cfg;
+int32_t name_number(const char* s) {
+  if (!s) return -1;
+  if (std::strncmp(s, "(null)", 6) == 0) return -2;
+  return std::atoi(s + 1);
+}
+struct Records : Data {
+  bool get_data(bool group, uint32_t, void* data, uint32_t* size) override {
+    if (group) return false;
+    if (!data) {
+      *size = static_cast<uint32_t>(g_c[2]);
+      return false;
+    }
+    if (!g_c[3]) return false;
+    std::memcpy(data, g_rec.data(), std::min<size_t>(*size, g_rec.size()));
+    return true;
+  }
+};
+}  // namespace
+
+extern "C" int32_t probe_mech_net_create(const int32_t* in, const uint32_t* rec, int32_t words, int32_t* out,
+                                         int32_t cap) {
+  std::vector<int32_t> lg;
+  g_log = &lg;
+  std::memcpy(g_c, in, sizeof g_c);
+  g_rec.assign(reinterpret_cast<const uint8_t*>(rec), reinterpret_cast<const uint8_t*>(rec) + 4 * words);
+  if (g_rec.size() < static_cast<size_t>(in[2])) g_rec.resize(static_cast<size_t>(in[2]), 0);
+  g_rec.resize(static_cast<size_t>(in[2]));
+  mech3::NetCalls& c = mech3::net_calls();
+  c = mech3::NetCalls{};
+  if (!g_dfn) {
+    g_dfn = static_cast<mech3::MechDfn*>(::operator new(sizeof(mech3::MechDfn)));
+    std::memset(static_cast<void*>(g_dfn), 0, sizeof(mech3::MechDfn));
+    g_skins = new mech3::SkinSet(0);
+  }
+  g_skins->skins.clear();
+  for (int32_t i = 0; i < g_c[5]; ++i) g_skins->skins.push_back(reinterpret_cast<mech3::Skin*>(uintptr_t(0x100 + i)));
+  g_dfn->skins = g_c[5] >= 0 ? g_skins : nullptr;
+  c.dfn = [](int32_t r) -> const mech3::MechDfn* {
+    log({1, r});
+    return g_c[4] ? g_dfn : nullptr;
+  };
+  c.team_of = [](uint32_t p) {
+    log({2, static_cast<int32_t>(p)});
+    return static_cast<uint32_t>(g_c[11]);
+  };
+  c.unpack = [](const uint32_t* p, size_t) -> mech3::Config* {
+    log({30, static_cast<int32_t>(p[0])});
+    if (!g_c[6]) return nullptr;
+    g_cfg = new mech3::Config(-1, "remote config");
+    return g_cfg;
+  };
+  c.valid = [](const mech3::Config&) {
+    log({31});
+    return g_c[7] != 0;
+  };
+  c.config_free = [](mech3::Config* cfg) {
+    log({22, cfg == g_cfg ? 1 : 0});
+    delete cfg;
+  };
+  c.data = [](int32_t r) -> mech3::MechData* {
+    log({24, r, 1});
+    return g_c[8] ? reinterpret_cast<mech3::MechData*>(uintptr_t(0x200)) : nullptr;
+  };
+  c.make = [](uint32_t owner, mech3::MechData*, mech3::NetControls* ctl, mech3::Config* cfg,
+              const char* name) -> NetMech* {
+    log({25, static_cast<int32_t>(owner), cfg == g_cfg ? 1 : 0, name_number(name)});
+    auto* m = new NetMech();
+    m->owner = owner;
+    delete ctl;
+    mech3::net_game().mechs.push_back(m);
+    return m;
+  };
+  c.skin = [](NetMech&, mech3::Handle s) { log({26, static_cast<int32_t>(reinterpret_cast<uintptr_t>(s))}); };
+  c.sensor_range = [](NetMech&) { log({27}); };
+  c.host_replay = [] { log({28, 29, 1}); };
+  Records t;
+  znet::session() = znet::Session{};
+  znet::clear_lists();
+  znet::Session& s = znet::session();
+  s.transport = &t, s.initialised = true, s.open = true;
+  s.local = std::make_unique<znet::Player>();
+  s.local->id = 9;
+  s.host_id = g_c[9] ? 9u : 1u;
+  if (in[1]) {
+    auto r = std::make_unique<znet::PlayerRecord>();
+    r->id = static_cast<uint32_t>(in[0]);
+    r->short_name = "P" + std::to_string(in[0]);
+    znet::lists().players.push_back(std::move(r));
+  }
+  mech3::NetGame& g = mech3::net_game();
+  g = mech3::NetGame{};
+  g_cfg = nullptr;
+  mech3::net_mech_create(static_cast<uint32_t>(in[0]));
+  for (mech3::Config* cfg : g.configs) log({23, name_number(cfg->name)});
+  for (uint32_t p : g.missing) log({21, static_cast<int32_t>(p)});
+  for (NetMech* m : g.mechs)
+    log({12, static_cast<int32_t>(m->team), static_cast<int32_t>(m->allies), static_cast<int32_t>(m->enemies),
+         static_cast<int32_t>(m->x6f8)});
+  log({99, static_cast<int32_t>(g.mechs.size())});
+  for (NetMech* m : g.mechs) delete m;
+  for (mech3::Config* cfg : g.configs) delete cfg;
+  g = mech3::NetGame{};
+  znet::clear_lists();
+  znet::session() = znet::Session{};
+  c = mech3::NetCalls{};
   const int32_t n = static_cast<int32_t>(std::min<size_t>(lg.size(), static_cast<size_t>(cap)));
   std::copy(lg.begin(), lg.begin() + n, out);
   return n;

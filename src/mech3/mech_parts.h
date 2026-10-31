@@ -263,7 +263,7 @@ class Torso : public MechPart {
   bool set_aim(const Vec3* dir, Vec3* out, bool local);  // 0x00465ea0: false when clamped; null: the aim off
   void aim_ahead(bool local);            // 0x00465f20 with (0, 0, -1)
   void centre(int32_t how);              // 0x00465a00: CENTER_TORSO 1, CENTER_LEGS 2
-  void set_mode(int32_t m);              // 0x00466190: +0x84 (2 when the mech's vt+0x5c says so: never), the servo stopped
+  void set_mode(int32_t m);              // 0x00466190: +0x84 (2 for a network mech, vt+0x5c), the servo stopped
   bool init(const Config* cfg) override;                    // 0x004644b0
   bool setup() override;                                    // 0x00464290
   void update(float dt) override;                           // 0x00464e80

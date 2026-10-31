@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "mech3/mech.h"
+#include "mech3/mech_control.h"
 
 // The game's network side in a mission (original file unknown: the code
 // sits between mech3\mech_reader.cpp and mech3\mech_salvage.cpp,
@@ -20,21 +21,33 @@ namespace zwep { struct CraterOrder; }
 namespace mech3 {
 
 struct Config;
+struct MechDfn;
 
 // The network mech (0xc1c bytes, vtable 0x005c3508): a remote player's
-// mech, driven by their messages. Its constructor 0x0046e280 and creation
-// 0x0046d450 are piece 5b; here only what the list reads.
+// mech, driven by their messages; made by 0x0046d450 from the player's
+// record. Its vtable's own slots (the update, the dead reckoning) are
+// pieces 6 and 7.
 struct NetMech : Mech {
   uint32_t x6f8 = 0;   // +0x6f8  0 once made (0x0046d450)
   uint32_t owner = 0;  // +0x6fc  the player it stands for
   uint32_t heard = 0;  // +0x73c  when its last state came (timeGetTime, ms)
+  float orientation_in[4] = {1, 0, 0, 0};  // +0x740  (0x005eda50)
+  Handle label = nullptr;  // +0x76c  an object 0x005a00c0 makes (GDI text, not ported)
+};
+
+// The network mech's controls (0x74 bytes, vtables 0x005c34e0 and
+// 0x005c3428; 0x0046d450 makes them over the base 0x004265a0): the base's
+// smoothing (IControls +0x0c 0x0046ef60), owned by the mech (vt+0x18
+// 0x004d7210). Their pilot tick (vt+0xa4) is _purecall in the exe.
+struct NetControls : MechControls {
+  bool release() override { return true; }
 };
 
 struct NetGame {
   bool running = false;                // [0x00605fb4]  a network game is up
   std::list<NetMech*> mechs;           // [0x00605f84], count [0x00605f88]: the remote mechs
   std::vector<Config*> configs;        // [0x00605f74..0x00605f7c]: their loadouts (0x0046d450)
-  std::list<std::string> missing;      // [0x00605f94], count [0x00605f98]: mechs that did not load (0x0046d450)
+  std::list<uint32_t> missing;         // [0x00605f94], count [0x00605f98]: players whose loadout failed (0x0046d450); never read
   // The dead reckoning's (0x0046ed70) gains, set by the start: the exe's
   // data holds -6.5 and -3.5 before.
   float reckon_gain = -6.5f;           // [0x005e55f0]
@@ -67,7 +80,7 @@ struct NetCalls {
   NetRoute part_off = nullptr;    // 0x21 0x0046fff0
   NetRoute crater = nullptr;      // 0x19 0x0046fde0 (the message only, any sender)
   NetRoute send_done = nullptr;   // 0xe  0x004709d0 (the message only): the pilot's mech's state acknowledged
-  NetRoute create = nullptr;      // 0x0046d450: the sender's mech made from its first 0xf (piece 5b)
+  NetRoute create = nullptr;      // test hook; unset: net_mech_create (0x0046d450)
   void (*set_position)(NetMech& m, const float pos[3]) = nullptr;  // vt+0x18, zEntity3d's 0x005a8550
   void (*reckon)(NetMech& m, float dt) = nullptr;  // vt+0x158, 0x0046ed70 with [0x0072c52c]
   uint32_t (*now_ms)() = nullptr;                  // 0x00575d30, timeGetTime; unset: ztimer's clock
@@ -90,8 +103,23 @@ struct NetCalls {
   // aiv.zrd's record of that name (0x004e0490, 0x004e0680): its place and heading.
   bool (*spawn_point)(const char* name, float pos[3], float* yaw) = nullptr;
   void (*ff_spawn)() = nullptr;                    // 0x004338a0(1) on [0x00608620], when there is one
-  // Test hooks; unset run the port: 0x004846a0, 0x004b0220 on +0xd4, vtable +0xdc.
-  void (*dfn_load)(int32_t roster) = nullptr;
+  // The creation's (0x0046d450): the label 0x005a00c0 and its free 0x005a05a0,
+  // the world's add ([0x00608c84] vt+0x00), the host's replay to the joiner
+  // (0x004700a0, and 0x00500c60 with 0x004700e0: the anims and craters).
+  Handle (*label_new)(NetMech& m) = nullptr;
+  void (*label_free)(Handle label) = nullptr;
+  void (*world_add)(NetMech& m) = nullptr;
+  void (*host_replay)() = nullptr;
+  void (*sensor_range)(NetMech& m) = nullptr;      // 0x004d6d20 (the AI target's) with its own range
+  // Test hooks; unset run the port: 0x004846a0, 0x00430d10, 0x004b0220 on
+  // +0xd4, vtable +0xdc, the mech's making (0x0046e280).
+  const MechDfn* (*dfn)(int32_t roster) = nullptr;
+  MechData* (*data)(int32_t roster) = nullptr;
+  NetMech* (*make)(uint32_t owner, MechData* data, NetControls* ctl, Config* cfg, const char* name) = nullptr;
+  // ... and 0x004259c0, Validate 0x004254d0, the skin 0x00414390.
+  Config* (*unpack)(const uint32_t* p, size_t words) = nullptr;
+  bool (*valid)(const Config& c) = nullptr;
+  void (*skin)(NetMech& m, Handle skin) = nullptr;
   void (*unlimited)(Mech& m, bool on) = nullptr;
   void (*place)(Mech& m, const float pos[3], float yaw) = nullptr;
 };
@@ -116,11 +144,22 @@ bool net_launch_player(Mech& m, const std::vector<uint32_t>& packed, int32_t ski
 // 0x0046e0a0 (ECX the point, EDX the slot): players sharing a start point
 // spread 10 m by their slot.
 void net_spawn_offset(float pos[3], int32_t slot);
+// 0x0046d450 (NetCalls::create unset): the sender's mech from their record:
+// its loadout unpacked and named "<name>'s Config" (one that fails the
+// mech lab's checks puts the player on the missing list instead, and no
+// mech is made), its controls, the type's data, the mech, its team and skin; the
+// host replays the anims and craters to it.
+void net_mech_create(uint32_t from);
+// 0x0046e280: the mech, with the network's: not colliding, on the list, in
+// the world, its torso in mode 2, powered up.
+NetMech* net_mech_new(uint32_t owner, MechData* data, NetControls* ctl, Config* cfg, const char* name);
 // 0x0046d820: a player's record, empty when it is under 8 bytes or not got.
 bool net_read_record(uint32_t player, std::vector<uint8_t>* out);
 
 // 0x0046e3a0 / 0x0046e3c0: off the remote mechs' and the dead mechs'
-// lists, then the mech's own (0x004152d0) and the delete.
+// lists (net_mech_unlist, with the label), then the mech's own (0x004152d0)
+// and the delete.
 void net_mech_delete(NetMech* m);
+void net_mech_unlist(NetMech* m);
 
 }  // namespace mech3

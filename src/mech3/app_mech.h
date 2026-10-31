@@ -40,6 +40,15 @@ struct NetLaunchGame {
   bool unlimited_ammo = false, outside_view = false;
 };
 void net_set_launch_game(bool (*fn)(NetLaunchGame* out));
+// Ours, for the tests (multiplayer-port.md piece 5c): in the mission that is
+// up, a network game over the in-process hub; another player joins with the
+// pilot's own mech type and loadout, sends its first state 30 m east of the
+// pilot, then leaves; then the end. What was seen of its mech.
+struct NetMechSeen {
+  int32_t made = 0, remote = 0, collides = 1, torso_mode = -1, in_world = 0, configs = 0, config_named = 0;
+  int32_t moved = 0, after_leave = -1, handlers_after = -1;
+};
+bool program_net_mech_check(NetMechSeen* out);
 // The pocket commander's program side (app_pocket.cpp), from wire_mech_build;
 // the marker a handle names, if it is the mission's.
 void wire_pocket(const MechWiring* w);

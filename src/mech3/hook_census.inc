@@ -49,6 +49,5 @@ SKIP(mech3::net_calls, chat, "0x00470490")  // NetCalls.chat
 SKIP(mech3::net_calls, part_off, "0x0046fff0")  // NetCalls.part_off
 SKIP(mech3::net_calls, crater, "0x0046fde0")  // NetCalls.crater
 SKIP(mech3::net_calls, send_done, "0x004709d0")  // NetCalls.send_done
-SKIP(mech3::net_calls, create, "0x0046d450")  // NetCalls.create
 SKIP(mech3::net_calls, reckon, "0x0046ed70")  // NetCalls.reckon
 SKIP(mech3::net_calls, lobby_left, "0x00495b10")  // NetCalls.lobby_left

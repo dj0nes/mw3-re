@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 
 #include "gamez/zdeclient/zdec_crater.h"
@@ -11,7 +12,9 @@
 #include "gamez/zutil/ztimer.h"
 #include "mech3/mech_config.h"
 #include "mech3/mech_dead.h"
+#include "mech3/mech_build.h"
 #include "mech3/mech_reader.h"
+#include "mech3/mech_skin.h"
 #include "mech3/weapon.h"
 
 namespace mech3 {
@@ -100,7 +103,8 @@ void net_route(uint32_t from, const uint8_t* msg, size_t size) {
   NetMech* m = net_mech(from);
   if (!m) {
     if (type != 0xf) return;
-    call(c.create, nullptr, from, msg, size);
+    if (c.create) c.create(nullptr, from, msg, size);
+    else net_mech_create(from);
     if (!(m = net_mech(from))) return;
     // Where it is first, from the state's position, then the state applied.
     float pos[3] = {};
@@ -167,7 +171,7 @@ bool net_read_record(uint32_t player, std::vector<uint8_t>* out) {
 bool net_launch_player(Mech& m, const std::vector<uint32_t>& p, int32_t skin, bool unlimited_ammo, bool outside_view) {
   const NetCalls& c = g_calls;
   const int32_t roster = m.pilot ? m.pilot->roster : 0;
-  c.dfn_load ? c.dfn_load(roster) : (void)mech_dfn(roster);
+  c.dfn ? (void)c.dfn(roster) : (void)mech_dfn(roster);
   g_net.xa0 = 0, g_net.xa4 = 0, g_net.x9c = 0;
   m.net_sent = 0;
   m.net_acked = 1;
@@ -197,12 +201,93 @@ bool net_launch_player(Mech& m, const std::vector<uint32_t>& p, int32_t skin, bo
   return true;
 }
 
+// Mech3.exe 1.2 @ 0x0046e280
+NetMech* net_mech_new(uint32_t owner, MechData* data, NetControls* ctl, Config* cfg, const char* name) {
+  const NetCalls& c = g_calls;
+  auto* m = new NetMech();
+  mech_construct(*m, data, ctl, cfg, name);  // 0x004149f0
+  if (c.label_new) m->label = c.label_new(*m);
+  m->remote = true;  // vtable 0x005c3508
+  m->owner = owner;
+  m->collides = false;
+  g_net.mechs.push_back(m);
+  if (c.world_add) c.world_add(*m);
+  if (m->torso) m->torso->set_mode(2);
+  m->power(0);
+  return m;
+}
+
+// Mech3.exe 1.2 @ 0x0046d450. The record's word 0 is 2 for a mech's.
+// FIX (bug): a record too short for a loadout's head gives none, and one
+// under 12 bytes reads zeros past its end (the exe reads past both), and the controls are deleted when the type's data does
+// not load (the exe leaves them).
+void net_mech_create(uint32_t from) {
+  const NetCalls& c = g_calls;
+  const char* name = znet::player_name(from);
+  std::vector<uint8_t> rec;
+  uint32_t kind = 0;
+  if (net_read_record(from, &rec)) std::memcpy(&kind, rec.data(), 4);
+  const size_t size = rec.size();
+  if (rec.size() < 0xc) rec.resize(0xc, 0);
+  int32_t roster = -1;
+  const MechDfn* dfn = nullptr;
+  Config* cfg = nullptr;
+  uint32_t team = 0;
+  int32_t skin = 0;
+  if (kind == 2) {
+    std::memcpy(&roster, rec.data() + 8, 4);
+    dfn = c.dfn ? c.dfn(roster) : mech_dfn(roster);
+    team = c.team_of ? c.team_of(from) : 0;
+    std::memcpy(&skin, rec.data() + 4, 4);
+    char cfg_name[0x80];
+    std::snprintf(cfg_name, sizeof cfg_name, "%s's Config", name ? name : "(null)");
+    if (size >= 0xc + 0x34) {
+      std::vector<uint32_t> packed((size - 0xc) / 4);
+      std::memcpy(packed.data(), rec.data() + 0xc, 4 * packed.size());
+      cfg = c.unpack ? c.unpack(packed.data(), packed.size()) : Config::unpacked(packed.data(), packed.size());
+    }
+    if (cfg) {
+      if (c.valid ? c.valid(*cfg) : cfg->validate(false)) {
+        std::free(cfg->name);
+        cfg->name = strdup(cfg_name);
+        g_net.configs.push_back(cfg);
+      } else {
+        g_net.missing.push_back(from);
+        c.config_free ? c.config_free(cfg) : delete cfg;
+        cfg = nullptr;
+      }
+    }
+  }
+  if (!dfn || !cfg || roster == -1) return;
+  auto* ctl = new NetControls();
+  ctl->init();  // 0x004265a0(0, 0)
+  MechData* data = c.data ? c.data(roster) : mech_build_hooks().mech_data(roster, 1);
+  if (!data) {
+    delete ctl;
+    return;
+  }
+  NetMech* m = c.make ? c.make(from, data, ctl, cfg, name) : net_mech_new(from, data, ctl, cfg, name);
+  if (!m) return;
+  m->set_team(team);
+  Handle s = nullptr;
+  if (dfn->skins && skin >= 0 && skin < static_cast<int32_t>(dfn->skins->skins.size())) s = dfn->skins->skins[skin];
+  c.skin ? c.skin(*m, s) : (void)mech_set_skin(*m, s);
+  if (c.sensor_range) c.sensor_range(*m);  // 0x004d6d20 with its own +0x9c
+  m->x6f8 = 0;
+  if (znet::is_host() && c.host_replay) c.host_replay();
+}
+
 // Mech3.exe 1.2 @ 0x0046e3a0, with the destructor 0x0046e3c0 (its
 // 0x005a05a0, zEntity3d's, is the Mech's release here).
-void net_mech_delete(NetMech* m) {
-  if (!m) return;
+void net_mech_unlist(NetMech* m) {
   g_net.mechs.remove(m);
   dead_mechs().remove(m);
+  if (m->label && g_calls.label_free) g_calls.label_free(m->label);
+  m->label = nullptr;
+}
+void net_mech_delete(NetMech* m) {
+  if (!m) return;
+  net_mech_unlist(m);
   m->release();
   delete m;
 }

@@ -389,7 +389,7 @@ Then the two-process and soak tests over the whole flow, menus included.
   0x0046d820, the constructor 0x0046e280 and its controls).
 - **Piece 5a** (2026-10-31): `mech3/mech_net` (original file unknown,
   between mech_reader.cpp and mech_salvage.cpp). The start 0x0046ceb0
-  (once: the missing mechs' list emptied; 0xf-0x1b, 0x1f, 0x21 and 0x14 to
+  (once: the missing players' list emptied; 0xf-0x1b, 0x1f, 0x21 and 0x14 to
   the router 0x0046d880, 6 to 0x0046d3b0, 1 to 0x004d72a0 (returns 0), 0xe
   to 0x004709d0; zDecal's crater veto 0x0046fd30; the flag [0x00605fb4],
   the weapons' copy too; the anim log's network hook 0x0046feb0 with tag
@@ -399,7 +399,7 @@ Then the two-process and soak tests over the whole flow, menus included.
   it: the handlers off, the veto and flag cleared, the pilot's mech's
   0x0041e580, each remote mech forgotten by the sensors, taken off the
   list and deleted, the local player's data set empty, the anim hook off,
-  the force feedback stopped, the configs freed, the missing list emptied.
+  the force feedback stopped, the configs freed, the missing players' list emptied.
   The router: 0x19 straight to 0x0046fde0; the rest only from a player
   with a mech on the list [0x00605f84] (looked up by +0x6fc), each type to
   its handler (the mech as ECX for most; 0x00470740, 0x0046eba0 the
@@ -445,6 +445,38 @@ Then the two-process and soak tests over the whole flow, menus included.
   changed, identical with their weight and Validate; a break caught; a
   stock loadout unpacked is valid exactly when it was),
   `test_mech_net_launch.py` (600 launches identical; a break caught).
+
+- **Piece 5c** (2026-10-31): the network mech. 0x0046d450
+  (`net_mech_create`, the router's default for a first 0xf): the sender's
+  record read (0x0046d820); a record of kind 2 gives the roster (+8), the
+  skin (+4) and the packed loadout (+0xc); the definition (0x004846a0), the
+  team (0x00435910), the loadout unpacked and checked (Validate without the
+  checksum): a valid one is named "<player>'s Config" and kept on the list
+  [0x00605f74], a failed one is freed and the player's id put on the
+  missing list [0x00605f94] (a list of ids, written and never read). With a
+  definition, a loadout and a roster: the controls (`NetControls`: the
+  base's smoothing, owned by the mech, vt+0x18 0x004d7210), the type's data
+  (0x00430d10), the mech (0x0046e280, `net_mech_new`: the mech's own build
+  0x004149f0, the label object at +0x76c (0x005a00c0, GDI text: a hook),
+  vtable 0x005c3508 (`Mech::remote`: its vt+0x5c answers yes), the owner
+  +0x6fc, not colliding (+0x5b0), on the list, in the world, its torso in
+  mode 2 (0x00466190 gives 2 for any network mech whatever it is asked),
+  powered up, +0x740 the quaternion (1, 0, 0, 0)); its team masks, its
+  skin (0x00414390, none past the definition's), its sensor range set again
+  (0x004d6d20), +0x6f8 = 0; the host replays the anims and craters to it
+  (0x004700a0, 0x00500c60 with 0x004700e0: a hook until piece 7). Its
+  delete (the app's): off the lists, the label, the mech's own release,
+  off the program's registry. FIX (bug): a record too short for a
+  loadout's head gives none, one under 12 bytes reads zeros past its end,
+  and the controls are deleted when the type's data fails. Tests:
+  `test_mech_net_create.py` (800 creations identical; a break caught),
+  `net_mech_made_from_a_record_c1m1_headless` (mw3tests: in c1m1 a second
+  player over the hub joins with the pilot's mech, its mech is built, put
+  at its first state's place, not colliding, in the world, torso mode 2;
+  its leaving deletes it; a break caught).
+  Open: the network controls' pilot tick is _purecall in the exe, and the
+  mech's death calls it through vt+0xa8 (0x004aed50); whether a remote
+  mech ever dies that way is piece 7's (the port's tick does nothing).
 
 ## Open
 

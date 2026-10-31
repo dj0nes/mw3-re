@@ -868,6 +868,11 @@ From the weapon code (weapons.md).
   is ignored, including chat. A player who leaves vanishes on the spot (no
   wreck, no kill to anyone), and "<name> has bailed out of the game." shows
   for four seconds. (`multiplayer-port.md`, piece 5a)
+- **In multiplayer an illegal loadout makes you invisible to the others.**
+  Each player's mech is built on the other machines from the loadout they
+  sent, and only if it passes the mech lab's checks (weight, armour, jump
+  jets, every item placed). One that fails builds nothing there: the player
+  plays on, but no one else sees their mech. (`multiplayer-port.md`, piece 5c)
 - **Only one copy runs at a time.** Started a second time, the game finds the
   first window and brings it to the front instead. Launched from a multiplayer
   lobby, it closes the old copy instead.

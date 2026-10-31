@@ -2284,3 +2284,15 @@ Assigned after 8b2 merged (fd3f05f). The lead asked for a section stepped at bot
   (fild, fadd st0); the armour item's add_equipment sets the tons again,
   so stock loadouts unpack as valid as they were (checked over all 62).
 - Config vt+0x08 (ammo, 0x472210) and vt+0x10 (weapon, 0x472330) ported for it.
+
+## Multiplayer, piece 5c: the network mech (2026-10-31)
+
+- 0x46d450's missing list holds the player's id (0x45b800 copies *param_3,
+  the [esp+0x18] slot that holds the sender): fixed from piece 5a's
+  strings. Written, never read.
+- NetCalls.create left out of the hook census: its null means the port's
+  net_mech_create (a census stand-in there made nothing).
+- Torso::set_mode now honours vt+0x5c (Mech::remote): 2 for network mechs.
+- The app frees a network mech as mech_free does (registry, handle) through
+  NetCalls.free; mission_controls_free deletes controls whose release()
+  says so (the network's).

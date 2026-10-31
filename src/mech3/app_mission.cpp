@@ -716,7 +716,9 @@ void mission_controls_free(void* controls) {
     return;
   }
   const Handle h = g_player_hooks.e ? g_player_hooks.e->handle_of(controls) : 0;
-  if (h && g_player_hooks.controls.count(h)) g_player_hooks.controls_delete(h);
+  if (h && g_player_hooks.controls.count(h)) return g_player_hooks.controls_delete(h);
+  // The network mech's are the mech's to delete (their vt+0x18, 0x004d7210).
+  if (auto* c = static_cast<MechControls*>(controls); c && c->release()) delete c;
 }
 
 namespace {
