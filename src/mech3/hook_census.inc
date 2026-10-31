@@ -33,6 +33,22 @@ SKIP(mech3::damage_calls, player_died_hud, "0x0041b263")  // DamageCalls.player_
 SKIP(mech3::dead_calls, net_fade, "DeadCalls.net_fade")  // DeadCalls.net_fade
 SKIP(mech3::draw_calls, map_point, "0x004586e0")  // DrawCalls.map_point
 SKIP(mech3::pocket_calls, view_pocket, "0x004b5290")  // PocketCalls.view_pocket
-
-
-
+// The mission's network side (mech_net.cpp): pieces 5b-7 and the lobby.
+SKIP(mech3::net_calls, state, "0x0046e4d0")  // NetCalls.state
+SKIP(mech3::net_calls, ping, "0x00470a00")  // NetCalls.ping
+SKIP(mech3::net_calls, clock, "0x00470740")  // NetCalls.clock
+SKIP(mech3::net_calls, respawn, "0x0046ed30")  // NetCalls.respawn
+SKIP(mech3::net_calls, kill, "0x0046eba0")  // NetCalls.kill
+SKIP(mech3::net_calls, scores, "0x004708e0")  // NetCalls.scores
+SKIP(mech3::net_calls, rules, "0x0058b380")  // NetCalls.rules
+SKIP(mech3::net_calls, posture, "0x0046ed10")  // NetCalls.posture
+SKIP(mech3::net_calls, knockback, "0x004705b0")  // NetCalls.knockback
+SKIP(mech3::net_calls, effect, "0x0046ff50")  // NetCalls.effect
+SKIP(mech3::net_calls, drop, "0x0046ffd0")  // NetCalls.drop
+SKIP(mech3::net_calls, chat, "0x00470490")  // NetCalls.chat
+SKIP(mech3::net_calls, part_off, "0x0046fff0")  // NetCalls.part_off
+SKIP(mech3::net_calls, crater, "0x0046fde0")  // NetCalls.crater
+SKIP(mech3::net_calls, send_done, "0x004709d0")  // NetCalls.send_done
+SKIP(mech3::net_calls, create, "0x0046d450")  // NetCalls.create
+SKIP(mech3::net_calls, reckon, "0x0046ed70")  // NetCalls.reckon
+SKIP(mech3::net_calls, lobby_left, "0x00495b10")  // NetCalls.lobby_left

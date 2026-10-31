@@ -384,6 +384,41 @@ Then the two-process and soak tests over the whole flow, menus included.
   and ENet for Windows. Not yet run on Windows itself, nor across two
   machines.
 
+- Piece 5 was split: **5a** the start, the end, the router and a player
+  leaving; **5b** the network mech (0x0046d450 with the player data read
+  0x0046d820, the constructor 0x0046e280 and its controls).
+- **Piece 5a** (2026-10-31): `mech3/mech_net` (original file unknown,
+  between mech_reader.cpp and mech_salvage.cpp). The start 0x0046ceb0
+  (once: the missing mechs' list emptied; 0xf-0x1b, 0x1f, 0x21 and 0x14 to
+  the router 0x0046d880, 6 to 0x0046d3b0, 1 to 0x004d72a0 (returns 0), 0xe
+  to 0x004709d0; zDecal's crater veto 0x0046fd30; the flag [0x00605fb4],
+  the weapons' copy too; the anim log's network hook 0x0046feb0 with tag
+  0xc, `zeff::log_set_net` = 0x0050d1d0; the network game's +0x7c, +0x80,
+  +0x84 cleared; the dead reckoning's gains [0x005e55f0] = -6.5 and
+  [0x005e55ec] = -0.3, the data's -3.5 before). The end 0x0046d100 undoes
+  it: the handlers off, the veto and flag cleared, the pilot's mech's
+  0x0041e580, each remote mech forgotten by the sensors, taken off the
+  list and deleted, the local player's data set empty, the anim hook off,
+  the force feedback stopped, the configs freed, the missing list emptied.
+  The router: 0x19 straight to 0x0046fde0; the rest only from a player
+  with a mech on the list [0x00605f84] (looked up by +0x6fc), each type to
+  its handler (the mech as ECX for most; 0x00470740, 0x0046eba0 the
+  message only; 0x0046ffd0, 0x004705b0 the mech on the stack too;
+  0x00470490 the sender); 0x15 is registered but dropped; a first 0xf from
+  a player without one calls 0x0046d450 and, once the mech is there, puts
+  it at the state's position (vt+0x18), stamps timeGetTime at +0x73c,
+  routes the message again and dead-reckons it a frame (vt+0x158). A
+  player leaving (6): the HUD's 0x26a with their name for 4 s, the sensors'
+  forget, the mech's delete (its destructor 0x0046e3c0 takes it off the
+  remote and the dead mechs' lists), and the lobby slot's +0x18 set (the
+  game's list at +0x48, 0x00495b10). The handlers of pieces 5b-7 and the
+  lobby are `NetCalls` hooks until then; the crater veto and the anim hook
+  are unset until piece 7 (craters stay local meanwhile). Wired: the
+  briefing's launch and the quit box (`multiplayer_launch_prep`,
+  `network_leave`). Tests: `test_mech_net.py` (400 scripts of starts, ends,
+  messages and players leaving against the exe, the list carried along;
+  two breaks caught) and `net_mission_over_the_hub` (mw3tests).
+
 ## Open
 
 - The COM object at [0x007307e0] (CLSID 3faf0afe-...): what it is and

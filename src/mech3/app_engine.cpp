@@ -875,6 +875,9 @@ void GameEngine::render_reset() {
 }
 void GameEngine::message_panel_init(Handle, Handle) { mech3::message_panel_create(); }
 void GameEngine::message_panel_free() { mech3::message_panel_destroy(); }
+// The mission's network start and end (mech_net.cpp, multiplayer-port.md piece 5).
+void GameEngine::multiplayer_launch_prep() { net_start(); }
+void GameEngine::network_leave() { net_end(); }
 void GameEngine::video_begin_3d() { zvid::lock_3d(); }
 void GameEngine::video_end_3d() { zvid::unlock_3d(); }
 void GameEngine::video_begin_scene() { zvid::scene_begin(); }

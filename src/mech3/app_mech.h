@@ -28,6 +28,9 @@ struct MechWiring {
   void (*forget_object)(void* e, const void* p) = nullptr;  // an object freed: its handle forgotten (FIX (A))
 };
 void wire_mech_build(const MechWiring* w);  // null: the hooks' defaults again
+void net_start();  // 0x0046ceb0 (mech_net.cpp): the mission's network start
+void net_end();    // 0x0046d100: its end
+void net_set_game_clear(void (*fn)());  // the start's clear of the network game's +0x7c..+0x84
 // The pocket commander's program side (app_pocket.cpp), from wire_mech_build;
 // the marker a handle names, if it is the mission's.
 void wire_pocket(const MechWiring* w);

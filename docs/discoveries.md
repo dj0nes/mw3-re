@@ -863,6 +863,11 @@ From the weapon code (weapons.md).
 - **In multiplayer the host re-checks the locked rules every 51 seconds**;
   changing them in memory (say, unlimited ammo after the lock) ends the game
   a minute or two later as if the clock ran out.
+- **In a multiplayer mission another player's mech appears with their first
+  position update.** Until it does, everything else they send in the mission
+  is ignored, including chat. A player who leaves vanishes on the spot (no
+  wreck, no kill to anyone), and "<name> has bailed out of the game." shows
+  for four seconds. (`multiplayer-port.md`, piece 5a)
 - **Only one copy runs at a time.** Started a second time, the game finds the
   first window and brings it to the front instead. Launched from a multiplayer
   lobby, it closes the old copy instead.

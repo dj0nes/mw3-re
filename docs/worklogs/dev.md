@@ -2248,3 +2248,26 @@ Assigned after 8b2 merged (fd3f05f). The lead asked for a section stepped at bot
   host's port from its log. Its ending is timing (who leaves first), so it
   checks either side's view; the joiner's "the host N" line can show 0
   (the 0xd can come after), so its "is the host" line is checked.
+
+## Multiplayer, piece 5a: the mission's network start, end and router (2026-10-31)
+
+- Piece 5 split: 5a here, 5b the network mech (0x46d450, 0x46d820,
+  0x46e280). `mech3/mech_net`: NetMech (owner +0x6fc, heard +0x73c), NetGame
+  (the flag, the remote mechs, configs, missing names, the reckoning gains),
+  NetCalls (the handlers of pieces 5b-7 and what the router calls).
+- Read from the disassembly: the router's jump table (0x15 dropped), which
+  handlers get the mech in ECX, on the stack, or only the message; the first
+  0xf's path (create, look up again, vt+0x18 with msg+4, timeGetTime at
+  +0x73c, the router again, vt+0x158 with [0x72c52c]). The network mech's
+  destructor 0x46e3c0 takes it off 0x605f84 and the dead list 0x605510.
+- The app's files see Handle as uint32_t: mech_net.h stays out of them;
+  net_start/net_end and net_set_game_clear are declared in app_mech.h, the
+  wiring is app_mech.cpp's wire_net. ztimer::ticks_ms added for timeGetTime;
+  zeff::log_set_net is 0x50d1d0.
+- test_mech_net.py: the probe's game clear logs after the handlers (the
+  exe's stub sees it then); the exe's slot byte is logged only when
+  0x495b10 was asked.
+- For 5b: the mission's wiring (wire_net) is made at the mission's hooks
+  and undone at its cleanup, while the start runs at the briefing's launch
+  and the end at the quit box: check which hooks are live at each before
+  network mechs exist.

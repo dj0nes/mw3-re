@@ -2338,6 +2338,9 @@ void wire_mission_hooks(GameEngine* e) {
   (void)en;
   wire_mech_build(&w);
   wire_sensors(&w, [](void* p, int32_t id) { return static_cast<GameEngine*>(p)->message(id); });
+  net_set_game_clear([] {  // the network start's (0x0046ceb0): the network game's +0x7c, +0x80, +0x84
+    if (MultiplayerGame* g = current_pilot() ? current_pilot()->multiplayer() : nullptr) g->x7c = g->x80 = g->x84 = 0;
+  });
 }
 
 // 0x00490880 on the missions object: the load, then (a debug launch, our

@@ -3,11 +3,13 @@
 // system events, the shutdown.
 #include <cstdio>
 #include <cstring>
+#include <string>
 #include <vector>
 
 #include "check.h"
 #include "gamez/znetwork/znet_dplay.h"
 #include "gamez/znetwork/znet_session.h"
+#include "mech3/mech_net.h"
 
 namespace {
 // The next event a transport gives that is not a send done.
@@ -275,4 +277,62 @@ TEST(znet_teams_data_and_a_kick) {
   znet::poll(-1);
   EXPECT((g_types == std::vector<int>{7}));
   znet::shutdown();
+}
+
+// Piece 5a: the mission's network side over the hub. A joiner's first
+// state makes its mech (a stand-in for 0x0046d450) and is applied; the
+// other messages reach it; its leaving takes the mech away.
+namespace {
+int g_states, g_craters, g_freed;
+std::string g_left_name;
+float g_first_x;
+}  // namespace
+
+TEST(net_mission_over_the_hub) {
+  znet::Hub hub;
+  znet::session() = znet::Session{};
+  znet::initialise(hub.endpoint());
+  EXPECT(znet::host_session(znet::SessionDesc{}, "Host"));
+  znet::Transport* b = hub.endpoint();
+  EXPECT(b->join("loopback") && b->create_player("B", "B") == 2);
+  mech3::NetCalls& c = mech3::net_calls();
+  const mech3::NetCalls kept = c;
+  c = mech3::NetCalls{};
+  c.create = [](mech3::NetMech*, uint32_t from, const uint8_t*, size_t) {
+    auto* m = new mech3::NetMech();
+    m->owner = from;
+    mech3::net_game().mechs.push_back(m);
+  };
+  c.set_position = [](mech3::NetMech&, const float p[3]) { g_first_x = p[0]; };
+  c.state = [](mech3::NetMech* m, uint32_t from, const uint8_t*, size_t) { g_states += m && m->owner == from; };
+  c.crater = [](mech3::NetMech* m, uint32_t, const uint8_t*, size_t) { g_craters += m == nullptr; };
+  c.hud_message = [](float, int32_t id, const char* name) { if (id == 0x26a && name) g_left_name = name; };
+  c.free = [](mech3::NetMech* m) {
+    mech3::net_game().mechs.remove(m);
+    delete m;
+    ++g_freed;
+  };
+  c.now_ms = [] { return 1234u; };
+  g_states = g_craters = g_freed = 0;
+  const size_t before = znet::session().handlers.size();  // zNetwork's own (0xd)
+  mech3::net_start();
+  EXPECT(mech3::net_game().running && znet::session().handlers.size() == before + 18);
+  uint8_t state[16] = {0x0f, 0, 16, 0};
+  const float x = 42.5f;
+  std::memcpy(state + 4, &x, 4);
+  const uint8_t crater[4] = {0x19, 0, 4, 0}, unused[4] = {0x15, 0, 4, 0}, ping[4] = {0x10, 0, 4, 0};
+  EXPECT(b->send(1, ping, 4, true, nullptr));  // no mech for 2 yet: dropped
+  EXPECT(b->send(1, state, 16, true, nullptr) && b->send(1, state, 16, true, nullptr));
+  EXPECT(b->send(1, unused, 4, true, nullptr) && b->send(1, crater, 4, true, nullptr));
+  znet::poll(-1);
+  EXPECT(mech3::net_game().mechs.size() == 1 && mech3::net_mech(2) && mech3::net_mech(2)->heard == 1234);
+  EXPECT(g_first_x == 42.5f && g_states == 2 && g_craters == 1);
+  b->close();  // 2 leaves: its mech goes, its name on the HUD
+  znet::poll(-1);
+  EXPECT(mech3::net_game().mechs.empty() && g_freed == 1 && g_left_name == "B");
+  mech3::net_end();
+  EXPECT(!mech3::net_game().running && znet::session().handlers.size() == before);
+  mech3::net_end();  // a second time: nothing
+  znet::shutdown();
+  c = kept;
 }

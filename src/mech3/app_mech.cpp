@@ -42,6 +42,8 @@
 #include "mech3/mech_anim.h"
 #include "mech3/mech_build.h"
 #include "mech3/mech_dead.h"
+#include "mech3/mech_net.h"
+#include "gamez/zutil/zutl_msgdll.h"
 #include "mech3/mech_lod.h"
 #include "mech3/mech_skin.h"
 #include "mech3/mech_collide.h"
@@ -931,6 +933,33 @@ void wire_mech_parts() {
 // 0x005a9820 from the mechs' set-up 0x00413e60, at each mission's start.
 void program_motions_open() { open_motions("zbd/motion.zbd"); }
 
+// The mission's network side (mech_net.cpp, multiplayer-port.md piece 5):
+// what it calls outside the network code.
+void wire_net(bool on) {
+  NetCalls& nc = net_calls();
+  const NetCalls kept = nc;  // the force feedback's stop is app_force.cpp's
+  nc = NetCalls{};
+  nc.ff_stop = kept.ff_stop;
+  nc.game_clear = kept.game_clear;  // the pilot's side's
+  if (!on) return;
+  nc.set_position = [](NetMech& m, const float pos[3]) {  // vtable +0x18
+    const Vec3 v{pos[0], pos[1], pos[2]};
+    if (collide_calls().set_position) collide_calls().set_position(m, &v);
+  };
+  nc.hud_message = [](float seconds, int32_t id, const char* name) {  // 0x0040fe70
+    if (!message_panel()) return;
+    message_panel()->show_for(seconds);
+    const std::string t = zutl::format_message(id, name);
+    if (!t.empty()) message_panel_add("%s", t.c_str());
+  };
+  nc.forget = [](NetMech& m) { ai::entities_forget(g_w.handle_of(g_w.engine, &m)); };  // 0x004aa6b0
+  nc.player_mech_end = [] {  // 0x0041e580 on the pilot's mech
+    if (Mech* m = world().mission_player; m && free_calls().player_object_free) free_calls().player_object_free(*m);
+  };
+}
+
+void net_set_game_clear(void (*fn)()) { net_calls().game_clear = fn; }
+
 void wire_mech_build(const MechWiring* w) {
   if (!w) {
     g_w = MechWiring{};
@@ -957,9 +986,11 @@ void wire_mech_build(const MechWiring* w) {
     set_launch_hooks(nullptr);
     panel_calls().entity_mech = nullptr, panel_calls().key_binding = nullptr, panel_calls().key_name = nullptr;
     wire_pocket(nullptr);
+    wire_net(false);
     return;
   }
   g_w = *w;
+  wire_net(true);
   // The pocket commander's panel (docs/ai.md 17.6b): zEntity's mechs, the
   // orders' keys (an action's first key, 0x0051d1f0, and its name,
   // 0x0051d330). Its names, cursor picks and marker are not wired yet (L4c2c).

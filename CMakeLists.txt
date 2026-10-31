@@ -197,6 +197,7 @@ add_library(mw3core STATIC
   src/mech3/veh_controls.cpp
   src/mech3/veh_move.cpp
   src/mech3/mech_anim.cpp
+  src/mech3/mech_net.cpp
   src/mech3/mech_reader.cpp
   src/mech3/mech_salvage.cpp
   src/mech3/mech_skin.cpp
@@ -425,6 +426,7 @@ add_library(mw3probe SHARED
   tests/probe_fade.cpp
   tests/probe_fmv.cpp
   tests/probe_znet.cpp
+  tests/probe_mech_net.cpp
   tests/probe_frame.cpp
   tests/probe_view.cpp
   tests/probe_hud.cpp

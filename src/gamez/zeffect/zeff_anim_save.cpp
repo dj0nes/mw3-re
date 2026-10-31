@@ -266,6 +266,11 @@ void load_objects(const uint8_t* b, uint32_t size, bool model) {
 }
 }  // namespace
 
+// Mech3.exe 1.2 @ 0x0050d1d0 (ECX fn, EDX tag)
+void log_set_net(void (*fn)(AnimLogRecord* rec), uint32_t tag) {
+  g_log.net = fn;
+  g_log.mask = tag << 24;
+}
 // Mech3.exe 1.2 @ 0x0050b640
 void log_clear() { g_log.count = 0; }
 // Mech3.exe 1.2 @ 0x0050b6f0
