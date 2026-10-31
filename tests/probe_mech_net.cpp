@@ -246,7 +246,7 @@ extern "C" int32_t probe_mech_net_launch(const int32_t* in, const uint32_t* blob
   s.local->id = static_cast<uint32_t>(in[0]);
   mech3::NetGame& g = mech3::net_game();
   g = mech3::NetGame{};
-  g.x9c = 1, g.xa0 = 7, g.xa4 = 1;
+  g.last_second = 1, g.next_state = 7, g.warned = 1;
   auto* data = static_cast<mech3::MechData*>(::operator new(sizeof(mech3::MechData)));
   std::memset(static_cast<void*>(data), 0, sizeof(mech3::MechData));
   data->roster = in[1];
@@ -256,8 +256,8 @@ extern "C" int32_t probe_mech_net_launch(const int32_t* in, const uint32_t* blob
   const std::vector<uint32_t> packed(blob, blob + words);
   const bool ok = mech3::net_launch_player(*m, packed, in[2], in[5] != 0, in[6] != 0);
   log({11, ok ? 1 : 0, 12, static_cast<int32_t>(m->team), static_cast<int32_t>(m->allies),
-       static_cast<int32_t>(m->enemies), 13, m->net_acked, static_cast<int32_t>(m->net_sent), 14, g.x9c,
-       static_cast<int32_t>(g.xa0), g.xa4});
+       static_cast<int32_t>(m->enemies), 13, m->net_acked, static_cast<int32_t>(m->net_sent), 14, g.last_second,
+       bits(g.next_state), g.warned});
   m->pilot = nullptr;
   delete m;
   ::operator delete(data);
@@ -377,7 +377,7 @@ extern "C" int32_t probe_mech_net_create(const int32_t* in, const uint32_t* rec,
   for (uint32_t p : g.missing) log({21, static_cast<int32_t>(p)});
   for (NetMech* m : g.mechs)
     log({12, static_cast<int32_t>(m->team), static_cast<int32_t>(m->allies), static_cast<int32_t>(m->enemies),
-         static_cast<int32_t>(m->x6f8)});
+         static_cast<int32_t>(m->latency)});
   log({99, static_cast<int32_t>(g.mechs.size())});
   for (NetMech* m : g.mechs) delete m;
   for (mech3::Config* cfg : g.configs) delete cfg;
@@ -389,3 +389,173 @@ extern "C" int32_t probe_mech_net_create(const int32_t* in, const uint32_t* rec,
   std::copy(lg.begin(), lg.begin() + n, out);
   return n;
 }
+
+// The sends (0x0046f160, 0x0046ef70) for test_mech_net_send.py. The input
+// layout is the test's (In below); the log: each send (1, to, guaranteed,
+// size, its words), the HUD line (2, id), the rules check (3), the game's
+// end (4), a piece-7 kind (5, kind); then the state after.
+#include "mech3/mech_parts.h"
+#include "mech3/weapon.h"
+namespace {
+enum In {
+  kKind, kArg, kVel, kQw = kVel + 3, kQy, kTurnQ, kThrottle = kTurnQ + 4, kTurn, kJump, kTorsoAt, kAim = kTorsoAt + 3,
+  kClear = kAim + 3, kActive, kAnimState, kAction, kLimp, kXbc, kPower, kMasc, kAms, kNarc, kCrouched, kTarget,
+  kDamaged, kShots, kShot, kTorsoInternal = kShot + 15, kTorsoArmor, kSecArmor, kSideInternal = kSecArmor + 5,
+  kParts = kSideInternal + 2, kPos = kParts + 10, kRemotes = kPos + 3, kOwners, kEcho = kOwners + 4,
+  kHeard = kEcho + 4, kPingTurn = kHeard + 4, kPingCounter, kAcked, kNow, kHost, kPlayers, kClockNext, kEndTime,
+  kEndState, kGameTime, kClockLeft, kClockOn, kNextState, kNextPing, kResends, kRateSetting, kWarned, kLastSecond,
+  kHasGame, kWeaponLocked, kWeaponSlot, kWeaponTarget, kState, kInCount
+};
+const int32_t* g_in;
+float fbits(int32_t b) {
+  float f;
+  std::memcpy(&f, &b, 4);
+  return f;
+}
+uint32_t g_send_id;
+float g_clock_next, g_end_time;
+int32_t g_end_state;
+mech3::NetGameFields g_fields;
+struct Sends : Data {
+  bool send(uint32_t to, const void* d, size_t n, bool guaranteed, uint32_t* id) override {
+    log({1, static_cast<int32_t>(to), guaranteed ? 1 : 0, static_cast<int32_t>(n)});
+    const auto* b = static_cast<const uint8_t*>(d);
+    for (size_t k = 0; k < n; k += 4) {
+      int32_t v = 0;
+      std::memcpy(&v, b + k, std::min<size_t>(4, n - k));
+      g_log->push_back(v);
+    }
+    if (id) *id = ++g_send_id;
+    return true;
+  }
+};
+}  // namespace
+
+extern "C" int32_t probe_mech_net_send(const int32_t* in, int32_t* out, int32_t cap) {
+  std::vector<int32_t> lg;
+  g_log = &lg;
+  g_in = in;
+  g_send_id = 100;
+  mech3::NetCalls& c = mech3::net_calls();
+  c = mech3::NetCalls{};
+  c.position = [](mech3::Mech&, float o[3]) {
+    for (int i = 0; i < 3; ++i) o[i] = fbits(g_in[kPos + i]);
+    return true;
+  };
+  c.torso_position = [](mech3::Mech&, float o[3]) {
+    for (int i = 0; i < 3; ++i) o[i] = fbits(g_in[kTorsoAt + i]);
+    return true;
+  };
+  c.target_player = [](mech3::Mech&) { return static_cast<uint32_t>(g_in[kTarget]); };
+  c.now_ms = [] { return static_cast<uint32_t>(g_in[kNow]); };
+  c.hud_message = [](float, int32_t id, const char*) { log({2, id}); };
+  c.rules_check = [] { log({3}); };
+  c.game_over = [] { log({4}); };
+  c.send_other = [](mech3::Mech&, int32_t kind, intptr_t) -> int32_t {
+    log({5, kind});
+    return 0;
+  };
+  g_clock_next = fbits(in[kClockNext]), g_end_time = fbits(in[kEndTime]), g_end_state = in[kEndState];
+  g_fields = mech3::NetGameFields{in[kPlayers], &g_clock_next, &g_end_time, &g_end_state};
+  c.game = []() -> mech3::NetGameFields* { return g_in[kHasGame] ? &g_fields : nullptr; };
+  c.game_time = [] { return fbits(g_in[kGameTime]); };
+  c.clock_left = [] { return fbits(g_in[kClockLeft]); };
+  c.clock_on = [] { return g_in[kClockOn] != 0; };
+  Sends t;
+  znet::session() = znet::Session{};
+  znet::Session& s = znet::session();
+  s.transport = &t, s.initialised = true, s.open = true, s.async = true;
+  s.local = std::make_unique<znet::Player>();
+  s.local->id = 9;
+  s.host_id = in[kHost] ? 9u : 1u;
+  mech3::NetGame& g = mech3::net_game();
+  g = mech3::NetGame{};
+  g.running = true;
+  g.ping_turn = static_cast<uint32_t>(in[kPingTurn]), g.ping_counter = static_cast<uint32_t>(in[kPingCounter]);
+  g.acked_time = static_cast<uint32_t>(in[kAcked]);
+  g.next_state = fbits(in[kNextState]), g.next_ping = fbits(in[kNextPing]), g.resends = in[kResends];
+  g.rate_setting = static_cast<uint32_t>(in[kRateSetting]);
+  g.warned = static_cast<uint8_t>(in[kWarned]), g.last_second = static_cast<uint8_t>(in[kLastSecond]);
+  std::vector<NetMech*> remotes;
+  for (int32_t k = 0; k < in[kRemotes]; ++k) {
+    auto* r = new NetMech();
+    r->owner = static_cast<uint32_t>(in[kOwners + k]);
+    r->ping_in[1] = static_cast<uint32_t>(in[kEcho + k]);
+    r->ping_heard = static_cast<uint32_t>(in[kHeard + k]);
+    g.mechs.push_back(r);
+    remotes.push_back(r);
+  }
+  auto* m = new mech3::Mech();
+  m->velocity = {fbits(in[kVel]), fbits(in[kVel + 1]), fbits(in[kVel + 2])};
+  m->orientation[0] = fbits(in[kQw]), m->orientation[2] = fbits(in[kQy]);
+  mech3::Torso torso;
+  for (int i = 0; i < 4; ++i) torso.turn_q[i] = fbits(in[kTurnQ + i]);
+  torso.internal = fbits(in[kTorsoInternal]), torso.armor = fbits(in[kTorsoArmor]);
+  for (int i = 0; i < 5; ++i) torso.sec_armor[1 + i] = fbits(in[kSecArmor + i]);
+  torso.side_internal[0] = fbits(in[kSideInternal]), torso.side_internal[1] = fbits(in[kSideInternal + 1]);
+  m->torso = &torso;
+  mech3::Arm arm0, arm1;
+  mech3::Leg leg0, leg1;
+  mech3::Head head;
+  mech3::MechPart* parts[5] = {&arm0, &arm1, &leg0, &leg1, &head};
+  for (int i = 0; i < 5; ++i) parts[i]->internal = fbits(in[kParts + 2 * i]), parts[i]->armor = fbits(in[kParts + 2 * i + 1]);
+  m->arms[0] = &arm0, m->arms[1] = &arm1, m->legs[0] = &leg0, m->legs[1] = &leg1, m->head = &head;
+  mech3::NetControls ctl;
+  ctl.throttle_target = fbits(in[kThrottle]), ctl.turn = fbits(in[kTurn]), ctl.jump = fbits(in[kJump]);
+  m->controls = &ctl;
+  mech3::WeaponManager wm(nullptr);
+  wm.aim = {fbits(in[kAim]), fbits(in[kAim + 1]), fbits(in[kAim + 2])};
+  wm.state = in[kState];
+  m->ammo = &wm;
+  m->collider.clear = in[kClear];
+  m->active = in[kActive] != 0;
+  m->anim_state = in[kAnimState];
+  if (in[kAction] >= 0) m->actions.push_back(in[kAction]);
+  m->limp = in[kLimp];
+  m->xbc = static_cast<uint8_t>(in[kXbc]);
+  m->power_down_pending = (in[kPower] & 1) != 0, m->powered_down = (in[kPower] & 2) != 0;
+  m->masc_time = fbits(in[kMasc]), m->narc_time = fbits(in[kNarc]);
+  mech3::Ams ams(0, 0, 0);
+  ams.on = in[kAms] == 2;
+  m->ams = in[kAms] ? &ams : nullptr;
+  m->crouched = in[kCrouched] != 0;
+  m->net_damaged = static_cast<uint32_t>(in[kDamaged]);
+  for (int32_t k = 0; k < in[kShots]; ++k) {
+    mech3::NetShot sh;
+    sh.slot = in[kShot + 3 * k], sh.trigger = in[kShot + 3 * k + 1], sh.target = static_cast<uint32_t>(in[kShot + 3 * k + 2]);
+    m->net_shots.push_back(sh);
+  }
+  // The sender reads only the slot, the lock and its target: raw storage.
+  alignas(mech3::Weapon) static unsigned char weapon_raw[sizeof(mech3::Weapon)];
+  std::memset(weapon_raw, 0, sizeof weapon_raw);
+  mech3::Weapon& weapon = *reinterpret_cast<mech3::Weapon*>(weapon_raw);
+  weapon.slot = in[kWeaponSlot];
+  weapon.locked = in[kWeaponLocked] != 0;
+  const int32_t wt = in[kWeaponTarget];  // 0 none, 1..4 a remote mech, 5 a plain object
+  static mech3::Mech plain;
+  weapon.projectile_target = wt == 0 ? nullptr : wt <= static_cast<int32_t>(remotes.size()) ? remotes[wt - 1] : &plain;
+  int32_t ret = 0;
+  if (in[kKind] == 100) {
+    mech3::net_mech_tick(*m);
+  } else {
+    const intptr_t arg = in[kKind] == 0x16 ? reinterpret_cast<intptr_t>(&weapon) : in[kArg];
+    ret = mech3::net_send_event(*m, in[kKind], arg);
+  }
+  log({90, ret, static_cast<int32_t>(m->net_damaged), static_cast<int32_t>(m->net_shots.size())});
+  for (const mech3::NetShot& sh : m->net_shots) log({sh.slot, sh.x04, sh.trigger, static_cast<int32_t>(sh.target)});
+  log({91, static_cast<int32_t>(m->net_sent), m->net_acked, bits(g.next_state), bits(g.next_ping), g.resends, g.warned,
+       g.last_second, static_cast<int32_t>(g.ping_turn), static_cast<int32_t>(g.ping_counter), g_end_state,
+       bits(g_clock_next)});
+  for (NetMech* r : remotes) log({92, static_cast<int32_t>(r->ping_sent), static_cast<int32_t>(r->ping_id)});
+  m->torso = nullptr, m->controls = nullptr, m->ammo = nullptr, m->ams = nullptr;
+  m->arms[0] = m->arms[1] = nullptr, m->legs[0] = m->legs[1] = nullptr, m->head = nullptr;
+  delete m;
+  for (NetMech* r : remotes) delete r;
+  g = mech3::NetGame{};
+  znet::session() = znet::Session{};
+  c = mech3::NetCalls{};
+  const int32_t n = static_cast<int32_t>(std::min<size_t>(lg.size(), static_cast<size_t>(cap)));
+  std::copy(lg.begin(), lg.begin() + n, out);
+  return n;
+}
+extern "C" int32_t probe_mech_net_in_count() { return kInCount; }

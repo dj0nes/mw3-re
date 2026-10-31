@@ -108,6 +108,14 @@ struct Vehicle : ai::AiTarget {
   void refresh_markers();
 };
 
+// A shot for the next network state (0x10 bytes, 0x0046f160 kind 0x16).
+struct NetShot {
+  int32_t slot = -1;         // +0x00  the weapon's index on its manager
+  int32_t x04 = 0;           // +0x04
+  int32_t trigger = 0;       // +0x08  the manager's state: 1 pressed, 2 held, 3 released
+  uint32_t target = 0;       // +0x0c  the locked target's player, 0 none
+};
+
 struct Mech : Vehicle {
   bool power_down_pending{};   // +0x0dc
   bool heat_shutdown{};        // +0x0dd
@@ -202,8 +210,8 @@ struct Mech : Vehicle {
   Handle attacker = nullptr;  // +0x664  the last to hit it
   uint8_t net_acked = 0;     // +0x668  the last state sent has arrived (0x004709d0)
   uint32_t net_sent = 0;     // +0x66c  that send's id
-  std::list<Handle> x678;    // +0x678, count +0x67c (an empty list)
-  uint32_t x680 = 0;         // +0x680
+  std::list<NetShot> net_shots;  // +0x678, count +0x67c: the shots since the last state sent (0x0046f160 kind 0x16)
+  uint32_t net_damaged = 0;  // +0x680  the parts (bit by id) whose damage goes with the next state (kind 0x15)
   MechData* pilot = nullptr;    // +0x684
   Handle x68c = nullptr;     // +0x68c  updated last each frame (0x004e6480)
   uint32_t detail{};           // +0x688  level-of-detail bits by distance (docs/movement.md): 0 sounds, 1 toes, 2 turn pivot, 3 landing effects, 4 full gait, 5 lean

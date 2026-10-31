@@ -1,11 +1,15 @@
 #include "mech3/mech_net.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 
 #include "gamez/zdeclient/zdec_crater.h"
+#include "mech3/mech_parts.h"
+#include "gamez/zmath/zmth_vector.h"
+#include "crt/msvc_math.h"
 #include "gamez/zeffect/zeff_anim_save.h"
 #include "gamez/znetwork/znet_dplay.h"
 #include "gamez/znetwork/znet_session.h"
@@ -144,6 +148,224 @@ void net_player_left(uint32_t from, const uint8_t* msg, size_t size) {
   if (g_calls.lobby_left) g_calls.lobby_left(from);
 }
 
+namespace {
+// ftol of x to a byte, x clamped to -127..127 first (the controls' axes).
+uint8_t axis_byte(float x) {
+  float v = x * 127.0f;  // [0x005c33e8]
+  if (v > 127.0f) v = 127.0f;
+  else if (v < -127.0f) v = -127.0f;  // [0x005c33ec]
+  return static_cast<uint8_t>(crt::msvc_ftol(v));
+}
+// A part's fraction left as a byte: 1 is 255, 0 is 0, else ceil(f x 255).
+uint32_t fraction_byte(float f) {
+  if (f == 1.0f) return 0xff;
+  if (f == 0.0f) return 0;
+  return static_cast<uint32_t>(crt::msvc_ftol(std::ceil(static_cast<double>(f * 255.0f)))) & 0xff;
+}
+void put32(std::vector<uint8_t>& b, size_t at, uint32_t v) { std::memcpy(b.data() + at, &v, 4); }
+void put_f(std::vector<uint8_t>& b, size_t at, float v) { std::memcpy(b.data() + at, &v, 4); }
+void put16(std::vector<uint8_t>& b, size_t at, uint16_t v) { std::memcpy(b.data() + at, &v, 2); }
+float game_time() { return g_calls.game_time ? g_calls.game_time() : 0.0f; }
+}  // namespace
+
+// The 0xf message of 0x0046f160. Its bytes that nothing writes are 0 (the
+// exe's static buffer has 0 there; a malloc'd one, whatever the heap held).
+std::vector<uint8_t> net_state_message(Mech& m) {
+  const NetCalls& c = g_calls;
+  const auto shots = static_cast<uint32_t>(m.net_shots.size());
+  uint32_t parts = 0;  // bits 0..9 counted, though only 1..8 are written
+  for (int i = 9; i >= 0; --i) parts += (m.net_damaged >> i & 1) != 0;
+  const size_t head = 0x3c + shots;
+  std::vector<uint8_t> b(head + 4 * parts, 0);
+  put16(b, 0, 0xf);
+  put16(b, 2, static_cast<uint16_t>(b.size()));
+  float pos[3] = {0, 0, 0};
+  if (c.position) c.position(m, pos);
+  std::memcpy(b.data() + 4, pos, 12);
+  put16(b, 0x10, static_cast<uint16_t>(crt::msvc_ftol(m.velocity.x * 127.0f)));
+  put16(b, 0x12, static_cast<uint16_t>(crt::msvc_ftol(m.velocity.y * 127.0f)));
+  put16(b, 0x14, static_cast<uint16_t>(crt::msvc_ftol(m.velocity.z * 127.0f)));
+  put_f(b, 0x18, static_cast<float>(std::atan2(static_cast<double>(m.orientation[2]), m.orientation[0])));
+  float angles[3] = {0, 0, 0};
+  if (m.torso) zmth::quat_angles(m.torso->turn_q, angles);  // 0x00525f80
+  put_f(b, 0x1c, angles[0]);
+  put_f(b, 0x20, angles[1]);
+  const MechControls* ctl = m.controls;
+  b[0x24] = axis_byte(ctl ? ctl->throttle_target : 0.0f);  // IControls vt+0x2c
+  b[0x25] = axis_byte(ctl ? ctl->turn : 0.0f);             // vt+0x24
+  // The aim: from the torso's node to the weapons' aim point, as a turn off
+  // straight ahead (0, 0, -1) and a distance.
+  float at[3] = {0, 0, 0};
+  if (c.torso_position) c.torso_position(m, at);
+  const auto* w = static_cast<const WeaponManager*>(m.ammo);
+  zmth::Vec3 d{(w ? w->aim.x : 0.0f) - at[0], (w ? w->aim.y : 0.0f) - at[1], (w ? w->aim.z : 0.0f) - at[2]};
+  const float range = zmth::normalize(d);  // 0x004020d0
+  const float ahead[3] = {0.0f, 0.0f, -1.0f};
+  float q[4], turn[3];
+  zmth::quat_between(ahead, &d.x, q);  // 0x00525a50
+  zmth::quat_log(q, turn);             // 0x005259c0
+  put_f(b, 0x28, turn[0]);
+  put_f(b, 0x2c, turn[1]);
+  put_f(b, 0x30, range);
+  // The flags: 0 nothing struck last, 1 inactive, 2-6 the motion state, 7-10
+  // the first action, 11 limping, 12-18 the shots, 19-22 the parts, 23
+  // passive, 24 powered down, 25 MASC, 26 the AMS on, 27 NARCed, 30 jumping,
+  // 31 crouched (docs/network-messages.md).
+  uint32_t f = m.collider.clear == 0 ? 1u : 0u;
+  f |= (m.active ? 0u : 1u) << 1;
+  f |= (static_cast<uint32_t>(m.anim_state) & 0x1f) << 2;
+  f |= (m.actions.empty() ? 0u : static_cast<uint32_t>(m.actions.front()) & 0xf) << 7;
+  f |= (m.limp != 0 ? 1u : 0u) << 11;  // -1 (none) too
+  f |= (shots & 0x7f) << 12;
+  f |= (parts & 0xf) << 19;
+  f |= ((m.xbc >> 2 & 1) != 0 ? 1u : 0u) << 23;  // passive radar
+  f |= (m.is_powered_down() ? 1u : 0u) << 24;  // vt+0xa0
+  f |= (m.masc_time != 0.0f ? 1u : 0u) << 25;
+  f |= (m.ams && m.ams->on ? 1u : 0u) << 26;
+  f |= (m.narc_time > 0.0f ? 1u : 0u) << 27;
+  f |= (ctl && ctl->jump != 0.0f ? 1u : 0u) << 30;  // IControls vt+0x38
+  f |= (m.crouched ? 1u : 0u) << 31;
+  put32(b, 0x38, f);
+  put32(b, 0x34, c.target_player ? c.target_player(m) : 0);
+  size_t at_shot = 0x3c;
+  for (const NetShot& s : m.net_shots)
+    b[at_shot++] = static_cast<uint8_t>((s.slot & 0xf) | (s.trigger & 3) << 4 | (s.target != 0) << 6);
+  size_t at_part = head;
+  uint32_t done = 0;
+  for (int32_t id = 1; done < parts && id <= 8; ++id) {
+    if (!(m.net_damaged & 1u << id)) continue;
+    const int32_t sub = id == 7 ? 1 : id == 8 ? 2 : 0;  // the side torsos are the torso's sections
+    const MechPart* p = part_by_id(m, id);
+    uint32_t v = static_cast<uint32_t>(id) & 0xff;
+    if (p) {
+      v |= fraction_byte(p->get_internal(sub)) << 8;  // vt+0x48
+      v |= fraction_byte(p->get_armor(sub)) << 16;    // vt+0x44
+      v |= fraction_byte(p->get_armor(sub + 3)) << 24;
+    }
+    put32(b, at_part, v);
+    at_part += 4, ++done;
+  }
+  return b;
+}
+
+NetMech* net_mech_of(Handle vehicle) {
+  for (NetMech* m : g_net.mechs)
+    if (m == vehicle) return m;
+  return nullptr;
+}
+
+// Mech3.exe 1.2 @ 0x00470ab0
+uint32_t net_next_player() {
+  if (g_net.mechs.empty()) return 0;
+  bool next = false;
+  for (const NetMech* m : g_net.mechs) {
+    if (next) return g_net.ping_turn = m->owner;
+    next = m->owner == g_net.ping_turn;
+  }
+  return g_net.ping_turn = g_net.mechs.front()->owner;
+}
+
+// Mech3.exe 1.2 @ 0x00470b40
+float net_send_period(int32_t players) {
+  if (g_net.rate_setting == 1) return 0.1f;
+  if (g_net.rate_setting != 0 && g_net.rate_setting != 2) return 0.25f;
+  switch (players) {
+    case 2: case 3: case 4: return 1.0f / 7.0f;
+    case 5: return 0.2f;
+    case 6: return 0.25f;
+    case 7: return 2.0f / 7.0f;
+    case 8: return 1.0f / 3.0f;
+    default: return 0.5f;
+  }
+}
+
+// Mech3.exe 1.2 @ 0x0046f160
+int32_t net_send_event(Mech& m, int32_t kind, intptr_t arg) {
+  if (!g_net.running) return 0;
+  const NetCalls& c = g_calls;
+  switch (kind) {
+    case 0xf: {
+      std::vector<uint8_t> b = net_state_message(m);
+      const uint32_t id = znet::send(b.data(), static_cast<uint32_t>(b.size()), false, 0);
+      m.net_shots.clear();  // the records deleted (0x00470bc0)
+      m.net_damaged = 0;
+      return static_cast<int32_t>(id);
+    }
+    case 0x10: {  // the ping, to the next player round the list
+      const uint32_t id = g_net.ping_counter++;
+      if (znet::is_host() && g_net.ping_counter % 10 == 0 && c.rules_check) c.rules_check();
+      const uint32_t to = net_next_player();
+      NetMech* them = to ? net_mech(to) : nullptr;
+      if (!them) return 0;
+      const uint32_t now = c.now_ms ? c.now_ms() : ztimer::ticks_ms();
+      uint8_t b[0x14] = {0x10, 0, 0x14, 0};
+      const uint32_t words[4] = {id, them->ping_in[1], g_net.acked_time, now - them->ping_heard};
+      std::memcpy(b + 4, words, 16);
+      znet::send(b, sizeof b, false, to);
+      them->ping_sent = c.now_ms ? c.now_ms() : ztimer::ticks_ms();
+      them->ping_id = id;
+      return 0;
+    }
+    case 0x15:  // a part's damage goes with the next state
+      m.net_damaged |= 1u << (static_cast<uint32_t>(arg) & 31);
+      return 0;
+    case 0x16: {  // a shot, with the next state
+      const auto* w = reinterpret_cast<const Weapon*>(arg);
+      NetShot s;
+      s.slot = w->slot;
+      s.trigger = m.ammo ? static_cast<const WeaponManager*>(m.ammo)->state : 0;
+      const NetMech* t = w->locked && w->projectile_target ? net_mech_of(w->projectile_target) : nullptr;
+      s.target = t ? t->owner : 0;
+      m.net_shots.push_back(s);
+      return 0;
+    }
+    case 0x11: case 0x12: case 0x13: case 0x17: case 0x21:
+      return c.send_other ? c.send_other(m, kind, arg) : 0;
+    default:
+      return 0;
+  }
+}
+
+// Mech3.exe 1.2 @ 0x0046ef70. The game time is [0x0060991c], the clock left
+// [0x00609920] while [0x00609924].
+void net_mech_tick(Mech& m) {
+  const NetCalls& c = g_calls;
+  NetGameFields* g = c.game ? c.game() : nullptr;
+  if (!g) return;
+  const float now = game_time();
+  if (g_net.next_state <= now) {
+    if (g_net.resends++ >= 0x19) {
+      g_net.resends = 0;
+      m.net_damaged = 0x1fe;  // every part, every 26th state
+    }
+    m.net_sent = static_cast<uint32_t>(net_send_event(m, 0xf, 0));
+    g_net.next_state = net_send_period(g->players) + now;
+    m.net_acked = 0;
+  }
+  if (g_net.next_ping <= game_time()) {
+    net_send_event(m, 0x10, 0);
+    g_net.next_ping = game_time() - -5.1f;  // [0x005c33d8]
+  }
+  const bool timed = c.clock_on && c.clock_on();
+  const float left = c.clock_left ? c.clock_left() : 0.0f;
+  if (timed) {
+    if (left <= 60.0f && !g_net.warned) {
+      g_net.warned = 1;
+      g_net.last_second = 0;
+      if (c.hud_message) c.hud_message(4.0f, 0xf0b, nullptr);
+    }
+    if (left <= 1.0f && !g_net.last_second) g_net.last_second = 1;
+    if (left < 3.0f && g->end_state && *g->end_state == 0) *g->end_state = 1;
+  }
+  if (znet::is_host() && g->clock_next && *g->clock_next <= game_time()) {
+    net_send_event(m, 0x11, reinterpret_cast<intptr_t>(g));
+    *g->clock_next = game_time() - -5.0f;  // [0x005c33e4]
+  }
+  const int32_t state = g->end_state ? *g->end_state : 0;
+  if (state != 0 && state != 3) net_send_event(m, 0x11, reinterpret_cast<intptr_t>(g));
+  if (state == 3 && g->end_time && game_time() > *g->end_time && c.game_over) c.game_over();
+}
+
 // Mech3.exe 1.2 @ 0x0046e0a0
 void net_spawn_offset(float pos[3], int32_t slot) {
   if (slot >= 2 && slot <= 4) pos[0] += 10.0f;
@@ -172,7 +394,7 @@ bool net_launch_player(Mech& m, const std::vector<uint32_t>& p, int32_t skin, bo
   const NetCalls& c = g_calls;
   const int32_t roster = m.pilot ? m.pilot->roster : 0;
   c.dfn ? (void)c.dfn(roster) : (void)mech_dfn(roster);
-  g_net.xa0 = 0, g_net.xa4 = 0, g_net.x9c = 0;
+  g_net.next_state = 0, g_net.warned = 0, g_net.last_second = 0;
   m.net_sent = 0;
   m.net_acked = 1;
   const uint32_t local = znet::local_id();
@@ -273,7 +495,7 @@ void net_mech_create(uint32_t from) {
   if (dfn->skins && skin >= 0 && skin < static_cast<int32_t>(dfn->skins->skins.size())) s = dfn->skins->skins[skin];
   c.skin ? c.skin(*m, s) : (void)mech_set_skin(*m, s);
   if (c.sensor_range) c.sensor_range(*m);  // 0x004d6d20 with its own +0x9c
-  m->x6f8 = 0;
+  m->latency = 0;
   if (znet::is_host() && c.host_replay) c.host_replay();
 }
 

@@ -6,11 +6,9 @@
 // SKIP(accessor, field, key)
 SKIP(mech3::collide_calls, ff_jolt, "0x004335d0")  // CollideCalls.ff_jolt
 SKIP(mech3::damage_calls, equip_voice, "0x00485390")  // DamageCalls.equip_voice
-SKIP(mech3::damage_calls, net_event, "0x0046f160")  // DamageCalls.net_event
 SKIP(mech3::damage_calls, ff_hit, "0x00433720")  // DamageCalls.ff_hit
 SKIP(mech3::damage_calls, voice, "0x00485370")  // DamageCalls.voice
 SKIP(mech3::damage_calls, zaps_hud, "0x0043be70")  // DamageCalls.zaps_hud
-SKIP(mech3::dead_calls, net_update, "0x0046ef70")  // DeadCalls.net_update
 SKIP(mech3::frame_calls, net_entity, "FrameCalls.net_entity")  // FrameCalls.net_entity
 SKIP(mech3::frame_calls, net_place, "FrameCalls.net_place")  // FrameCalls.net_place
 SKIP(mech3::free_calls, player_object_free, "0x0041e580")  // FreeCalls.player_object_free
@@ -23,8 +21,6 @@ SKIP(mech3::move_calls, ff_landing, "0x00433800")  // MoveCalls.ff_landing
 SKIP(mech3::part_calls, footstep_ff, "0x004337c0")  // PartCalls.footstep_ff
 SKIP(mech3::pocket_calls, net_element, "0x00609980")  // PocketCalls.net_element
 SKIP(zwep::run_hooks, net_detonated, "0x0072fcb4")  // RunHooks.net_detonated
-SKIP(mech3::update_calls, net_update, "0x0046ef70")  // UpdateCalls.net_update
-SKIP(mech3::weapon_calls, net_event, "WeaponCalls.net_event")  // WeaponCalls.net_event
 SKIP(mech3::weapon_calls, ff_weapon, "0x00433630")  // WeaponCalls.ff_weapon
 SKIP(mech3::weapon_calls, target_projectile, "WeaponCalls.target_projectile")  // WeaponCalls.target_projectile
 SKIP(zcls::world_render_hooks, after_scene, "0x005a67c0")  // WorldRenderHooks.after_scene
@@ -51,3 +47,6 @@ SKIP(mech3::net_calls, crater, "0x0046fde0")  // NetCalls.crater
 SKIP(mech3::net_calls, send_done, "0x004709d0")  // NetCalls.send_done
 SKIP(mech3::net_calls, reckon, "0x0046ed70")  // NetCalls.reckon
 SKIP(mech3::net_calls, lobby_left, "0x00495b10")  // NetCalls.lobby_left
+SKIP(mech3::net_calls, send_other, "0x0046f160 kinds 0x11-0x13, 0x17, 0x21")  // NetCalls.send_other
+SKIP(mech3::net_calls, rules_check, "0x00576c10")  // NetCalls.rules_check
+SKIP(mech3::net_calls, game_over, "0x004707c0")  // NetCalls.game_over

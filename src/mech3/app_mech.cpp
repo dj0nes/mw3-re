@@ -43,6 +43,7 @@
 #include "mech3/mech_anim.h"
 #include "mech3/mech_build.h"
 #include "mech3/mech_dead.h"
+#include "mech3/app_sensors.h"
 #include "mech3/mech_net.h"
 #include "gamez/znetwork/znet_session.h"
 #include "gamez/znetwork/znet_dplay.h"
@@ -952,6 +953,7 @@ void wire_net(bool on) {
   nc = NetCalls{};
   nc.ff_stop = kept.ff_stop, nc.ff_spawn = kept.ff_spawn;
   nc.game_clear = kept.game_clear;  // the pilot's side's
+  nc.game = kept.game, nc.game_time = kept.game_time, nc.clock_left = kept.clock_left, nc.clock_on = kept.clock_on;
   if (!on) return;
   nc.set_position = [](NetMech& m, const float pos[3]) {  // vtable +0x18
     const Vec3 v{pos[0], pos[1], pos[2]};
@@ -973,6 +975,18 @@ void wire_net(bool on) {
     delete m;
   };
   nc.view_outside = [] { program_view_set_camera(1); };  // 0x0040ae70(1)
+  // The sends (0x0046f160): the mech's and its torso node's world positions,
+  // the target's player (its contact's vehicle, when a network mech).
+  nc.position = [](Mech& m, float out[3]) { return mech_world_position(&m, out); };
+  nc.torso_position = [](Mech& m, float out[3]) {
+    if (!m.torso || !m.torso->node) return false;
+    return zcls::node_world_position(zn(m.torso->node), out) != 0;
+  };
+  nc.target_player = [](Mech& m) -> uint32_t {
+    void* v = m.target ? hud_object_mech(hud_contact_vehicle(m.target)) : nullptr;  // 0x004e7010: vt+0x2c, vt+0x58
+    const NetMech* t = v ? net_mech_of(v) : nullptr;
+    return t ? t->owner : 0;
+  };
   nc.sensor_range = [](NetMech& m) { m.set_sensor_range(g_w.handle_of(g_w.engine, &m), m.sensor_range); };
   nc.world_add = [](NetMech& m) {  // [0x00608c84] vt+0x00
     if (zcls::Node* w = world_hooks().world) zcls::node_add_child(w, zn(m.node));
@@ -985,6 +999,18 @@ void wire_net(bool on) {
     *yaw = r->get<float>(0x14);
     return true;
   };
+  // The mech's network calls (vt+0x168, vt+0x158): the sends, and for a
+  // network mech its dead reckoning (piece 6b).
+  damage_calls().net_event = [](Mech& m, int kind, intptr_t arg) { net_send_event(m, kind, arg); };
+  weapon_calls().net_event = [](Handle owner, int32_t kind, Weapon* w) {
+    if (entity_is_mech(owner)) net_send_event(*static_cast<Mech*>(owner), kind, reinterpret_cast<intptr_t>(w));
+  };
+  const auto net_update = [](Mech& m, float dt) {
+    if (!m.remote) return net_mech_tick(m);
+    if (net_calls().reckon) net_calls().reckon(*static_cast<NetMech*>(&m), dt);
+  };
+  update_calls().net_update = net_update;
+  dead_calls().net_update = net_update;
   nc.player_mech_end = [] {  // 0x0041e580 on the pilot's mech
     if (Mech* m = world().mission_player; m && free_calls().player_object_free) free_calls().player_object_free(*m);
   };
@@ -992,6 +1018,20 @@ void wire_net(bool on) {
 
 void net_set_game_clear(void (*fn)()) { net_calls().game_clear = fn; }
 void net_set_launch_game(bool (*fn)(NetLaunchGame* out)) { g_launch_game = fn; }
+namespace {
+NetGameAccess g_game_access;
+}  // namespace
+void net_set_game_access(const NetGameAccess& a) {
+  g_game_access = a;
+  NetCalls& nc = net_calls();
+  nc.game = []() -> NetGameFields* {
+    static NetGameFields f;
+    if (!g_game_access.fields || !g_game_access.fields(&f.players, &f.clock_next, &f.end_time, &f.end_state))
+      return nullptr;
+    return &f;
+  };
+  nc.game_time = a.game_time, nc.clock_left = a.clock_left, nc.clock_on = a.clock_on;
+}
 
 bool program_net_mech_check(NetMechSeen* out) {
   Mech* me = launched_mech();
@@ -1027,6 +1067,16 @@ bool program_net_mech_check(NetMechSeen* out) {
     mech_world_position(m, t);
     out->moved = std::fabs(t[0] - at[0]) < 0.01f && std::fabs(t[2] - at[2]) < 0.01f;
   }
+  // The pilot's own state, as the timer sends it (0x0046f160 kind 0xf).
+  net_send_event(*me, 0xf, 0);
+  float mine[3];
+  mech_world_position(me, mine);
+  for (znet::Packet pk; b->receive(&pk);)
+    if (pk.from == 1 && pk.data.size() == 0x3c && pk.data[0] == 0xf) {
+      float got[3];
+      std::memcpy(got, pk.data.data() + 4, 12);
+      out->state_sent = got[0] == mine[0] && got[1] == mine[1] && got[2] == mine[2];
+    }
   out->configs = static_cast<int32_t>(net_game().configs.size());
   out->config_named = out->configs == 1 && std::strcmp(net_game().configs.front()->name, "Bob's Config") == 0;
   b->close();

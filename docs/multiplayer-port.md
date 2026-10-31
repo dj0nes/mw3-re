@@ -242,6 +242,20 @@ functions (about 4,050 lines of pseudocode), the game's network code at
 10. The game list and host screen (EnumSessions' list, join, create a game
     with its name and limit): its controls from dialog.zrd's MULTIPLAYER
     dialogs. (2)
+    Owen's decisions for 9-10 (2026-10-31, through the lead):
+    - The original's screens stay. The connection screen keeps its layout
+      and offers games on the LAN (found automatically, click to join),
+      Join by address (host:port) and Host a game; no IPX, modem or serial.
+    - Internet play at "level 1", with no server of ours: UPnP port mapping
+      when hosting (miniupnpc, BSD, vendored as ENet is, its licence in
+      THIRD-PARTY), removed on close and falling back quietly when the
+      router says no; the host's screen shows its address (the public one
+      from UPnP's external IP when known, and the LAN one) with a copy
+      button; a clear line when the port could not be opened ("forward UDP
+      27930 on your router").
+    - Room on the connection screen for a later "Browse internet games" (a
+      master server or punch-through, after v1.0).
+    - Tests: UPnP against a fake IGD responder on loopback.
 11. The lobby screen 0x00495f90: players and teams (0x1e slots, 0x00588200
     lists), the host's settings (0x20: the check boxes such as
     AMMO_CHECKBOX, the four lists, DATABASE_LIST's mission), ready and
@@ -477,6 +491,36 @@ Then the two-process and soak tests over the whole flow, menus included.
   Open: the network controls' pilot tick is _purecall in the exe, and the
   mech's death calls it through vt+0xa8 (0x004aed50); whether a remote
   mech ever dies that way is piece 7's (the port's tick does nothing).
+
+- Piece 6 split: **6a** the sending side, **6b** the receiving side (the
+  state applied with dead reckoning 0x0046e4d0 / 0x0046ed70, the fire
+  events 0x004b08c0, the pings' answer 0x00470a00, the send done 0x004709d0).
+- **Piece 6a** (2026-10-31): the mech's vt+0x168 0x0046f160
+  (`net_send_event`): the state 0xf (`net_state_message`, its layout in
+  network-messages.md; the send's id back, the shots' records and damage
+  bits cleared after), the ping 0x10 to the next player round the list
+  (0x00470ab0, `net_next_player`; the host's every tenth ping checks the
+  rules, piece 8's), a part's damage bit 0x15, a shot record 0x16 (the
+  Weapon's slot, the manager's trigger state, the locked target's player);
+  0x11-0x13, 0x17, 0x21 piece 7's (`NetCalls::send_other`). The local
+  mechs' vt+0x158 0x0046ef70 (`net_mech_tick`): the state at the rate of
+  0x00470b40 (`net_send_period`, [0x00608e28] the lobby's setting, the
+  lobby's player count) with every part's damage each 26th, a ping every
+  5.1 s, the one-minute warning (0xf0b) and the last second, the game's
+  end state at 3 s left, the host's clock (0x11) every 5 s and each frame
+  while ending, the game over once ended. Mech fields named: +0x678
+  `net_shots`, +0x680 `net_damaged`; the network mech's ping fields
+  (+0x6d8..+0x6f8, +0x6f8 the latency); MultiplayerGame +0x7c / +0x80 /
+  +0x84 `clock_next` / `end_time` / `end_state` (floats and a state).
+  `zmth::quat_log` = 0x005259c0. Wired: DamageCalls/WeaponCalls
+  `net_event`, the update's and the dead list's `net_update` (a network
+  mech's goes to piece 6b's reckoning). FIX (A): a shot's or state's
+  target that is not a network mech gives 0 (the exe reads +0x6fc past a
+  plain mech). Tests: `test_mech_net_send.py` (3000 sends and timer runs
+  identical, the state's computed floats within float rounding; a break
+  caught), and in `net_mech_made_from_a_record_c1m1_headless` the pilot's
+  real state reaching the other player with its place. Not yet: the
+  lobby's player count (0 until piece 11: the rate is then 0.5 s).
 
 ## Open
 

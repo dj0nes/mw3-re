@@ -3382,6 +3382,7 @@ TEST(net_mech_made_from_a_record_c1m1_headless) {
     EXPECT(mech3::program_net_mech_check(&seen));
     EXPECT(seen.made == 1 && seen.remote == 1 && seen.collides == 0 && seen.torso_mode == 2 && seen.in_world == 1);
     EXPECT(seen.moved == 1);  // at the state's position
+    EXPECT(seen.state_sent == 1);  // the pilot's own state (piece 6a) arrives with its place
     EXPECT(seen.configs == 1 && seen.config_named == 1);  // "Bob's Config", valid
     EXPECT(seen.after_leave == 0 && seen.handlers_after == 0);
     mech3::missions().cleanup(false);
@@ -13854,8 +13855,7 @@ TEST(known_unported_keys_name_their_reason) {
                         "0x005a7e10", "0x005a7f90", "0x00576c50", "0x00535ed0", "0x004f8f60", "0x00537520",
                         "0x00519e50", "0x00526510", "0x005578f0", "0x00557b30", "0x00575f70", "0x00576c60",
                         "0x00516f00", "0x00526780", "0x00557b10", "0x005646d0", "0x00493260",
-                        "0x00495f90", "0x0049bd80", "0x0046ef70",
-                        "0x0046f160", "WeaponCalls.net_event"}) {
+                        "0x00495f90", "0x0049bd80"}) {
     const char* why = mech3::GameEngine::known_unported(k);
     EXPECT(why != nullptr);
     if (!why) continue;
@@ -13864,7 +13864,7 @@ TEST(known_unported_keys_name_their_reason) {
            w.size() > 20);
     ++n;
   }
-  EXPECT(n == 49);  // 0x00586ce0, 0x00586c20 and 0x00588930 ported (multiplayer-port.md pieces 1, 2)
+  EXPECT(n == 46);  // 0x00586ce0, 0x00586c20, 0x00588930, 0x0046ef70, 0x0046f160 ported (multiplayer-port.md pieces 1, 2, 6a)
   for (const char* gap : {"0x00579ea0", "0x004f9fa0", "0x004fa0b0", "0x00479be0", "0x0051a300",
                           "[[0x0060861c]+0x14]", "0x004f3430", "0x005799f0", "0x0051d0c0",
                           "0x00556210", "game.vt", "0x00414000", "0x0047abe0", "0x004f8f50",

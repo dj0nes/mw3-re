@@ -873,6 +873,13 @@ From the weapon code (weapons.md).
   sent, and only if it passes the mech lab's checks (weight, armour, jump
   jets, every item placed). One that fails builds nothing there: the player
   plays on, but no one else sees their mech. (`multiplayer-port.md`, piece 5c)
+- **Multiplayer resends all your damage every 26th update.** Your mech's
+  position goes out up to 10 times a second (slower with more players:
+  7 a second for 2-4, 2 a second past 8), over a connection that can lose
+  packets. Damage rides along only when it changes, so every 26th update
+  carries every part's damage anyway: a lost hit shows up on the others'
+  screens within a few seconds. At one minute left the game says so, and
+  at three seconds left the game starts ending. (`network-messages.md`)
 - **Only one copy runs at a time.** Started a second time, the game finds the
   first window and brings it to the front instead. Launched from a multiplayer
   lobby, it closes the old copy instead.

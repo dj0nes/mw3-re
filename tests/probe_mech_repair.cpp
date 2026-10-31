@@ -114,7 +114,7 @@ void probe_rp_setup(const int32_t* i, const float* f, const int32_t* w, int32_t 
   g_mech.anims[11] = i[7] ? new m3::MechAnim : nullptr;
   g_viewed = i[8] != 0;
   g_mech.coolant = f[1], g_mech.jet_fuel = f[2];
-  g_mech.x680 = 0;
+  g_mech.net_damaged = 0;
 
   g_manager = new m3::WeaponManager(nullptr);
   g_manager->ammo_value = f[3], g_manager->ammo_value_inv = f[4];
@@ -155,7 +155,7 @@ void probe_rp_setup(const int32_t* i, const float* f, const int32_t* w, int32_t 
 uint32_t probe_rp_run(float dt) { return g_mech.repair(dt) ? 1u : 0u; }
 
 // The bins (amount, max, warned each), the manager's two values, coolant,
-// jet fuel, the AMS's rounds, limp, anims[11] set, x680, then the store.
+// jet fuel, the AMS's rounds, limp, anims[11] set, the network damage flags, then the store.
 int probe_rp_image(int32_t nb, uint32_t* out) {
   int k = 0;
   for (int32_t j = 0; j < nb; ++j)
@@ -164,7 +164,7 @@ int probe_rp_image(int32_t nb, uint32_t* out) {
   out[k++] = zgame::bits(g_manager->ammo_value), out[k++] = zgame::bits(g_manager->ammo_value_inv);
   out[k++] = zgame::bits(g_mech.coolant), out[k++] = zgame::bits(g_mech.jet_fuel);
   out[k++] = static_cast<uint32_t>(g_ams.rounds);
-  out[k++] = static_cast<uint32_t>(g_mech.limp), out[k++] = g_mech.anims[11] ? 1u : 0u, out[k++] = g_mech.x680;
+  out[k++] = static_cast<uint32_t>(g_mech.limp), out[k++] = g_mech.anims[11] ? 1u : 0u, out[k++] = g_mech.net_damaged;
   if (g_store) k += rp_store_dump(g_store, out + k);
   else out[k++] = 0xffffffffu;
   return k;

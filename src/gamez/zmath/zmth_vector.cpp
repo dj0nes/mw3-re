@@ -312,6 +312,21 @@ void quat_mul(const Quat& a, const Quat& b, Quat& out) {
   out = r;
 }
 
+// Mech3.exe 1.2 @ 0x005259c0: quat_exp undone, the axis by the half angle
+// (x, y, z) atan2(|v|, w) / |v|, the angle's sign by w's; no axis gives 0.
+void quat_log(const float q[4], float out[3]) {
+  const float n2 = q[1] * q[1] + q[2] * q[2] + q[3] * q[3];
+  if (n2 == 0.0f) {
+    out[0] = out[1] = out[2] = 0.0f;
+    return;
+  }
+  const double n = std::sqrt(static_cast<double>(n2));
+  const double a = (q[0] < 0.0f ? -std::atan2(n, -static_cast<double>(q[0])) : std::atan2(n, static_cast<double>(q[0]))) / n;
+  out[0] = static_cast<float>(q[1] * a);
+  out[1] = static_cast<float>(q[2] * a);
+  out[2] = static_cast<float>(q[3] * a);
+}
+
 // Mech3.exe 1.2 @ 0x00525900. fsincos; the sine goes through a float
 // before the division (beyond 2^63 a separate fsin keeps it on the stack).
 void quat_exp(const Vec3& v, Quat& out) {

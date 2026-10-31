@@ -2341,8 +2341,20 @@ void wire_mission_hooks(GameEngine* e) {
   wire_mech_build(&w);
   wire_sensors(&w, [](void* p, int32_t id) { return static_cast<GameEngine*>(p)->message(id); });
   net_set_game_clear([] {  // the network start's (0x0046ceb0): the network game's +0x7c, +0x80, +0x84
-    if (MultiplayerGame* g = current_pilot() ? current_pilot()->multiplayer() : nullptr) g->x7c = g->x80 = g->x84 = 0;
+    if (MultiplayerGame* g = current_pilot() ? current_pilot()->multiplayer() : nullptr) g->clock_next = g->end_time = 0, g->end_state = 0;
   });
+  NetGameAccess acc;
+  acc.fields = [](int32_t* players, float** clock_next, float** end_time, int32_t** end_state) {
+    MultiplayerGame* g = current_pilot() ? current_pilot()->multiplayer() : nullptr;  // 0x00479480
+    if (!g) return false;
+    *players = 0;  // +0x50, the lobby's count (piece 11)
+    *clock_next = &g->clock_next, *end_time = &g->end_time, *end_state = &g->end_state;
+    return true;
+  };
+  acc.game_time = [] { return missions().time; };        // [0x0060991c]
+  acc.clock_left = [] { return missions().clock; };      // [0x00609920]
+  acc.clock_on = [] { return missions().clock_down != 0; };  // [0x00609924]
+  net_set_game_access(acc);
   net_set_launch_game([](NetLaunchGame* out) {  // the network launch's (0x0046da80): slot 0 is +0x20 (0x00437800)
     MultiplayerGame* g = current_pilot() ? current_pilot()->multiplayer() : nullptr;
     if (!g) return false;

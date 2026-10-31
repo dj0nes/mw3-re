@@ -140,7 +140,7 @@ class Exe:
         cpu.u32(pilot + 0x14, m)
         cpu.u32(FF, emu.alloc(16) if ff else 0)
         cpu.write(X9C, b'\x01')
-        cpu.u32(XA0, 7)
+        cpu.u32(XA0, bits(7.0))
         cpu.write(XA4, b'\x01')
         cpu.call(0x46da80, ecx=pilot)
         ok = cpu.uc.reg_read(UC_X86_REG_EAX) & 0xff

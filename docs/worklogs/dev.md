@@ -2296,3 +2296,16 @@ Assigned after 8b2 merged (fd3f05f). The lead asked for a section stepped at bot
 - The app frees a network mech as mech_free does (registry, handle) through
   NetCalls.free; mission_controls_free deletes controls whose release()
   says so (the network's).
+
+## Multiplayer, piece 6a: the sends (2026-10-31)
+
+- 0x46f160's asm read for the 0xf layout (network-messages.md now has every
+  field and flag bit). The controls' getters go through the IControls thunks
+  (vtordisp 0): vt+0x2c the throttle target (+0x44), vt+0x24 the turn
+  (+0x14), vt+0x38 the jump (+0x20).
+- 0x46ef70 read from the asm (Ghidra had the resend counter off by one and
+  lost the rate's ECX: the game's +0x50, the lobby's count).
+- test_mech_net_send.py: the CRT asin and copysign stand-ins (test_matrix's)
+  for 0x525f80; ceil (test_mechsave's); the kinds of pieces 7/8 are caught
+  where their case starts and sent to the epilogue. The host's ping reads
+  the game unchecked: only sent from the timer, which has one.
