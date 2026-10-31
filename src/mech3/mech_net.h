@@ -39,6 +39,10 @@ struct NetGame {
   // data holds -6.5 and -3.5 before.
   float reckon_gain = -6.5f;           // [0x005e55f0]
   float reckon_damp = -3.5f;           // [0x005e55ec]
+  // The state sends' (piece 6), cleared at the launch.
+  uint8_t x9c = 0;                     // [0x00605f9c]
+  uint32_t xa0 = 0;                    // [0x00605fa0]
+  uint8_t xa4 = 0;                     // [0x00605fa4]
 };
 NetGame& net_game();
 
@@ -78,6 +82,18 @@ struct NetCalls {
   void (*player_mech_end)() = nullptr;             // 0x0041e580 on the pilot's mech, when there is one
   void (*ff_stop)() = nullptr;                     // 0x00433530 on [0x00608620], when there is one
   void (*config_free)(Config* c) = nullptr;        // 0x00424350 and the delete
+  // The launch's (0x0046da80): the lobby's and the network game's.
+  uint32_t (*team_of)(uint32_t player) = nullptr;  // 0x00435910 on the network game
+  int32_t (*start_of)(uint32_t player) = nullptr;  // the player's lobby slot +0x20 (0x00495b10)
+  void (*scores_reset)() = nullptr;                // 0x004361e0 on the network game
+  void (*view_outside)() = nullptr;                // 0x0040ae70(1) on [0x005f4c8c]
+  // aiv.zrd's record of that name (0x004e0490, 0x004e0680): its place and heading.
+  bool (*spawn_point)(const char* name, float pos[3], float* yaw) = nullptr;
+  void (*ff_spawn)() = nullptr;                    // 0x004338a0(1) on [0x00608620], when there is one
+  // Test hooks; unset run the port: 0x004846a0, 0x004b0220 on +0xd4, vtable +0xdc.
+  void (*dfn_load)(int32_t roster) = nullptr;
+  void (*unlimited)(Mech& m, bool on) = nullptr;
+  void (*place)(Mech& m, const float pos[3], float yaw) = nullptr;
 };
 NetCalls& net_calls();
 
@@ -90,6 +106,19 @@ void net_route(uint32_t from, const uint8_t* msg, size_t size);
 // 0x0046d3b0, local message 6: the player's mech away and its lobby slot
 // marked gone.
 void net_player_left(uint32_t from, const uint8_t* msg, size_t size);
+// 0x0046da80 (ECX the pilot), at the multiplayer launch: the local player's
+// record (2, the skin, the mech, the packed loadout: Config::packed of the
+// game's slot 0) as its player data, its team, the game's settings on it,
+// and its place at aiv.zrd's "remote_<n>" for its lobby slot. False without
+// that place.
+bool net_launch_player(Mech& m, const std::vector<uint32_t>& packed, int32_t skin, bool unlimited_ammo,
+                       bool outside_view);
+// 0x0046e0a0 (ECX the point, EDX the slot): players sharing a start point
+// spread 10 m by their slot.
+void net_spawn_offset(float pos[3], int32_t slot);
+// 0x0046d820: a player's record, empty when it is under 8 bytes or not got.
+bool net_read_record(uint32_t player, std::vector<uint8_t>* out);
+
 // 0x0046e3a0 / 0x0046e3c0: off the remote mechs' and the dead mechs'
 // lists, then the mech's own (0x004152d0) and the delete.
 void net_mech_delete(NetMech* m);

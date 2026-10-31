@@ -320,6 +320,8 @@ class WiredBuild : public MechBuildHooks {
   }
 };
 
+bool (*g_launch_game)(NetLaunchGame* out) = nullptr;  // net_set_launch_game's
+
 class WiredLaunch : public LaunchHooks {
  public:
   uint32_t unported(const char* key, std::initializer_list<zgame::Arg> args) override {
@@ -406,6 +408,12 @@ class WiredLaunch : public LaunchHooks {
   // and saved (pilot.md section 7); a debug start's stand-in has no campaign
   // to settle.
   void pilot_478f10(Handle) override { program_record_mission(false); }
+  void multiplayer(Handle) override {  // 0x0046da80 on the pilot
+    NetLaunchGame g;
+    Mech* m = launched_mech();
+    if (m && g_launch_game && g_launch_game(&g) && g.loadout)
+      net_launch_player(*m, g.loadout->packed(), g.skin, g.unlimited_ammo, g.outside_view);
+  }
   // The Instant Action (and multiplayer) launch's pilot save: the file opened
   // (0x00478ce0), its header (0x004794f0) and record (vt+0x04) written, closed.
   void pilot_478ce0(Handle) override { program_pilot_file(0); }
@@ -937,9 +945,9 @@ void program_motions_open() { open_motions("zbd/motion.zbd"); }
 // what it calls outside the network code.
 void wire_net(bool on) {
   NetCalls& nc = net_calls();
-  const NetCalls kept = nc;  // the force feedback's stop is app_force.cpp's
+  const NetCalls kept = nc;  // the force feedback's are app_force.cpp's
   nc = NetCalls{};
-  nc.ff_stop = kept.ff_stop;
+  nc.ff_stop = kept.ff_stop, nc.ff_spawn = kept.ff_spawn;
   nc.game_clear = kept.game_clear;  // the pilot's side's
   if (!on) return;
   nc.set_position = [](NetMech& m, const float pos[3]) {  // vtable +0x18
@@ -953,12 +961,22 @@ void wire_net(bool on) {
     if (!t.empty()) message_panel_add("%s", t.c_str());
   };
   nc.forget = [](NetMech& m) { ai::entities_forget(g_w.handle_of(g_w.engine, &m)); };  // 0x004aa6b0
+  nc.view_outside = [] { program_view_set_camera(1); };  // 0x0040ae70(1)
+  nc.spawn_point = [](const char* name, float pos[3], float* yaw) {  // aiv.zrd's (0x004e0680)
+    ai::AivRecord rec;
+    const ai::AivRecord* r = g_launch.aiv_read_named(rec, name);
+    if (!r) return false;
+    pos[0] = r->get<float>(0x08), pos[1] = r->get<float>(0x0c), pos[2] = r->get<float>(0x10);
+    *yaw = r->get<float>(0x14);
+    return true;
+  };
   nc.player_mech_end = [] {  // 0x0041e580 on the pilot's mech
     if (Mech* m = world().mission_player; m && free_calls().player_object_free) free_calls().player_object_free(*m);
   };
 }
 
 void net_set_game_clear(void (*fn)()) { net_calls().game_clear = fn; }
+void net_set_launch_game(bool (*fn)(NetLaunchGame* out)) { g_launch_game = fn; }
 
 void wire_mech_build(const MechWiring* w) {
   if (!w) {

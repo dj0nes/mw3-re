@@ -1,5 +1,7 @@
 #include "mech3/mech_net.h"
 
+#include <algorithm>
+#include <cstdio>
 #include <cstring>
 
 #include "gamez/zdeclient/zdec_crater.h"
@@ -9,6 +11,7 @@
 #include "gamez/zutil/ztimer.h"
 #include "mech3/mech_config.h"
 #include "mech3/mech_dead.h"
+#include "mech3/mech_reader.h"
 #include "mech3/weapon.h"
 
 namespace mech3 {
@@ -135,6 +138,63 @@ void net_player_left(uint32_t from, const uint8_t* msg, size_t size) {
   if (g_calls.forget) g_calls.forget(*m);
   g_calls.free ? g_calls.free(m) : net_mech_delete(m);
   if (g_calls.lobby_left) g_calls.lobby_left(from);
+}
+
+// Mech3.exe 1.2 @ 0x0046e0a0
+void net_spawn_offset(float pos[3], int32_t slot) {
+  if (slot >= 2 && slot <= 4) pos[0] += 10.0f;
+  else if (slot != 1 && slot != 5) pos[0] -= 10.0f;
+  if (slot <= 2) pos[2] += 10.0f;
+  else if (slot != 3 && slot != 7) pos[2] -= 10.0f;
+}
+
+// Mech3.exe 1.2 @ 0x0046d820
+bool net_read_record(uint32_t player, std::vector<uint8_t>* out) {
+  out->clear();
+  uint32_t size = znet::player_data_size(player);
+  bool ok = false;
+  if (size > 7) {
+    out->resize(size);
+    ok = znet::get_player_data(player, out->data(), &size);
+  }
+  if (!ok) out->clear();
+  return ok;
+}
+
+// Mech3.exe 1.2 @ 0x0046da80. The mech's definition is loaded first
+// (0x004846a0) and not used. The record is made by 0x0046dd90 (kind 2,
+// zero-filled to its size).
+bool net_launch_player(Mech& m, const std::vector<uint32_t>& p, int32_t skin, bool unlimited_ammo, bool outside_view) {
+  const NetCalls& c = g_calls;
+  const int32_t roster = m.pilot ? m.pilot->roster : 0;
+  c.dfn_load ? c.dfn_load(roster) : (void)mech_dfn(roster);
+  g_net.xa0 = 0, g_net.xa4 = 0, g_net.x9c = 0;
+  m.net_sent = 0;
+  m.net_acked = 1;
+  const uint32_t local = znet::local_id();
+  if (p.empty()) return false;
+  const uint32_t n = p[0] & 0xffff;
+  std::vector<uint8_t> rec(n + 0xc, 0);
+  const uint32_t kind = 2;
+  std::memcpy(rec.data(), &kind, 4);
+  std::memcpy(rec.data() + 0xc, p.data(), std::min<size_t>(n, 4 * p.size()));
+  std::memcpy(rec.data() + 8, &roster, 4);
+  std::memcpy(rec.data() + 4, &skin, 4);
+  m.set_team(c.team_of ? c.team_of(local) : 0);
+  if (c.unlimited) c.unlimited(m, unlimited_ammo);
+  else if (auto* w = static_cast<WeaponManager*>(m.ammo)) w->set_unlimited(unlimited_ammo);
+  znet::set_player_data(local, rec.data(), static_cast<uint32_t>(rec.size()));
+  if (c.scores_reset) c.scores_reset();
+  if (outside_view && c.view_outside) c.view_outside();
+  const int32_t slot = c.start_of ? c.start_of(local) : 0;
+  char name[0x20];
+  std::snprintf(name, sizeof name, "remote_%d", slot);
+  float pos[3] = {0, 0, 0}, yaw = 0;  // 0x0063d870
+  if (!c.spawn_point || !c.spawn_point(name, pos, &yaw)) return false;
+  net_spawn_offset(pos, slot);
+  c.place ? c.place(m, pos, yaw) : m.set_place(pos, yaw);  // vtable +0xdc
+  if (c.ff_spawn) c.ff_spawn();
+  return true;
 }
 
 // Mech3.exe 1.2 @ 0x0046e3a0, with the destructor 0x0046e3c0 (its

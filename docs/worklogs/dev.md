@@ -2267,7 +2267,20 @@ Assigned after 8b2 merged (fd3f05f). The lead asked for a section stepped at bot
 - test_mech_net.py: the probe's game clear logs after the handlers (the
   exe's stub sees it then); the exe's slot byte is logged only when
   0x495b10 was asked.
-- For 5b: the mission's wiring (wire_net) is made at the mission's hooks
-  and undone at its cleanup, while the start runs at the briefing's launch
-  and the end at the quit box: check which hooks are live at each before
-  network mechs exist.
+- The hooks' lifetime (settled in 5b): wire_mission_hooks runs in the
+  GameEngine's constructor and its null in the destructor, so wire_net's
+  calls are live from start-up to exit, at the briefing and the quit box
+  alike. The census stand-ins go in at a mission's start, for the fields
+  still null.
+
+## Multiplayer, piece 5b: the records (2026-10-31)
+
+- 5b split again: 5b the records, 5c the network mech. 0x46da80 (the
+  launch) is LaunchHooks::multiplayer; the app's side (app_mission.cpp,
+  pilot.h) hands slot 0's loadout and the game's +0x8d/+0x8e through
+  net_set_launch_game; net_launch_player takes the packed form (the probe
+  hands any).
+- 0x4259c0: Ghidra's float line is right, the exe doubles the half tons
+  (fild, fadd st0); the armour item's add_equipment sets the tons again,
+  so stock loadouts unpack as valid as they were (checked over all 62).
+- Config vt+0x08 (ammo, 0x472210) and vt+0x10 (weapon, 0x472330) ported for it.

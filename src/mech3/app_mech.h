@@ -31,6 +31,15 @@ void wire_mech_build(const MechWiring* w);  // null: the hooks' defaults again
 void net_start();  // 0x0046ceb0 (mech_net.cpp): the mission's network start
 void net_end();    // 0x0046d100: its end
 void net_set_game_clear(void (*fn)());  // the start's clear of the network game's +0x7c..+0x84
+// The network game's part in the launch (0x0046da80): its slot 0's loadout
+// and skin, its unlimited ammo (+0x8d) and outside view (+0x8e).
+struct Config;
+struct NetLaunchGame {
+  Config* loadout = nullptr;
+  int32_t skin = 0;
+  bool unlimited_ammo = false, outside_view = false;
+};
+void net_set_launch_game(bool (*fn)(NetLaunchGame* out));
 // The pocket commander's program side (app_pocket.cpp), from wire_mech_build;
 // the marker a handle names, if it is the mission's.
 void wire_pocket(const MechWiring* w);

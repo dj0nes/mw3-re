@@ -419,6 +419,33 @@ Then the two-process and soak tests over the whole flow, menus included.
   messages and players leaving against the exe, the list carried along;
   two breaks caught) and `net_mission_over_the_hub` (mw3tests).
 
+- Piece 5b was split again: **5b** the records (the local player's at the
+  launch, another's read and unpacked), **5c** the network mech made from
+  them (0x0046d450, the constructor 0x0046e280, its controls).
+- **Piece 5b** (2026-10-31): the launch 0x0046da80 (`net_launch_player`,
+  LaunchHooks::multiplayer): the state sends' globals [0x00605f9c..a4] and
+  the mech's acknowledgement (+0x668 = 1, +0x66c = 0) cleared; the record
+  (0x0046dd90's buffer: 2, the slot's skin, the mech's roster, then the
+  packed loadout of the game's slot 0, Config::packed) set as the local
+  player's data; the team masks from the lobby's team (0x00435910); the
+  game's unlimited ammo (+0x8d, 0x004b0220) and outside view (+0x8e,
+  0x0040ae70(1)); the scores (0x004361e0, a hook); then aiv.zrd's
+  "remote_<slot>" (the lobby slot's +0x20), moved 10 m by the slot
+  (0x0046e0a0: slots 2-4 +x, 1 and 5 none, the rest -x; 0-2 +z, 3 and 7
+  none, the rest -z), the mech placed there (vt+0xdc) and the force
+  feedback's spring started (0x004338a0). The mech's definition is loaded
+  first and unused (0x004846a0). The record's read 0x0046d820
+  (`net_read_record`, under 8 bytes none). `Config::unpacked` = 0x004259c0
+  (named "remote config", made by the player; the engine clamped to the
+  table; the armour tons come back doubled, then an armour item sets them
+  again; FIX (bug): no items read past the record), with the ammo and
+  weapon adders 0x00472210 (onto the like item unless over a ton) and
+  0x00472330. The lobby's team and slot are hooks until piece 11. Tests:
+  `test_config_unpack.py` (744 packed loadouts, every dfn's built-ins
+  changed, identical with their weight and Validate; a break caught; a
+  stock loadout unpacked is valid exactly when it was),
+  `test_mech_net_launch.py` (600 launches identical; a break caught).
+
 ## Open
 
 - The COM object at [0x007307e0] (CLSID 3faf0afe-...): what it is and

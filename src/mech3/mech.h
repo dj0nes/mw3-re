@@ -200,6 +200,8 @@ struct Mech : Vehicle {
   Vec3 lock_velocity{};      // +0x64c  vt+0xc's (0x0041d480): the lead velocity when last asked
   HeatSinks heat_sinks;      // +0x658
   Handle attacker = nullptr;  // +0x664  the last to hit it
+  uint8_t net_acked = 0;     // +0x668  the last state sent has arrived (0x004709d0)
+  uint32_t net_sent = 0;     // +0x66c  that send's id
   std::list<Handle> x678;    // +0x678, count +0x67c (an empty list)
   uint32_t x680 = 0;         // +0x680
   MechData* pilot = nullptr;    // +0x684

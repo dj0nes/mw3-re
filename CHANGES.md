@@ -550,3 +550,4 @@ Known quirks the rebuild deliberately keeps:
 - The mobile field bases stay where you called them after a repair: the next mech (a lancemate told to repair, or you powering down on the spot again) is repaired without calling them again; the third MFB press still sends them away (bug fixes on).
 - Every mech's engine tops out at 400.
 - Multiplayer runs over UDP with ENet instead of DirectPlay, which modern systems no longer have: games are found on the local network or joined by address (`IP:port`, the host's UDP port forwarded for internet play). IPX, modem and serial connections are gone. In progress: for now a session starts from the command line (`--host`, `--join`); the lobby screens come later.
+- Another player's loadout that arrives cut short is read only as far as it goes, instead of past its end.

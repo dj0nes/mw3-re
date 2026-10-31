@@ -2341,6 +2341,13 @@ void wire_mission_hooks(GameEngine* e) {
   net_set_game_clear([] {  // the network start's (0x0046ceb0): the network game's +0x7c, +0x80, +0x84
     if (MultiplayerGame* g = current_pilot() ? current_pilot()->multiplayer() : nullptr) g->x7c = g->x80 = g->x84 = 0;
   });
+  net_set_launch_game([](NetLaunchGame* out) {  // the network launch's (0x0046da80): slot 0 is +0x20 (0x00437800)
+    MultiplayerGame* g = current_pilot() ? current_pilot()->multiplayer() : nullptr;
+    if (!g) return false;
+    out->loadout = g->slot.config, out->skin = g->slot.skin;
+    out->unlimited_ammo = g->b8d != 0, out->outside_view = g->b8e != 0;
+    return true;
+  });
 }
 
 // 0x00490880 on the missions object: the load, then (a debug launch, our
