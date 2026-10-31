@@ -14,15 +14,16 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 from calltrace import Emu, Trace, rnd  # noqa: E402
-from original import EXE, ROOT  # noqa: E402
+from original import EXES, ROOT  # noqa: E402
 
 READER = ROOT / 'game' / 'mw3-1.2' / 'zbd' / 'reader.zbd'
 READ_NODE = 0x557180
 
 
 def iat_slots():
-    """Import name -> IAT slot address."""
-    b = EXE.read_bytes()
+    """Import name -> IAT slot address, MW3's (original.py maps them to the
+    exe that runs)."""
+    b = EXES['mw3'][0].read_bytes()
     pe = struct.unpack_from('<I', b, 0x3c)[0]
     nsec = struct.unpack_from('<H', b, pe + 6)[0]
     optsz = struct.unpack_from('<H', b, pe + 20)[0]

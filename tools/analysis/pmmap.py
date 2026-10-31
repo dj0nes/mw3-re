@@ -22,11 +22,18 @@ PAIRS = os.path.join(ROOT, 'analysis-output', 'pm-diff', 'pairs.json')
 ADDR = re.compile(r'Mech3\.exe 1\.2 @ (0x[0-9a-fA-F]+)')
 
 
+FLAGS = os.path.join(ROOT, 'analysis-output', 'pm-diff', 'compiler-flags.json')
+flags = json.load(open(FLAGS)) if os.path.exists(FLAGS) else {}
+
+
 def status(p):
     if p['kind'] == 'identical':
         return 'identical'
     if p['kind'] == 'changed':
-        return 'features' if p['feature_diff'] else 'compiler'
+        if p['feature_diff']:
+            return 'features'
+        f = flags.get(p['mw3'], {})
+        return 'layout' if f.get('layout') or f.get('imm') else 'compiler'
     return p['kind']
 
 
@@ -64,10 +71,10 @@ def main():
         rows[mod][s] += 1
         if s in ('features', 'MW3 only'):
             detail[mod].append((a, s, p))
-    order = ['identical', 'compiler', 'features', 'MW3 only', 'not in the diff']
+    order = ['identical', 'compiler', 'layout', 'features', 'MW3 only', 'not in the diff']
     tot = Counter()
     print('## The port\'s functions in PM (by the port\'s module)\n')
-    label = {'compiler': 'compiler only', 'features': 'changed', 'MW3 only': 'gone'}
+    label = {'compiler': 'compiler only', 'layout': 'compiler, other offsets or constants', 'features': 'changed', 'MW3 only': 'gone'}
     print('| module | ' + ' | '.join(label.get(k, k) for k in order) + ' |')
     print('|---|' + '---|' * len(order))
     for mod in sorted(rows, key=lambda m: -sum(rows[m].values())):
@@ -81,10 +88,10 @@ def main():
             continue
         un[file_of(p.get('mw3_file'))][status(p)] += 1
     print('\n## MW3 functions not ported yet, by MW3 source file (range start)\n')
-    print('| file | ' + ' | '.join(label.get(k, k) for k in order[:4]) + ' |')
-    print('|---|' + '---|' * 4)
+    print('| file | ' + ' | '.join(label.get(k, k) for k in order[:5]) + ' |')
+    print('|---|' + '---|' * 5)
     for f in sorted(un, key=lambda f: -sum(un[f].values()))[:40]:
-        print(f'| {f} | ' + ' | '.join(str(un[f][k]) for k in order[:4]) + ' |')
+        print(f'| {f} | ' + ' | '.join(str(un[f][k]) for k in order[:5]) + ' |')
     new = Counter(file_of(p.get('pm_file')) for p in pairs if p['kind'] == 'new in PM')
     print('\n## New in PM, by PM source range (start)\n')
     for f, n in new.most_common(30):

@@ -25,7 +25,7 @@ from unicorn.x86_const import (UC_X86_REG_EAX, UC_X86_REG_ECX, UC_X86_REG_EDX, U
                                 UC_X86_REG_ESP)
 
 sys.path.insert(0, str(Path(__file__).parent))
-from original import EXE, FTOL, GAME, IAT_FTOL, ROOT, Original  # noqa: E402
+from original import EXE, FTOL, GAME, IAT_FTOL, ROOT, Original, to_exe  # noqa: E402
 
 ASM = ROOT / 'analysis-output' / 'mech3.asm'
 _ret_cache = {}
@@ -66,6 +66,23 @@ def _starts():
     return _starts_cache
 
 
+class PmImage:
+    """PM's image as MW3's addresses see it (snapshot): a byte through the
+    address map, 0 where the map has none."""
+
+    def __init__(self, cpu):
+        self.cpu = cpu
+
+    def __len__(self):
+        return 0x420000
+
+    def __getitem__(self, off):
+        try:
+            return self.cpu.read(0x400000 + off, 1)[0]
+        except Exception:
+            return 0
+
+
 def ret_pop(addr):
     """Bytes a function pops on return, from its first `ret` in the disassembly."""
     if addr in _ret_cache:
@@ -79,11 +96,15 @@ def ret_pop(addr):
     # another exe runs (original.select): decode this one from the exe.
     if addr not in index or GAME != 'mw3':
         import subprocess
-        out = subprocess.run(['objdump', '-d', '--no-show-raw-insn', '--x86-asm-syntax=intel', f'--start-address={addr:#x}',
-                              f'--stop-address={end:#x}', str(EXE)],
+        at = to_exe(addr)  # PM's exe: the twin's code
+        stop = end if GAME == 'mw3' else at + 0x4000
+        out = subprocess.run(['objdump', '-d', '--no-show-raw-insn', '--x86-asm-syntax=intel', f'--start-address={at:#x}',
+                              f'--stop-address={stop:#x}', str(EXE)],
                              capture_output=True, text=True).stdout
         lines = out.split('\n')
         index = {addr: 0}
+        if GAME != 'mw3':
+            end = stop
     i = index[addr]
     for line in lines[i:i + 4000]:
         m = re.match(r'^\s+([0-9a-f]+):', line)
@@ -269,7 +290,8 @@ class Emu:
 
     def snapshot(self):
         """The memory as it is now, for the rebuild's reads."""
-        regions = [(0x400000, self.cpu.read(0x400000, 0x420000)),
+        image = (0x400000, self.cpu.read(0x400000, 0x420000)) if GAME == 'mw3' else (0x400000, PmImage(self.cpu))
+        regions = [image,
                    (self.world_base, self.cpu.read(self.world_base, self.world_next - self.world_base)),
                    (0x10000000, self.cpu.read(0x10000000, self.cpu.heap_next - 0x10000000))]
 
