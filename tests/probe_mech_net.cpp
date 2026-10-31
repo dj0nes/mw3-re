@@ -559,3 +559,143 @@ extern "C" int32_t probe_mech_net_send(const int32_t* in, int32_t* out, int32_t 
   return n;
 }
 extern "C" int32_t probe_mech_net_in_count() { return kInCount; }
+
+// The receive side (0x0046e4d0, 0x0046ed70, 0x00470a00, 0x004709d0) for
+// test_mech_net_apply.py; the input layout is the test's (Rx below).
+namespace {
+enum Rx {
+  rMode, rLen, rMsg, rFlagsIn = rMsg + 64, rPosIn, rVelIn = rPosIn + 3, rHeadingQ = rVelIn + 3, rAimQ = rHeadingQ + 4,
+  rHeard = rAimQ + 4, rLatency, rOrient, rWorld = rOrient + 4, rTorsoAt = rWorld + 3, rXbc = rTorsoAt + 3, rPower,
+  rMasc, rNarc, rCrouched, rAnimState, rAms, rLocal, rNow, rDt, rPingId, rPingSent, rAcked, rPilotSent, rRemotes,
+  rOwners, rRxCount = rOwners + 4
+};
+const int32_t* g_rx;
+std::vector<NetMech*> g_rx_remotes;
+mech3::Mech* g_rx_pilot;
+struct LogPart : mech3::Arm {
+  int32_t index = 0;
+  void set_internal(float v, int s) override { log({13, index, 0, bits(v), s}); }
+  void set_armor(float v, int s) override { log({13, index, 1, bits(v), s}); }
+};
+struct LogTorsoRx : mech3::Torso {
+  void set_internal(float v, int s) override { log({13, 1, 0, bits(v), s}); }
+  void set_armor(float v, int s) override { log({13, 1, 1, bits(v), s}); }
+};
+int32_t mech_code(const void* p) {
+  if (!p) return 0;
+  if (p == g_rx_pilot) return 1;
+  for (size_t k = 0; k < g_rx_remotes.size(); ++k)
+    if (p == g_rx_remotes[k]) return 2 + static_cast<int32_t>(k);
+  return -1;
+}
+}  // namespace
+
+extern "C" int32_t probe_mech_net_apply(const int32_t* in, int32_t* out, int32_t cap) {
+  std::vector<int32_t> lg;
+  g_log = &lg;
+  g_rx = in;
+  mech3::NetCalls& c = mech3::net_calls();
+  c = mech3::NetCalls{};
+  c.now_ms = [] { return static_cast<uint32_t>(g_rx[rNow]); };
+  c.position = [](mech3::Mech&, float o[3]) {
+    for (int i = 0; i < 3; ++i) o[i] = fbits(g_rx[rWorld + i]);
+    return true;
+  };
+  c.torso_position = [](mech3::Mech&, float o[3]) {
+    for (int i = 0; i < 3; ++i) o[i] = fbits(g_rx[rTorsoAt + i]);
+    return true;
+  };
+  c.mech_call = [](NetMech&, uint32_t fn, int32_t arg) { log({10, static_cast<int32_t>(fn), arg}); };
+  c.aim = [](NetMech&, const float a[3]) { log({11, bits(a[0]), bits(a[1]), bits(a[2])}); };
+  c.fire = [](NetMech&, uint32_t slot, uint32_t target, int32_t trigger) {
+    log({12, static_cast<int32_t>(slot), static_cast<int32_t>(target), trigger});
+  };
+  c.radar_toggled = [](NetMech&) { log({14}); };
+  c.pick_target = [](NetMech&, mech3::Handle v) { log({15, mech_code(v)}); };
+  c.respawn_at = [](NetMech&, const float p[3]) { log({16, bits(p[0]), bits(p[1]), bits(p[2])}); };
+  c.set_position = [](NetMech&, const float p[3]) { log({20, bits(p[0]), bits(p[1]), bits(p[2])}); };
+  static mech3::Mech pilot;
+  g_rx_pilot = &pilot;
+  pilot.net_sent = static_cast<uint32_t>(in[rPilotSent]), pilot.net_acked = 0;
+  c.pilot_mech = []() -> mech3::Mech* { return g_rx_pilot; };
+  Data t;
+  znet::session() = znet::Session{};
+  znet::Session& s = znet::session();
+  s.transport = &t, s.initialised = true, s.open = true;
+  s.local = std::make_unique<znet::Player>();
+  s.local->id = static_cast<uint32_t>(in[rLocal]);
+  mech3::NetGame& g = mech3::net_game();
+  g = mech3::NetGame{};
+  g.running = true;
+  g.acked_time = static_cast<uint32_t>(in[rAcked]);
+  g.reckon_damp = -0.3f;
+  g_rx_remotes.clear();
+  for (int32_t k = 0; k < in[rRemotes]; ++k) {
+    auto* r = new NetMech();
+    r->owner = static_cast<uint32_t>(in[rOwners + k]);
+    g.mechs.push_back(r);
+    g_rx_remotes.push_back(r);
+  }
+  auto* m = new NetMech();
+  m->remote = true;
+  m->state.flags = static_cast<uint32_t>(in[rFlagsIn]);
+  for (int i = 0; i < 3; ++i) m->state.pos[i] = fbits(in[rPosIn + i]), m->velocity_in[i] = fbits(in[rVelIn + i]);
+  for (int i = 0; i < 4; ++i)
+    m->heading_q[i] = fbits(in[rHeadingQ + i]), m->aim_q[i] = fbits(in[rAimQ + i]), m->orientation[i] = fbits(in[rOrient + i]);
+  m->heard = static_cast<uint32_t>(in[rHeard]);
+  m->latency = fbits(in[rLatency]);
+  float transform[12] = {};
+  m->transform = transform;
+  m->xbc = static_cast<uint8_t>(in[rXbc]);
+  m->power_down_pending = (in[rPower] & 1) != 0, m->powered_down = (in[rPower] & 2) != 0;
+  m->masc_time = fbits(in[rMasc]), m->narc_time = fbits(in[rNarc]);
+  m->crouched = in[rCrouched] != 0;
+  m->anim_state = in[rAnimState];
+  mech3::Ams ams(0, 0, 0);
+  ams.on = in[rAms] == 2;
+  m->ams = in[rAms] ? &ams : nullptr;
+  m->ping_id = static_cast<uint32_t>(in[rPingId]);
+  m->ping_sent = static_cast<uint32_t>(in[rPingSent]);
+  LogTorsoRx torso;
+  m->torso = &torso;
+  LogPart parts[5];
+  for (int i = 0; i < 5; ++i) parts[i].index = 2 + i;
+  m->arms[0] = &parts[0], m->arms[1] = &parts[1];
+  m->legs[0] = reinterpret_cast<mech3::Leg*>(static_cast<mech3::MechPart*>(&parts[2]));
+  m->legs[1] = reinterpret_cast<mech3::Leg*>(static_cast<mech3::MechPart*>(&parts[3]));
+  m->head = reinterpret_cast<mech3::Head*>(static_cast<mech3::MechPart*>(&parts[4]));
+  mech3::NetControls ctl;
+  m->controls = &ctl;
+  std::vector<uint8_t> msg(static_cast<size_t>(in[rLen]));
+  std::memcpy(msg.data(), in + rMsg, msg.size());
+  const int32_t mode = in[rMode];
+  if (mode == 0) mech3::net_state_apply(*m, msg.data(), msg.size());
+  else if (mode == 1) mech3::net_reckon(*m, fbits(in[rDt]));
+  else if (mode == 2) mech3::net_ping_in(*m, msg.data(), msg.size());
+  else mech3::net_send_done(msg.data(), msg.size());
+  log({90});
+  const uint32_t* st = reinterpret_cast<const uint32_t*>(&m->state);
+  for (int i = 0; i < 15; ++i) g_log->push_back(static_cast<int32_t>(st[i]));
+  for (float v : m->velocity_in) g_log->push_back(bits(v));
+  for (float v : m->heading_q) g_log->push_back(bits(v));
+  for (float v : m->aim_q) g_log->push_back(bits(v));
+  for (float v : m->orientation) g_log->push_back(bits(v));
+  for (int i = 0; i < 9; ++i) g_log->push_back(bits(transform[i]));
+  for (float v : torso.turn_q) g_log->push_back(bits(v));
+  log({91, static_cast<int32_t>(m->heard), m->xbc, m->ams ? m->ams->on : -1, bits(ctl.throttle_target),
+       bits(ctl.turn_target), bits(ctl.jump_target), ctl.jump_held, bits(m->latency)});
+  for (uint32_t w : m->ping_in) g_log->push_back(static_cast<int32_t>(w));
+  log({92, static_cast<int32_t>(m->ping_heard), pilot.net_acked, static_cast<int32_t>(g.acked_time)});
+  m->torso = nullptr, m->controls = nullptr, m->ams = nullptr, m->transform = nullptr;
+  m->arms[0] = m->arms[1] = nullptr, m->legs[0] = m->legs[1] = nullptr, m->head = nullptr;
+  delete m;
+  for (NetMech* r : g_rx_remotes) delete r;
+  g_rx_remotes.clear();
+  g = mech3::NetGame{};
+  znet::session() = znet::Session{};
+  c = mech3::NetCalls{};
+  const int32_t n = static_cast<int32_t>(std::min<size_t>(lg.size(), static_cast<size_t>(cap)));
+  std::copy(lg.begin(), lg.begin() + n, out);
+  return n;
+}
+extern "C" int32_t probe_mech_net_rx_count() { return rRxCount; }

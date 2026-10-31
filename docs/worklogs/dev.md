@@ -2309,3 +2309,14 @@ Assigned after 8b2 merged (fd3f05f). The lead asked for a section stepped at bot
   for 0x525f80; ceil (test_mechsave's); the kinds of pieces 7/8 are caught
   where their case starts and sent to the epilogue. The host's ping reads
   the game unchecked: only sent from the timer, which has one.
+
+## Multiplayer, piece 6b: the receive side (2026-10-31)
+
+- 0x46e4d0 and 0x46ed70 read from the asm: the respawn's call has the mech
+  in ECX and the static 0x12 message on the stack; the aim extrapolation
+  sets the quaternion's z (its 4th word) to 0; the reckoning's blend is
+  0x51e380 (p = (1-k) recv + k p).
+- The apply's mech calls, the weapons' aim and fire are test hooks
+  (NetCalls::mech_call, aim, fire); the probe's parts log their setters.
+- test_mech_net_apply.py: the aim points (the torso's place plus a rotated
+  range, ~1000 m terms) are compared to those terms' rounding.

@@ -56,6 +56,7 @@ struct NetMechSeen {
   int32_t made = 0, remote = 0, collides = 1, torso_mode = -1, in_world = 0, configs = 0, config_named = 0;
   int32_t moved = 0, after_leave = -1, handlers_after = -1;
   int32_t state_sent = 0;  // the pilot's state (0xf) reached the other player, at the pilot's place
+  int32_t followed = 0;    // a second state 10 m on (to be taken at once, flag bit 0) and a frame: the mech there
 };
 bool program_net_mech_check(NetMechSeen* out);
 // The pocket commander's program side (app_pocket.cpp), from wire_mech_build;

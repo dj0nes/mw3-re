@@ -880,6 +880,13 @@ From the weapon code (weapons.md).
   carries every part's damage anyway: a lost hit shows up on the others'
   screens within a few seconds. At one minute left the game says so, and
   at three seconds left the game starts ending. (`network-messages.md`)
+- **Other players' mechs glide between updates, and their aim is not
+  corrected for lag.** Each update pulls a remote mech toward where it was
+  said to be, and between updates it carries on at its last speed, slowing
+  by about a quarter a second. The aim is meant to be pushed forward by the
+  measured lag, but the lag (in seconds) is divided by the time since the
+  last update (in milliseconds), so the correction is a tenth of a percent:
+  in effect none. (`multiplayer-port.md`, piece 6b)
 - **Only one copy runs at a time.** Started a second time, the game finds the
   first window and brings it to the front instead. Launched from a multiplayer
   lobby, it closes the old copy instead.

@@ -1007,7 +1007,29 @@ void wire_net(bool on) {
   };
   const auto net_update = [](Mech& m, float dt) {
     if (!m.remote) return net_mech_tick(m);
-    if (net_calls().reckon) net_calls().reckon(*static_cast<NetMech*>(&m), dt);
+    auto& n = *static_cast<NetMech*>(&m);
+    net_calls().reckon ? net_calls().reckon(n, dt) : net_reckon(n, dt);
+  };
+  // The apply's (0x0046e4d0): the target (0x004a7b40, as the pocket
+  // commander's pick), the radar's light, the pilot's mech; the shots'
+  // target players (0x004b08c0's lookup).
+  nc.pick_target = [](NetMech& m, Handle v) {
+    const zgame::Handle e = v ? g_w.handle_of(g_w.engine, v) : 0;
+    if (m.target && m.target->seen == e) return;
+    ai::Contact* found = nullptr;
+    for (ai::Contact* c : m.contacts)
+      if (e && c->seen == e) {
+        found = c;
+        break;
+      }
+    m.set_target(found, false);
+  };
+  nc.radar_toggled = [](NetMech& m) { program_radar_light(&m); };
+  nc.pilot_mech = [] { return world().mission_player; };
+  weapon_calls().net_target = [](Handle id) -> Handle {
+    const auto player = static_cast<uint32_t>(reinterpret_cast<uintptr_t>(id));
+    if (player == znet::local_id()) return world().mission_player;
+    return net_mech(player);
   };
   update_calls().net_update = net_update;
   dead_calls().net_update = net_update;
@@ -1066,6 +1088,16 @@ bool program_net_mech_check(NetMechSeen* out) {
     float t[3];
     mech_world_position(m, t);
     out->moved = std::fabs(t[0] - at[0]) < 0.01f && std::fabs(t[2] - at[2]) < 0.01f;
+    // A second state 10 m on, its flag bit 0 set: the reckoning puts it there.
+    float on[3] = {at[0] + 10.0f, at[1], at[2]};
+    std::memcpy(state + 4, on, 12);
+    const uint32_t snap = 1;
+    std::memcpy(state + 0x38, &snap, 4);
+    b->send(1, state, sizeof state, true, nullptr);
+    znet::poll(-1);
+    net_reckon(*m, 1.0f / 30.0f);
+    mech_world_position(m, t);
+    out->followed = std::fabs(t[0] - on[0]) < 0.01f && std::fabs(t[2] - on[2]) < 0.01f;
   }
   // The pilot's own state, as the timer sends it (0x0046f160 kind 0xf).
   net_send_event(*me, 0xf, 0);

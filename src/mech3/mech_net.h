@@ -27,6 +27,24 @@ struct MechDfn;
 // mech, driven by their messages; made by 0x0046d450 from the player's
 // record. Its vtable's own slots (the update, the dead reckoning) are
 // pieces 6 and 7.
+// A mech's state as it arrives (0x3c bytes; network-messages.md, the 0xf
+// mech state), kept by its network mech.
+struct NetStateIn {
+  uint16_t type = 0, size = 0;  // +0x00
+  float pos[3] = {};            // +0x04  advanced by the dead reckoning
+  int16_t vel[3] = {};          // +0x10  x 127
+  uint16_t x16 = 0;             // +0x16
+  float heading = 0;            // +0x18  half the yaw
+  float torso[2] = {};          // +0x1c  the torso's two angles
+  int8_t throttle = 0, turn = 0;  // +0x24  x 127
+  uint8_t x26[2] = {};          // +0x26
+  float aim[2] = {};            // +0x28  the aim's turn
+  float range = 0;              // +0x30  and distance
+  uint32_t target = 0;          // +0x34  the target's player
+  uint32_t flags = 0;           // +0x38
+};
+static_assert(sizeof(NetStateIn) == 0x3c, "the state's fixed part");
+
 struct NetMech : Mech {
   uint32_t ping_heard = 0;     // +0x6d8  when their last ping came (timeGetTime, ms; 0x00470a00)
   uint32_t ping_in[5] = {};    // +0x6dc  that ping (type and size, id, the id echoed, a time, a delay)
@@ -34,8 +52,11 @@ struct NetMech : Mech {
   uint32_t ping_id = 0;        // +0x6f4  its id
   float latency = 0;           // +0x6f8  seconds, from their answer (0x00470a00); 0 once made
   uint32_t owner = 0;  // +0x6fc  the player it stands for
+  NetStateIn state;    // +0x700  the last state applied (0x0046e4d0)
   uint32_t heard = 0;  // +0x73c  when its last state came (timeGetTime, ms)
-  float orientation_in[4] = {1, 0, 0, 0};  // +0x740  (0x005eda50)
+  float aim_q[4] = {1, 0, 0, 0};      // +0x740  the last state's aim turn as a quaternion (0x005eda50 at first)
+  float heading_q[4] = {1, 0, 0, 0};  // +0x750  its heading: (cos h, 0, sin h, 0)
+  float velocity_in[3] = {};          // +0x760  its velocity, damped by the dead reckoning
   Handle label = nullptr;  // +0x76c  an object 0x005a00c0 makes (GDI text, not ported)
 };
 
@@ -138,6 +159,13 @@ struct NetCalls {
   int32_t (*send_other)(Mech& m, int32_t kind, intptr_t arg) = nullptr;  // 0x11-0x13, 0x17, 0x21 (piece 7)
   void (*rules_check)() = nullptr;                 // the host's every tenth ping (0x00576c10, 0x004707c0; piece 8)
   void (*game_over)() = nullptr;                   // 0x004707c0
+  // The apply's: the target picked (0x004a7b40, null none), the passive
+  // radar's light (the mech's vt+0xb8, 0x0041ded0), the respawn (0x0046ed30
+  // with the state's place; piece 7), the pilot's mech (+0x14).
+  void (*pick_target)(NetMech& m, Handle vehicle) = nullptr;
+  void (*radar_toggled)(NetMech& m) = nullptr;
+  void (*respawn_at)(NetMech& m, const float pos[3]) = nullptr;
+  Mech* (*pilot_mech)() = nullptr;
   // The state's reads of the mech: its world position (0x005a85e0), the
   // torso node's (0x004ed530), the target's player (0x004e7010 +0x6fc).
   bool (*position)(Mech& m, float out[3]) = nullptr;
@@ -148,6 +176,13 @@ struct NetCalls {
   const MechDfn* (*dfn)(int32_t roster) = nullptr;
   MechData* (*data)(int32_t roster) = nullptr;
   NetMech* (*make)(uint32_t owner, MechData* data, NetControls* ctl, Config* cfg, const char* name) = nullptr;
+  // ... and the apply's mech calls (fn the exe address: 0x0041cc30 power,
+  // 0x0041df50 MASC, 0x0041ac10 NARC, 0x0041bda0 crouch, 0x00415a90 the
+  // limp's end, 0x0041d5f0 its start, 0x00416780 an action), the weapons'
+  // aim (0x004b0bc0) and replayed shots (0x004b08c0);
+  void (*mech_call)(NetMech& m, uint32_t fn, int32_t arg) = nullptr;
+  void (*aim)(NetMech& m, const float at[3]) = nullptr;
+  void (*fire)(NetMech& m, uint32_t slot, uint32_t target, int32_t trigger) = nullptr;
   // ... and 0x004259c0, Validate 0x004254d0, the skin 0x00414390.
   Config* (*unpack)(const uint32_t* p, size_t words) = nullptr;
   bool (*valid)(const Config& c) = nullptr;
@@ -184,6 +219,23 @@ std::vector<uint8_t> net_state_message(Mech& m);
 void net_mech_tick(Mech& m);
 float net_send_period(int32_t players);  // 0x00470b40 (ECX the players)
 uint32_t net_next_player();              // 0x00470ab0: round the remote mechs' players
+
+// 0x0046e4d0 (NetCalls::state unset): a state applied to the sender's mech:
+// unless it is inactive, its velocity, throttle and turn, torso, aim
+// (extrapolated by the latency), heading, passive radar and target; its
+// shots replayed and parts' damage set; then its power, AMS, MASC, NARC,
+// crouch, jump and motion state's changes (a respawn's is piece 7's).
+void net_state_apply(NetMech& m, const uint8_t* msg, size_t size);
+// 0x0046ed70, a network mech's vt+0x158: to the state's place and heading,
+// at once when it said so (flag bit 0), else blended at the gains and
+// carried on at its damped velocity.
+void net_reckon(NetMech& m, float dt);
+// 0x00470a00 (NetCalls::ping unset): their ping; the latency from our last
+// one they answer.
+void net_ping_in(NetMech& m, const uint8_t* msg, size_t size);
+// 0x004709d0 (NetCalls::send_done unset): local message 0xe, the pilot's
+// last state has gone (its id and send time).
+void net_send_done(const uint8_t* msg, size_t size);
 
 // 0x0046da80 (ECX the pilot), at the multiplayer launch: the local player's
 // record (2, the skin, the mech, the packed loadout: Config::packed of the

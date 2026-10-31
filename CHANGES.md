@@ -553,3 +553,4 @@ Known quirks the rebuild deliberately keeps:
 - Another player's loadout that arrives cut short is read only as far as it goes, instead of past its end.
 - Another player's record that arrives cut short makes no mech instead of being read past its end.
 - A multiplayer update or shot aimed at something that is not another player's mech names no player, instead of whatever memory followed that object.
+- A multiplayer update that arrives cut short is dropped, and its shots and damage are read only as far as it goes.

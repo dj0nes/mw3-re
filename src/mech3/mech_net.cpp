@@ -17,6 +17,7 @@
 #include "mech3/mech_config.h"
 #include "mech3/mech_dead.h"
 #include "mech3/mech_build.h"
+#include "mech3/mech_control.h"
 #include "mech3/mech_reader.h"
 #include "mech3/mech_skin.h"
 #include "mech3/weapon.h"
@@ -35,6 +36,7 @@ void ignore(uint32_t, const uint8_t*, size_t) {}
 // Mech3.exe 1.2 @ 0x004709d0, message 0xe's (piece 6).
 void send_done(uint32_t from, const uint8_t* msg, size_t size) {
   if (g_calls.send_done) g_calls.send_done(nullptr, from, msg, size);
+  else net_send_done(msg, size);
 }
 
 void call(NetRoute fn, NetMech* m, uint32_t from, const uint8_t* msg, size_t size) {
@@ -120,8 +122,8 @@ void net_route(uint32_t from, const uint8_t* msg, size_t size) {
     return;
   }
   switch (type) {
-    case 0xf: return call(c.state, m, from, msg, size);
-    case 0x10: return call(c.ping, m, from, msg, size);
+    case 0xf: return c.state ? c.state(m, from, msg, size) : net_state_apply(*m, msg, size);
+    case 0x10: return c.ping ? c.ping(m, from, msg, size) : net_ping_in(*m, msg, size);
     case 0x11: return call(c.clock, m, from, msg, size);
     case 0x12: return call(c.respawn, m, from, msg, size);
     case 0x13: return call(c.kill, m, from, msg, size);
@@ -281,7 +283,7 @@ float net_send_period(int32_t players) {
 
 // Mech3.exe 1.2 @ 0x0046f160
 int32_t net_send_event(Mech& m, int32_t kind, intptr_t arg) {
-  if (!g_net.running) return 0;
+  if (!g_net.running || m.remote) return 0;  // a network mech's vt+0x168 is 0x0046ef50: 0
   const NetCalls& c = g_calls;
   switch (kind) {
     case 0xf: {
@@ -364,6 +366,205 @@ void net_mech_tick(Mech& m) {
   const int32_t state = g->end_state ? *g->end_state : 0;
   if (state != 0 && state != 3) net_send_event(m, 0x11, reinterpret_cast<intptr_t>(g));
   if (state == 3 && g->end_time && game_time() > *g->end_time && c.game_over) c.game_over();
+}
+
+namespace {
+// The apply's calls on the mech, through the test hook when set.
+void mech_do(NetMech& m, uint32_t fn, int32_t arg) {
+  if (g_calls.mech_call) return g_calls.mech_call(m, fn, arg);
+  switch (fn) {
+    case 0x41cc30: m.power(arg); break;
+    case 0x41df50: m.masc(arg != 0); break;
+    case 0x41ac10: m.mark_narc(arg != 0); break;
+    case 0x41bda0: m.crouch(arg != 0); break;
+    case 0x415a90: m.end_limp(); break;
+    case 0x41d5f0: m.start_limp(arg, false); break;
+    case 0x416780: m.queue_action(arg, true); break;
+    default: break;
+  }
+}
+}  // namespace
+
+// Mech3.exe 1.2 @ 0x0046e4d0. The controls are set through IControls
+// (vt+0x20 the throttle, +0x28 the turn, +0x34 the jump). The aim's turn
+// is carried on from the last by the latency over the gap since that
+// state, a latency in seconds over a gap in milliseconds (so barely), and
+// its z dropped then (it is 0 anyway).
+void net_state_apply(NetMech& m, const uint8_t* msg, size_t size) {
+  const NetCalls& c = g_calls;
+  if (size < sizeof(NetStateIn)) return;  // FIX (bug): the exe reads 0x3c bytes whatever came
+  std::memcpy(&m.state, msg, sizeof(NetStateIn));
+  const NetStateIn& st = m.state;
+  const bool inactive = (st.flags >> 1 & 1) != 0;
+  if (!inactive) {
+    constexpr double kInv127 = 0.00787402;  // [0x005c33c8]
+    for (int i = 0; i < 3; ++i) m.velocity_in[i] = static_cast<float>(st.vel[i] * kInv127);
+    if (m.controls) {
+      m.controls->set_throttle(static_cast<float>(st.throttle * kInv127));
+      m.controls->set_turn(static_cast<float>(st.turn * kInv127));
+    }
+    float tq[4];
+    zmth::quat_two_angles(st.torso[1], st.torso[0], tq);  // 0x00525280
+    if (m.torso) std::memcpy(m.torso->turn_q, tq, sizeof tq);  // 0x004646f0
+    zmth::Vec3 v{st.aim[0], st.aim[1], 0.0f};
+    zmth::Quat q;
+    zmth::quat_exp(v, q);  // 0x00525900
+    const float qn[4] = {q.w, q.x, q.y, q.z};
+    float use[4];
+    if (m.aim_q[1] == 0.0f || m.aim_q[2] == 0.0f) {
+      std::memcpy(use, qn, sizeof use);
+    } else {
+      const uint32_t now = c.now_ms ? c.now_ms() : ztimer::ticks_ms();
+      const double gap = static_cast<double>(now - m.heard);
+      const double f = gap > 1.0 ? (m.latency + gap) / gap : 1.0;
+      for (int i = 0; i < 3; ++i) use[i] = static_cast<float>((qn[i] - m.aim_q[i]) * f + m.aim_q[i]);
+      use[3] = 0.0f;
+    }
+    std::memcpy(m.aim_q, qn, sizeof qn);
+    m.heard = c.now_ms ? c.now_ms() : ztimer::ticks_ms();
+    const zmth::Quat uq{use[0], use[1], use[2], use[3]};
+    const zmth::Vec3 ahead{0.0f, 0.0f, -st.range};
+    zmth::Vec3 dir;
+    zmth::quat_rotate(uq, ahead, dir);  // 0x00525840
+    float at[3] = {0, 0, 0};
+    if (c.torso_position) c.torso_position(m, at);
+    const Vec3f aim{at[0] + dir.x, at[1] + dir.y, at[2] + dir.z};
+    if (c.aim) c.aim(m, &aim.x);
+    else if (auto* w = static_cast<WeaponManager*>(m.ammo)) w->set_aim(&aim);  // 0x004b0bc0
+    m.heading_q[0] = static_cast<float>(std::cos(static_cast<double>(st.heading)));
+    m.heading_q[1] = 0.0f;
+    m.heading_q[2] = static_cast<float>(std::sin(static_cast<double>(st.heading)));
+    m.heading_q[3] = 0.0f;
+    const uint8_t passive = static_cast<uint8_t>(st.flags >> 23 & 1);
+    if (passive != (m.xbc >> 2 & 1)) {
+      m.xbc = static_cast<uint8_t>((m.xbc & ~4) | passive << 2);
+      if (c.radar_toggled) c.radar_toggled(m);  // vt+0xb8
+    }
+    Handle target = nullptr;
+    if (st.target == znet::local_id()) target = c.pilot_mech ? c.pilot_mech() : nullptr;
+    else target = net_mech(st.target);  // 0x00470c20
+    if (c.pick_target) c.pick_target(m, target);  // 0x004a7b40
+  }
+  // The shots and the damaged parts after the fixed part: the parts follow
+  // the shots, and are taken only when the message holds more than them.
+  if (size >= 4) {
+    uint16_t full;
+    std::memcpy(&full, msg + 2, 2);
+    if (full > 0x3c && full <= size) {
+      const uint32_t shots = st.flags >> 12 & 0x7f, parts = st.flags >> 19 & 0xf;
+      const uint8_t* shot = shots ? msg + 0x3c : nullptr;
+      const uint8_t* part = shots == 0 ? msg + 0x3c : shots + 0x3c < full ? msg + 0x3c + shots : nullptr;
+      if (!inactive && shot) {
+        auto* w = static_cast<WeaponManager*>(m.ammo);
+        for (uint32_t k = 0; k < shots; ++k) {
+          const uint8_t b = shot[k];
+          const uint32_t at = b & 0x40 ? st.target : 0;  // a player id, as the exe passes it
+          if (c.fire) c.fire(m, b & 0xf, at, b >> 4 & 3);
+          else if (w) w->net_fire(b & 0xf, reinterpret_cast<Handle>(static_cast<uintptr_t>(at)), b >> 4 & 3);  // 0x004b08c0
+        }
+      }
+      for (uint32_t k = 0; part && k < parts && part + 4 * k + 4 <= msg + full; ++k) {
+        uint32_t word;
+        std::memcpy(&word, part + 4 * k, 4);
+        const uint32_t id = word & 0xff;
+        if (id == 0 || id >= 9) continue;
+        const int32_t sub = id == 7 ? 1 : id == 8 ? 2 : 0;
+        MechPart* p = part_by_id(m, static_cast<int32_t>(id));
+        if (!p) continue;
+        constexpr float k255 = 1.0f / 255.0f;  // [0x005e56ec]
+        p->set_internal(static_cast<float>(word >> 8 & 0xff) * k255, sub);  // vt+0x3c
+        p->set_armor(static_cast<float>(word >> 16 & 0xff) * k255, sub);    // vt+0x40
+        p->set_armor(static_cast<float>(word >> 24) * k255, sub + 3);
+      }
+    }
+  }
+  const uint32_t f = st.flags;
+  const bool down = (f >> 24 & 1) != 0;
+  if (down && !m.is_powered_down()) mech_do(m, 0x41cc30, 1);  // vt+0xa0
+  else if (!down && m.is_powered_down()) mech_do(m, 0x41cc30, 0);
+  if (m.ams) m.ams->on = (f >> 26 & 1) != 0;
+  if ((f >> 25 & 1) != (m.masc_time != 0.0f ? 1u : 0u)) mech_do(m, 0x41df50, static_cast<int32_t>(f >> 25 & 1));
+  if ((f >> 27 & 1) != (m.narc_time > 0.0f ? 1u : 0u)) mech_do(m, 0x41ac10, static_cast<int32_t>(f >> 27 & 1));
+  if ((m.crouched ? 1u : 0u) != (f >> 31)) mech_do(m, 0x41bda0, static_cast<int32_t>(f >> 31));
+  if (m.controls) m.controls->set_jump((f >> 30 & 1) ? 1.0f : 0.0f);
+  const int32_t state = static_cast<int32_t>(f >> 2 & 0x1f);
+  bool respawn = false;
+  if (m.anim_state != state) {
+    switch (m.anim_state) {
+      case 0:
+        if (state != 1 && static_cast<uint32_t>(state) < 9) mech_do(m, 0x415a90, 0);
+        break;
+      case 1: case 2: case 3: case 4: case 5: case 6: case 7: case 8: case 9:
+        if (state == 0) mech_do(m, 0x41d5f0, static_cast<int32_t>(f >> 11 & 1));
+        break;
+      case 10: respawn = true; break;
+      case 12: if (state <= 9) mech_do(m, 0x416780, 6); break;
+      case 13: if (state <= 9) mech_do(m, 0x416780, 5); break;
+      default: break;
+    }
+  }
+  if (respawn && c.respawn_at) c.respawn_at(m, st.pos);  // 0x0046ed30 with the static 0x12 [0x005e55f8]
+}
+
+// Mech3.exe 1.2 @ 0x0046ed70
+void net_reckon(NetMech& m, float dt) {
+  const NetCalls& c = g_calls;
+  if (m.state.flags >> 1 & 1) return;
+  float p[3] = {0, 0, 0};
+  if (c.position) c.position(m, p);  // 0x005a85e0
+  float q[4];
+  if (m.state.flags & 1) {  // to the state's place and heading at once
+    std::memcpy(p, m.state.pos, sizeof p);
+    std::memcpy(q, m.heading_q, sizeof q);
+  } else {
+    float k = fast_exp(dt * g_net.reckon_gain);
+    if (k > 1.0f) k = 1.0f;
+    else if (k < 0.0f) k = 0.0f;
+    const float j = 1.0f - k;  // 0x0051e380: p toward the state's place
+    p[0] = j * m.state.pos[0] + k * p[0];
+    p[1] = m.state.pos[1] * j + k * p[1];
+    p[2] = m.state.pos[2] * j + k * p[2];
+    for (int i = 0; i < 3; ++i) m.state.pos[i] += m.velocity_in[i] * dt;
+    const float damp = fast_exp(dt * g_net.reckon_damp);
+    for (float& v : m.velocity_in) v *= damp;
+    zmth::quat_slerp(m.orientation, m.heading_q, k, q);  // 0x00525ce0
+  }
+  if (c.set_position) c.set_position(m, p);  // vtable +0x18
+  if (m.transform) zmth::quat_matrix(q, m.transform);  // 0x00525740
+  std::memcpy(m.orientation, q, sizeof q);
+  m.entity_moved();  // 0x005a85c0
+}
+
+// Mech3.exe 1.2 @ 0x00470a00. 0.0005 halves the round trip into seconds.
+void net_ping_in(NetMech& m, const uint8_t* msg, size_t size) {
+  const NetCalls& c = g_calls;
+  uint32_t w[5] = {};
+  std::memcpy(w, msg, std::min<size_t>(size, sizeof w));
+  if (m.ping_id == w[2]) {
+    const uint32_t now = c.now_ms ? c.now_ms() : ztimer::ticks_ms();
+    const double l = (static_cast<double>(now - m.ping_sent - w[4]) - static_cast<double>(g_net.acked_time - w[3])) *
+                     0.0005;  // [0x005c3408]
+    m.latency = l <= 0.0 ? 0.0f : static_cast<float>(l);
+  } else {
+    m.latency = 0;
+  }
+  std::memcpy(m.ping_in, w, sizeof w);
+  m.ping_heard = c.now_ms ? c.now_ms() : ztimer::ticks_ms();
+}
+
+// Mech3.exe 1.2 @ 0x004709d0. The exe's message held a pointer to
+// DirectPlay's DPMSG_SENDCOMPLETE (+0x1c the id, +0x24 the send time); ours
+// has them as its words (multiplayer-port.md piece 2).
+void net_send_done(const uint8_t* msg, size_t size) {
+  if (size < 12) return;
+  uint32_t id, sent;
+  std::memcpy(&id, msg + 4, 4);
+  std::memcpy(&sent, msg + 8, 4);
+  Mech* p = g_calls.pilot_mech ? g_calls.pilot_mech() : nullptr;
+  if (p && id == p->net_sent) {
+    p->net_acked = 1;
+    g_net.acked_time = sent;
+  }
 }
 
 // Mech3.exe 1.2 @ 0x0046e0a0

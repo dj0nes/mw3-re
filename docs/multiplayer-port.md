@@ -522,6 +522,36 @@ Then the two-process and soak tests over the whole flow, menus included.
   real state reaching the other player with its place. Not yet: the
   lobby's player count (0 until piece 11: the rate is then 0.5 s).
 
+- **Piece 6b** (2026-10-31): the receive side. 0x0046e4d0
+  (`net_state_apply`, the router's default for 0xf): the fixed part kept
+  (+0x700, `NetStateIn`); unless the state says inactive, the velocity
+  (x 1/127, +0x760), the throttle and turn through IControls (vt+0x20,
+  +0x28), the torso's turn (0x00525280 `zmth::quat_two_angles`, 0x004646f0),
+  the aim (quat_exp of its turn, carried on from the last by (latency +
+  gap) / gap, a latency in seconds over a gap in milliseconds; rotated onto
+  (0, 0, -range) from the torso node: the weapons' aim, 0x004b0bc0), the
+  heading quaternion (+0x750), the passive radar (vt+0xb8's light) and the
+  target (the pilot, a network mech by player 0x00470c20, or none:
+  0x004a7b40); then the shots replayed (0x004b08c0, the target a player id)
+  and the damaged parts set (vt+0x3c, vt+0x40 x 1/255; the parts read only
+  when the message holds more than the shots); the power, AMS, MASC, NARC,
+  crouch, jump and the motion state's changes (from 0: the limp's end;
+  from 1-9 to 0 its start; 12 / 13 the actions 6 / 5; from 10 the respawn,
+  piece 7's). 0x0046ed70 (`net_reckon`, a network mech's vt+0x158): to the
+  state's place and heading at once when its flag bit 0 says so, else
+  blended (fast_exp at -6.5) with the place carried on at the velocity,
+  damped at -0.3, and the heading slerped; set (vt+0x18), the matrix, the
+  entity moved. 0x00470a00 (`net_ping_in`): the latency, (round trip -
+  their delay - (our acked time - theirs)) x 0.0005. 0x004709d0
+  (`net_send_done`): the pilot's state acknowledged. A network mech's own
+  vt+0x168 is 0x0046ef50 (0): the sender answers nothing for it. Wired:
+  the target's pick, the radar's light, the shots' target players
+  (WeaponCalls::net_target). FIX (bug): a state under 0x3c bytes is
+  dropped, and the payload is read only as far as the message goes. Tests:
+  `test_mech_net_apply.py` (3000 applies, reckonings, pings and sends done
+  identical, floats within rounding; a break caught), and the c1m1 test's
+  second state followed (a break caught).
+
 ## Open
 
 - The COM object at [0x007307e0] (CLSID 3faf0afe-...): what it is and

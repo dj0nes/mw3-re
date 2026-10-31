@@ -11,6 +11,7 @@ namespace mech3 {
 
 void wire_hud();                  // the hooks onto the ports; called with the mech frame's
 void unwire_hud();
+void program_radar_light(void* mech);  // 0x0041ded0, a mech's vt+0xb8: the HUD's passive light
 void* program_hud_node_object(void* node);  // for the tests: the HUD's reticle pick (0x0040e920 through its hooks)
 void program_hud_update(float dt);
 void program_hud_weapons_layout(void* hud);  // 0x00446240 on its +0x6520
