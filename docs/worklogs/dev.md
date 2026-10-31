@@ -2228,3 +2228,23 @@ Assigned after 8b2 merged (fd3f05f). The lead asked for a section stepped at bot
   enumeration's answer read as [0x7307c0] after them. A prefix gives the
   teams members so the removal break shows. create_team on failure: no
   record (0x5883fb), fixed after the first version kept one.
+
+## Multiplayer, piece 4: the ENet transport (2026-10-31)
+
+- ENet 1.3.18 vendored (both downloads in the scratchpad's enet-dl; release
+  tarball 2a8a0c53..., GitHub tag archive 28603c89..., every kept file the
+  same). CMake: an `enet` library, unix.c's HAS_* macros, ws2_32 / winmm on
+  Windows; mw3sdl links it.
+- 0x5886c0 read: the record, the three enumerations, CreatePlayer(+0x18),
+  the caps, a poll, the record appended, host -> 0xd. The transport's
+  host/join now only open; create_player makes the player. The hub follows
+  (no events of existing players to a joiner: it enumerates).
+- net_enet: frames (kGame .. kRefused); the WELCOME roster's addresses as
+  the host sees them; the joiner's links to the others, held when a MESH
+  beats the host's PLAYER (a race the first version had). Blocking waits
+  (join, create_player) run NetOptions::while_waiting each round: the
+  in-process tests pump the host there.
+- mw3 --host/--join; the network log lines; the two-process test reads the
+  host's port from its log. Its ending is timing (who leaves first), so it
+  checks either side's view; the joiner's "the host N" line can show 0
+  (the 0xd can come after), so its "is the host" line is checked.

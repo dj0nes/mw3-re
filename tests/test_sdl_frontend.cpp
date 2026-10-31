@@ -2405,6 +2405,80 @@ TEST(sdl_movies_through_the_indeo_helper_pipe) {
   const std::vector<uint8_t> shot_files = bytes(dir + "/files.bmp"), shot_pipe = bytes(dir + "/pipe.bmp");
   EXPECT(shot_files.size() > 100000 && shot_files == shot_pipe);
 }
+
+// Two mw3 processes in a session (docs/multiplayer-port.md, piece 4): the
+// host on 127.0.0.1 and a port the system picks (parallel runs never meet,
+// loopback: no firewall prompt), its port read from its log; a joiner says
+// a line. Both see each other, the joiner learns the host from its 0xd, and
+// the host's leaving makes the joiner the host.
+TEST(sdl_two_processes_host_and_join) {
+  const std::string install = MW3_GAME_DIR;
+  std::error_code ec;
+  if (!std::filesystem::exists(install + "/zbd/mechlib.zbd", ec)) return;
+  const std::string dir = std::string(MW3_TEST_TMP) + "/sdl_net_two";
+  std::filesystem::remove_all(dir, ec);
+  std::filesystem::create_directories(dir + "/host", ec);
+  std::filesystem::create_directories(dir + "/join", ec);
+  auto spawn = [&](std::vector<std::string> args, const std::string& log) {
+    std::vector<char*> argv;
+    for (std::string& s : args) argv.push_back(s.data());
+    argv.push_back(nullptr);
+    posix_spawn_file_actions_t fa;
+    posix_spawn_file_actions_init(&fa);
+    posix_spawn_file_actions_addopen(&fa, 1, log.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    posix_spawn_file_actions_adddup2(&fa, 1, 2);
+    pid_t pid = 0;
+    if (posix_spawn(&pid, argv[0], &fa, nullptr, argv.data(), environ) != 0) pid = -1;
+    posix_spawn_file_actions_destroy(&fa);
+    return pid;
+  };
+  auto read = [](const std::string& path) {
+    std::string text;
+    if (std::FILE* f = std::fopen(path.c_str(), "r")) {
+      char buf[4096];
+      for (size_t n; (n = std::fread(buf, 1, sizeof buf, f)) > 0;) text.append(buf, n);
+      std::fclose(f);
+    }
+    return text;
+  };
+  const std::vector<std::string> common = {"--install", install, "--no-launcher", "--hidden", "--nosound", "--net-bind", "127.0.0.1"};
+  std::vector<std::string> h = {MW3_BIN, "--write-dir", dir + "/host", "--frames", "900", "--host", "--net-port", "0", "--net-name", "Ann"};
+  h.insert(h.end(), common.begin(), common.end());
+  const pid_t host = spawn(h, dir + "/host.log");
+  EXPECT(host > 0);
+  std::string port;
+  for (int i = 0; i < 200 && port.empty(); ++i) {
+    const std::string log = read(dir + "/host.log");
+    const size_t at = log.find("hosting on port ");
+    if (at != std::string::npos) port = log.substr(at + 16, log.find(' ', at + 16) - at - 16);
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+  }
+  EXPECT(!port.empty());
+  std::vector<std::string> j = {MW3_BIN, "--write-dir", dir + "/join", "--frames", "300", "--join", "127.0.0.1:" + port,
+                                "--net-name", "Bob", "--net-say", "hello from Bob@60"};
+  j.insert(j.end(), common.begin(), common.end());
+  const pid_t joiner = spawn(j, dir + "/join.log");
+  int status = 0;
+  if (joiner > 0) waitpid(joiner, &status, 0);
+  if (host > 0) waitpid(host, &status, 0);
+  const std::string hl = read(dir + "/host.log"), jl = read(dir + "/join.log");
+  auto has = [](const std::string& s, const char* what) { return s.find(what) != std::string::npos; };
+  std::printf("  host: %s, joiner: %s\n", has(hl, "player 2 (Bob) joined") ? "saw Bob" : "no Bob",
+              has(jl, "as player 2 (Bob)") ? "player 2" : "not joined");
+  // The joiner's own line comes as its player is made, before or after the
+  // host's 0xd: its "is the host" line says it either way.
+  const bool all = has(hl, "as player 1 (Ann), the host 1") && has(jl, "as player 2 (Bob)") &&
+                   has(jl, "player 1 (Ann) is the host") && has(hl, "player 2 (Bob) joined") &&
+                   has(hl, "player 2 (Bob) says \"hello from Bob\"");
+  if (!all)  // what each saw, for the failure
+    for (const std::string* l : {&hl, &jl})
+      for (size_t at = 0; (at = l->find("mw3: network", at)) != std::string::npos; ++at)
+        std::printf("  %s: %s\n", l == &hl ? "host" : "join", l->substr(at, l->find('\n', at) - at).c_str());
+  EXPECT(all);
+  // Whoever leaves first, the other sees it; the host gone, Bob hosts (the
+  // lowest id left, DPSYS_HOST, his 0xd to himself).
+  EXPECT(has(hl, "player 2 (Bob) left") || (has(jl, "player 1 (Ann) left") && has(jl, "player 2 (Bob) is the host")));
+}
 #endif
 
 #if !defined(_WIN32)  // posix_spawn (ours, not on Windows)

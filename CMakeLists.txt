@@ -479,9 +479,10 @@ if(SDL3_FOUND)
     src/frontend/sdl/sdl_render3d.cpp
     src/frontend/sdl/sdl_sound.cpp
     src/frontend/sdl/sdl_vfw.cpp
+    src/frontend/sdl/net_enet.cpp
     src/frontend/sdl/sdl_child.cpp
   )
-  target_link_libraries(mw3sdl PUBLIC mw3core SDL3::SDL3)
+  target_link_libraries(mw3sdl PUBLIC mw3core SDL3::SDL3 enet)
   # Windows: the Direct3D 12 shaders (sdl_render3d.hlsl), DXIL by the
   # Windows SDK's dxc, as headers the renderer includes.
   if(WIN32)
@@ -593,6 +594,7 @@ if(SDL3_FOUND)
     add_executable(mw3sdltests
       tests/main.cpp
       tests/test_sdl_frontend.cpp
+      tests/test_net_enet.cpp
     )
     target_link_libraries(mw3sdltests PRIVATE mw3text mw3sdl mw3core SDL3::SDL3)
     target_compile_definitions(mw3sdltests PRIVATE MW3_GAME_DIR="${MW3_GAME_DIR}"

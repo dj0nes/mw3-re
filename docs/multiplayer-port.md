@@ -347,6 +347,43 @@ Then the two-process and soak tests over the whole flow, menus included.
   identical; two breaks caught), `znet_teams_data_and_a_kick` (a break
   caught).
 
+- **Piece 4** (2026-10-31): the transport. ENet 1.3.18 vendored in
+  `third_party/enet` (MIT, unmodified; its release tarball's sha256 noted, and
+  every kept file identical to GitHub's v1.3.18 tag; ENet signs nothing), its
+  notice in both THIRD-PARTY files. `frontend/sdl/net_enet`: `EnetTransport`
+  (one ENet host per machine, listening and connecting; channel 0 reliable
+  for guaranteed messages and ours, 1 unreliable; frames written by offset,
+  little-endian). A joiner connects to the host (HELLO; WELCOME brings the
+  session's description, its players with the addresses the host sees, the
+  teams and the data), asks for its player (CREATE; the host gives the id
+  and tells the others, PLAYER), then links to each other player (MESH); a
+  link that comes before the host's word of its player is held until it.
+  Teams and data go from whoever changes them to everyone (team ids
+  0x10000 x the maker's id + n: no host round trip); team chat to the team's
+  members; a kick (KICK) makes the player leave; the host's link lost, the
+  lowest id left is the host (DPSYS_HOST). The send done (0xe) is at once:
+  ENet queues without waiting. The loss and lag shim (`NetOptions` loss and
+  delay, MW3_NET_LOSS / MW3_NET_DELAY): unreliable messages dropped, all
+  held. LAN discovery: `DiscoveryAnswer` on UDP 27931 answers "MW3R?" with
+  the session (name, players, limit, game port); `browse` asks the LAN's
+  broadcast or given addresses. The game port 27930 (a host's default; a
+  joiner's the system's). DirectPlay's Open and CreatePlayer apart in the
+  transport, and the local player made as 0x005886c0 does
+  (`znet::create_player`: enumerated first, CreatePlayer, our record at the
+  list's end, the host's caps make it host and send 0xd); the joiner learns
+  of those already there by the enumeration, not by events. `mw3 --host` /
+  `--join HOST[:PORT]` (with `--net-name`, `--net-port`, `--net-bind`,
+  `--net-say TEXT@N`) start a session before the game and log its events
+  (ours, until the lobby screens). Tests: `test_znet_create.py` (0x005886c0
+  over 40 cases identical; a break caught), `net_enet_three_machines_join_talk_and_part`
+  and `net_enet_lan_discovery_and_the_shim` (mw3sdltests: three machines on
+  127.0.0.1 with system-chosen ports, the mesh, teams, data, team chat, a
+  kick, the host's leaving, discovery, the shim; a break caught),
+  `sdl_two_processes_host_and_join` (two mw3 processes: the join, the chat
+  line, the host passing on; a break caught). mingw compiles the transport
+  and ENet for Windows. Not yet run on Windows itself, nor across two
+  machines.
+
 ## Open
 
 - The COM object at [0x007307e0] (CLSID 3faf0afe-...): what it is and

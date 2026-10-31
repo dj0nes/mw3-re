@@ -63,6 +63,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\windows\ffmpeg_notices
 for /d %%d in ("%DIST%\licenses\*") do dir /b /a-d "%%d" >nul 2>nul || echo Warning: no licence file found for %%~nxd: copy it into licenses\%%~nxd by hand.
 mkdir "%DIST%\licenses\pl_mpeg"
 copy /y third_party\pl_mpeg\README.md "%DIST%\licenses\pl_mpeg\" >nul || exit /b 1
+mkdir "%DIST%\licenses\enet"
+copy /y third_party\enet\LICENSE "%DIST%\licenses\enet\" >nul || exit /b 1
 mkdir "%DIST%\licenses\miniz"
 copy /y third_party\miniz\LICENSE "%DIST%\licenses\miniz\" >nul || exit /b 1
 
