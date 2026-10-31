@@ -282,6 +282,21 @@ target_include_directories(mw3core PRIVATE third_party)
 set_source_files_properties(third_party/pl_mpeg/pl_mpeg.c PROPERTIES COMPILE_OPTIONS "$<IF:$<C_COMPILER_ID:MSVC>,/w,-w>")
 # tinfl (third_party/miniz, miniz's inflate) likewise.
 set_source_files_properties(third_party/miniz/miniz_tinfl.c PROPERTIES COMPILE_OPTIONS "$<IF:$<C_COMPILER_ID:MSVC>,/w,-w>")
+# ENet (third_party/enet, MIT): the multiplayer transport (docs/multiplayer-port.md),
+# unmodified, its warnings not ours. unix.c's feature macros as its own build
+# finds them on macOS and Linux (no gethostby*_r: it falls back).
+add_library(enet STATIC
+  third_party/enet/callbacks.c third_party/enet/compress.c third_party/enet/host.c third_party/enet/list.c
+  third_party/enet/packet.c third_party/enet/peer.c third_party/enet/protocol.c third_party/enet/unix.c
+  third_party/enet/win32.c)
+target_include_directories(enet PUBLIC third_party/enet/include)
+target_compile_options(enet PRIVATE "$<IF:$<C_COMPILER_ID:MSVC>,/w,-w>")
+if(WIN32)
+  target_link_libraries(enet PUBLIC ws2_32 winmm)
+else()
+  target_compile_definitions(enet PRIVATE HAS_FCNTL=1 HAS_POLL=1 HAS_GETADDRINFO=1 HAS_GETNAMEINFO=1
+                             HAS_INET_PTON=1 HAS_INET_NTOP=1 HAS_MSGHDR_FLAGS=1 HAS_SOCKLEN_T=1)
+endif()
 # The x87 never fuses a multiply and an add; clang does by default on arm64,
 # which rounds differently from the original (CLAUDE.md, FPU precision).
 if(NOT MSVC)

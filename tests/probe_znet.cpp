@@ -14,8 +14,8 @@ namespace {
 struct Recorder : znet::Transport {
   uint32_t to = 0, size = 0, asked_id = 0, guaranteed = 0, first = 0, calls = 0;
   int result = 0;
-  uint32_t host(const znet::SessionDesc&) override { return 0; }
-  uint32_t join(const std::string&) override { return 0; }
+  bool host(const znet::SessionDesc&) override { return false; }
+  bool join(const std::string&) override { return false; }
   void close() override {}
   bool send(uint32_t t, const void* d, size_t n, bool g, uint32_t* id) override {
     ++calls, to = t, size = static_cast<uint32_t>(n), guaranteed = g, asked_id = id != nullptr;
@@ -103,8 +103,8 @@ namespace {
 struct Script : znet::Transport {
   const int32_t* q = nullptr;
   int32_t n = 0, at = 0;
-  uint32_t host(const znet::SessionDesc&) override { return 0; }
-  uint32_t join(const std::string&) override { return 0; }
+  bool host(const znet::SessionDesc&) override { return false; }
+  bool join(const std::string&) override { return false; }
   void close() override {}
   bool send(uint32_t, const void*, size_t, bool, uint32_t*) override { return true; }
   bool receive(znet::Packet* p) override {
@@ -146,8 +146,8 @@ namespace {
 struct Caps : znet::Transport {
   std::vector<uint32_t> hosts;
   std::vector<int32_t>* log = nullptr;
-  uint32_t host(const znet::SessionDesc&) override { return 0; }
-  uint32_t join(const std::string&) override { return 0; }
+  bool host(const znet::SessionDesc&) override { return false; }
+  bool join(const std::string&) override { return false; }
   void close() override {}
   bool send(uint32_t to, const void* d, size_t n, bool g, uint32_t*) override {
     uint16_t type = 0;
@@ -227,8 +227,8 @@ struct Told : znet::Transport {
   std::vector<int32_t>* log = nullptr;
   int32_t ok = 1, id = 0, size = 0, first = 0, count = 0;
   void put(std::initializer_list<int32_t> v) { log->insert(log->end(), v); }
-  uint32_t host(const znet::SessionDesc&) override { return 0; }
-  uint32_t join(const std::string&) override { return 0; }
+  bool host(const znet::SessionDesc&) override { return false; }
+  bool join(const std::string&) override { return false; }
   void close() override {}
   bool send(uint32_t, const void*, size_t, bool, uint32_t*) override { return true; }
   bool receive(znet::Packet*) override { return false; }
@@ -329,6 +329,66 @@ extern "C" int32_t probe_znet_calls(const int32_t* ops, int32_t n, int32_t* out,
                            number(rec->short_name), number(rec->long_name)});
   log.insert(log.end(), {4, static_cast<int32_t>(znet::lists().teams.size())});
   for (auto& tm : znet::lists().teams) log.insert(log.end(), {static_cast<int32_t>(tm->id), number(tm->name)});
+  znet::clear_lists();
+  znet::session() = znet::Session{};
+  const int32_t m = static_cast<int32_t>(std::min<size_t>(log.size(), static_cast<size_t>(cap)));
+  std::copy(log.begin(), log.begin() + m, out);
+  return m;
+}
+
+// The local player made (0x005886c0, piece 4): `others` players already in
+// the session (ids 2.., names P102..), the transport's new id and whether
+// its caps say host; the log: each send (2, to, guaranteed, size, type), the
+// answer (20, id), the local player (21, id, is_host), the host id (22, id),
+// then the lists as probe_znet_events gives them.
+namespace {
+struct Maker : znet::Transport {
+  std::vector<int32_t>* log = nullptr;
+  int32_t others = 0;
+  uint32_t new_id = 0;
+  bool host_caps = false;
+  bool host(const znet::SessionDesc&) override { return false; }
+  bool join(const std::string&) override { return false; }
+  void close() override {}
+  bool send(uint32_t to, const void* d, size_t n, bool g, uint32_t*) override {
+    uint16_t type = 0;
+    std::memcpy(&type, d, 2);
+    log->insert(log->end(), {2, static_cast<int32_t>(to), g ? 1 : 0, static_cast<int32_t>(n), type});
+    return true;
+  }
+  bool receive(znet::Packet*) override { return false; }
+  uint32_t create_player(const std::string& s, const std::string&) override {
+    log->insert(log->end(), {10, s == "noname" ? -1 : number(s)});
+    return new_id;
+  }
+  bool is_host(uint32_t id) const override { return host_caps && id == new_id; }
+  bool players(std::vector<Member>* out) override {
+    out->clear();
+    for (int32_t i = 0; i < others; ++i)
+      out->push_back(Member{uint32_t(2 + i), "P" + std::to_string(102 + i), "Player " + std::to_string(102 + i)});
+    return true;
+  }
+};
+}  // namespace
+
+extern "C" int32_t probe_znet_create(int32_t others, uint32_t new_id, int32_t host_caps, int32_t name, int32_t* out,
+                                     int32_t cap) {
+  std::vector<int32_t> log;
+  Maker t;
+  t.log = &log, t.others = others, t.new_id = new_id, t.host_caps = host_caps != 0;
+  znet::session() = znet::Session{};
+  znet::clear_lists();
+  znet::Session& s = znet::session();
+  s.transport = &t, s.initialised = true, s.open = true;
+  const std::string n = name >= 0 ? "P" + std::to_string(name) : std::string();
+  const int32_t id = static_cast<int32_t>(znet::create_player(name >= 0 ? n.c_str() : nullptr));
+  log.insert(log.end(), {20, id, 21, s.local ? static_cast<int32_t>(s.local->id) : -1, s.local ? s.local->is_host : -1,
+                         22, static_cast<int32_t>(s.host_id)});
+  log.insert(log.end(), {3, static_cast<int32_t>(znet::lists().players.size())});
+  for (auto& r : znet::lists().players)
+    log.insert(log.end(), {static_cast<int32_t>(r->id), r->is_host, static_cast<int32_t>(r->team),
+                           r->short_name == "noname" ? -1 : number(r->short_name),
+                           r->long_name == "noname" ? -1 : number(r->long_name)});
   znet::clear_lists();
   znet::session() = znet::Session{};
   const int32_t m = static_cast<int32_t>(std::min<size_t>(log.size(), static_cast<size_t>(cap)));
