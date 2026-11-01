@@ -10,6 +10,7 @@
 #include "mech3/message_panel.h"
 #include "gamez/zimage/zimg_texture.h"
 #include "mech3/app_mech.h"
+#include "mech3/chat_panel.h"
 #include "mech3/app_turret.h"
 #include "mech3/turret.h"
 #include "mech3/app_vehicle.h"
@@ -975,6 +976,12 @@ void wire_net(bool on) {
     const std::string t = zutl::format_message(id, name);
     if (!t.empty()) message_panel_add("%s", t.c_str());
   };
+  nc.hud_line = [](float seconds, const char* text) {  // 0x0040fe20
+    if (!message_panel()) return;
+    message_panel()->show_for(seconds);
+    message_panel_add("%s", text);
+  };
+  nc.chat = net_chat_in;  // 0x00470490 (piece 14)
   nc.forget = [](NetMech& m) { ai::entities_forget(g_w.handle_of(g_w.engine, &m)); };  // 0x004aa6b0
   nc.free = [](NetMech* m) {  // vt+0 (1), and off the program's own lists (as mech_free)
     net_mech_unlist(m);
@@ -1105,6 +1112,7 @@ std::map<uint32_t, DebugScore> g_debug_scores;
 void program_net_debug_lobby() {
   NetCalls& c = net_calls();
   g_debug_scores.clear();
+  c.lobby_team_id = [](uint32_t) { return 0u; };  // each player its own side, no teams
   c.team_of = [](uint32_t p) { return p; };
   c.start_of = [](uint32_t p) -> int32_t {
     int32_t rank = 1;
@@ -1137,6 +1145,11 @@ void program_net_lobby(const NetLobbyAccess& a) {
   c.lobby_score = a.score;
   c.lobby_scores = a.scores, c.lobby_set_kills = a.set_kills, c.lobby_set_deaths = a.set_deaths;
   c.scores_reset = a.rescore;
+  c.lobby_team_id = a.team_id;
+}
+
+void program_mech_chat_draw(void* mech) {
+  if (mech) mech_chat_draw(*static_cast<Mech*>(mech));
 }
 
 uint32_t program_net_team_of(uint32_t p) { return net_calls().team_of ? net_calls().team_of(p) : 0; }
@@ -1325,6 +1338,85 @@ bool program_net_game_over() {
   net_game_over();
   znet::shutdown();
   return up;
+}
+
+bool program_net_chat_check(NetChatSeen* out) {
+  Mech* me = launched_mech();
+  if (!me) return false;
+  if (net_game().running) net_end();  // the launch's (a network debug start's), on its own session
+  static znet::Hub* hub = nullptr;  // kept: the session is shut by the end
+  delete hub;
+  hub = new znet::Hub();
+  znet::session() = znet::Session{};
+  znet::initialise(hub->endpoint());
+  if (!znet::host_session(znet::SessionDesc{}, "Host")) return false;
+  znet::Transport* b = hub->endpoint();
+  if (!b->join("loopback") || b->create_player("Bob", "Bob") != 2) return false;
+  // Bob's mech, as program_net_mech_check's (a player without one is not heard).
+  if (me->config && me->pilot) {
+    const std::vector<uint32_t> pk = me->config->packed();
+    const uint32_t n = pk[0] & 0xffff;
+    std::vector<uint8_t> rec(n + 0xc, 0);
+    const int32_t head[3] = {2, 0, me->pilot->roster};
+    std::memcpy(rec.data(), head, 0xc);
+    std::memcpy(rec.data() + 0xc, pk.data(), n);
+    b->set_data(false, 2, rec.data(), static_cast<uint32_t>(rec.size()));
+  }
+  znet::poll(-1);
+  net_start();
+  {
+    float at[3];
+    mech_world_position(me, at);
+    at[0] += 30.0f;
+    uint8_t state[0x40] = {0x0f, 0, 0x40, 0};
+    std::memcpy(state + 4, at, 12);
+    b->send(1, state, sizeof state, true, nullptr);
+    znet::poll(-1);
+  }
+  static std::vector<std::string> lines;
+  lines.clear();
+  NetCalls& c = net_calls();
+  const auto keep = c.hud_line;
+  c.hud_line = [](float, const char* t) { lines.emplace_back(t); };
+  auto has_line = [](ChatPanel* p, const char* t) {
+    for (const ztwod::Text& l : p->lines)
+      if (std::strcmp(l.text, t) == 0) return true;
+    return false;
+  };
+  me->command(0x77);  // CHAT_ALL
+  if (ChatPanel* p = me->chat) {
+    out->opened = 1;
+    out->prompt_all = has_line(p, "CHAT ALL");
+    out->commands_off = zin::current_map() && !zin::current_map()->enabled;
+    for (const char* k = " hi there "; *k; ++k) p->key(*k, 0);
+    p->key('\r', 0x1c);
+  }
+  out->closed = me->chat == nullptr;
+  out->commands_back = zin::current_map() && zin::current_map()->enabled;
+  znet::Packet pk;
+  while (b->receive(&pk))
+    if (pk.from == 1 && pk.data.size() >= 9 && pk.data[0] == 0x1f && pk.data[4] == 0 &&
+        std::string(reinterpret_cast<const char*>(pk.data.data() + 8)) == "hi there")
+      out->sent = 1;
+  if (!lines.empty()) out->own = lines.back();
+  const char evil[] = "%s%n\x1b[";
+  std::vector<uint8_t> m(8 + sizeof evil, 0);
+  m[0] = 0x1f, m[2] = static_cast<uint8_t>(m.size()), m[4] = 1;
+  std::memcpy(m.data() + 8, evil, sizeof evil);
+  b->send(0, m.data(), m.size(), false, nullptr);
+  znet::poll(-1);
+  if (!lines.empty()) out->peer = lines.back();
+  me->command(0x76);  // CHAT_TEAM, outside team play: to all
+  if (ChatPanel* p = me->chat) {
+    out->team_prompt_all = has_line(p, "CHAT ALL");
+    p->key('\r', 0x1c);
+  }
+  while (b->receive(&pk))
+    if (pk.from == 1 && !pk.data.empty() && pk.data[0] == 0x1f) out->empty_sent = 1;
+  c.hud_line = keep;
+  if (me->chat) mech_chat_close(*me);
+  znet::shutdown();
+  return true;
 }
 
 bool program_net_mech_check(NetMechSeen* out) {
@@ -1534,6 +1626,7 @@ void wire_mech_build(const MechWiring* w) {
     set_shade_hooks(nullptr);
     update_calls().x68c_update = nullptr;
     free_calls().ref_free = nullptr, free_calls().ref_delete = nullptr;
+    free_calls().player_object_free = nullptr;
     damage_calls().node_unlink = nullptr;
     set_mech_data_hooks(nullptr);
     set_launch_hooks(nullptr);
@@ -1560,6 +1653,7 @@ void wire_mech_build(const MechWiring* w) {
     delete static_cast<ShadeLevel*>(ref);
   };
   free_calls().ref_delete = [](Handle s) { delete static_cast<SunShade*>(s); };  // vt+0 (0x004e6220)
+  free_calls().player_object_free = [](Mech& m) { mech_chat_close(m); };  // 0x0041e580
   damage_calls().node_unlink = [](Handle ref, Handle n) {                        // 0x004e66a0
     shade_level_reset(*static_cast<ShadeLevel*>(ref), WiredShade::id(n));
   };

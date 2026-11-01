@@ -15624,7 +15624,7 @@ TEST(playtest_hud_images_the_data_lacks) {
 TEST(known_unported_keys_name_their_reason) {
   int n = 0;
   for (const char* k : {"0x005561a0", "0x005561e0", "0x00516f50", "[0x0072f3f0]",
-                        "0x0041ab90", "0x004ac860", "0x004a4de0", "0x0040e4b0", "vt+0x7c",
+                        "0x004ac860", "0x004a4de0", "0x0040e4b0", "vt+0x7c",
                         "hudline.vt+0x7c", "0x0040f7f0", "0x0040f890", "0x0040fef0", "0x004b52e0", "0x0047f2b0",
                         "0x00518790", "0x005269e0", "0x004f8f20", "0x004f3540", "0x00557f90", "0x00558290",
                         "0x00576d90", "0x00576da0", "0x00576dc0", "0x00558070", "0x005a8390", "0x005a84c0",
@@ -15640,7 +15640,7 @@ TEST(known_unported_keys_name_their_reason) {
            w.size() > 20);
     ++n;
   }
-  EXPECT(n == 43);  // 0x00586ce0, 0x00586c20, 0x00588930, 0x0046ef70, 0x0046f160 ported (multiplayer-port.md pieces 1, 2, 6a), 0x00493260 (9b), 0x00495f90 (11a), 0x0049bd80 (13)
+  EXPECT(n == 42);  // 0x00586ce0, 0x00586c20, 0x00588930, 0x0046ef70, 0x0046f160 ported (multiplayer-port.md pieces 1, 2, 6a), 0x00493260 (9b), 0x00495f90 (11a), 0x0049bd80 (13), 0x0041ab90 (14a)
   for (const char* gap : {"0x00579ea0", "0x004f9fa0", "0x004fa0b0", "0x00479be0", "0x0051a300",
                           "[[0x0060861c]+0x14]", "0x004f3430", "0x005799f0", "0x0051d0c0",
                           "0x00556210", "game.vt", "0x00414000", "0x0047abe0", "0x004f8f50",
@@ -16826,6 +16826,72 @@ TEST(net_mobile_base_stations_c1mp1_headless) {
     reset_process_state();
     mech3::options() = mech3::Options{};
   }
+}
+
+// The in-game chat (piece 14a): c1mp1 as a network game over the hub; CHAT_ALL
+// opens the panel ("CHAT ALL" over the prompt, the game's commands off),
+// typing and Enter send 0x1f to all and close it (the commands back), our
+// line and a peer's on the HUD ("<name  Send message to all> text", the
+// peer's "%s%n" shown as it is, its escape as '?'), an empty line sends
+// nothing, CHAT_TEAM outside team play is to all.
+TEST(net_chat_panel_c1mp1_headless) {
+  if (!have_game()) return;
+  SavedMounts keep;
+  zutl::mounts() = zutl::Mounts{};
+  zutl::mount(MW3_GAME_DIR);
+  zutl::set_write_dir(temp_dir("net_chat_panel"));
+  mech3::reset_states();
+  reset_process_state();
+  mech3::missions() = mech3::Missions{};
+  mech3::mech_types_forget();
+  mech3::player_controls_instance() = nullptr;
+  mech3::options() = mech3::Options{};
+  FakeWindow window;
+  FakeAlert alert;
+  FakeClock clock;
+  FakeScreen screen;
+  platform::SilentSoundOutput sound;
+  mech3::MountFiles files;
+  mech3::Platform p;
+  p.window = &window, p.alert = &alert, p.clock = &clock, p.movie_clock = &fast_movie_clock(), p.screen = &screen,
+  p.sound = &sound, p.files = &files;
+  mech3::NetChatSeen seen;
+  bool ran = false;
+  {
+    mech3::GameEngine engine(p, "mech3.exe -nofmv");
+    engine.quiet = true;
+    mech3::Mech3App app(&engine);
+    mech3::set_app(&app);
+    EXPECT(app.init_instance());
+    mech3::MultiplayerGame game(nullptr);
+    game.x70 = 1 << 30;
+    mech3::GameEngine::Launch l;
+    l.index = 0, l.number = 1, l.type = 3, l.multi = &game;  // c1mp1
+    engine.set_launch(l);
+    mech3::program_net_debug_lobby();
+    app.post_intro_ = &mech3::states().load;
+    int core_frames = 0;
+    engine.on_present = [&](int) {
+      if (app.current() == &mech3::states().core && ++core_frames == 5) ran = mech3::program_net_chat_check(&seen);
+    };
+    CountingPump pump;
+    pump.limit = 2400;
+    pump.stop = [&] { return core_frames >= 8; };
+    app.run(pump);
+    mech3::missions().cleanup(false);
+    app.stop_game();
+    app.exit_instance();
+    mech3::set_app(nullptr);
+  }
+  std::printf("  own: \"%s\"; peer: \"%s\"\n", seen.own.c_str(), seen.peer.c_str());
+  EXPECT(ran && seen.opened && seen.prompt_all && seen.commands_off && seen.closed && seen.commands_back);
+  EXPECT(seen.sent && seen.own == "<Host  Send message to all> hi there");
+  EXPECT(seen.peer == "<Bob  Send message to team> %s%n?[");
+  EXPECT(!seen.empty_sent && seen.team_prompt_all);
+  zrdr::close_archives(true);
+  mech3::reset_states();
+  reset_process_state();
+  mech3::options() = mech3::Options{};
 }
 
 // The same census in a network game (piece 8d: the respawn's hook was null

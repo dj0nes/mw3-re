@@ -2650,4 +2650,6 @@ Assigned after 8b2 merged (fd3f05f). The lead asked for a section stepped at bot
   characters as '?' (names in zNetwork's records).
 - 13 done (multiplayer-port.md, 13): the new team's dialog, NEW_TEAM and
   PICK_SKIN.
-- Next: 14 (the in-game chat panel, the multiplayer briefing and debriefing).
+- 14a done (multiplayer-port.md, 14a): zTwoD's console, the chat panel,
+  the chat keys, the HUD's chat line.
+- Next: 14b (the multiplayer briefing), 14c (the debriefing's scores).

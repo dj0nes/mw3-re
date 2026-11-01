@@ -360,7 +360,7 @@ void mech_construct(Mech& m, MechData* data, MechControls* ctl, Config* cfg, con
   m.knockdown[3] = 3.76f, m.knockdown[4] = 11.28f;
   (void)m.tonnage();  // 0x00416770 compared with 10 and asked again: nothing is kept
   m.hip = nullptr, m.torso = nullptr;
-  m.x378 = 0;
+  m.chat = nullptr;
   m.legs[1] = m.legs[0] = nullptr;
   m.arms[1] = m.arms[0] = nullptr;
   m.jet_node = nullptr;

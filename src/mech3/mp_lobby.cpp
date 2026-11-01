@@ -883,6 +883,7 @@ NetLobbyAccess net_lobby_access() {
   a.rescore = [] {
     if (g_net_game) g_net_game->rescore();
   };
+  a.team_id = [](uint32_t p) { return g_net_game ? g_net_game->lobby_team_id(p) : 0u; };
   return a;
 }
 }  // namespace

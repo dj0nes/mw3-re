@@ -79,6 +79,17 @@ bool program_net_hostile_check(NetHostileSeen* out);
 // Ours, for the tests (piece 8): a network game started over the hub in the
 // mission that is up, then its end (0x004707c0). Whether the game was up.
 bool program_net_game_over();
+// Ours, for the tests (piece 14): the chat panel on the pilot's mech in the
+// network game that is up over the hub: CHAT ALL typed and sent, a peer's
+// line, an empty one, CHAT TEAM outside team play; what was seen.
+struct NetChatSeen {
+  int32_t opened = 0, prompt_all = 0, commands_off = 0, closed = 0, commands_back = 0;
+  int32_t sent = 0;            // the peer heard 0x1f, flags 0, our text
+  int32_t empty_sent = 0;      // an empty line sent anything
+  int32_t team_prompt_all = 0; // CHAT TEAM without team play is to all
+  std::string own, peer;       // the HUD's lines
+};
+bool program_net_chat_check(NetChatSeen* out);
 // Ours, for the soak test until the lobby (piece 11): each player its own
 // team, its start by id among the session's players, and the kills and
 // deaths kept here as the lobby would; the pilot driven by a pattern (the
@@ -100,8 +111,11 @@ struct NetLobbyAccess {
   void (*set_kills)(uint32_t player, uint32_t n) = nullptr;   // 0x004359f0
   void (*set_deaths)(uint32_t player, uint32_t n) = nullptr;  // 0x00435b00
   void (*rescore)() = nullptr;                       // 0x004361e0
+  uint32_t (*team_id)(uint32_t player) = nullptr;    // 0x00495b60: its team, 0 none
 };
 void program_net_lobby(const NetLobbyAccess& a);
+// 0x0041ab90 on the pilot's mech: its chat panel drawn (mech3/chat_panel).
+void program_mech_chat_draw(void* mech);
 // The tests' look at what the network game asks (NetCalls' team_of, start_of
 // and score; 0 when unset).
 uint32_t program_net_team_of(uint32_t player);

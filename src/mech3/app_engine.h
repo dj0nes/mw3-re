@@ -82,6 +82,7 @@ void wire_fmv(GameEngine* e);            // zFMV's host (app_fmv.cpp)
 // (0x004050d0) and lines (0x00405120); none open, nothing (app_menus.cpp).
 void program_briefing_progress(float f);
 void program_briefing_line(const char* s);
+void program_mech_chat_draw(void* mech);  // app_mech.h: 0x0041ab90's chat panel
 uint32_t program_slot_count();  // the chosen pilot's campaign's slot count (0x00435180), 0 without one
 
 class GameEngine : public Engine {
@@ -408,6 +409,7 @@ class GameEngine : public Engine {
   void multiplayer_page(Handle state, int32_t page, uint8_t reenter) override;  // 0x0049cb00
   void multiplayer_take_pilot(Handle first, Handle second) override;  // 0x00494920
   void multiplayer_resume(Handle screen) override;  // 0x0049b660
+  void mech_draw_cockpit(Handle mech) override { program_mech_chat_draw(object_of(mech)); }  // 0x0041ab90
   NetReach network_reach() override { return p_.network_reach ? p_.network_reach() : NetReach{}; }
   void network_hosting(bool on) override {
     if (p_.network_hosting) p_.network_hosting(on);

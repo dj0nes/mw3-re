@@ -1101,6 +1101,41 @@ Ours, in three pieces:
   repeated, taken skins listed, never joined, no skin set. A shot of PICK
   A SKIN over the lobby shows the still, the skin's picture and its list.
 
+- **Piece 14a** (2026-11-01): the in-game chat. zTwoD's console
+  (`ztwod::Console`, 0x005a40b0..0x005a4690, vtable 0x005d01a8; the interp
+  debug console's too): a text box of 25 lines (Arial 10, white, at 160,
+  100) over a box its layer ([0x00736130], a second weather-style layer)
+  dims in green (0x004b5280 -> 0x0055a740) over 320 by its lines' height;
+  a "> " prompt typed into (a line editor of 0x200 that cannot back over
+  it; Enter its +0xd0, Escape the prompt alone, DIK_UP the line last
+  entered); each key's click (snd_ricochet1 at 0.2); the game's commands
+  off while it is up (a copy of the command map pushed, its +0x3f58 0,
+  popped at its end) and the keyboard's characters its own (zInput's char
+  callback). The chat panel (`ChatPanel`, 0x0041e5a0, vtable 0x005bd070):
+  "CHAT ALL" or "CHAT TEAM" (0x11e, 0x11f) over the prompt, 0x29
+  characters; its Enter (0x0041e660) the text after the prompt's '>'
+  trimmed, sent unless empty (0x00470380), the panel closed. CHAT_TEAM
+  (0x76) and CHAT_ALL (0x77) open it on the pilot's mech (0x0041e4e0, +0x378:
+  in a network game only; to all without team play); the mech's going and
+  the network's end close it (0x0041e580, the destructor's
+  `player_object_free`); the HUD frame draws it (0x0041ab90, the engine's
+  `mech_draw_cockpit`). The send (0x00470380): 0x1f as the lobby's, to our
+  team (0x00495b60, NetCalls' new `lobby_team_id`) or to all, unguaranteed,
+  shown here too. A line (0x00470490, the router's 0x1f): "<name " then "
+  Send message to team" (0x899) or " Send message to all" (0x89a), "> ", the
+  text, on the HUD for 5 s (0x0040fe20, NetCalls' new `hud_line`, given the
+  text as a "%s" argument). As in the exe, a player without a network mech
+  is not heard in a mission (the router). FIX (A): a message cut short
+  dropped, the text ended within it, its control characters '?'. Test:
+  `net_chat_panel_c1mp1_headless` (c1mp1 as a network game over the hub,
+  Bob given a mech: CHAT ALL opened with its prompt and the commands off,
+  " hi there " typed and Enter, sent to all and closed, the commands back,
+  our line and Bob's "%s%n\x1b[" line, an empty line sending nothing,
+  CHAT TEAM outside team play to all). A shot of the debug network start
+  with CHAT_ALL's key and "hi" shows the panel over the cockpit. Breaks
+  caught: the commands left on, the panel never closed, the text raw, an
+  empty line sent, the team flag inverted.
+
 ## Open
 
 - c3's two 1.2 multiplayer maps for a 1.0 install (patch12.md, What stays
