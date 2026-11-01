@@ -64,9 +64,12 @@ struct DiscInstall {
 // become 1.2's in the same step. With a cue sheet and `music_dir`, its AUDIO
 // tracks as music_dir/trackNN.wav. `progress` hears each step; false from it
 // cancels, and a cancel or a failure leaves the folder and the music as they were.
+// `movies_from` (optional): a folder of movies already read out (an archive's,
+// source_install.h), moved into video/ before the install is marked complete.
 // The stage, the fraction of the whole (0..1) and the current file; false cancels.
 using DiscProgress = std::function<bool(const std::string& stage, double fraction, const std::string& message)>;
 DiscInstall install_from_disc(const std::string& source, const std::string& out_dir, const std::string& patch,
-                              const std::string& music_dir, const DiscProgress& progress);
+                              const std::string& music_dir, const DiscProgress& progress,
+                              const std::string& movies_from = "");
 
 }  // namespace mech3

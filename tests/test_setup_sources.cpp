@@ -12,9 +12,15 @@
 #include "mech3/source_archive.h"
 #include "mech3/source_map.h"
 #include "mech3/disc_install.h"
+#include "mech3/game_setup.h"
+#include "mech3/patch_import.h"
+#include "mech3/source_install.h"
 #include <filesystem>
 
 #if MW3_HAVE_LIBARCHIVE
+#if defined(_WIN32) && !defined(NOMINMAX)
+#define NOMINMAX  // archive.h brings <windows.h>, whose min/max macros break std::min
+#endif
 #include <archive.h>
 #include <archive_entry.h>
 
@@ -279,6 +285,170 @@ TEST(setup_map_finds_the_game_inside_archives) {
   EXPECT(f.kind == Found::kNothing && !f.summary.empty());
 }
 
+// The install: entry paths that would leave the folder are refused.
+TEST(setup_install_refuses_paths_that_leave_the_folder) {
+  using mech3::source::safe_relative;
+  EXPECT(safe_relative("MechWarrior 3/zbd/reader.zbd") == "MechWarrior 3/zbd/reader.zbd");
+  EXPECT(safe_relative("a\\b\\c.txt") == "a/b/c.txt" && safe_relative("./a//b") == "a/b");
+  EXPECT(safe_relative("/etc/passwd") == "" && safe_relative("\\\\server\\share\\x") == "");  // absolute, a share
+  EXPECT(safe_relative("C:/Windows/x") == "" && safe_relative("c:x") == "");                // drives
+  EXPECT(safe_relative("../x") == "" && safe_relative("..\\x") == "" && safe_relative("a/../../x") == "");
+  EXPECT(safe_relative("a/..") == "" && safe_relative("") == "" && safe_relative("./") == "");
+  if (!have_games()) return;
+  // In an installed copy's archive: the whole copy refused, nothing left.
+  const std::string reader = slurp(kGame + "/mw3-1.0/zbd/reader.zbd");
+  const std::string tmp = std::string(MW3_TEST_TMP) + "/unsafe";
+  std::error_code ec;
+  // The copy at the archive's top, so every entry is the copy's (an entry
+  // outside the copy's folder is passed over, never written).
+  for (const char* bad : {"../evil.txt", "zbd/..\\..\\evil.txt", "/tmp/mw3-evil.txt", "C:/evil.txt", "C:evil.txt"}) {
+    std::filesystem::remove_all(tmp, ec);
+    const std::string zip = temp_file("unsafe.zip", write_archive("zip", {{"zbd/reader.zbd", reader}, {bad, "evil"}}));
+    const mech3::source::Found f = mech3::source::map_source(zip);
+    const mech3::setup::Result r = mech3::setup::install_from_source(f, tmp + "/game", "", "", tmp + "/write", nullptr);
+    std::printf("  %s: %s\n", bad, r.summary.c_str());
+    EXPECT(f.kind == mech3::source::Found::kInstall && !r.ok && !std::filesystem::exists(tmp + "/game", ec) &&
+           !std::filesystem::exists(tmp + "/game.new", ec) && !std::filesystem::exists(tmp + "/evil.txt", ec) &&
+           !std::filesystem::exists("/tmp/mw3-evil.txt", ec));
+  }
+  // A path that resolves outside through a link already in the folder.
+  std::filesystem::remove_all(tmp, ec);
+  std::filesystem::create_directories(tmp + "/into", ec);
+  std::filesystem::create_directories(tmp + "/outside", ec);
+  std::filesystem::create_directory_symlink(tmp + "/outside", tmp + "/into/link", ec);
+  if (!ec) {
+    const std::string zip = temp_file("link.zip", write_archive("zip", {{"MechWarrior 3/link/evil.txt", "evil"},
+                                                                        {"MechWarrior 3/zbd/reader.zbd", reader}}));
+    const mech3::source::Staged st = mech3::source::stage_source(mech3::source::map_source(zip), tmp + "/stage", tmp + "/into", nullptr);
+    EXPECT(!st.ok && !std::filesystem::exists(tmp + "/outside/evil.txt", ec));
+  }
+}
+
+namespace {
+// A disc image like the MW3 disc: the 1.2 patch's InstallShield pair stands
+// in for DATA1.HDR/CAB (31 files, zbd/reader.zbd among them), two movies.
+struct TestDisc {
+  std::string hdr, cab, movie, iso;
+  std::vector<mech3::PatchEntry> want;
+  bool make() {
+    const std::string folder = kGame + "/patch-1.2/MechWarrior-3_Patch_Win_EN_Patch-12-US";
+    if (!std::filesystem::exists(folder + "/data1.cab")) return false;
+    hdr = slurp(folder + "/data1.hdr"), cab = slurp(folder + "/data1.cab");
+    for (int i = 0; i < 70000; ++i) movie += static_cast<char>(i * 31);
+    iso = write_archive("iso9660", {{"DATA1.HDR", hdr}, {"DATA1.CAB", cab}, {"SETUP.EXE", std::string(3000, 'x')},
+                                    {"VIDEO/C1.AVI", movie}, {"VIDEO/INTRO.AVI", std::string(6000, 'i')}});
+    // The MW3 disc's mastering marks in its volume descriptor's reserved fields.
+    iso.replace(16 * 2048 + 88, 3, "%/@");
+    iso.replace(16 * 2048 + 1395, 2, "2)");
+    std::string err;
+    return mech3::read_installshield(std::vector<uint8_t>(hdr.begin(), hdr.end()), std::vector<uint8_t>(cab.begin(), cab.end()),
+                                     &want, &err);
+  }
+  bool installed(const std::string& out) const {
+    int same = 0;
+    for (const mech3::PatchEntry& e : want) same += slurp(out + "/" + e.path) == std::string(e.data.begin(), e.data.end());
+    return same == static_cast<int>(want.size()) && slurp(out + "/video/C1.AVI") == movie &&
+           slurp(out + "/video/INTRO.AVI").size() == 6000 && std::filesystem::exists(out + "/mw3-install.txt") &&
+           !std::filesystem::exists(out + "/SETUP.EXE") && !std::filesystem::exists(out + ".new");
+  }
+};
+}  // namespace
+
+// The install from archives, in one pass: an installed copy zipped, a disc's
+// files in a zip's folder, an .iso in a 7z, Redump's .bins and cue in a zip
+// (the audio track as the music, its pregap left out).
+TEST(setup_install_streams_from_archives) {
+  if (!have_games()) return;
+  namespace su = mech3::setup;
+  const std::string tmp = std::string(MW3_TEST_TMP) + "/stream";
+  std::error_code ec;
+  std::filesystem::remove_all(tmp, ec);
+  const std::string reader = slurp(kGame + "/mw3-1.0/zbd/reader.zbd"), exe = slurp(kGame + "/mw3-1.0/Mech3.exe");
+  const std::string zip = temp_file("copy.zip", write_archive("zip", {{"A box.jpg", "j"},
+                                                                     {"MechWarrior 3/zbd/reader.zbd", reader},
+                                                                     {"MechWarrior 3/Mech3.exe", exe},
+                                                                     {"MechWarrior 3/video/C1.AVI", "m"}}));
+  double last = 0;
+  bool forward = true;
+  const su::Result a = su::install_from_source(mech3::source::map_source(zip), tmp + "/copy", "", "", tmp + "/write",
+                                               [&](const su::Progress& p) {
+                                                 forward = forward && p.fraction >= last, last = p.fraction;
+                                                 return true;
+                                               });
+  std::printf("  copy: %s\n", a.summary.c_str());
+  EXPECT(a.ok && a.files == 3 && slurp(tmp + "/copy/zbd/reader.zbd") == reader && slurp(tmp + "/copy/video/C1.AVI") == "m" &&
+         std::filesystem::exists(tmp + "/copy/mw3-install.txt") && !std::filesystem::exists(tmp + "/copy/A box.jpg") &&
+         !std::filesystem::exists(tmp + "/copy.new") && forward && last == 1);
+  // Again over it (an earlier install is replaced); not over someone's folder.
+  EXPECT(su::install_from_source(mech3::source::map_source(zip), tmp + "/copy", "", "", tmp + "/write", nullptr).ok);
+  std::filesystem::create_directories(tmp + "/mine", ec);
+  temp_file("stream/mine/notes.txt", "mine");
+  EXPECT(!su::install_from_source(mech3::source::map_source(zip), tmp + "/mine", "", "", tmp + "/write", nullptr).ok &&
+         slurp(tmp + "/mine/notes.txt") == "mine");
+
+  TestDisc disc;
+  if (!disc.make()) return;
+  const std::string folder = temp_file("folder.zip", write_archive("zip", {{"MW3CD/DATA1.HDR", disc.hdr}, {"MW3CD/DATA1.CAB", disc.cab},
+                                                                          {"MW3CD/VIDEO/C1.AVI", disc.movie},
+                                                                          {"MW3CD/VIDEO/INTRO.AVI", std::string(6000, 'i')}}));
+  const su::Result b = su::install_from_source(mech3::source::map_source(folder), tmp + "/folder", "", "", tmp + "/write", nullptr);
+  std::printf("  folder: %s\n", b.summary.c_str());
+  EXPECT(b.ok && b.movies == 2 && disc.installed(tmp + "/folder"));
+  const std::string sevenz = temp_file("iso.7z", write_archive("7zip", {{"MW3.iso", disc.iso}}));
+  const su::Result c = su::install_from_source(mech3::source::map_source(sevenz), tmp + "/iso", "", "", tmp + "/write", nullptr);
+  EXPECT(c.ok && disc.installed(tmp + "/iso"));
+  const Files bins = redump(disc.iso, "MechWarrior 3 (USA)");
+  const std::string redump_zip = temp_file("redump-install.zip", write_archive("zip", bins));
+  const su::Result d = su::install_from_source(mech3::source::map_source(redump_zip), tmp + "/redump", "", tmp + "/music",
+                                               tmp + "/write", nullptr);
+  std::printf("  redump: %s\n", d.summary.c_str());
+  const std::string wav = slurp(tmp + "/music/track02.wav");
+  EXPECT(d.ok && d.music_tracks == 1 && disc.installed(tmp + "/redump") && wav.size() == 44 + 50 * 2352 &&
+         wav.compare(0, 4, "RIFF") == 0 && wav.substr(44) == std::string(50 * 2352, '\x11'));
+  EXPECT(!std::filesystem::exists(tmp + "/write/setup-staging"));
+}
+
+// A cancel, a damaged archive and too little space: nothing is left behind.
+TEST(setup_install_leaves_nothing_when_it_stops) {
+  if (!have_games()) return;
+  namespace su = mech3::setup;
+  TestDisc disc;
+  if (!disc.make()) return;
+  const std::string tmp = std::string(MW3_TEST_TMP) + "/stops";
+  std::error_code ec;
+  std::filesystem::remove_all(tmp, ec);
+  auto nothing = [&](const std::string& out) {
+    return !std::filesystem::exists(out, ec) && !std::filesystem::exists(out + ".new", ec) &&
+           !std::filesystem::exists(tmp + "/write/setup-staging", ec) && !std::filesystem::exists(tmp + "/music", ec);
+  };
+  const std::string zip = temp_file("stops.zip", write_archive("zip", redump(disc.iso, "MW3")));
+  const mech3::source::Found f = mech3::source::map_source(zip);
+  int calls = 0;
+  const su::Result a = su::install_from_source(f, tmp + "/a", "", tmp + "/music", tmp + "/write",
+                                               [&](const su::Progress&) { return ++calls < 3; });
+  EXPECT(a.cancelled && !a.ok && nothing(tmp + "/a"));
+  // The zip cut short, inside its data track.
+  const std::string cut = temp_file("cut.zip", slurp(zip).substr(0, slurp(zip).size() * 2 / 3));
+  const mech3::source::Found g = mech3::source::map_source(cut);
+  if (g.kind != mech3::source::Found::kNothing) {
+    const su::Result b = su::install_from_source(g, tmp + "/b", "", tmp + "/music", tmp + "/write", nullptr);
+    std::printf("  cut: %s\n", b.summary.c_str());
+    EXPECT(!b.ok && nothing(tmp + "/b"));
+  }
+  // No room: refused before anything is read or written.
+  const uint64_t keep = mech3::source::space_spare();
+  mech3::source::space_spare() = uint64_t{1} << 60;
+  calls = 0;
+  Files padded = redump(disc.iso, "MW3");
+  padded["A readme.txt"] = "passed over, before the disc";  // a progress report before any file is written
+  const mech3::source::Found h = mech3::source::map_source(temp_file("padded.zip", write_archive("zip", padded)));
+  const su::Result c = su::install_from_source(h, tmp + "/c", "", tmp + "/music", tmp + "/write",
+                                               [&](const su::Progress&) { return ++calls, true; });
+  mech3::source::space_spare() = keep;
+  std::printf("  no room: %s\n", c.summary.c_str());
+  EXPECT(!c.ok && c.summary.find("free space") != std::string::npos && calls == 0 && nothing(tmp + "/c"));
+}
+
 // The real thing, when the backups are here (a long read: MW3_SETUP_LONG=1):
 // Redump's MechWarrior 3 zip, its data track 626 MB and two audio tracks.
 TEST(setup_map_the_real_redump_zip) {
@@ -288,6 +458,23 @@ TEST(setup_map_the_real_redump_zip) {
   std::printf("  %s\n%s", f.summary.c_str(), f.detail.c_str());
   EXPECT(f.kind == mech3::source::Found::kDisc && f.game == mech3::source::Found::kMw3 && f.version == "1.0" &&
          f.label == "MW3" && f.audio.size() == 2);
+}
+
+// And installed from it in one pass (MW3_SETUP_LONG=1): the game as the
+// 1.0 disc's, its movies, the two audio tracks as the music.
+TEST(setup_install_the_real_redump_zip) {
+  const char* zip = "/Volumes/iO/backups/win98/MechWarrior 3 (USA).zip";
+  if (!std::getenv("MW3_SETUP_LONG") || !std::filesystem::exists(zip)) return;
+  const std::string tmp = std::string(MW3_TEST_TMP) + "/real";
+  std::error_code ec;
+  std::filesystem::remove_all(tmp, ec);
+  const mech3::setup::Result r = mech3::setup::install_from_source(mech3::source::map_source(zip), tmp + "/game", "",
+                                                                   tmp + "/music", tmp + "/write", nullptr);
+  std::printf("  %s\n%s", r.summary.c_str(), r.detail.c_str());
+  EXPECT(r.ok && r.version == "1.0" && r.movies > 0 && r.music_tracks == 2 &&
+         std::filesystem::exists(tmp + "/music/track02.wav") && std::filesystem::exists(tmp + "/music/track03.wav") &&
+         !std::filesystem::exists(tmp + "/write/setup-staging"));
+  std::filesystem::remove_all(tmp, ec);
 }
 
 #else

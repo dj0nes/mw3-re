@@ -99,3 +99,54 @@ zip (a long run).
    zArchive version misread (both map tests fail), the cue's audio filter
    inverted (the archive test fails), the on-disk cue read as its path, not
    its text (as first written: the archive test fails).
+3. Sitting 3 (2026-10-31): `mech3/source_install` (`stage_source`) and
+   `setup::install_from_source`. One forward pass through the archives down
+   to the game: an installed copy's files straight into `out_dir`.new; a
+   disc's DATA1.HDR, DATA1.CAB and VIDEO\ files into
+   `write_dir`/setup-staging (from a folder in an archive, or an image read
+   sector by sector from its entry); a cue's audio tracks, found beside the
+   image, straight to trackNN.wav from their INDEX 01. The disc then installs
+   from the staged folder as any disc does (`install_from_disc`, which takes
+   the staged movies with `movies_from` and moves them in before it writes
+   mw3-install.txt, last). An installed copy gets its mw3-install.txt last
+   too, then `out_dir`.new is renamed: a folder without the marker was never
+   finished. An installed copy on disk is used where it is (`check_install`);
+   a disc or image on disk goes to `install_from_disc` as before.
+   - Safety: an entry's path is refused when absolute, with a drive ("C:",
+     "C:x"), or with any ".." part, backslashes read as separators
+     (`safe_relative`); then the final path is resolved, links followed, and
+     must stay under its folder. Any such entry in the game's folder refuses
+     the whole copy; entries outside the game's folder are passed over
+     unread.
+   - Space: before anything is written, at least the source file's size (plus
+     64 MB) free where it goes; each file's size again before it is written.
+     A failure, a cancel or a damaged archive removes the staging folder and
+     `out_dir`.new.
+   - Progress: the outermost file's bytes read (libarchive's filter
+     position), to 0.6 of the bar for a disc (the cabinet's unpacking after),
+     0.95 for a copy.
+   - The real MW3 disc's primary volume descriptor carries its mastering
+     tool's marks in fields ISO 9660 reserves (sysid "AL-MPS3"; "%/@", a
+     Joliet escape, at byte 88; bytes at 1395), and libarchive's ISO reader
+     takes such an image for something else ("Unrecognized archive format").
+     `open_iso_stream` clears those fields of each primary descriptor as the
+     image streams in (only the descriptors; the files are not touched). The
+     test disc carries the same marks.
+   - Windows: `NOMINMAX` before archive.h (it brings <windows.h>), and
+     `LIBARCHIVE_STATIC` public on mw3core (the tests write archives with
+     it). The setup tests pass on the PC (clang-cl, libarchive from
+     build_deps_archive.cmd), where the link test is skipped when Windows
+     will not make a link without the privilege.
+   - Tests: `safe_relative`'s cases; an installed copy whose archive holds
+     "../evil.txt", "zbd/..\\..\\evil.txt", "/tmp/...", "C:/..." or "C:..."
+     (refused, nothing written); a link in the folder pointing outside;
+     installs from a zipped copy (again over it; not over someone's folder),
+     a disc's folder in a zip, an .iso in a 7z, Redump's .bins and cue in a
+     zip (the music without its pregap); a cancel, a zip cut short and no
+     room, each leaving nothing; the real Redump zip installed
+     (MW3_SETUP_LONG=1: "MechWarrior 3 1.0 is installed ... (126 files and
+     19 movies) ... The disc's 2 music tracks were added too", 51 s for the
+     setup set over the network share). Breaks, each failing its test: no
+     absolute check, no drive check, backslashes not separators, the
+     resolved-path check always true, no space check before the first write,
+     no clean-up on failure, no marker, the reserved fields not cleared.

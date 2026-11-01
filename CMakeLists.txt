@@ -72,6 +72,7 @@ add_library(mw3core STATIC
   src/mech3/disc_install.cpp
   src/mech3/source_archive.cpp
   src/mech3/source_map.cpp
+  src/mech3/source_install.cpp
   src/mech3/game_setup.cpp
   third_party/miniz/miniz_tinfl.c
   src/gamez/zutil/zutl_zar.cpp
@@ -304,7 +305,7 @@ if(LIBARCHIVE_INCLUDE AND LIBARCHIVE_LIB)
   target_include_directories(mw3core PUBLIC "${LIBARCHIVE_INCLUDE}")
   target_link_libraries(mw3core PUBLIC "${LIBARCHIVE_LIB}")
   if(LIBARCHIVE_LIB MATCHES "\\.(a|lib)$")  # static: its own libraries beside it
-    target_compile_definitions(mw3core PRIVATE LIBARCHIVE_STATIC)
+    target_compile_definitions(mw3core PUBLIC LIBARCHIVE_STATIC)  # the tests write archives with it too
     find_library(MW3_LZMA_LIB NAMES lzma liblzma HINTS "${CMAKE_SOURCE_DIR}/deps/archive/lib")
     find_library(MW3_Z_LIB NAMES z zlibstatic zlib zs HINTS "${CMAKE_SOURCE_DIR}/deps/archive/lib")
     target_link_libraries(mw3core PUBLIC ${MW3_LZMA_LIB} ${MW3_Z_LIB})

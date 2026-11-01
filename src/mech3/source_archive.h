@@ -54,6 +54,9 @@ class ArchiveReader {
 
   const std::string& error() const { return error_; }
   std::string format() const;  // "ZIP 2.0 (deflation)", "7-Zip", "RAR5", "ISO9660", ...
+  // The bytes read so far of what was opened (a file's: its place in the
+  // file), for progress.
+  int64_t position() const;
 
  private:
   struct Impl;

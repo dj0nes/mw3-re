@@ -3,9 +3,13 @@
 #include <algorithm>
 #include <cctype>
 #include <cstring>
+#include <memory>
 #include <vector>
 
 #if MW3_HAVE_LIBARCHIVE
+#if defined(_WIN32) && !defined(NOMINMAX)
+#define NOMINMAX  // archive.h brings <windows.h>, whose min/max macros break std::min
+#endif
 #include <archive.h>
 #include <archive_entry.h>
 #endif
@@ -83,10 +87,49 @@ bool ArchiveReader::open_stream(ReadFn read) {
   return true;
 }
 
+// An image's first 32 sectors (the system area and the volume descriptors)
+// read ahead, each primary volume descriptor's reserved fields cleared, then
+// the rest. Real pressings carry their mastering tool's marks there (the MW3
+// disc: a Joliet escape "%/@" at byte 88 and bytes at 1395), which libarchive
+// takes for a damaged image (docs/setup-sources.md).
+static ArchiveReader::ReadFn reserved_fields_cleared(ArchiveReader::ReadFn read) {
+  struct State {
+    ArchiveReader::ReadFn read;
+    std::vector<uint8_t> head;
+    size_t at = 0;
+  };
+  auto st = std::make_shared<State>();
+  st->read = std::move(read);
+  st->head.resize(32 * 2048);
+  size_t got = 0;
+  while (got < st->head.size()) {
+    const int64_t r = st->read(st->head.data() + got, st->head.size() - got);
+    if (r <= 0) break;
+    got += static_cast<size_t>(r);
+  }
+  st->head.resize(got);
+  for (size_t sec = 16; (sec + 1) * 2048 <= got; ++sec) {
+    uint8_t* d = st->head.data() + sec * 2048;
+    if (std::memcmp(d + 1, "CD001", 5) != 0 || d[0] == 255) break;
+    if (d[0] != 1) continue;
+    d[7] = 0, d[882] = 0;
+    std::memset(d + 72, 0, 8), std::memset(d + 88, 0, 32), std::memset(d + 1395, 0, 2048 - 1395);
+  }
+  return [st](uint8_t* buf, size_t n) -> int64_t {
+    if (st->at < st->head.size()) {
+      const size_t k = std::min(n, st->head.size() - st->at);
+      std::memcpy(buf, st->head.data() + st->at, k);
+      st->at += k;
+      return static_cast<int64_t>(k);
+    }
+    return st->read(buf, n);
+  };
+}
+
 bool ArchiveReader::open_iso_stream(ReadFn read) {
   impl_.reset(new Impl);
   impl_->a = reader(true);
-  impl_->source = std::move(read);
+  impl_->source = reserved_fields_cleared(std::move(read));
   if (archive_read_open(impl_->a, impl_.get(), nullptr, &Impl::read_cb, nullptr) != ARCHIVE_OK) {
     error_ = archive_error_string(impl_->a) ? archive_error_string(impl_->a) : "not an ISO 9660 image";
     return false;
@@ -131,6 +174,8 @@ std::string ArchiveReader::format() const {
   return f ? f : "";
 }
 
+int64_t ArchiveReader::position() const { return impl_->a ? archive_filter_bytes(impl_->a, -1) : 0; }
+
 #else  // no libarchive in this build
 
 struct ArchiveReader::Impl {};
@@ -145,6 +190,7 @@ ArchiveReader::ReadFn ArchiveReader::entry_stream() {
   return [](uint8_t*, size_t) { return int64_t{-1}; };
 }
 std::string ArchiveReader::format() const { return ""; }
+int64_t ArchiveReader::position() const { return 0; }
 
 #endif
 
