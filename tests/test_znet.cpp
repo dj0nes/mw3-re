@@ -212,10 +212,10 @@ TEST(znet_players_as_a_joiner) {
   EXPECT(znet::session().host_id == 1);
   // The team walk and the players' walk.
   int n = 0;
-  znet::each_player([](bool host, const char* name, void* c) {
-    if (host && std::string(name) == "Host") ++*static_cast<int*>(c);
-  }, &n);
-  EXPECT(n == 1 && znet::each_team([](bool, const char*, void*) {}, nullptr) == 0);
+  EXPECT(znet::each_player([](uint32_t id, uint32_t team, bool host, const char* name, void* c) {
+    if (host && id == 1 && team == 0 && std::string(name) == "Host") ++*static_cast<int*>(c);
+  }, &n) == 2);  // the host and us
+  EXPECT(n == 1 && znet::each_team([](uint32_t, uint32_t, bool, const char*, void*) {}, nullptr) == 0);
   // The shutdown empties the lists.
   znet::shutdown();
   EXPECT(znet::lists().players.empty() && znet::lists().teams.empty());

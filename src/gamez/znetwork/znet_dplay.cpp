@@ -31,14 +31,17 @@ const char* player_name(uint32_t id) {
   return p ? p->short_name.c_str() : nullptr;
 }
 
-// Mech3.exe 1.2 @ 0x005898b0: the host check against [0x00730760].
-void each_player(void (*fn)(bool host, const char* name, void* ctx), void* ctx) {
-  for (auto& p : lists().players) fn(session().host_id == p->id, p->short_name.c_str(), ctx);
+// Mech3.exe 1.2 @ 0x005898b0: the host check against [0x00730760]; the count
+// ([0x007307b0]).
+int32_t each_player(EachFn fn, void* ctx) {
+  for (auto& p : lists().players) fn(p->id, p->team, session().host_id == p->id, p->short_name.c_str(), ctx);
+  return static_cast<int32_t>(lists().players.size());
 }
 
-// Mech3.exe 1.2 @ 0x00589910: (0, the record, whose name is first); the count.
-int32_t each_team(void (*fn)(bool host, const char* name, void* ctx), void* ctx) {
-  for (auto& t : lists().teams) fn(false, t->name.c_str(), ctx);
+// Mech3.exe 1.2 @ 0x00589910: (its id, 0, 0, the record, whose name is
+// first); the count.
+int32_t each_team(EachFn fn, void* ctx) {
+  for (auto& t : lists().teams) fn(t->id, 0, false, t->name.c_str(), ctx);
   return static_cast<int32_t>(lists().teams.size());
 }
 
@@ -57,7 +60,15 @@ void say_host() {
   const uint8_t m[4] = {0x0d, 0, 4, 0};
   send(m, 4, true, 0);
 }
-std::string clipped(const std::string& s, size_t n) { return s.size() > n ? s.substr(0, n) : s; }
+// A name from the network cut to its field; FIX (A): control characters as
+// '?' (the lead's check of the chat: names reach the lists, the chat's
+// headers and the HUD), as the search's game names (9a).
+std::string clipped(const std::string& s, size_t n) {
+  std::string t = s.size() > n ? s.substr(0, n) : s;
+  for (char& c : t)
+    if (static_cast<unsigned char>(c) < 0x20 || c == 0x7f) c = '?';
+  return t;
+}
 }  // namespace
 
 namespace {
@@ -203,6 +214,13 @@ bool remove_from_team(uint32_t team, uint32_t player) {
   }
   if (PlayerRecord* r = znet::player(player)) r->team = 0;
   return true;
+}
+
+// Mech3.exe 1.2 @ 0x00589680
+bool team_named(const char* name) {
+  for (auto& t : lists().teams)
+    if (name && t->name == name) return true;
+  return false;
 }
 
 // Mech3.exe 1.2 @ 0x00588590

@@ -176,7 +176,7 @@ They run inside the original main loop, after the original start-up.
   and quits, with the window hidden; `--shot-series K` also the K frames
   before it.
 - For checking (ours, from 2026-10-25): `--tap DIK@N[:M]` presses a key as
-  an SDL event; `--click-at X,Y@N` (the plain start) clicks at a game pixel;
+  an SDL event; `--click-at X,Y@N` (the plain start) clicks at a game pixel (`--click-players X,Y@N/P` N frames after the network session first holds P players, for two processes in one lobby);
   `--click N:M`, `--walk`, `--fire-group G`, `--objectives N` in a mission;
   `--briefing c1m2` (the plain start) saves a pilot "Briefing" whose newest
   campaign stands at that mission and clicks CAMPAIGN, the pilot and ACCEPT,

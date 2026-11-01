@@ -194,6 +194,7 @@ GameEngine::GameEngine(const Platform& p, std::string command_line)
   vp.sync = [](void* c) { static_cast<GameEngine*>(c)->sync_view(); };
   wire_view(&vp);
   patch12::install();  // 1.0's data read as 1.2's (docs/patch12.md)
+  patch12::provide_files();  // and 1.2's added maps beside it, in the write dir
 }
 
 GameEngine::~GameEngine() {
@@ -227,8 +228,6 @@ const std::map<std::string, const char*>& known_keys() {
       {"0x00576d90", "own: the back buffer's size, zvid's Surface (lock_3d); here only the targets' arguments"},
       {"0x00576da0", "own: the back buffer's height, the same (lock_3d)"},
       {"0x00576dc0", "own: the back buffer's pitch, the same"},
-      {"0x00495f90", "deferred: multiplayer (its second screen)"},
-      {"0x0049bd80", "deferred: multiplayer (its third screen)"},
       {"0x0041ab90", "deferred: multiplayer (the chat panel at mech +0x378, made by commands 0x76 / 0x77)"},
       {"0x0040e4b0", "deferred: developer only (the 25 lines' draw and hit test, hud.md section 20)"},
       {"vt+0x7c", "deferred: developer only (the 25 lines cleared)"},
@@ -422,6 +421,10 @@ uint32_t GameEngine::message_box(int32_t a, int32_t caption, int32_t text, int32
 // 0x004ac150 with three strings (the controls screen's reassignment questions).
 uint32_t GameEngine::message_box3(int32_t a, int32_t caption, int32_t text, const char* s1, const char* s2,
                                   const char* s3) {
+  if (on_message_box) {
+    last_box_text = zutl::format_message(text, {s1, s2, s3});
+    return on_message_box(a, caption, text);
+  }
   return game_message_box(a, caption, zutl::format_message(text, {s1, s2, s3}));
 }
 

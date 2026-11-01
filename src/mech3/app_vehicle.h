@@ -37,6 +37,14 @@ void program_mission_waynet_clear();
 void program_mcb_waynet_free();
 void* program_mcb_waynet();
 void* program_mission_waynet();
+// Mech3.exe 1.2 @ 0x00490950: the mobile bases' stations in a network game
+// (ALLOW MOBILE BASES) on the mission's waynet; how many were made.
+int32_t program_mp_stations(void* waynet);
+// [0x00479480]+0xa8: the network game's ALLOW MOBILE BASES (app_mission's).
+void program_set_mp_mobile_bases(bool (*fn)());
+// For the tests: the mission waynet's element i, its label and place; false
+// for one without a place.
+bool program_mission_point(int32_t i, const char** label, float pos[3]);
 // The mcbwaynet's points (count, without the default behaviour at 0) and the
 // dock's point after a request: its label and place; false without one.
 int32_t program_mcb_points();

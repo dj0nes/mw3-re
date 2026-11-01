@@ -1206,6 +1206,63 @@ From the network code (network-messages.md).
   mech, measured on the ground's plane (height does not count), then nudged
   by your slot in the lobby. With respawn off you stay down and the view
   switches to camera 4 to watch the rest of the game.
+- **The lobby's world list has a hidden first entry, "UNAVAILABLE".** The
+  arrows step over it, and a host whose saved world is missing gets
+  Beachhead.
+- **Add-on multiplayer worlds are found by file name.** Besides the eight
+  shipped worlds, the lobby lists every `readermp3.zbd` and up (numbered
+  over 2) in each campaign folder, named by the world's own info file; the
+  1.2 patch's two new maps on the c3 world come in this way. Each
+  player tells the others which of these it has, and a player without the
+  chosen one gets `**` after its name.
+- **The lobby marks the host with `++`** after its name.
+- **Teams are their colours.** In team play the game tells sides apart by
+  the team's skin (Gunmetal, Sunfire, Desert...), not by the team itself,
+  and without teams every player starts in Gunmetal.
+- **Kill limits double with teams.** The score list offers 1, 5, 10, 20
+  and 40 kills, or 2, 10, 20, 40 and 80 in team play.
+- **A score is kills minus suicides, never below zero,** and a team's is
+  the sum of its players'. Before the first kill the score list keeps the
+  lobby's order.
+- **You cannot kick yourself.** The game says so: "You can't kick yourself
+  out of the game! Pick on somebody else."
+- **Locking the options fits your mech to the weight limit.** When the host
+  locks the options, every player whose mech is over the WEIGHT LIMIT (or
+  who has none) gets the heaviest mech within it, with its first stock
+  loadout, and the mech lab then offers only mechs within the limit.
+- **"Use stock 'Mechs" resets everyone's loadout on the lock** to the
+  mech's first stock loadout, even a player who chose another stock one:
+  the game compares the player's copy of the loadout with the stock list's
+  own and never finds it. (The rebuild keeps the chosen one with bug fixes on.)
+- **The host is warned about an endless game.** Locking with no kill limit
+  and no time limit asks first: "No time limit. No score limit. Game has
+  no logical conclusion."
+- **The lock waits for everyone to have the map.** With an add-on world
+  chosen, the host cannot lock while a player lacks it; the game names
+  them.
+- **"Unlimited" is the number 100.** The kill and time lists' last
+  entries are the value 100, which the start turns into no limit; a
+  100-minute game cannot be chosen.
+- **The kill limit counts score, not kills:** kills minus suicides (never
+  below zero), and in team play the team's total.
+- **Your start point is your place in the lobby.** The host's START tells
+  everyone the players' order in the lobby list, and each mech's starting
+  point is chosen by that place.
+- **New teams are named by colour letter.** NEW TEAM suggests "A Team",
+  "B Team" and so on, by the first colour no team has yet (Gunmetal A,
+  Sunfire B...). A team's colour list never offers a colour another team
+  has, your own team's current one included.
+- **Lobby chat can be lost.** The lobby sends each chat message without
+  asking for delivery, so on a bad connection a line may never arrive. The
+  chat keeps the last 100 lines; the arrows scroll 14 at a time, and a team
+  message shows "< name to team >" (only the team gets it).
+- **Mobile bases in multiplayer use the map's repair stations.** With
+  ALLOW MOBILE BASES on, each multiplayer map's station points (two per
+  map) get a copy of the world's station, renamed mfb_station_04 and on,
+  so the field bases have somewhere to dock.
+- **A dead check on READY.** The game means to refuse READY in team play
+  when another team has your colour ("skin taken"), but asks the question
+  in a way that can never be true, so the warning never shows.
 
 ## Graphics
 

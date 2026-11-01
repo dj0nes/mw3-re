@@ -61,9 +61,10 @@ bool game_info(int32_t index, GameInfo* out) {
   const Session& s = session();
   const SessionDesc* d = nullptr;
   uint32_t players = 0;
-  if (index == -1) {
+  if (index == -1) {  // 0x00586ed0: dwCurrentPlayers, here the players known
     if (!s.open) return false;
     d = &s.desc;
+    players = static_cast<uint32_t>(lists().players.size());
   } else if (index >= 0 && static_cast<size_t>(index) < s.games.size()) {
     d = &s.games[static_cast<size_t>(index)].desc;
     players = s.games[static_cast<size_t>(index)].players;
@@ -72,6 +73,23 @@ bool game_info(int32_t index, GameInfo* out) {
   for (int i = 0; i < 4; ++i) out->user[i] = d->user[i];
   out->max_players = d->max_players, out->players = players;
   out->name = d->name;  // an empty one is [0x005e56f0] in the exe's copy
+  return true;
+}
+
+// Mech3.exe 1.2 @ 0x00586f20 (0x005876f0)
+bool set_game_info(const GameInfo& info) {
+  Session& s = session();
+  if (!is_host() || !s.transport) return false;
+  for (int i = 0; i < 4; ++i) s.desc.user[i] = info.user[i];
+  s.desc.max_players = info.max_players;
+  return s.transport->set_session_desc(s.desc);
+}
+
+// Mech3.exe 1.2 @ 0x00586e10
+bool refresh_session() {
+  Session& s = session();
+  if (!s.transport || !s.open) return false;
+  s.desc = s.transport->session_desc();
   return true;
 }
 
@@ -342,7 +360,7 @@ struct Hub::Impl::End : Transport {
     into->assign(static_cast<const uint8_t*>(d), static_cast<const uint8_t*>(d) + size);
     SystemEvent e;
     e.kind = kSysSetPlayerOrGroupData, e.player_type = is_group ? 0 : 1, e.id = who;
-    hub->to_all(e, this);
+    hub->to_all(e);  // the setter too (as the teams' changes)
     return true;
   }
   bool get_data(bool is_group, uint32_t who, void* d, uint32_t* size) override {
@@ -364,6 +382,14 @@ struct Hub::Impl::End : Transport {
   }
   bool is_host(uint32_t who) const override { return who && who == hub->host_id; }
   SessionDesc session_desc() const override { return hub->desc; }
+  bool set_session_desc(const SessionDesc& d) override {
+    if (!id || id != hub->host_id) return false;
+    hub->desc = d;
+    SystemEvent e;
+    e.kind = kSysSetSessionDesc, e.desc = d;
+    hub->to_all(e, this);
+    return true;
+  }
   // The search finds the hub's game, if one is hosted ("loopback" to join).
   int32_t find_sessions(const std::string&, std::vector<FoundGame>* out) override {
     out->clear();

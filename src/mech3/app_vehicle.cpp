@@ -1,6 +1,7 @@
 #include "mech3/app_vehicle.h"
 
 #include <algorithm>
+#include <cstdio>
 #include <cstring>
 #include <set>
 
@@ -205,10 +206,12 @@ WiredWaynets g_waynets;
 // left, the radio, an entity's team and its controls' hit; the dock's
 // clock, places, the player's view, the mech at rest and the effects. The
 // scripts' loose-file path is not read here (load_motion takes motion.zbd's).
+bool (*g_mp_mobile_bases)() = nullptr;
 struct WiredFieldBases : FieldBaseHooks {
   uint32_t unported(const char* key, std::initializer_list<zgame::Arg> args) override {
     return g_w.unported ? g_w.unported(g_w.engine, key, args) : 0;
   }
+  bool mp_repairs() override { return g_mp_mobile_bases ? g_mp_mobile_bases() : FieldBaseHooks::mp_repairs(); }
   void on_new(uint32_t, const void* p) override {  // as WiredBuild's
     if (g_w.forget_object) g_w.forget_object(g_w.engine, p);
   }
@@ -571,6 +574,48 @@ bool program_nav_waynet_delete(void* o) {
 bool program_is_nav_waynet(void* o) { return g_navs.count(static_cast<Waynet*>(o)) != 0; }
 uint8_t program_nav_waynet_frame(void* w, void* vehicle) { return static_cast<Waynet*>(w)->frame(vehicle); }
 void program_waynet_icons_free() { waynet_icons_free(); }
+void program_set_mp_mobile_bases(bool (*fn)()) { g_mp_mobile_bases = fn; }
+
+bool program_mission_point(int32_t i, const char** label, float pos[3]) {
+  auto* w = static_cast<Waynet*>(program_mission_waynet());
+  WaynetPoint* p = w && i >= 0 && i < w->count() ? as_point(w->elem(i)) : nullptr;
+  if (!p || !p->position()) return false;
+  *label = p->label_or_null();
+  for (int k = 0; k < 3; ++k) pos[k] = p->position()[k];
+  return true;
+}
+
+// Mech3.exe 1.2 @ 0x00490950: at each point of the mission's waynet a copy of
+// the world's mfb_station01 (0x004f9af0(.., 0, 0)), added to the world,
+// placed there, named mfb_station_04 on and shown; the point's label (+0x2c)
+// the station's name, which the dock asks by (mech_fieldbase). Every element
+// of a built waynet is a point with a place (the emulator on the shipped
+// waynet_mp files); one without would be passed over (the exe would read
+// through null).
+int32_t program_mp_stations(void* waynet) {
+  auto* w = static_cast<Waynet*>(waynet);
+  if (!w) return 0;
+  zcls::Node* station = static_cast<zcls::Node*>(zcls::list_find_by_name(6, "mfb_station01"));
+  if (!station) return 0;
+  int32_t n = 4, made = 0;
+  for (int32_t i = 0; i < w->count(); ++i) {
+    auto* b = dynamic_cast<ai::Behaviour*>(w->elem(i));
+    const float* at = b ? b->position() : nullptr;  // vt+0x18
+    if (!at) continue;
+    zcls::Node* copy = zcls::tree_copy(station, 0, 0);
+    if (!copy) continue;
+    char name[32];
+    std::snprintf(name, sizeof name, "mfb_station_%02d", n++);
+    if (zcls::Node* world = world_hooks().world) zcls::node_add_child(world, copy);  // [0x00608c84] vt+0
+    zcls::object3d_set_translation(copy, at[0], at[1], at[2]);
+    zcls::node_set_name(copy, name);
+    zcls::node_set_active(copy, 1);
+    if (WaynetPoint* p = as_point(w->elem(i))) p->label = name, p->has_label = true;
+    ++made;
+  }
+  return made;
+}
+
 // The mission waynet's selected element for the radar: [0x00609980]'s
 // 0x0058b060 by its +0x20. FIX (bug): only a point with a place; the exe
 // reads the default behaviour's +0x0c and its null place (the MFB picking's
