@@ -66,6 +66,14 @@ bool program_net_mech_check(NetMechSeen* out);
 // Ours, for the tests (piece 8): a network game started over the hub in the
 // mission that is up, then its end (0x004707c0). Whether the game was up.
 bool program_net_game_over();
+// Ours, for the soak test until the lobby (piece 11): each player its own
+// team, its start by id among the session's players, and the kills and
+// deaths kept here as the lobby would; the pilot driven by a pattern (the
+// commands it injects); a line of where everything is; the score table.
+void program_net_debug_lobby();
+uint32_t program_net_drive(int cmd, double seconds, uint32_t seed);
+std::string program_net_soak_line();
+std::string program_net_scores();
 // The pocket commander's program side (app_pocket.cpp), from wire_mech_build;
 // the marker a handle names, if it is the mission's.
 void wire_pocket(const MechWiring* w);

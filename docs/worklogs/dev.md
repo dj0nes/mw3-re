@@ -2584,3 +2584,23 @@ Assigned after 8b2 merged (fd3f05f). The lead asked for a section stepped at bot
   (0x00470710): Missions cleanup(1), then Replace(state(2)) — the main menu.
 - In the c1m1 test, Missions::loaded stays set after cleanup (as the exe's
   +0x5c); the test checks the load event (`done`) instead.
+
+## Multiplayer, piece 8b: the soak test (in progress, 2026-10-31)
+
+- Done (WIP commit): Launch::multi (a network debug start's game, type 3);
+  the debug auto launch runs multiplayer_launch_prep (net_start) before
+  launch_player; the bridges use the pilot's game else launch().multi; the
+  lobby's count is the session's players until piece 11; WiredLaunch's
+  multiplayer takes the mech's own loadout without a slot one;
+  program_net_debug_lobby / program_net_drive / program_net_soak_line /
+  program_net_scores in app_mech.cpp.
+- To do: mw3_main options (--mission c1mp1 with --host/--join: l.type 3 and
+  a debug MultiplayerGame; --net-minutes N: missions().clock = N x 60,
+  clock_down at the first Core frame; --net-drive SEED through
+  controls_calls().command; a soak line every 0.5 s with the wall clock and
+  the resident memory; the scores at the game over; quit at the main menu
+  after it), then the test in mw3sdltests behind MW3_SOAK=1: four hidden
+  processes under nice, MW3_NET_LOSS=0.05 MW3_NET_DELAY=80, 30 minutes;
+  checks: no crash, memory not growing, each "sees" sample within a few
+  metres of the owner's own track at that time, the score tables equal,
+  each reached the game over.

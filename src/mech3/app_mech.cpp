@@ -18,6 +18,7 @@
 #include <cstdio>
 #include <cstring>
 #include <unordered_set>
+#include <map>
 #include <memory>
 #include <string>
 
@@ -415,8 +416,10 @@ class WiredLaunch : public LaunchHooks {
   void multiplayer(Handle) override {  // 0x0046da80 on the pilot
     NetLaunchGame g;
     Mech* m = launched_mech();
-    if (m && g_launch_game && g_launch_game(&g) && g.loadout)
-      net_launch_player(*m, g.loadout->packed(), g.skin, g.unlimited_ammo, g.outside_view);
+    if (m && g_launch_game && g_launch_game(&g)) {
+      if (!g.loadout) g.loadout = m->config;  // a debug start's game has no slot loadout: the mech's own
+      if (g.loadout) net_launch_player(*m, g.loadout->packed(), g.skin, g.unlimited_ammo, g.outside_view);
+    }
   }
   // The Instant Action (and multiplayer) launch's pilot save: the file opened
   // (0x00478ce0), its header (0x004794f0) and record (vt+0x04) written, closed.
@@ -1080,6 +1083,82 @@ void net_set_game_access(const NetGameAccess& a) {
   nc.game_time = a.game_time, nc.clock_left = a.clock_left, nc.clock_on = a.clock_on;
   nc.set_clock_left = a.set_clock_left;
   nc.exit_fade = a.exit_fade;
+}
+
+namespace {
+struct DebugScore {
+  int32_t kills = 0, deaths = 0;
+};
+std::map<uint32_t, DebugScore> g_debug_scores;
+}  // namespace
+
+void program_net_debug_lobby() {
+  NetCalls& c = net_calls();
+  g_debug_scores.clear();
+  c.team_of = [](uint32_t p) { return p; };
+  c.start_of = [](uint32_t p) -> int32_t {
+    int32_t rank = 1;
+    for (const auto& r : znet::lists().players) rank += r->id < p;
+    return rank;
+  };
+  c.lobby_suicide = [](uint32_t p) { ++g_debug_scores[p].deaths; };
+  c.lobby_kill = [](uint32_t p) { ++g_debug_scores[p].kills; };
+  c.lobby_kills = [](uint32_t p) { return g_debug_scores[p].kills; };
+  c.lobby_deaths = [](uint32_t p) { return g_debug_scores[p].deaths; };
+  c.lobby_scores = [](uint32_t* out, int32_t cap) {
+    int32_t n = 0;
+    for (const auto& r : znet::lists().players) {
+      if (n >= cap) break;
+      const DebugScore& d = g_debug_scores[r->id];
+      out[3 * n] = r->id, out[3 * n + 1] = static_cast<uint32_t>(d.kills), out[3 * n + 2] = static_cast<uint32_t>(d.deaths);
+      ++n;
+    }
+    return n;
+  };
+  c.lobby_set_kills = [](uint32_t p, uint32_t v) { g_debug_scores[p].kills = static_cast<int32_t>(v); };
+  c.lobby_set_deaths = [](uint32_t p, uint32_t v) { g_debug_scores[p].deaths = static_cast<int32_t>(v); };
+}
+
+uint32_t program_net_drive(int cmd, double t, uint32_t seed) {
+  // Full throttle (THROTTLE0, 0x24) pressed in the first half second; then
+  // left (2) and right (3) turns of a few seconds by the seed; the trigger
+  // (TRIGGER1, 0x3d) a second in every seven.
+  const double phase = std::fmod(t + seed % 7, 10.0);
+  switch (cmd) {
+    case 0x24: return t < 0.5 ? 1u : 0u;
+    case 2: return phase < 3.0 ? 1u : 0u;
+    case 3: return phase >= 7.0 ? 1u : 0u;
+    case 0x3d: return std::fmod(t + seed % 3, 7.0) < 1.0 ? 1u : 0u;
+    default: return 0;
+  }
+}
+
+std::string program_net_soak_line() {
+  char buf[128];
+  std::string s;
+  Mech* me = launched_mech();
+  float p[3] = {0, 0, 0};
+  if (me) mech_world_position(me, p);
+  std::snprintf(buf, sizeof buf, "me %u %.2f %.2f %.2f %d", znet::local_id(), p[0], p[1], p[2],
+                me && me->active && me->anim_state != 10 ? 1 : 0);
+  s = buf;
+  for (NetMech* m : net_game().mechs) {
+    mech_world_position(m, p);
+    std::snprintf(buf, sizeof buf, "; sees %u %.2f %.2f %.2f %d", m->owner, p[0], p[1], p[2], (m->state.flags >> 1 & 1) ? 0 : 1);
+    s += buf;
+  }
+  return s;
+}
+
+std::string program_net_scores() {
+  std::string s;
+  char buf[64];
+  for (const auto& r : znet::lists().players) {
+    const DebugScore& d = g_debug_scores[r->id];
+    std::snprintf(buf, sizeof buf, "%s%u:%d/%d", s.empty() ? "" : " ", r->id, d.kills, d.deaths);
+    s += buf;
+  }
+  return s;
 }
 
 bool program_net_game_over() {
