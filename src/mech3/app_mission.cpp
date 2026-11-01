@@ -1511,6 +1511,13 @@ bool mp_mobile_bases() {
 struct WiredMissionHooks : MissionHooks {
   void hooks_check() override { hook_census_install(); }
   Handle multiplayer() override { return e->launch().type == 3 ? 1 : 0; }  // 0x00479480
+  // The loss in a network game (0x0048f9e0): the player's centre torso
+  // (0x0041d510's part 1) given no internal structure (its vt+0x3c with 0, 0).
+  Handle mech_action(Handle mech, int32_t v) override {
+    void* part = program_mech_part(e->object_of(mech), v);
+    return part ? e->handle_of(part) : 0;
+  }
+  void action_start(Handle a) override { program_part_set_internal(e->object_of(a), 0.0f, 0); }
   uint8_t mp_flag() override { return mp_mobile_bases() ? 1 : 0; }
   void mp_stations(Handle h) override { program_mp_stations(e->object_of(h)); }  // 0x00490950
   WiredObjectiveHooks& ob() { return g_objective_hooks; }
@@ -1805,6 +1812,8 @@ struct WiredMissionHooks : MissionHooks {
   uint32_t field32(Handle h, uint32_t off) override {
     uint32_t v = 0;
     if (ActionGame* a = launch_action(e); a && h == e->handle_of(a) && action_field(a, off, &v, nullptr)) return v;
+    if (off == 0x578)  // a mech's animation state (the loss's "already down", 10)
+      if (const int32_t st = program_mech_anim_state(e->object_of(h)); st != -1) return static_cast<uint32_t>(st);
     return e->peek32(h + off);
   }
   void set_field32(Handle h, uint32_t off, uint32_t v) override {

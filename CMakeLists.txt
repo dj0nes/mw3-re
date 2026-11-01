@@ -152,6 +152,7 @@ add_library(mw3core STATIC
   src/gamez/zfmv/fmv_stream.cpp
   src/gamez/zrender/zrndr_prim2d.cpp
   src/gamez/zrender/zrndr_blit.cpp
+  src/gamez/ztwod/twod_console.cpp
   src/gamez/ztwod/twod_control.cpp
   src/gamez/ztwod/twod_dialog.cpp
   src/gamez/ztwod/twod_editbar.cpp
@@ -227,6 +228,7 @@ add_library(mw3core STATIC
   src/mech3/action_menu.cpp
   src/mech3/mp_connect.cpp
   src/mech3/mp_lobby.cpp
+  src/mech3/chat_panel.cpp
   src/mech3/briefing.cpp
   src/mech3/debriefing.cpp
   src/mech3/salvage_screen.cpp

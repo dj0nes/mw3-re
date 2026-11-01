@@ -427,7 +427,9 @@ These change how the game talks to the computer, not how it plays.
   lines, and the backgrounds filled out to the edges from the player's own
   art as the game runs (nothing on disk changes). On by default; `widemenus=0`
   in mw3.cfg or `--no-wide-menus` keeps the original's 4:3 menus. A size
-  picked in the menus takes effect for the menus at the next start.
+  picked in the menus takes effect for the menus at the next start. The
+  multiplayer connection screen and lobby spread the same way, the lobby's
+  middle column widening between the other two.
 
 - The craters a host sends to a player joining a multiplayer game name their ground and texture by material number instead of by the host's memory addresses, which meant nothing on the joining machine (and do not fit a 64-bit program).
 
@@ -588,5 +590,8 @@ Known quirks the rebuild deliberately keeps:
 - The multiplayer lobby takes game settings only from the host, and checks them before use.
 - The multiplayer lobby takes the start of a game only from the host, and reads the scores between games only as far as the message goes.
 - The multiplayer lobby's chat reads each message only as far as it goes.
+- In-game multiplayer chat lines are read only as far as the message goes, and control characters in them show as '?'.
+- With bug fixes on, another player's 'Mech no longer throws its arms about on your screen after a hiccup in the connection (a delay longer than the ping's round trip was taken as a lag of 24 days).
+- On a Mac the numeric keypad types digits in text fields (an IP address on the connection screen); a Mac has no Num Lock, which the game needed on.
 - A locked multiplayer game turns away players who try to join it, instead of only greying out its Join button.
 - With bug fixes on, locking a multiplayer game with "Use stock 'Mechs" keeps the stock loadout a player chose instead of resetting it to the mech's first.

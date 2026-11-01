@@ -26,7 +26,6 @@ SKIP(mech3::weapon_calls, target_projectile, "WeaponCalls.target_projectile")  /
 SKIP(zcls::world_render_hooks, after_scene, "0x005a67c0")  // WorldRenderHooks.after_scene
 SKIP(zcls::world_render_hooks, dirty_rect, "0x00576ce0")  // WorldRenderHooks.dirty_rect
 SKIP(mech3::damage_calls, player_died_hud, "0x0041b263")  // DamageCalls.player_died_hud
-SKIP(mech3::dead_calls, net_fade, "DeadCalls.net_fade")  // DeadCalls.net_fade
 SKIP(mech3::draw_calls, map_point, "0x004586e0")  // DrawCalls.map_point
 SKIP(mech3::pocket_calls, view_pocket, "0x004b5290")  // PocketCalls.view_pocket
 // The mission's network side (mech_net.cpp): pieces 5b-7 and the lobby.

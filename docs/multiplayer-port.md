@@ -1101,6 +1101,162 @@ Ours, in three pieces:
   repeated, taken skins listed, never joined, no skin set. A shot of PICK
   A SKIN over the lobby shows the still, the skin's picture and its list.
 
+- **Piece 14a** (2026-11-01): the in-game chat. zTwoD's console
+  (`ztwod::Console`, 0x005a40b0..0x005a4690, vtable 0x005d01a8; the interp
+  debug console's too): a text box of 25 lines (Arial 10, white, at 160,
+  100) over a box its layer ([0x00736130], a second weather-style layer)
+  dims in green (0x004b5280 -> 0x0055a740) over 320 by its lines' height;
+  a "> " prompt typed into (a line editor of 0x200 that cannot back over
+  it; Enter its +0xd0, Escape the prompt alone, DIK_UP the line last
+  entered); each key's click (snd_ricochet1 at 0.2); the game's commands
+  off while it is up (a copy of the command map pushed, its +0x3f58 0,
+  popped at its end) and the keyboard's characters its own (zInput's char
+  callback). The chat panel (`ChatPanel`, 0x0041e5a0, vtable 0x005bd070):
+  "CHAT ALL" or "CHAT TEAM" (0x11e, 0x11f) over the prompt, 0x29
+  characters; its Enter (0x0041e660) the text after the prompt's '>'
+  trimmed, sent unless empty (0x00470380), the panel closed. CHAT_TEAM
+  (0x76) and CHAT_ALL (0x77) open it on the pilot's mech (0x0041e4e0, +0x378:
+  in a network game only; to all without team play); the mech's going and
+  the network's end close it (0x0041e580, the destructor's
+  `player_object_free`); the HUD frame draws it (0x0041ab90, the engine's
+  `mech_draw_cockpit`). The send (0x00470380): 0x1f as the lobby's, to our
+  team (0x00495b60, NetCalls' new `lobby_team_id`) or to all, unguaranteed,
+  shown here too. A line (0x00470490, the router's 0x1f): "<name " then "
+  Send message to team" (0x899) or " Send message to all" (0x89a), "> ", the
+  text, on the HUD for 5 s (0x0040fe20, NetCalls' new `hud_line`, given the
+  text as a "%s" argument). As in the exe, a player without a network mech
+  is not heard in a mission (the router). FIX (A): a message cut short
+  dropped, the text ended within it, its control characters '?'. Test:
+  `net_chat_panel_c1mp1_headless` (c1mp1 as a network game over the hub,
+  Bob given a mech: CHAT ALL opened with its prompt and the commands off,
+  " hi there " typed and Enter, sent to all and closed, the commands back,
+  our line and Bob's "%s%n\x1b[" line, an empty line sending nothing,
+  CHAT TEAM outside team play to all). A shot of the debug network start
+  with CHAT_ALL's key and "hi" shows the panel over the cockpit. Breaks
+  caught: the commands left on, the panel never closed, the text raw, an
+  empty line sent, the team flag inverted.
+- **Piece 14b** (2026-11-01): the multiplayer briefing, ported before (the
+  briefing's 0x00405230 and 0x00408ef0), checked from the menus. A shipped
+  world (number 1 or 2) takes its briefing.zrd section; an add-on world
+  (number 3 and up, c3's mp3 and mp4: the game's +0x94 > 2) takes
+  mpinfo.zrd's `briefing`. Only LAUNCH, pressed by itself once loaded
+  (multiplayer_launch_prep first), so the screen shows for the load's few
+  frames. Shots: Beachhead (c1mp1) with MULTIPLAYER, the world, the game's
+  name and the players' line; Durgan City (c3mp3, picked with WORLD's
+  arrow) from mpinfo.zrd. No code changed.
+- **Piece 14c** (2026-11-01): the way back. A game's end (0x004707c0: the
+  kills added to the pilot's totals, the pilot saved) fades to the
+  Multi-Exit State (0x00470710: the mission unloaded, the main menu), whose
+  enter (0x00486990) presses MULTIPLAYER while the network is up; the
+  Multiplayer State's enter (0x0049cab0) wants the lobby's page
+  (0x00586ce0), and the lobby's enter (0x00497720) fills SCORES_LIST from
+  the last game's records before the refresh makes them again (so a later
+  fill shows zeros, as the exe). There is no multiplayer debriefing: the
+  lobby's scores are it. The game is open again (its enter's fourth word),
+  so the host locks and starts as the first time. All of it was ported in
+  pieces 9 to 11; new here: the dead list's `net_fade` (0x0041e220's
+  [0x0060861c]+0x8c, ALLOW RESPAWN: a network wreck fades out over the second before 7.1 s, the respawn), set
+  in the program and off the census's skips. Ours for the tests:
+  `--net-seconds S` (each menu game's clock), `--net-kill-at S` (a kill
+  staged S seconds of 30 frames in), `--net-ahead` in a menu game,
+  `--click-return X,Y@N` (a click N frames after each return to the
+  lobby), the "lobby entered N, scores: ..." line and the "soak menus game
+  in / over" lines. Tests: `sdl_two_processes_lobby_game_and_back_twice`
+  (two mw3 from the menus, three games of 20 s, A held 50 m from B and
+  wrecked 8 s in; after each game both lobbies show "best 1 1 0 | test 0 0
+  0"), `net_chat_panel_c1mp1_headless` (the wreck fades with ALLOW RESPAWN
+  only). Breaks caught: the main menu not pressing MULTIPLAYER (one game
+  only), the scores filled after the refresh (zeros), the fade's flag
+  inverted. A first try clicked B's READY 250 frames after its return:
+  B is back first, before A's lock reaches it, so its box was still off;
+  400 frames is after it. Left for the census's owner: the player's death
+  in a mission still reaches 0x0041b263, 0x004e6dc0, 0x0041d510,
+  action.vt+0x3c and 0x00446ad0 (playtest.md's c3m2 note), in a network
+  game as in single player. (0x0041d510 and action.vt+0x3c are now ported
+  for the loss, below.) The 30-minute soak over this path (two mw3, 60 s
+  games, a staged kill each): 111 games, the same scores on both after
+  every one, but the memory rose from 206 to 513 MB. macOS's `leaks`
+  found every mission's animations left behind (36 of 42 MB): the port's
+  0x0050b380 wrote a dword over +0x08, which took the def count beside it
+  (+0x0a, a word in the exe's store) to 0 before its loop, so it freed no
+  def (a port slip, not the exe's: every mission change leaked its
+  anim.zbd, campaign too). Now a word; the soak again: 103 games, memory
+  flat (188 MB at the start, 157 at the end). Test:
+  `missions_c1m1_c1m2_then_c2m1_in_one_process_headless` (every c1 def
+  freed before c2; `zeff::anim_freed_defs`, ours). Break caught: the
+  dword store.
+- **14a's Enter, renamed** (the PC build's warning): the console's +0xd0
+  was `on_enter`, the name of Object2D's +0x3c, the mouse routing's entry
+  (Window::update, 0x005a2bb0), so it overrode it: the pointer coming over
+  the panel would have sent the line and deleted the panel under the
+  routing (the break crashes). Now `line_entered`; the chat test moves the
+  mouse's entry over the open panel (it stays up, nothing sent).
+- **The 1.2 read-me's six** (the lead, after 14c; game/mw3-1.2/readme.txt,
+  the multiplayer changes of 1.1 and 1.2), each a test:
+  1. 1.1's crash or lost keyboard when a player respawns while another's
+     chat is open: held. Our panel up while Bob's mech is made again (0x12)
+     and then while ours is (the respawn's remake, which closes it through
+     `player_object_free`): the keys type, the text is sent, the commands
+     come back (`net_chat_panel_c1mp1_headless`; break caught: the remake
+     not closing the panel leaves the commands off, the old bug itself).
+  2. 1.2's crash on fast uppercase letters and question marks: held. A
+     burst of Shift and "MECHWARRIOR???" ten times (290 events, three of
+     zInput's 0x80-event reads) through zInput and a ToAscii as Windows'
+     into the lobby's chat bar and the in-game panel: no crash, each holds
+     the burst as typed up to its length, the lobby sends it whole
+     (`net_lobby_chat_headless`, `net_chat_panel_c1mp1_headless`).
+  3. 1.2's weapon groups kept through a respawn: held. A weapon moved to
+     another group writes it into the loadout's item (0x004b1e10's +0x60 on
+     the item), which the respawn's remake configures from; after the
+     network respawn (the dead list's 0x0046dde0) it is still in it, the
+     others unchanged (`net_chat_panel_c1mp1_headless`; break caught: the
+     item not written).
+  4. 1.2's arms that flailed and mechs that ran in place on other screens:
+     the running in place held; the arms needed a fix. Headless, Bob from
+     his states (standing, walking at 10 m/s, stopped):
+     `net_remote_pose_follows_the_states_c1mp1_headless`; two mw3, A
+     walking from 5 to 15 s of a 30 s game and then slowing to a stop
+     (`--net-walk`, ours): `sdl_two_processes_a_walk_seen_from_the_other`.
+     On B's screen A's arms swung between their limits for about 6 s as A
+     slowed: the aim's extrapolation (0x0046e4d0, by the latency over the
+     gap since the last state, its four parts without a normalize) by a
+     latency of 2^32 ms. The ping's 0x00470a00 loads the round trip less
+     the peer's delay unsigned, so the delay past the trip (here, two
+     processes' stepped clocks at different rates; in play a stall or a bad
+     packet) is 24 days, not the 0 its clamp means: FIX (bug), behind bug
+     fixes (fixes.md). Breaks caught: the unsigned load (2^32 ms; 38 jumps
+     over 0.2 rad), the remote's throttle ignored (sliding without
+     walking). A's own start is a step or two before it moves, on its own
+     screen too; the test counts 1.5 s or more of a walking gait in place.
+  5. 1.2's IP address from the numeric keypad: held on Windows, failed on
+     a Mac. zInput takes the keypad's characters only with Num Lock on (as
+     the exe from GetKeyboardState); SDL reports it off on a Mac, which has
+     none, so the keypad gave the cursor keys' codes. FIX (A): the SDL
+     host reports it on, on macOS (`sdl_keypad_types_an_address`; break
+     caught: "###########").
+  6. The read-me's "outside the mission boundaries in multiplayer your
+     'Mech will blow up": failed, now ported. The mp worlds' objectives
+     (reader.zbd, mp1 / mp2: an invisible fail on `outside_c1m1` and so on,
+     set by the player's `reg_outside_*` region) end in the loss
+     (0x0048f9e0), which in a network game sets the player's centre torso's
+     internal structure to 0 (0x0041d510's part 1, its vt+0x3c with 0, 0)
+     unless the mech is down already (+0x578 10). Both calls were census
+     stand-ins; now the program's (and +0x578 read as the mech's animation
+     state). Test: `net_chat_panel_c1mp1_headless` (the valve set, the mech
+     down a frame on; break caught: the torso left alone).
+
+- **16:9** (the lead, 2026-11-01, release.md): the three screens widened
+  (resolution.md section 12): the connection screen (NET NAME, SESSIONS,
+  CANCEL and JOIN left; CONNECT, HOST SETUP and HOST right; its 610x345
+  lines lengthened at column 300), the lobby (GAME SETUP left, SCORES and
+  CHAT in the middle, PLAYER SETUP right; CANCEL and LOCK OPTIONS left,
+  MECHLAB in the middle, I AM READY and START right; its 640x480 lines at
+  columns 202 and 412, the middle column widened), the new team's dialog
+  one centred block, its backdrop (the canvas grabbed as it enters) left
+  at 0. The briefing is one block on its widened map, as every briefing.
+  Test: `menus_wide_spread_by_their_groups_headless`'s multiplayer line.
+  Breaks caught: the backdrop moved, the lobby's table missing.
+
 ## Open
 
 - c3's two 1.2 multiplayer maps for a 1.0 install (patch12.md, What stays

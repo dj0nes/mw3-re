@@ -188,6 +188,7 @@ class LobbyScreen : public MenuScreen {
   Handle pilot = 0;                  // +0x15058
   CopyLine internet_line, lan_line;  // ours (piece 9c)
   float reach_timer = 0;
+  std::vector<std::string> shown_scores;  // ours: SCORES_LIST's lines as last filled (the tests)
 
  private:
   bool handlers_on_ = false;
