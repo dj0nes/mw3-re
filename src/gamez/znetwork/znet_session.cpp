@@ -360,7 +360,7 @@ struct Hub::Impl::End : Transport {
     into->assign(static_cast<const uint8_t*>(d), static_cast<const uint8_t*>(d) + size);
     SystemEvent e;
     e.kind = kSysSetPlayerOrGroupData, e.player_type = is_group ? 0 : 1, e.id = who;
-    hub->to_all(e, this);
+    hub->to_all(e);  // the setter too (as the teams' changes)
     return true;
   }
   bool get_data(bool is_group, uint32_t who, void* d, uint32_t* size) override {

@@ -107,7 +107,7 @@ TEST(net_enet_three_machines_join_talk_and_part) {
   uint8_t got[4] = {};
   uint32_t size = 4;
   EXPECT(a.t->get_data(false, 3, got, &size) && size == 3 && got[2] == 9);
-  EXPECT(!c.has_event(znet::kSysSetPlayerOrGroupData, 3));  // not told of its own
+  EXPECT(c.has_event(znet::kSysSetPlayerOrGroupData, 3));  // told of its own too (the lobby's READY, piece 11c)
   // Team chat: to the team, only its members (c) get it.
   const uint8_t team_chat[4] = {0x1f, 0, 4, 0};
   EXPECT(a.t->send(team, team_chat, 4, true, nullptr));

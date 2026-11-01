@@ -407,6 +407,7 @@ class GameEngine : public Engine {
   void multiplayer_switch(Handle state) override;  // 0x0049cb20
   void multiplayer_page(Handle state, int32_t page, uint8_t reenter) override;  // 0x0049cb00
   void multiplayer_take_pilot(Handle first, Handle second) override;  // 0x00494920
+  void multiplayer_resume(Handle screen) override;  // 0x0049b660
   NetReach network_reach() override { return p_.network_reach ? p_.network_reach() : NetReach{}; }
   void network_hosting(bool on) override {
     if (p_.network_hosting) p_.network_hosting(on);

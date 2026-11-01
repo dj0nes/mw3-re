@@ -327,6 +327,12 @@ class MultiplayerGame : public Game {
   int32_t type() const override { return kMultiplayer; }  // 0x0041ec30
   GameSlot* slot_at(int32_t i) { return i == 0 ? &slot : nullptr; }  // vt+0x34  0x00437800
   int32_t world() const { return x94 << 8 | x90; }  // vt+0x4c (0x00437940) << 8 | vt+0x54 (0x00437910)
+  // The briefing's texts: "M U L T I P L A Y E R" (vt+0x04, 0x00437920), the
+  // world's name (vt+0x08, 0x00436500: a shipped one's message, an add-on's
+  // mpinfo.zrd db_name, else "Unknown"), the session's name (vt+0x0c,
+  // 0x00437950), the players as START listed them (vt+0x10, 0x00437930).
+  const char* game_text(int32_t slot) override;
+  void set_roster(const std::vector<std::string>& lines);  // 0x00436470: each line and "\n"
 
   // The lobby's records by player or team id (0x00495b10..0x00495d20 on
   // +0x48 and +0x54), and their lists emptied (0x00495a50, 0x00495c60,
@@ -377,6 +383,7 @@ class MultiplayerGame : public Game {
   int32_t kills = 0, deaths = 0;     // +0x98, +0x9c  the pilot screen's line (0x27e)
   int32_t best = 0, best_count = 0;  // +0xa0, +0xa4  the best score and how many have it (0x00435b60)
   uint8_t ba8 = 0;                   // +0xa8  MOBILE_CHECKBOX's
+  std::string roster;                // +0xac  (0x00436470)
 };
 
 // Training (0x00436e30, vtable 0x005beda8), 0x8c bytes.

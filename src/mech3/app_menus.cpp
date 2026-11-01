@@ -696,7 +696,7 @@ int32_t campaign_dir(const CampaignGame& c) {
 
 // The Load state from the menus: its game is the chosen pilot's (the
 // launch's stand-in filled from it; a debug start keeps its own). A
-// campaign's, training's and Instant Action's missions (not multiplayer).
+// campaign's, training's, Instant Action's and multiplayer's missions.
 void GameEngine::load_state_enter() {
   if (launch_.active && launch_.auto_launch) return;
   Pilot* p = current_pilot();
@@ -718,12 +718,19 @@ void GameEngine::load_state_enter() {
     l.index = a->x74;
     l.number = a->x78;
     l.op = a->x74 >= 0 && a->x74 <= 3 ? a->x74 + 1 : 0;
+  } else if (auto* m = dynamic_cast<MultiplayerGame*>(g)) {
+    // The lobby's world (0x0049b790): vt+0x54 the folder, vt+0x4c the mp
+    // number, vt+0x48 0 (0x0040bae0); UNAVAILABLE is folder -1.
+    l.index = m->x90;
+    l.number = m->x94;
+    l.op = 0;
+    l.multi = m;
   } else {
     l.index = -1;
   }
   if (l.index < 0) {
-    // Not ported (multiplayer), or no game: back to the
-    // main menu rather than a mission left from before.
+    // No game, or no world: back to the main menu rather than a
+    // mission left from before.
     unported("the Load state of this game", {l.type});
     launch_.active = false;
     replace_state(2);
@@ -737,10 +744,10 @@ void GameEngine::load_state_enter() {
 
 // The briefing's game texts (game_type, db_name, scenario_name,
 // scenario_desc: the game's vt+0x04 .. +0x10). A debug start has no pilot's
-// game: the one its launch names answers (ours). Multiplayer's stay logged.
+// game: the one its launch names answers (ours).
 const char* GameEngine::game_text(int32_t slot) {
   Pilot* p = launch_.auto_launch ? nullptr : current_pilot();
-  if (Game* g = p ? p->current : nullptr) return g->type() == kMultiplayer ? Engine::game_text(slot) : g->game_text(slot);
+  if (Game* g = p ? p->current : nullptr) return g->game_text(slot);
   if (launch_.action) return launch_.action->game_text(slot);
   if (launch_.index == 5) return TrainingGame::text_of(slot, launch_.number);  // t1
   if (slot != 0x0c) return nullptr;
@@ -1301,6 +1308,12 @@ void GameEngine::multiplayer_take_pilot(Handle first, Handle second) {
   if (auto* c = dynamic_cast<ConnectScreen*>(screen_of(first))) c->take_pilot(p ? handle_of(p) : 0, p ? p->name : nullptr);
   else Engine::multiplayer_take_pilot(first, second);
   if (auto* l = dynamic_cast<LobbyScreen*>(screen_of(second))) l->take_pilot(p ? handle_of(p) : 0, p ? p->multiplayer() : nullptr);
+}
+
+// Mech3.exe 1.2 @ 0x0049b660 on the lobby: back from the mech lab.
+void GameEngine::multiplayer_resume(Handle screen) {
+  if (auto* l = dynamic_cast<LobbyScreen*>(screen_of(screen))) l->resume();
+  else Engine::multiplayer_resume(screen);
 }
 
 }  // namespace mech3

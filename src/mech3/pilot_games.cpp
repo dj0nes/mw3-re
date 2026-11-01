@@ -3,6 +3,8 @@
 #include <cstdlib>
 #include <cstring>
 
+#include "gamez/znetwork/znet_session.h"
+#include "gamez/zreader/zreader.h"
 #include "gamez/zsave/zsave.h"
 #include "gamez/zutil/zutl_msg.h"
 #include "gamez/zutil/zutl_msgdll.h"
@@ -877,6 +879,34 @@ void MultiplayerGame::load() {
   rd(f, &x94, 4);
   rd(f, &b8f, 1);
   rd(f, &x78, 4);
+}
+
+// Mech3.exe 1.2 @ 0x00437920, 0x00436500, 0x00437950, 0x00437930
+const char* MultiplayerGame::game_text(int32_t slot) {
+  switch (slot) {
+    case 0x04: return pilot_hooks().message(0x10d);
+    case 0x08: {
+      if (x94 > 2) {  // an add-on's: the reader's mpinfo.zrd ([0x00605850] holds it)
+        static std::string name;
+        zrdr::Node* info = zrdr::load("mpinfo.zrd");
+        const char* s = zrdr::get_string(info, "db_name");
+        name = s ? s : "";
+        if (info) zrdr::free_node(info);
+        return name.c_str();
+      }
+      if (x90 >= 0 && x90 <= 3 && (x94 == 1 || x94 == 2)) return pilot_hooks().message(0x320 + x90 * 2 + x94 - 1);
+      return pilot_hooks().message(0xd75);  // "Unknown"
+    }
+    case 0x0c: return znet::session().desc.name.c_str();
+    case 0x10: return roster.c_str();
+    default: return nullptr;
+  }
+}
+
+// Mech3.exe 1.2 @ 0x00436470
+void MultiplayerGame::set_roster(const std::vector<std::string>& lines) {
+  roster.clear();
+  for (const std::string& l : lines) roster += l + "\n";
 }
 
 // ---- the lobby's records (multiplayer-port.md, piece 11) ----

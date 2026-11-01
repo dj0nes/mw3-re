@@ -1240,6 +1240,17 @@ From the network code (network-messages.md).
 - **The lock waits for everyone to have the map.** With an add-on world
   chosen, the host cannot lock while a player lacks it; the game names
   them.
+- **"Unlimited" is the number 100.** The kill and time lists' last
+  entries are the value 100, which the start turns into no limit; a
+  100-minute game cannot be chosen.
+- **The kill limit counts score, not kills:** kills minus suicides (never
+  below zero), and in team play the team's total.
+- **Your start point is your place in the lobby.** The host's START tells
+  everyone the players' order in the lobby list, and each mech's starting
+  point is chosen by that place.
+- **A dead check on READY.** The game means to refuse READY in team play
+  when another team has your colour ("skin taken"), but asks the question
+  in a way that can never be true, so the warning never shows.
 
 ## Graphics
 

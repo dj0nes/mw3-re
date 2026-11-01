@@ -968,6 +968,58 @@ Ours, in three pieces:
   fit: at 30 tons only one does), the stock bit, no lock question, the
   open door.
 
+- **Piece 11c** (2026-11-01): the start and each player's own. START
+  (0x0049b790): the host tells everyone the players' places (0x1e: the
+  player in each place 1..8; their order in the lobby's count) and shows
+  the game in progress (its fourth word 2); everyone gives the game the
+  lobby's settings (the score limit, 100 none: 0x7fffffff; respawn, ammo,
+  first person, stock, mobile bases; the tons; the minutes as a float),
+  the rules block's values (its flags or'd), the mission clock ([0x00609920]
+  minutes x 60, [0x00609924] on unless unlimited), the world (folder +0x90,
+  UNAVAILABLE -1; number +0x94) and the players' lines for the briefing
+  (+0xac, 0x00436470: vt+0x10, with vt+0x04 "M U L T I P L A Y E R", vt+0x08
+  the world's name, vt+0x0c the session's), drops the lobby's handlers and
+  goes to the Load state (0x0049ca80), which now loads a multiplayer game's
+  world (mp<number> in its folder). A joiner's 0x1e (0x0049bcb0) sets the
+  places and starts on its next update; FIX (A) only the host's, whole.
+  Ours: the network game's lobby calls (team_of 0x00435910, the start's
+  place, a kill 0x004359b0 and suicide 0x00435ac0, the kills 0x00435a30 and
+  the score toward the limit 0x00435a50, which mech_net had as one hook and
+  are two now, the 0x14 list, the sets, the rescore 0x004361e0, a player's
+  leaving +0x18) on this game in place of the debug start's stand-in
+  (`program_net_lobby`). READY (0x0049a970): our data's state 3 or 2 (its
+  check of another team with our skin calls 0x0049bd10 with the skin as the
+  exception and never finds one: dead). MECHLAB (0x0049b500): our state
+  kept, "In MechLab" (1), the lab on the game's store (stock mechs only with
+  STOCK); back (0x0049b660, the engine's `multiplayer_resume`) our state
+  again. The scores between games (0x14, 0x0049b150): each player's kills
+  and suicides, the lines again; FIX (A) read only as far as the message
+  goes. The teams: JOIN (0x0049a550, out of ours first), REMOVE an empty one
+  (0x0049a630), a player into a team (0x0049a220: the first its owner, the
+  team's data's first word), a new team with its skin (0x0049a300) and our
+  skin (0x0049a850: our data's second word, or our team's); the last two are
+  the new team's dialog's (piece 13, with NEW_TEAM and PICK_SKIN). The
+  mission's mobile-bases flag ([0x00479480]+0xa8) from the game. The
+  transports now tell the setter of its own data's change too, as of the
+  teams' (ENet applies its own frame, the hub tells all): the exe needs it,
+  its own READY refreshing its lines by the 9 it raises (0x00499600), or a
+  host readying last would never see START. Tests:
+  `net_lobby_start_host_headless` (READY's states and our "Ready!" line,
+  the mech lab's state and back, the 0x14 scores and their line, START: the
+  places at the joiner, word 2, the game's settings, world and roster, the
+  network game asking this game, the briefing's texts, the handlers off),
+  `net_lobby_start_join_and_teams_headless` (a new team joined with us its
+  owner and its skin our side, its lines, another joined by JOIN, the empty
+  one removed, our team's skin; another player's 0x1e ignored, the host's
+  places, the start), `sdl_lobby_host_alone_starts_a_game` (one mw3 through
+  the menus: HOST, LOCK and OK, READY, START, Beachhead loaded and ready to
+  launch). Breaks caught: the world's folder and number swapped, any
+  player's 0x1e taken, READY's states swapped, ENet's and the hub's setter
+  left deaf, no team owner, no score hook, the Load state without
+  multiplayer. Left: the mobile bases' stations in a network game (0x00490950),
+  the chat (12), the new team's dialog (13), the briefing and debriefing
+  (14), two processes through the lobby into a game.
+
 ## Open
 
 - c3's two 1.2 multiplayer maps for a 1.0 install (patch12.md, What stays

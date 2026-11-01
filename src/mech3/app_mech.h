@@ -84,6 +84,31 @@ bool program_net_game_over();
 // deaths kept here as the lobby would; the pilot driven by a pattern (the
 // commands it injects); a line of where everything is; the score table.
 void program_net_debug_lobby();
+// The lobby's records as the network game's (piece 11c; 0x00435910..
+// 0x004361e0 on the pilot's multiplayer game, 0x00495b10's +0x18), set by
+// the lobby's START in place of the stand-in above.
+struct NetLobbyAccess {
+  uint32_t (*team_of)(uint32_t player) = nullptr;    // 0x00435910
+  int32_t (*start_of)(uint32_t player) = nullptr;    // the record's +0x20
+  void (*left)(uint32_t player) = nullptr;           // the record's +0x18 = 1
+  void (*suicide)(uint32_t player) = nullptr;        // 0x00435ac0(p, 1)
+  void (*kill)(uint32_t player) = nullptr;           // 0x004359b0(p, 1)
+  int32_t (*kills)(uint32_t player) = nullptr;       // 0x00435a30
+  int32_t (*score)(uint32_t player) = nullptr;       // 0x00435a50: toward the limit
+  int32_t (*deaths)(uint32_t player) = nullptr;      // 0x00435b40
+  int32_t (*scores)(uint32_t* out, int32_t cap) = nullptr;  // (id, kills, deaths) each
+  void (*set_kills)(uint32_t player, uint32_t n) = nullptr;   // 0x004359f0
+  void (*set_deaths)(uint32_t player, uint32_t n) = nullptr;  // 0x00435b00
+  void (*rescore)() = nullptr;                       // 0x004361e0
+};
+void program_net_lobby(const NetLobbyAccess& a);
+// The tests' look at what the network game asks (NetCalls' team_of, start_of
+// and score; 0 when unset).
+uint32_t program_net_team_of(uint32_t player);
+int32_t program_net_start_of(uint32_t player);
+int32_t program_net_score_of(uint32_t player);
+// [0x00609920] and [0x00609924]: the mission clock START sets (0x0049b790).
+void program_net_clock(float left, bool on);
 uint32_t program_net_drive(int cmd, double seconds, uint32_t seed);
 std::string program_net_soak_line();
 // A kill staged on the pilot (hits that land are too few to kill in a soak):

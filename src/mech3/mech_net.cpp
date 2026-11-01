@@ -731,7 +731,8 @@ void net_score_kill(uint32_t victim, uint32_t killer) {
     if (c.lobby_suicide) c.lobby_suicide(victim);
   } else if ((c.team_of ? c.team_of(killer) : 0) != (c.team_of ? c.team_of(victim) : 0)) {
     if (c.lobby_kill) c.lobby_kill(killer);
-    if ((c.lobby_kills ? c.lobby_kills(killer) : 0) >= g->score_limit) {
+    const auto score = c.lobby_score ? c.lobby_score : c.lobby_kills;  // 0x00435a50
+    if ((score ? score(killer) : 0) >= g->score_limit) {
       if (g->end_state && *g->end_state == 0) *g->end_state = 2;
       if (g->clock_next) *g->clock_next = game_time();
     }

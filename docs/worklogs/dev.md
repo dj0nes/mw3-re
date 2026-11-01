@@ -2632,4 +2632,11 @@ Assigned after 8b2 merged (fd3f05f). The lead asked for a section stepped at bot
   the lock's mech; FIX (A) for the rules message, the locked door. Found:
   STOCK on resets every loadout to the first stock one on the lock (a
   candidate, fixes.md).
-- Next: 11c.
+- The lead: the lock's stock loadout as FIX (bug) behind bugs (066dd199).
+- 11c done (multiplayer-port.md, 11c): START, the places, READY, MECHLAB,
+  the scores, the teams' calls, the Load state for a multiplayer game, the
+  network game's lobby calls on the real game. Found: mech_net's one kills
+  hook was two exe calls (0x00435a30 kills, 0x00435a50 score); the lobby
+  needs the setter told of its own data (both transports now do). A host
+  alone goes from the menus to Beachhead.
+- Next: 12 (the chat).

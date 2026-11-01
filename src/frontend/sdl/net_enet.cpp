@@ -893,10 +893,12 @@ bool EnetTransport::set_data(bool is_group, uint32_t id, const void* data, uint3
     into = &m.players[id].data;
   }
   if (!m.local_id || !into) return false;
-  into->assign(static_cast<const uint8_t*>(data), static_cast<const uint8_t*>(data) + size);
   Writer w;
   w.u8(kData), w.u8(is_group ? 1 : 0), w.u32(id), w.bytes(data, size);
-  m.to_everyone(0, w.b);  // DirectPlay does not tell the setter
+  m.to_everyone(0, w.b);
+  // The setter hears it too, as with the teams' changes: the lobby's own
+  // READY refreshes its lines by it (0x00499600 on 9; multiplayer-port.md 11c).
+  m.on_frame(nullptr, 0, w.b.data(), w.b.size());
   return true;
 }
 

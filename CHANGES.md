@@ -585,5 +585,6 @@ Known quirks the rebuild deliberately keeps:
 - The multiplayer lobby no longer sends the scores to an online game service (the MSN Gaming Zone's score reporting, long gone).
 - The multiplayer lobby shows the host its internet and LAN addresses, with a click to copy, as the connection screen does.
 - The multiplayer lobby takes game settings only from the host, and checks them before use.
+- The multiplayer lobby takes the start of a game only from the host, and reads the scores between games only as far as the message goes.
 - A locked multiplayer game turns away players who try to join it, instead of only greying out its Join button.
 - With bug fixes on, locking a multiplayer game with "Use stock 'Mechs" keeps the stock loadout a player chose instead of resetting it to the mech's first.

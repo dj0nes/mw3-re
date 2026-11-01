@@ -12,6 +12,7 @@
 #include "gamez/zutil/zfix.h"
 #include "gamez/zutil/zutl_msgdll.h"
 #include "gamez/zutil/zutl_zar.h"
+#include "mech3/app_mech.h"
 #include "mech3/pilot.h"
 
 namespace mech3 {
@@ -342,7 +343,7 @@ void LobbyScreen::update(float dt) {
     refresh_buttons();
     g_lobby_dirty = 0;
   }
-  // start_pending: 0x0049b790 (piece 11c).
+  if (start_pending) start();
   if ((reach_timer -= dt) <= 0.0f) {
     show_reach();
     reach_timer = 0.5f;
@@ -350,8 +351,9 @@ void LobbyScreen::update(float dt) {
   Window::update(dt);
 }
 
-// Mech3.exe 1.2 @ 0x00497410. The chat's (2, 3), START's (0), the teams'
-// (4, 5, 7, 8), MECHLAB's (10) and READY's (0x15) come with pieces 11c and 12.
+// Mech3.exe 1.2 @ 0x00497410. The chat's (2, 3) come with piece 12; NEW_TEAM
+// (7, 0x0049a2b0) and PICK_SKIN (8, 0x0049a820) open the new team's dialog,
+// piece 13.
 void LobbyScreen::on_button(int32_t id, int32_t a, int32_t b) {
   (void)a, (void)b;
   Engine& e = engine();
@@ -363,6 +365,11 @@ void LobbyScreen::on_button(int32_t id, int32_t a, int32_t b) {
       g_lobby_dirty = 0;
       if (game) game->clear_lobby();
       return;
+    case 0: start(); return;
+    case 4: join_team(); return;
+    case 5: remove_team(); return;
+    case 10: mech_lab(); return;
+    case 0x15: ready(); return;
     case 0xb: lock(); return;
     case 0xc: world_changed(); return;
     case 0xd:
@@ -509,8 +516,7 @@ void LobbyScreen::host_controls() {
 }
 
 // Mech3.exe 1.2 @ 0x00497fbf..0x004980b6 (on), 0x00499a30 (off). The chat's
-// 0x1f (0x00499610), the start's 0x1e (0x0049bcb0) and the scores' 0x14
-// (0x0049b150) come with 11c and 12.
+// 0x1f (0x00499610) comes with piece 12.
 void LobbyScreen::handlers(bool on) {
   static const uint16_t kChange[] = {3, 4, 9, 0xa, 5, 6, 8, 2};
   for (uint16_t t : kChange) on ? (void)znet::on(t, on_change) : (void)znet::off(t, on_change);
@@ -518,10 +524,14 @@ void LobbyScreen::handlers(bool on) {
     znet::on(7, on_kicked);
     znet::on(0xd, on_host);
     znet::on(0x20, on_rules);
+    znet::on(0x1e, on_start);
+    znet::on(0x14, on_scores);
   } else {
     znet::off(7, on_kicked);
     znet::off(0xd, on_host);
     znet::off(0x20, on_rules);
+    znet::off(0x1e, on_start);
+    znet::off(0x14, on_scores);
   }
   handlers_on_ = on;
 }
@@ -810,6 +820,269 @@ void LobbyScreen::lock_mech() {
       }
   if (l && at >= 0 && at <= l->count - 1) return;
   slot.set_config(first(slot.mech));
+}
+
+// ---- the start, and each player's own (piece 11c) ----
+
+namespace {
+// Our own data, the lobby's kind 1 (0x0049a970, 0x0049b500, 0x0049b660 read
+// it so; anything else is left alone).
+bool my_data(std::vector<uint32_t>* d) {
+  *d = player_data(znet::local_id());
+  return d->size() >= 3 && (*d)[0] == 1;
+}
+void set_my_data(const std::vector<uint32_t>& d) {
+  znet::set_player_data(znet::local_id(), d.data(), static_cast<uint32_t>(d.size() * 4));
+}
+
+// The network game's lobby calls on the started game (0x00435910..).
+MultiplayerGame* g_net_game = nullptr;
+NetLobbyAccess net_lobby_access() {
+  NetLobbyAccess a;
+  a.team_of = [](uint32_t p) { return g_net_game ? g_net_game->net_team(p) : 0u; };
+  a.start_of = [](uint32_t p) {
+    const LobbyPlayer* r = g_net_game ? g_net_game->lobby_player(p) : nullptr;
+    return r ? r->order : 0;
+  };
+  a.left = [](uint32_t p) {
+    if (LobbyPlayer* r = g_net_game ? g_net_game->lobby_player(p) : nullptr) r->left = 1;
+  };
+  a.suicide = [](uint32_t p) {
+    if (g_net_game) g_net_game->add_deaths(p, 1);
+  };
+  a.kill = [](uint32_t p) {
+    if (g_net_game) g_net_game->add_kills(p, 1);
+  };
+  a.kills = [](uint32_t p) { return g_net_game ? g_net_game->kills_of(p) : -1; };
+  a.score = [](uint32_t p) { return g_net_game ? g_net_game->score_of(p) : -1; };
+  a.deaths = [](uint32_t p) { return g_net_game ? g_net_game->deaths_of(p) : -1; };
+  a.scores = [](uint32_t* out, int32_t cap) {
+    int32_t n = 0;
+    if (g_net_game)
+      for (auto& r : g_net_game->lobby_players) {
+        if (n >= cap) break;
+        out[3 * n] = r->id, out[3 * n + 1] = static_cast<uint32_t>(r->kills), out[3 * n + 2] = static_cast<uint32_t>(r->deaths);
+        ++n;
+      }
+    return n;
+  };
+  a.set_kills = [](uint32_t p, uint32_t v) {
+    if (g_net_game) g_net_game->set_kills(p, static_cast<int32_t>(v));
+  };
+  a.set_deaths = [](uint32_t p, uint32_t v) {
+    if (g_net_game) g_net_game->set_deaths(p, static_cast<int32_t>(v));
+  };
+  a.rescore = [] {
+    if (g_net_game) g_net_game->rescore();
+  };
+  return a;
+}
+}  // namespace
+
+// Mech3.exe 1.2 @ 0x0049b790: the host tells everyone their places (0x1e:
+// each place's player, 1..8) and shows the game in progress (its fourth word
+// 2); everyone then gives the game the lobby's settings (a limit of 100 is
+// none: the kills 0x7fffffff, the clock off), the rules block, the world
+// (UNAVAILABLE folder -1) and the players' lines (the briefing's), drops the
+// lobby's handlers, and goes to the Load state (0x0049ca80). Ours: the
+// network game's lobby calls on this game (the debug start's stand-ins
+// otherwise).
+void LobbyScreen::start() {
+  Engine& e = engine();
+  start_pending = 0;
+  if (!game) return;
+  if (znet::is_host()) {
+    uint8_t m[0x24] = {0x1e, 0, 0x24, 0};
+    for (auto& p : game->lobby_players)
+      if (p->order > 0 && p->order < 9) std::memcpy(m + 4 * p->order, &p->id, 4);
+    znet::send(m, sizeof m, true, 0);
+    znet::GameInfo info;
+    if (znet::game_info(-1, &info)) {
+      info.user[3] = 2;  // in progress
+      znet::set_game_info(info);
+    }
+    keep_order = 1;
+  }
+  const int32_t kills = kills_list.selected_value();
+  game->x70 = kills < 100 ? kills : 0x7fffffff;
+  game->b8c = regen_box.checked != 0;
+  game->b8d = ammo_box.checked != 0;
+  game->b8e = select_box.checked != 0;
+  game->b8f = stock_box.checked != 0;
+  game->ba8 = mobile_box.checked != 0;
+  game->x78 = weight_list.selected_value();
+  const int32_t minutes = time_list.selected_value();
+  game->x74 = static_cast<float>(minutes);
+  MultiplayerGame::Rules& r = game->rules;
+  r.world = static_cast<int16_t>(worlds.selected_value());
+  r.kills = static_cast<int16_t>(kills);
+  r.time = static_cast<int16_t>(minutes);
+  r.weight = static_cast<int16_t>(game->x78);
+  r.flags |= box_flags(*this) & 0x1f;  // or'd onto the lock's
+  handlers(false);
+  const float t = static_cast<float>(minutes);
+  program_net_clock(t >= 100.0f ? 0.0f : t * 60.0f, t < 100.0f);  // [0x00609920], [0x00609924]
+  const int32_t w = worlds.selected_value();
+  game->x90 = w == 0 ? -1 : (w & 0xff);
+  game->x94 = w >> 8;
+  LobbyList& lines = multiplayer_team_play() ? teams_list : players_list;
+  std::vector<std::string> roster;
+  for (int32_t i = 0; i < lines.item_count(); ++i) roster.emplace_back(lines.items[static_cast<size_t>(i)]->text);
+  game->set_roster(roster);
+  g_net_game = game;
+  program_net_lobby(net_lobby_access());
+  e.pop_state(0);
+  e.replace_state(6);  // 0x0049ca80: the Load state
+}
+
+// Mech3.exe 1.2 @ 0x0049bcb0: the host's places for its players; then our
+// start. FIX (A): only the host's, whole (the exe took any player's).
+void LobbyScreen::on_start(uint32_t from, const uint8_t* msg, size_t size) {
+  LobbyScreen* l = g_lobby;
+  if (!l || !l->game || size < 0x24 || from != znet::session().host_id || znet::is_host()) return;
+  for (int32_t i = 0; i < 8; ++i) {
+    uint32_t id;
+    std::memcpy(&id, msg + 4 + 4 * i, 4);
+    if (id)
+      if (LobbyPlayer* p = l->game->lobby_player(id)) p->order = i + 1;
+  }
+  l->keep_order = 1;
+  l->start_pending = 1;
+}
+
+// Mech3.exe 1.2 @ 0x0049b150: the host's scores between games, each player's
+// kills and suicides; the lines again. FIX (A): read only as far as the
+// message goes.
+void LobbyScreen::on_scores(uint32_t, const uint8_t* msg, size_t size) {
+  LobbyScreen* l = g_lobby;
+  if (!l || !l->game || size < 6) return;
+  int16_t n;
+  std::memcpy(&n, msg + 4, 2);
+  for (int32_t k = 0; k < n && 6 + 12 * static_cast<size_t>(k + 1) <= size; ++k) {
+    uint32_t w[3];
+    std::memcpy(w, msg + 6 + 12 * k, 12);
+    l->game->set_kills(w[0], static_cast<int32_t>(w[1]));
+    l->game->set_deaths(w[0], static_cast<int32_t>(w[2]));
+  }
+  l->game->rescore();
+  l->scores(false);
+}
+
+// Mech3.exe 1.2 @ 0x0049a970: READY (after its press) into our data's state,
+// 3 ready or 2 not. Its check of another team with our skin (0x0049bd10
+// with the skin as the exception, which never answers one) is dead.
+void LobbyScreen::ready() {
+  if (!game) return;
+  const LobbyPlayer* me = game->lobby_player(znet::local_id());
+  if (ready_box.checked && me && free_skin(me->skin, me->skin) != 0) {
+    ready_box.set_checked(0);  // (with 0xf47 / 0xf48 in team play)
+    return;
+  }
+  std::vector<uint32_t> d;
+  if (!my_data(&d)) return;
+  d[2] = ready_box.checked ? 3 : 2;
+  set_my_data(d);
+}
+
+// Mech3.exe 1.2 @ 0x0049b500: our state kept, then "In MechLab" (1); the
+// lab on the game's store, stock mechs only with STOCK.
+void LobbyScreen::mech_lab() {
+  if (!game) return;
+  std::vector<uint32_t> d;
+  if (!my_data(&d)) return;
+  saved_state = static_cast<int32_t>(d[2]);
+  d[2] = 1;
+  set_my_data(d);
+  Engine& e = engine();
+  e.mech_lab_open(e.store_handle(&game->store), stock_box.checked ? 1 : 0);  // 0x00479430, 0x00448830
+}
+
+// Mech3.exe 1.2 @ 0x0049b660: back from the lab, our state as it was; the
+// chat's bar given the keyboard again.
+void LobbyScreen::resume() {
+  std::vector<uint32_t> d;
+  if (my_data(&d)) {
+    d[2] = static_cast<uint32_t>(saved_state);
+    set_my_data(d);
+  }
+  chat_edit.set_focus(0);
+  chat_edit.set_focus(1);
+}
+
+// Mech3.exe 1.2 @ 0x0049a220: a player into a team (the network's, then the
+// record); a team's first player its owner (its data's first word).
+bool LobbyScreen::add_to_team(uint32_t team, uint32_t player) {
+  if (!game) return false;
+  LobbyTeam* t = game->lobby_team(team);
+  LobbyPlayer* p = t ? game->lobby_player(player) : nullptr;
+  if (!p || !znet::add_to_team(team, player)) return false;
+  p->team = team;
+  if (t->owner == 0) {
+    t->owner = player;
+    uint32_t data[2] = {}, size = sizeof data;
+    znet::get_team_data(team, data, &size);
+    data[0] = player;
+    znet::set_team_data(team, data, sizeof data);
+  }
+  return true;
+}
+
+// Mech3.exe 1.2 @ 0x0049a300: a team made with its skin (its data {0,
+// skin}) and its record; with `join` we leave ours for it.
+void LobbyScreen::new_team(const char* name, int32_t skin, bool join) {
+  if (!game) return;
+  const uint32_t id = znet::create_team(name);
+  if (!id) return;
+  const uint32_t data[2] = {0, static_cast<uint32_t>(skin)};
+  znet::set_team_data(id, data, sizeof data);
+  add_team(id, 0, false, name, nullptr);  // 0x00499280
+  if (!join) return;
+  const uint32_t me = znet::local_id();
+  LobbyPlayer* p = game->lobby_player(me);
+  if (p && p->team && znet::remove_from_team(p->team, me)) p->team = 0;
+  add_to_team(id, me);
+}
+
+// Mech3.exe 1.2 @ 0x0049a850: our skin, outside team play in our data (its
+// second word), in team play our team's (its data's second word).
+void LobbyScreen::set_skin(int32_t skin) {
+  if (!game) return;
+  const uint32_t me = znet::local_id();
+  if (!multiplayer_team_play()) {
+    std::vector<uint32_t> d = player_data(me);
+    if (d.size() < 2) return;
+    d[1] = static_cast<uint32_t>(skin);
+    set_my_data(d);
+    return;
+  }
+  const uint32_t team = game->lobby_team_id(me);
+  uint32_t data[2] = {}, size = sizeof data;
+  znet::get_team_data(team, data, &size);
+  data[1] = static_cast<uint32_t>(skin);
+  znet::set_team_data(team, data, sizeof data);
+}
+
+// Mech3.exe 1.2 @ 0x0049a550: into the chosen team (out of ours first).
+void LobbyScreen::join_team() {
+  if (!game) return;
+  const uint32_t me = znet::local_id();
+  LobbyPlayer* p = game->lobby_player(me);
+  if (!p) return;
+  LobbyEntry* en = teams_list.chosen();
+  if (!en || en->kind() != 2 || en->id == 0) return;
+  if (p->team && znet::remove_from_team(p->team, me)) p->team = 0;
+  add_to_team(en->id, me);
+  set_enabled(remove_team_btn, 0);
+  set_enabled(join_team_btn, 0);
+}
+
+// Mech3.exe 1.2 @ 0x0049a630: the chosen team, when empty, gone; the list's
+// first chosen.
+void LobbyScreen::remove_team() {
+  LobbyEntry* en = teams_list.chosen();
+  if (!en || en->kind() != 2 || static_cast<LobbyTeam*>(en)->count != 0) return;
+  znet::destroy_team(en->id);
+  teams_list.select_index(0);
 }
 
 // The host's lines (the connection screen's, mp_connect.cpp); none for a

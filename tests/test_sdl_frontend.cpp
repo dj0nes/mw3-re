@@ -2633,6 +2633,53 @@ TEST(sdl_two_processes_host_and_join_from_the_screens) {
 #endif
 
 #if !defined(_WIN32)  // posix_spawn, waitpid
+// The lobby's whole way to a game (multiplayer-port.md, piece 11c), one mw3
+// hosting alone through the menus: MULTIPLAYER, a pilot, HOST; in the
+// lobby LOCK OPTIONS and its OK, I AM READY, START; the Load state loads the
+// lobby's world (Beachhead, c1) and is ready to launch.
+TEST(sdl_lobby_host_alone_starts_a_game) {
+  const std::string install = MW3_GAME_DIR;
+  std::error_code ec;
+  if (!std::filesystem::exists(install + "/zbd/mechlib.zbd", ec)) return;
+  const std::string dir = std::string(MW3_TEST_TMP) + "/sdl_lobby_start";
+  std::filesystem::remove_all(dir, ec);
+  std::filesystem::create_directories(dir, ec);
+  const int base = 32000 + static_cast<int>(getpid() % 2000) * 3;
+  std::vector<std::string> v = {MW3_BIN, "--install", install, "--no-launcher", "--hidden", "--nosound",
+                                "--net-bind", "127.0.0.1", "--frame-ms", "33", "--write-dir", dir,
+                                "--net-port", std::to_string(base), "--net-discovery", std::to_string(base + 1),
+                                "--click-at", "132,285@40", "--tap", "0x14@70", "--tap", "0x12@74", "--tap", "0x1f@78",
+                                "--tap", "0x14@82", "--click-at", "470,320@100", "--click-at", "421,406@180",
+                                "--click-at", "183,430@260", "--click-at", "246,290@320", "--click-at", "515,446@380",
+                                "--click-at", "585,418@440", "--frames", "1400"};
+  std::vector<char*> argv;
+  for (std::string& x : v) argv.push_back(x.data());
+  argv.push_back(nullptr);
+  const std::string log = dir + "/out.log";
+  posix_spawn_file_actions_t fa;
+  posix_spawn_file_actions_init(&fa);
+  posix_spawn_file_actions_addopen(&fa, 1, log.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
+  posix_spawn_file_actions_adddup2(&fa, 1, 2);
+  pid_t pid = 0;
+  if (posix_spawn(&pid, argv[0], &fa, nullptr, argv.data(), environ) != 0) pid = -1;
+  posix_spawn_file_actions_destroy(&fa);
+  int st = 0;
+  if (pid > 0) waitpid(pid, &st, 0);
+  std::string text;
+  if (std::FILE* f = std::fopen(log.c_str(), "r")) {
+    char buf[4096];
+    for (size_t n; (n = std::fread(buf, 1, sizeof buf, f)) > 0;) text.append(buf, n);
+    std::fclose(f);
+  }
+  auto has = [&](const char* w) { return text.find(w) != std::string::npos; };
+  std::printf("  lobby %s, world %s, %s\n", has("multiplayer page 2") ? "reached" : "not reached",
+              has("Loading [ c1 ]") ? "c1 loading" : "not loading", has("Ready To Launch") ? "ready to launch" : "not ready");
+  EXPECT(has("multiplayer page 2") && has("Loading [ c1 ]") && has("Ready To Launch"));
+  EXPECT(!has("the Load state of this game"));
+}
+#endif
+
+#if !defined(_WIN32)  // posix_spawn, waitpid
 // Damage in a network game at a known range (multiplayer-port.md, piece 8d's
 // check of the soak's little damage): two mw3 on loopback in c1mp1, B
 // standing still, A held 40 m off facing it and firing (2 s in 7). Each

@@ -1502,6 +1502,13 @@ WiredObjectiveHooks g_objective_hooks;
 struct WiredMissionHooks : MissionHooks {
   void hooks_check() override { hook_census_install(); }
   Handle multiplayer() override { return e->launch().type == 3 ? 1 : 0; }  // 0x00479480
+  // [0x00479480]+0xa8: the lobby's ALLOW MOBILE BASES (piece 11c); a debug
+  // start's game has none.
+  uint8_t mp_flag() override {
+    const MultiplayerGame* g = current_pilot() ? current_pilot()->multiplayer() : nullptr;
+    if (!g && e->launch().type == 3) g = e->launch().multi;
+    return g ? g->ba8 : 0;
+  }
   WiredObjectiveHooks& ob() { return g_objective_hooks; }
   // The end's cockpit (mission.cpp cockpit): 0x00430aa0 on the view's own mech's
   // +0x684, and its objectives box (+0x17964) shown for a time (vt+0x60, -1 held).
@@ -2269,6 +2276,10 @@ const char* mission_nav_name(uint32_t nav) {
 }
 
 void program_objectives_again() { missions().objectives_again(); }
+void program_net_clock(float left, bool on) {
+  missions().clock = left;
+  missions().clock_down = on ? 1 : 0;
+}
 void program_options_apply() { apply_all(); }
 
 namespace {

@@ -1114,6 +1114,7 @@ void program_net_debug_lobby() {
   c.lobby_suicide = [](uint32_t p) { ++g_debug_scores[p].deaths; };
   c.lobby_kill = [](uint32_t p) { ++g_debug_scores[p].kills; };
   c.lobby_kills = [](uint32_t p) { return g_debug_scores[p].kills; };
+  c.lobby_score = c.lobby_kills;
   c.lobby_deaths = [](uint32_t p) { return g_debug_scores[p].deaths; };
   c.lobby_scores = [](uint32_t* out, int32_t cap) {
     int32_t n = 0;
@@ -1128,6 +1129,19 @@ void program_net_debug_lobby() {
   c.lobby_set_kills = [](uint32_t p, uint32_t v) { g_debug_scores[p].kills = static_cast<int32_t>(v); };
   c.lobby_set_deaths = [](uint32_t p, uint32_t v) { g_debug_scores[p].deaths = static_cast<int32_t>(v); };
 }
+
+void program_net_lobby(const NetLobbyAccess& a) {
+  NetCalls& c = net_calls();
+  c.team_of = a.team_of, c.start_of = a.start_of, c.lobby_left = a.left;
+  c.lobby_suicide = a.suicide, c.lobby_kill = a.kill, c.lobby_kills = a.kills, c.lobby_deaths = a.deaths;
+  c.lobby_score = a.score;
+  c.lobby_scores = a.scores, c.lobby_set_kills = a.set_kills, c.lobby_set_deaths = a.set_deaths;
+  c.scores_reset = a.rescore;
+}
+
+uint32_t program_net_team_of(uint32_t p) { return net_calls().team_of ? net_calls().team_of(p) : 0; }
+int32_t program_net_start_of(uint32_t p) { return net_calls().start_of ? net_calls().start_of(p) : 0; }
+int32_t program_net_score_of(uint32_t p) { return net_calls().lobby_score ? net_calls().lobby_score(p) : 0; }
 
 uint32_t program_net_drive(int cmd, double t, uint32_t seed) {
   // The throttle up (0x18) held throughout (THROTTLE0's 0x24 is a key's

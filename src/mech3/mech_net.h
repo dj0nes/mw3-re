@@ -197,14 +197,16 @@ struct NetCalls {
   Mech* (*pilot_mech)() = nullptr;
   // The events' (piece 7): a mech's name (vt+0xa4: 0x0041df30, a network
   // mech's player's 0x004709c0); the lobby's scores (piece 11): a suicide
-  // 0x00435ac0, a kill 0x004359b0, a player's kills 0x00435a50, the list
+  // 0x00435ac0, a kill 0x004359b0, a player's kills 0x00435a30 and score
+// 0x00435a50 (kills less suicides; its team's in team play), the list
   // (id, kills, deaths) for 0x14, the kills and deaths set (0x004359f0,
   // 0x00435b00); the HUD's scores (0x00446ad0 on the view's mech's HUD,
   // when it shows them).
   const char* (*mech_name)(Mech& m) = nullptr;
   void (*lobby_suicide)(uint32_t player) = nullptr;
   void (*lobby_kill)(uint32_t player) = nullptr;
-  int32_t (*lobby_kills)(uint32_t player) = nullptr;
+  int32_t (*lobby_kills)(uint32_t player) = nullptr;  // 0x00435a30 (the game's end)
+  int32_t (*lobby_score)(uint32_t player) = nullptr;  // 0x00435a50 (the kill's check; unset: lobby_kills)
   int32_t (*lobby_scores)(uint32_t* out, int32_t cap) = nullptr;  // 3 words a player; their count
   void (*lobby_set_kills)(uint32_t player, uint32_t kills) = nullptr;
   void (*lobby_set_deaths)(uint32_t player, uint32_t deaths) = nullptr;

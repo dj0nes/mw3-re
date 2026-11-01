@@ -75,6 +75,22 @@ class LobbyScreen : public MenuScreen {
   void keep_rules(bool seeded);      // the game's +0x60 block, its CRC at +0x88
   void lock_mech();                  // 0x0049b360
   void world_changed();              // 0x00497410 case 0xc
+  // The game's start and the players' own (piece 11c): START (0x0049b790,
+  // the host's message 0x1e with the players' places, then everyone the
+  // game's settings from the lobby and the Load state), READY (0x0049a970),
+  // MECHLAB and back (0x0049b500, 0x0049b660); the teams' (JOIN 0x0049a550,
+  // REMOVE 0x0049a630, a player into a team 0x0049a220, a new team
+  // 0x0049a300) and the skin's (0x0049a850; the new team's dialog, piece 13,
+  // calls these two).
+  void start();                      // 0x0049b790
+  void ready();                      // 0x0049a970
+  void mech_lab();                   // 0x0049b500
+  void resume();                     // 0x0049b660
+  void join_team();                  // 0x0049a550
+  void remove_team();                // 0x0049a630
+  bool add_to_team(uint32_t team, uint32_t player);  // 0x0049a220
+  void new_team(const char* name, int32_t skin, bool join);  // 0x0049a300
+  void set_skin(int32_t skin);       // 0x0049a850
   int32_t free_skin(int32_t skin, int32_t except);  // 0x0049bd10: the team with that skin, 0 none
   bool has_world(uint32_t player, int32_t world);   // 0x0049ab30: an add-on world in its data
   // Ours (piece 9c, the lead's plan for piece 11): the host's addresses, as
@@ -86,6 +102,8 @@ class LobbyScreen : public MenuScreen {
   static void on_kicked(uint32_t from, const uint8_t* msg, size_t size);  // 0x0049a1d0: 7
   static void on_host(uint32_t from, const uint8_t* msg, size_t size);    // 0x0049a200: 0xd
   static void on_rules(uint32_t from, const uint8_t* msg, size_t size);   // 0x00499cf0: 0x20
+  static void on_start(uint32_t from, const uint8_t* msg, size_t size);   // 0x0049bcb0: 0x1e
+  static void on_scores(uint32_t from, const uint8_t* msg, size_t size);  // 0x0049b150: 0x14
 
   InvertCheck chat_team;             // +0x111f0  CHAT_TEAM_CHECKBOX
   ChatBar chat_edit;                 // +0x1135c  CHAT_ENTER_EDIT
@@ -123,6 +141,7 @@ class LobbyScreen : public MenuScreen {
   uint8_t all_ready = 0;             // +0x15051  every player ready (START)
   uint8_t start_pending = 0;         // +0x15052  START asked; the update starts (piece 11c)
   uint8_t keep_order = 0;            // +0x15053  a refresh keeps the players' places
+  int32_t saved_state = 0;           // +0x15054  our data's state while in the mech lab
   Handle pilot = 0;                  // +0x15058
   CopyLine internet_line, lan_line;  // ours (piece 9c)
   float reach_timer = 0;
