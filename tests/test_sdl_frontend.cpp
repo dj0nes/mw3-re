@@ -15,6 +15,7 @@
 #include <fcntl.h>
 #include <spawn.h>
 #include <sys/wait.h>
+#include <unistd.h>
 #include <fstream>
 #endif
 #include <set>
@@ -2552,6 +2553,167 @@ TEST(sdl_two_processes_host_and_join) {
   // Whoever leaves first, the other sees it; the host gone, Bob hosts (the
   // lowest id left, DPSYS_HOST, his 0xd to himself).
   EXPECT(has(hl, "player 2 (Bob) left") || (has(jl, "player 1 (Ann) left") && has(jl, "player 2 (Bob) is the host")));
+}
+#endif
+
+#if !defined(_WIN32)  // posix_spawn, waitpid
+// The connection screen (multiplayer-port.md, piece 9b), two mw3 through the
+// menus on loopback: each goes MULTIPLAYER, makes a pilot, and lands on the
+// connection screen, connected and searching (ours: the LAN searched at
+// once). A clicks HOST; B's search finds A's game in its SESSIONS (the LAN's
+// probe to A's discovery port: no broadcast on loopback), B chooses it and
+// clicks JOIN. Both reach the lobby's page.
+TEST(sdl_two_processes_host_and_join_from_the_screens) {
+  const std::string install = MW3_GAME_DIR;
+  std::error_code ec;
+  if (!std::filesystem::exists(install + "/zbd/mechlib.zbd", ec)) return;
+  const std::string dir = std::string(MW3_TEST_TMP) + "/sdl_net_screens";
+  std::filesystem::remove_all(dir, ec);
+  std::filesystem::create_directories(dir + "/a", ec);
+  std::filesystem::create_directories(dir + "/b", ec);
+  auto spawn = [&](std::vector<std::string> args, const std::string& log) {
+    std::vector<std::string> v = {MW3_BIN};
+    v.insert(v.end(), args.begin(), args.end());
+    std::vector<char*> argv;
+    for (std::string& x : v) argv.push_back(x.data());
+    argv.push_back(nullptr);
+    posix_spawn_file_actions_t fa;
+    posix_spawn_file_actions_init(&fa);
+    posix_spawn_file_actions_addopen(&fa, 1, log.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    posix_spawn_file_actions_adddup2(&fa, 1, 2);
+    pid_t pid = 0;
+    if (posix_spawn(&pid, argv[0], &fa, nullptr, argv.data(), environ) != 0) pid = -1;
+    posix_spawn_file_actions_destroy(&fa);
+    return pid;
+  };
+  auto read = [](const std::string& path) {
+    std::string text;
+    if (std::FILE* f = std::fopen(path.c_str(), "r")) {
+      char buf[4096];
+      for (size_t n; (n = std::fread(buf, 1, sizeof buf, f)) > 0;) text.append(buf, n);
+      std::fclose(f);
+    }
+    return text;
+  };
+  // Ports of their own (parallel runs and a real game here never meet).
+  const int base = 30000 + static_cast<int>(getpid() % 2000) * 3;
+  const std::string game = std::to_string(base), lan = std::to_string(base + 1);
+  // MULTIPLAYER, a new pilot's name typed, ACCEPT (as the Instant Action check's).
+  auto menus = [](std::vector<std::string> v, std::initializer_list<const char*> name) {
+    std::vector<std::string> m = {"--click-at", "132,285@40"};
+    int at = 70;
+    for (const char* k : name) m.insert(m.end(), {"--tap", std::string(k) + "@" + std::to_string(at)}), at += 4;
+    m.insert(m.end(), {"--click-at", "470,320@100"});
+    v.insert(v.end(), m.begin(), m.end());
+    return v;
+  };
+  const std::vector<std::string> common = {"--install", install, "--no-launcher", "--hidden", "--nosound", "--net-bind",
+                                           "127.0.0.1", "--frame-ms", "33"};
+  std::vector<std::string> va = menus({"--write-dir", dir + "/a", "--net-port", game, "--net-discovery", lan,
+                                       "--click-at", "421,406@180", "--frames", "100000"}, {"0x14", "0x12", "0x1f", "0x14"});
+  va.insert(va.end(), common.begin(), common.end());
+  std::vector<std::string> vb = menus({"--write-dir", dir + "/b", "--net-port", "0", "--net-lan", "127.0.0.1:" + lan,
+                                       "--click-at", "100,143@420", "--click-at", "240,406@450", "--frames", "600"},
+                                      {"0x30", "0x12", "0x1f", "0x14"});
+  vb.insert(vb.end(), common.begin(), common.end());
+  const pid_t a = spawn(va, dir + "/a.log");
+  for (int i = 0; i < 400 && read(dir + "/a.log").find("multiplayer page 2") == std::string::npos; ++i)
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+  const pid_t b = spawn(vb, dir + "/b.log");
+  int st = 0;
+  if (b > 0) waitpid(b, &st, 0);
+  if (a > 0) kill(a, SIGTERM), waitpid(a, &st, 0);  // A hosts until B is done
+  const std::string la = read(dir + "/a.log"), lb = read(dir + "/b.log");
+  auto has = [](const std::string& t, const char* w) { return t.find(w) != std::string::npos; };
+  std::printf("  A: %s; B: %s\n", has(la, "multiplayer page 2") ? "hosting, in the lobby" : "not hosting",
+              has(lb, "multiplayer page 2") ? "joined, in the lobby" : "not joined");
+  EXPECT(has(la, "multiplayer page 1") && has(la, "multiplayer page 2"));
+  EXPECT(has(lb, "multiplayer page 1") && has(lb, "multiplayer page 2"));
+}
+#endif
+
+#if !defined(_WIN32)  // posix_spawn, waitpid
+// Damage in a network game at a known range (multiplayer-port.md, piece 8d's
+// check of the soak's little damage): two mw3 on loopback in c1mp1, B
+// standing still, A held 40 m off facing it and firing (2 s in 7). Each
+// machine decides hits on its own mech: B's own health falls, and A's view
+// of B (its states' damaged parts) agrees with it.
+TEST(sdl_network_damage_point_blank) {
+  const std::string install = MW3_GAME_DIR;
+  std::error_code ec;
+  if (!std::filesystem::exists(install + "/zbd/mechlib.zbd", ec)) return;
+  const std::string dir = std::string(MW3_TEST_TMP) + "/sdl_net_damage";
+  std::filesystem::remove_all(dir, ec);
+  std::filesystem::create_directories(dir + "/a", ec);
+  std::filesystem::create_directories(dir + "/b", ec);
+  auto spawn = [&](std::vector<std::string> args, const std::string& log) {
+    std::vector<std::string> a = {"/usr/bin/nice", "-n", "10", MW3_BIN};
+    a.insert(a.end(), args.begin(), args.end());
+    std::vector<char*> argv;
+    for (std::string& x : a) argv.push_back(x.data());
+    argv.push_back(nullptr);
+    posix_spawn_file_actions_t fa;
+    posix_spawn_file_actions_init(&fa);
+    posix_spawn_file_actions_addopen(&fa, 1, log.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    posix_spawn_file_actions_adddup2(&fa, 1, 2);
+    pid_t pid = 0;
+    if (posix_spawn(&pid, argv[0], &fa, nullptr, argv.data(), environ) != 0) pid = -1;
+    posix_spawn_file_actions_destroy(&fa);
+    return pid;
+  };
+  auto read = [](const std::string& path) {
+    std::string text;
+    if (std::FILE* f = std::fopen(path.c_str(), "r")) {
+      char buf[4096];
+      for (size_t n; (n = std::fread(buf, 1, sizeof buf, f)) > 0;) text.append(buf, n);
+      std::fclose(f);
+    }
+    return text;
+  };
+  const std::vector<std::string> common = {"--install", install, "--no-launcher", "--hidden", "--nosound", "--net-bind",
+                                           "127.0.0.1", "--mission", "c1mp1", "--net-wait", "2", "--net-minutes", "1",
+                                           "--net-soak"};
+  std::vector<std::string> ha = {"--write-dir", dir + "/a", "--host", "--net-port", "0", "--net-name", "A", "--net-drive",
+                                 "1", "--net-staged", "0", "--net-ahead", "40"};
+  ha.insert(ha.end(), common.begin(), common.end());
+  const pid_t a = spawn(ha, dir + "/a.log");
+  std::string port;
+  for (int i = 0; i < 400 && port.empty(); ++i) {
+    const std::string log = read(dir + "/a.log");
+    const size_t at = log.find("hosting on port ");
+    if (at != std::string::npos) port = log.substr(at + 16, log.find(' ', at + 16) - at - 16);
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+  }
+  EXPECT(!port.empty());
+  std::vector<std::string> hb = {"--write-dir", dir + "/b", "--join", "127.0.0.1:" + port, "--net-name", "B"};
+  hb.insert(hb.end(), common.begin(), common.end());
+  const pid_t b = port.empty() ? -1 : spawn(hb, dir + "/b.log");
+  int st = 0;
+  if (b > 0) waitpid(b, &st, 0);
+  if (a > 0) waitpid(a, &st, 0);
+  // The last line with 2 s left on each: B's own health, and A's view of it.
+  auto last = [&](const std::string& text, float* own, float* seen) {
+    *own = *seen = -1;
+    for (size_t at = 0; (at = text.find("mw3: soak 1", at)) != std::string::npos;) {
+      const size_t end = text.find('\n', at);
+      const std::string line = text.substr(at, end - at);
+      at = end;
+      float clock = 0;
+      if (std::sscanf(line.c_str(), "mw3: soak %*lld rss %*zu clock %f", &clock) != 1 || clock < 2.0f) continue;
+      const size_t h = line.find(" health ");
+      if (h != std::string::npos) *own = std::strtof(line.c_str() + h + 8, nullptr);
+      const size_t s2 = line.find("; sees ");
+      const size_t h2 = s2 == std::string::npos ? s2 : line.find(" health ", s2);
+      if (h2 != std::string::npos) *seen = std::strtof(line.c_str() + h2 + 8, nullptr);
+    }
+  };
+  float a_own, a_sees_b, b_own, b_sees_a;
+  last(read(dir + "/a.log"), &a_own, &a_sees_b);
+  last(read(dir + "/b.log"), &b_own, &b_sees_a);
+  std::printf("  B's health: its own %.3f, as A sees it %.3f; A's own %.3f\n", b_own, a_sees_b, a_own);
+  EXPECT(b_own >= 0 && b_own < 0.95f);                 // A's shots hit B on B's machine
+  EXPECT(a_sees_b >= 0 && std::fabs(a_sees_b - b_own) < 0.02f);  // and A's view of B carries it
+  EXPECT(a_own > 0.999f);                              // B never fired
 }
 #endif
 

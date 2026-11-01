@@ -90,6 +90,9 @@ std::string program_net_soak_line();
 // its head destroyed, the nearest remote mech within 300 m its attacker
 // (else none: a suicide). False when it is not alive.
 bool program_net_staged_kill();
+// The pilot held `metres` from the nearest remote mech in play, facing it
+// (a damage check at a known range); false without one.
+bool program_net_hold_near(float metres);
 // The pilot's mech made again as `roster` in place (0x004783c0; the
 // respawn's, and the exe's mech change).
 void program_pilot_set_mech(int32_t roster);

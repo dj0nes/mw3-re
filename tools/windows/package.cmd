@@ -65,6 +65,8 @@ mkdir "%DIST%\licenses\pl_mpeg"
 copy /y third_party\pl_mpeg\README.md "%DIST%\licenses\pl_mpeg\" >nul || exit /b 1
 mkdir "%DIST%\licenses\enet"
 copy /y third_party\enet\LICENSE "%DIST%\licenses\enet\" >nul || exit /b 1
+mkdir "%DIST%\licenses\miniupnpc"
+copy /y third_party\miniupnpc\LICENSE "%DIST%\licenses\miniupnpc\" >nul || exit /b 1
 mkdir "%DIST%\licenses\miniz"
 copy /y third_party\miniz\LICENSE "%DIST%\licenses\miniz\" >nul || exit /b 1
 

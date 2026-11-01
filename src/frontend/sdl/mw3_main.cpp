@@ -77,6 +77,7 @@
 #include "frontend/sdl/sdl_twod_host.h"
 #include "frontend/sdl/sdl_vfw.h"
 #include "frontend/sdl/net_enet.h"
+#include "frontend/sdl/net_upnp.h"
 #include "gamez/znetwork/znet_dplay.h"
 #include "gamez/znetwork/znet_session.h"
 #include "gamez/ztwod/twod_host.h"
@@ -187,6 +188,16 @@ struct Args {
   // second, the scores at the game's end, and a quit at the menu after it.
   int net_wait = 0, net_minutes = 0;
   long long net_drive = -1;
+  bool net_staged = true;  // --net-staged 0: the drive stages no kills
+  float net_ahead = 0;     // --net-ahead M: the pilot held M m from the nearest remote mech, facing it
+  // The multiplayer screens' (ours, for the tests on loopback, where no
+  // broadcast arrives): --net-discovery N the LAN search answered on N when
+  // hosting, --net-lan IP:PORT the search's LAN probe sent there.
+  int net_discovery = sdlfe::kDiscoveryPort;
+  std::string net_lan;
+  // --net-upnp URL: the router's description there (the tests' fake one);
+  // without it a transport bound to loopback asks no router.
+  std::string net_upnp;
   bool net_soak = false;
   bool shot_any = false;
 };
@@ -241,6 +252,11 @@ bool parse(int argc, char** argv, Args& a) {
     else if (s == "--net-minutes" && next(1)) a.net_minutes = std::atoi(argv[++i]);
     else if (s == "--net-drive" && next(1)) a.net_drive = std::strtoll(argv[++i], nullptr, 10);
     else if (s == "--net-soak") a.net_soak = true;
+    else if (s == "--net-staged" && next(1)) a.net_staged = std::atoi(argv[++i]) != 0;
+    else if (s == "--net-ahead" && next(1)) a.net_ahead = std::strtof(argv[++i], nullptr);
+    else if (s == "--net-discovery" && next(1)) a.net_discovery = std::atoi(argv[++i]);
+    else if (s == "--net-lan" && next(1)) a.net_lan = argv[++i];
+    else if (s == "--net-upnp" && next(1)) a.net_upnp = argv[++i];
     else if (s == "--net-say" && next(1)) {
       const std::string v = argv[++i];
       const size_t atpos = v.rfind('@');
@@ -684,7 +700,6 @@ int main(int argc, char** argv) {
 
   // The network's session, before the game (ours, piece 4).
   std::unique_ptr<sdlfe::EnetTransport> net;
-  std::unique_ptr<sdlfe::DiscoveryAnswer> lan;
   if (a.net_host || !a.net_join.empty()) {
     sdlfe::NetOptions o;
     o.bind = a.net_bind;
@@ -700,7 +715,6 @@ int main(int argc, char** argv) {
         znet::SessionDesc d;
         d.name = a.net_name + "'s game";
         ok = znet::host_session(d, a.net_name.c_str());
-        lan = std::make_unique<sdlfe::DiscoveryAnswer>(sdlfe::kDiscoveryPort, a.net_bind);
       } else {
         ok = znet::join_session(a.net_join, a.net_name.c_str());
       }
@@ -715,16 +729,14 @@ int main(int argc, char** argv) {
         const uint64_t until = SDL_GetTicks() + 120000;
         while (znet::lists().players.size() < static_cast<size_t>(a.net_wait) && SDL_GetTicks() < until) {
           znet::poll(-1);
-          if (lan) lan->poll(znet::session().desc, static_cast<uint32_t>(znet::lists().players.size()), net->port());
           SDL_Delay(10);
         }
         std::printf("mw3: network: %zu players in\n", znet::lists().players.size());
       }
-      // Each pass: the LAN's questions answered, and --net-say's line.
-      g_net_pass = [&a, &net, &lan] {
+      // Each pass: --net-say's line (the transport answers the LAN's search itself).
+      g_net_pass = [&a] {
         static int passes = 0;
         ++passes;
-        if (lan) lan->poll(znet::session().desc, static_cast<uint32_t>(znet::lists().players.size()), net->port());
         if (!a.net_say.empty() && passes == a.net_say_at) net_say(a.net_say);
       };
     }
@@ -794,6 +806,62 @@ int run(const Args& a, platform::VideoForWindows* vfw) {
   platform::RegFile settings(a.write_dir.empty() ? std::string() : a.write_dir + "/settings.reg");
   if (!a.write_dir.empty()) p.settings = &settings;
   p.ram_mb = static_cast<uint32_t>(SDL_GetSystemRAM());
+  // The multiplayer screens' transport (FIX (A): DirectPlay's instance): UDP
+  // 27930, or a port the system picks when it is taken (another game here).
+  std::unique_ptr<sdlfe::EnetTransport> menu_net;
+  std::unique_ptr<sdlfe::PortMapper> menu_upnp;  // after menu_net: gone first, the mapping removed
+  p.network_open = [&menu_net, &menu_upnp, &a]() -> znet::Transport* {
+    sdlfe::NetOptions o;
+    o.bind = a.net_bind;
+    o.port = static_cast<uint16_t>(a.net_port >= 0 ? a.net_port : sdlfe::kDefaultPort);
+    o.discovery_port = a.net_discovery;
+    menu_net = std::make_unique<sdlfe::EnetTransport>(o);
+    if (!menu_net->ok()) {
+      o.port = 0;
+      menu_net = std::make_unique<sdlfe::EnetTransport>(o);
+    }
+    if (!menu_net->ok()) {
+      menu_net.reset();
+      return nullptr;
+    }
+    if (!a.net_lan.empty()) {  // the LAN's probe to this address and port
+      const size_t colon = a.net_lan.rfind(':');
+      menu_net->lan_address = a.net_lan.substr(0, colon);
+      if (colon != std::string::npos) menu_net->search_port = static_cast<uint16_t>(std::atoi(a.net_lan.c_str() + colon + 1));
+    }
+    std::printf("mw3: network: up on UDP port %u\n", menu_net->port());
+    // Internet hosting (piece 9c): the router asked over UPnP, unless this
+    // machine is reachable on loopback alone (the tests) and no router is given.
+    const bool loopback = a.net_bind.rfind("127.", 0) == 0;
+    if (!loopback || !a.net_upnp.empty()) menu_upnp = std::make_unique<sdlfe::PortMapper>(menu_net->port(), a.net_upnp);
+    return menu_net.get();
+  };
+  p.network_close = [&menu_net, &menu_upnp] {
+    menu_upnp.reset();
+    menu_net.reset();
+  };
+  p.network_reach = [&menu_net, &menu_upnp, &a]() {
+    mech3::Engine::NetReach r;
+    r.port = menu_net ? menu_net->port() : sdlfe::kDefaultPort;
+    const std::string port = ":" + std::to_string(r.port);
+    std::string lan = a.net_bind.rfind("127.", 0) == 0 ? a.net_bind : sdlfe::local_lan_address();
+    if (menu_upnp) {
+      const sdlfe::UpnpStatus s = menu_upnp->status();
+      r.state = static_cast<int32_t>(s.state);  // the same order
+      if (!s.lan_ip.empty()) lan = s.lan_ip;
+      if (!s.public_ip.empty() && !sdlfe::unreachable_address(s.public_ip)) r.internet = s.public_ip + port;
+    } else {
+      r.state = mech3::Engine::NetReach::kNoRouter;
+    }
+    if (!lan.empty()) r.lan = lan + port;
+    return r;
+  };
+  p.network_hosting = [&menu_upnp](bool on) {
+    if (!menu_upnp) return;
+    if (on) menu_upnp->map();
+    else menu_upnp->unmap();
+  };
+  p.copy_text = [](const char* text) { SDL_SetClipboardText(text); };
 
   int result = 1;
   {
@@ -909,9 +977,11 @@ int run(const Args& a, platform::VideoForWindows* vfw) {
         // --net-drive: a kill staged on the pilot every two minutes, from a
         // minute in, staggered by the seed (the scores' traffic, the respawn).
         static int s_kills = 0;
-        if (a.net_drive >= 0 && net_core && !net_over && app.current() == &mech3::states().core &&
+        if (a.net_drive >= 0 && a.net_staged && net_core && !net_over && app.current() == &mech3::states().core &&
             SDL_GetTicks() / 1000.0 - s_drive_from >= 60.0 + 29.0 * (a.net_drive % 4) + 120.0 * s_kills)
           if (mech3::program_net_staged_kill()) std::printf("mw3: soak staged kill %d\n", ++s_kills);
+        if (a.net_ahead > 0 && net_core && !net_over && app.current() == &mech3::states().core)
+          mech3::program_net_hold_near(a.net_ahead);
         if (a.net_soak && net_core && !net_over) {
           const uint64_t now = SDL_GetTicks();
           if (app.current() == &mech3::states().core && now >= net_line_at) {

@@ -270,6 +270,64 @@ functions (about 4,050 lines of pseudocode), the game's network code at
 
 Then the two-process and soak tests over the whole flow, menus included.
 
+## Piece 9's plan (2026-11-01)
+
+The connection screen 0x00493260 (MULTIPLAYER_DIALOG, its controls in
+dialog.zrd) asks zNetwork for the service providers (0x005881f0 into
+CONNECTION_LIST), makes a connection for the one chosen (0x0058a110: kind
+0 modem, 1 IPX, 2 TCP/IP with an address, 3 serial; CONNECT_CHECKBOX
+connects it, 0x004949f0), and searches for games through it
+(0x00586ff0, EnumSessions with ALL | RETURNSTATUS, asynchronous: the
+screen's update asks again every 0.5 s, DPERR_CONNECTING (0x8877015e)
+while it waits; SESSION_LIST from the answers, 0x00494510). FIND GAME
+(0x004957c0) gives the TCP/IP connection CONNECT_INFO_EDIT's address
+(empty: DirectPlay's broadcast on the LAN), JOIN (0x00495490) joins the
+chosen session (the game's version word checked: 0xfdd / 0xfde), HOST
+(0x00495600) opens one named NEW_SESSION_NAME with MAX_PLAYERS_LIST's
+limit and TEAM_CHECKBOX's team play, both go on to the lobby
+(0x0049cb00(2, 1)); CANCEL (0x004953a0 case 1) the network off and back.
+
+Ours, in three pieces:
+
+- **9a, zNetwork's connections and search over the transport.** One
+  provider by design (the lead, 2026-11-01: IPX, modem and serial do not
+  exist on modern systems, so they are not listed, not even greyed out),
+  TCP/IP's kind 2, shown as "LAN / Internet (UDP)": its address
+  empty searches the LAN (our discovery broadcast, port 27931), else asks
+  that host directly; the provider list, the connection object and its
+  calls (open, the address) kept as the exe's shape. 0x00586ff0 asks the
+  transport (`Transport::find_sessions`: not blocking; "searching" as
+  DPERR_CONNECTING, the answers as session descriptions: name, players,
+  limit, the user words with the game's version, the address to join).
+  The discovery answer gains the user words and the version (sizes and
+  NUL-ended names checked: a peer's answer is untrusted, piece 8c's rule).
+  Tests: the search against an answering host and a silent address, and
+  a broken answer.
+- **9b, the screen.** The constructor, its controls (the modem's ANSWER,
+  DIAL and CALL hidden), the connect, the update's polling, the session
+  list, JOIN, HOST, FIND GAME, CANCEL, the info lines; the state's page
+  switch 0x0049cb20, the network on and off 0x0047fc40, the pilot handed
+  on 0x00494920. Owen's: the LAN searched as soon as the screen is up
+  (no FIND needed), an address in CONNECT_INFO_EDIT and FIND GAME or
+  JOIN to reach one host. Tests: the screen's logic through its hooks,
+  and two processes, one hosting from the screen and the other finding
+  it on the LAN and joining, both reaching the lobby page.
+- **9c, internet hosting.** UPnP (miniupnpc, BSD, vendored as ENet is,
+  its licence in THIRD-PARTY) maps UDP 27930 when hosting and removes it
+  on close; no router or a refusal falls back quietly to LAN hosting with
+  the line "Could not open the port: forward UDP 27930 on your router".
+  The host's addresses (the public one from the router when known, the
+  LAN one) shown with a copy button (SDL's clipboard); on the lobby too
+  when piece 11 ports it (the host waits there for friends). A router
+  that gives a private or carrier-grade NAT address as its public one
+  (10.x, 100.64-127.x, 172.16-31.x, 192.168.x) cannot be reached from the
+  internet: "Your internet provider blocks hosting: use a LAN, or a VPN
+  such as Tailscale", and that address is not offered to share. Owen's
+  "level 1, between friends": plain addresses, the copy button and the
+  forward line, no server and no codes. Tests against a
+  fake IGD on loopback (its description, AddPortMapping,
+  GetExternalIPAddress, DeletePortMapping), and with none answering.
+
 ## After v1.0
 
 - Matchmaking (Owen, 2026-10-31, through the lead): someday, after Pirate's
@@ -711,6 +769,114 @@ Then the two-process and soak tests over the whole flow, menus included.
   entries wrong: [0x0060c0c8] (the quicksand veto) and [0x0072fcac] (the
   shot gate) are read, null-checked, and never written by Mech3.exe, now
   "never set:".
+- **Piece 9a** (2026-11-01): zNetwork's connections and the games' search
+  over the transport (piece 9's plan). `znet::connections()` (0x005881f0)
+  lists one provider by design, TCP/IP's kind 2 ("LAN / Internet (UDP)";
+  9a first wrote kind 0, the modem's: the screen's switch 0x004949f0 has
+  0 modem, 1 IPX, 2 TCP/IP, 3 serial);
+  `find_games` (0x00586ff0 with 0x00587140) asks the transport for the
+  connection's address (`Session::address`, "" the LAN) and keeps the
+  answers as the game list (`Session::games`); `game_info` (0x00586ea0:
+  an entry, or -1 the session) fills a `GameInfo` (the exe's 0x74 bytes:
+  the four words, +0x10 the index, +0x14 the limit, +0x18 the players,
+  +0x1c the name; the host sets bit 0 of the first word, the second is the
+  game's version, the fourth 2 in a game in progress and 3 in a locked
+  one); `open_host` (0x00586f60, 0x00587370) and `open_join`
+  (0x00586fb0, by the entry's index). `Transport::find_sessions` /
+  `stop_search`: the ENet transport's search is not blocking (a probe each
+  second, the answers drained as they come); with no address the LAN's
+  broadcast to the discovery port 27931, which a host now answers itself
+  (`NetOptions::discovery_port`; the program's own DiscoveryAnswer is gone),
+  with an address a probe to that host's game port, answered on the game
+  socket before ENet reads it (ENet's intercept), so only UDP 27930 needs
+  forwarding. The answer (protocol 2) carries the four words; a peer's
+  answer is untrusted: another protocol, a cut frame, port 0, no limit,
+  a limit past 64 or more players than it are dropped, the name cut at its
+  first NUL and at 63 characters, control characters as '?'. Tests:
+  `net_enet_search_finds_a_host_on_the_lan_and_by_address` (the LAN's
+  probe to loopback in the test: a socket bound there hears no broadcast;
+  a real broadcast on this Mac's LAN answered from 192.168.68.79),
+  `net_enet_search_drops_broken_answers` (six broken answers and a good
+  one; a break caught), `net_enet_znet_finds_and_joins_a_game`. Not a
+  reflector (the lead's review): a probe is padded to 128 bytes, at least
+  any answer (102 at most), shorter ones get none; each source address gets
+  four answers a second (`net_enet_probes_are_padded_and_limited`: short
+  probes on both ports unanswered, a burst of 20 answered 4 times, the next
+  second again; each guard's break caught).
+- **Piece 9b** (2026-11-01): the connection screen (`mech3/mp_connect`,
+  MULTIPLAYER_DIALOG; the engine makes it as the Multiplayer State's first
+  screen, 0x00493260). Its controls as the dialog binds them (offsets in
+  the header), the modem's ANSWER, DIAL and CALL hidden (FIX (A)); the
+  reset and the connect 0x004949f0 (TCP/IP's branch: HOST, the address,
+  FIND GAME; the help lines 0x2a1 / 0x2a2 "Enter an IP address / Or leave
+  blank to search", the original's own words for Owen's search and join
+  by address), the update 0x00494470 (the search asked when its timer
+  runs out: again at once while DPERR_CONNECTING, else in 3 s),
+  SESSION_LIST's refill 0x00494510 ("%1 <Player Count: n of m>", "<Game
+  in Progress>", "<Game Locked>", the chosen one kept), the buttons
+  0x004953a0 (CANCEL the network off and back, JOIN 0x00495490, HOST
+  0x00495600, FIND GAME 0x004957c0 turning into Stop Search, a game chosen
+  0x00495410), the bars' focus 0x00495310, the hand-over 0x00494920 (the
+  pilot's name, "<name>'s Game", 2..8 players with 8). The engine: the
+  network switch 0x0047fc40 (on: zNetwork on the platform's transport,
+  `Platform::network_open`, FIX (A); off: the game ended, zNetwork down),
+  the page switch 0x0049cb20 and its request 0x0049cb00. Ours: the screen
+  connects and searches the LAN as soon as it opens (Owen); Stop Search
+  with another address searches there instead; a name in use is found
+  after the join (DirectPlay listed a game's players before it), the game
+  then left (`znet::close_session`). The game's version word is 0x28. 9a's
+  note had TCP/IP as kind 0: it is 2 (0 the modem). Tests:
+  `net_connect_screen_headless` (over the hub, which now answers the
+  search: the hand-over's search, a line, another version left with 0xfde,
+  a name in use with 0x2a9, a locked game not joinable, a good one joined
+  with the lobby's page wanted, HOST refused without a name (0x2aa) then
+  hosting; three breaks caught) and
+  `sdl_two_processes_host_and_join_from_the_screens` (two mw3 through the
+  menus: A hosts, B finds A's game in SESSIONS and joins; both reach the
+  lobby's page). The program's `--net-discovery` / `--net-lan` point the
+  LAN's search at loopback in the tests. Left for piece 11: the lobby
+  (page 2), its pilot and game (0x00494920's second screen).
+- **Piece 9c** (2026-11-01): internet hosting at Owen's "level 1".
+  miniupnpc 2.2.8 vendored in `third_party/miniupnpc` (BSD-3-Clause,
+  unmodified; the release tarball's sha256 05b929679091b9921b6b6c1f25e39e4c
+  8d1f4d46c8feb55a412aa697aee03a93, every kept file identical to GitHub's
+  miniupnpc_2_2_8 tag but for the CVS $Id lines; its notice in both
+  THIRD-PARTY files, its licence in the Windows package).
+  `frontend/sdl/net_upnp`: a `PortMapper` on a thread of its own (a router
+  may take seconds or never answer) finds the router (SSDP; a description's
+  URL in the tests) as the screens' network comes up, asks its public
+  address, maps the game's UDP port when hosting (the HOST that succeeds:
+  `Engine::network_hosting`) and removes the mapping when the network goes
+  off or the game closes. Its states: looking, no router, ready, mapped,
+  refused, carrier-grade NAT (100.64/10: the provider's; nothing mapped,
+  nobody could reach it) and another router in front (a private "public"
+  address: the port mapped on ours, the outer one left to the player). A
+  transport bound to loopback asks no router (the tests), unless
+  `--net-upnp URL` names one. The connection screen shows two lines under
+  the host setup (ours, `CopyLine`): the address to give friends with
+  "click to copy" (SDL's clipboard), or what stands in its way ("forward
+  UDP 27930 on your router", "Your internet provider blocks hosting: use a
+  LAN, or a VPN such as Tailscale", "Another router stands in front of
+  yours: forward UDP 27930 on it, ..."), and this computer's LAN address
+  (UPnP's, else the route's, `local_lan_address`). Tests: `net_upnp_*`
+  against a fake router on loopback (its description, the SOAP calls: the
+  mapping asked and removed, on unmap and with the mapper, a refusal,
+  carrier-grade NAT with nothing asked, the double router mapped, no router
+  quickly; three breaks caught) and `net_connect_screen_addresses_headless`
+  (each state's line, the copies, HOST's mapping asked). A real router
+  that answers with a private "public" address (a mesh behind the
+  provider's box) gets the double-router line, not the provider's.
+- **The soak's little damage** (the lead's question): the autopilot's, not
+  the network's. At a known range the path works:
+  `sdl_network_damage_point_blank` holds A 40 m from a still B
+  (`--net-ahead 40`, `--net-staged 0`) firing 2 s in 7 for a minute; A's
+  own shots hit B's network mech there (46 hits in a two-minute trial, no
+  damage: its vt+0x164), B's machine replays them (0x004b08c0) and takes
+  the same 46 hits, 36.8 damage, health 0.611; A's view of B comes back
+  through the states' damaged parts (0.612). The autopilots seldom have a
+  clear line: far apart, behind the ground (a stalled one 330 m off and
+  34 m below its target), or circling. A break (no shots replayed) leaves
+  B whole and fails.
 
 ## Open
 

@@ -2603,4 +2603,16 @@ Assigned after 8b2 merged (fd3f05f). The lead asked for a section stepped at bot
   hook census in a network game (multiplayer-port.md, piece 8d). Found
   while porting: the rebuilt mech's weapons asked the HUD of a freed
   manager (the exe's view is on the stealth object meanwhile).
-- Next: the 30-minute soak again, then piece 9.
+- The 30-minute soak with the respawn: passes (tracking p95 3.8-4.1 m over
+  ~9700 samples each, memory down, scores alike: 1:12/5 2:6/7 3:10/4 4:10/5).
+- The lead's damage question: sdl_network_damage_point_blank (A held 40 m
+  from a still B): the path works, the soak's low damage is the autopilot's
+  aim and the ground (multiplayer-port.md, 8d).
+- Piece 9's plan accepted (multiplayer-port.md); 9a done: zNetwork's
+  connections, the search over the transport, its answers checked.
+- 9b done: the connection screen (multiplayer-port.md, 9b). The search's
+  amplification guards (the lead's review of 9a) went in before it.
+- 9c done: miniupnpc vendored, the PortMapper, the address lines with
+  copy; a double-router state of its own (a private "public" address),
+  not "your provider blocks hosting".
+- Next: the full suites for the 9a-9c batch, then piece 10.
