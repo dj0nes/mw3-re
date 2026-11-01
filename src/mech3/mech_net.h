@@ -87,6 +87,7 @@ struct NetGame {
   uint32_t ping_counter = 1;           // [0x005e5690]
   uint32_t ping_turn = 0;              // [0x00605fc8]  the player pinged last (0x00470ab0)
   uint32_t acked_time = 0;             // [0x00605fc4]  the last state acknowledged's send time (0x004709d0)
+  uint8_t echo = 0;                    // [0x00605fb8]  an effect heard is being replayed: not sent again
 };
 NetGame& net_game();
 
@@ -157,10 +158,22 @@ struct NetCalls {
   NetGameFields* (*game)() = nullptr;              // 0x00479480 on [0x0060861c]: none outside a network game
   float (*game_time)() = nullptr;                  // [0x0060991c]
   float (*clock_left)() = nullptr;                 // [0x00609920]
+  void (*set_clock_left)(float v) = nullptr;       // [0x00609920] = (0x00470740)
   bool (*clock_on)() = nullptr;                    // [0x00609924]
-  int32_t (*send_other)(Mech& m, int32_t kind, intptr_t arg) = nullptr;  // 0x11-0x13, 0x17, 0x21 (piece 7)
+  int32_t (*send_other)(Mech& m, int32_t kind, intptr_t arg) = nullptr;  // test hook: the kinds a test stands in for
   void (*rules_check)() = nullptr;                 // the host's every tenth ping (0x00576c10, 0x004707c0; piece 8)
   void (*game_over)() = nullptr;                   // 0x004707c0
+  // The crater's: a node's mech (0x0040ef10), the crater made (0x004ffaa0;
+  // the test's), the station's repair (0x0045a140; the test's).
+  Mech* (*node_mech)(Handle node) = nullptr;
+  int32_t (*crater_make)(const zwep::CraterOrder* order) = nullptr;
+  void (*station)(NetMech& m, uint32_t id) = nullptr;
+  // ... and the materials by index (0x00536070, 0x00535ff0) and the anim
+  // log's lookup and replay (0x0050b680, 0x0050ca90), the test's.
+  Handle (*take_material)(int32_t index) = nullptr;
+  uint32_t (*material_index)(Handle material) = nullptr;
+  bool (*log_has)(const zeff::AnimLogRecord* rec) = nullptr;
+  void (*log_replay)(const zeff::AnimLogRecord* rec) = nullptr;
   // The apply's: the target picked (0x004a7b40, null none), the passive
   // radar's light (the mech's vt+0xb8, 0x0041ded0), the respawn (0x0046ed30
   // with the state's place; piece 7), the pilot's mech (+0x14).
@@ -268,6 +281,21 @@ void net_shove_in(NetMech& from, const uint8_t* msg, size_t size);  // 0x004705b
 void net_part_off_in(const uint8_t* msg, size_t size);              // 0x0046fff0: the pilot's part shot off
 // 0x00470320: a collision's push on a network mech, to its player.
 void net_send_shove(Mech& other, float damage, float vx, float vz);
+
+// The world's events (piece 7b). 0x0046fd30, zDecal's veto in a network
+// game: a crater the pilot's shot makes goes through the host (0x19), which
+// makes it and sends it to all; no other crater is made here. One with a
+// negative radius (made from a 0x19) passes, its radius made positive.
+int net_crater_veto(const zwep::CraterOrder* order);
+void net_crater_in(const uint8_t* msg, size_t size);   // 0x0046fde0
+void net_anim_sent(zeff::AnimLogRecord* rec);          // 0x0046feb0, the anim log's: the effect to all (0x1a)
+void net_effect_in(const uint8_t* msg, size_t size);   // 0x0046ff50: replayed unless one like it runs
+void net_send_drop(uint32_t station);                  // 0x0046ff90: a repair station used (0x1b)
+void net_drop_in(NetMech& m, const uint8_t* msg, size_t size);  // 0x0046ffd0
+void net_clock_in(const uint8_t* msg, size_t size);    // 0x00470740: the clock, and the game's end with its reason
+// 0x004700a0 and 0x00500c60 with 0x004700e0: the host's effects and craters
+// sent again to a player joining.
+void net_host_replay();
 
 // 0x0046da80 (ECX the pilot), at the multiplayer launch: the local player's
 // record (2, the skin, the mech, the packed loadout: Config::packed of the

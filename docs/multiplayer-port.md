@@ -588,6 +588,38 @@ Then the two-process and soak tests over the whole flow, menus included.
   new kinds (3000 sends identical), and in c1m1 a dead remote mech made
   again in place by a 0x12 (a break caught).
 
+- **Piece 7b** (2026-10-31): the world's events. Craters: zDecal's veto
+  in a network game is 0x0046fd30 (`net_crater_veto`, set by the start): a
+  crater of the pilot's own shot goes to the host as 0x19 (the ground's
+  material by index, the place, the radius; the host handles its own at
+  once) and is not made here; any other is not made at all; one with a
+  negative radius (from a 0x19) passes, its radius made positive (the
+  veto writes the caller's order). 0x0046fde0 (`net_crater_in`): the order
+  from the defaults (0x004ff920) with the message's ground, place and
+  negated radius; the host makes any and, when made, sends it on to all
+  with bit 7; the others make only bit-7 ones. The host's replay to a
+  joiner (0x004700a0, then 0x00500c60 with 0x004700e0, `net_host_replay`):
+  the anim log's records it sends (0x0050d200 bit 1) and every crater of
+  its history, with bit 7. Effects: the anim log's network hook 0x0046feb0
+  (`net_anim_sent`): the record raw (its size by type, 0x0050ca20), to all,
+  but not the mobile field base stations' (a name with "mfb_station_01")
+  nor while one heard is replayed ([0x00605fb8]); 0x0046ff50
+  (`net_effect_in`): replayed (0x0050ca90) unless one like it is logged
+  (0x0050b680: the same node and name). New in zeff_anim_save:
+  `log_record_size`, `log_flags`, `log_has`. Drop points: 0x0046ff90
+  (`net_send_drop`, a repair station's id) and 0x0046ffd0 (the station's
+  repair on the sender's mech, 0x0045a140); the stations' call to send it
+  is the field bases' unported multiplayer side. The clock: the sender's
+  0x11 (the time left, the end's reason in bits 0-1, the host's sent to
+  all, then heard here too) and 0x00470740 (`net_clock_in`): the time left
+  set; a reason ends the game: its line (0x9aa the time, 0x9ab the score
+  limit, 5 s), the state 3, the end 3 s on. The game over itself
+  (0x004707c0) is piece 8's. FIX (bug): 0x00470740 reads the game
+  unchecked (no play change). Tests: `test_mech_net_world.py` (3000 events
+  identical; a break caught) and the sender test's 0x11 (3000 sends). Not
+  checked in a real mission: a crater (the headless c1m1 made none at the
+  places tried, through the host or not).
+
 ## Open
 
 - The COM object at [0x007307e0] (CLSID 3faf0afe-...): what it is and

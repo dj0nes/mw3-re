@@ -8,6 +8,10 @@
 #include <new>
 
 #include "gamez/zdeclient/zdec_crater.h"
+#include "gamez/zweapon/zweapon.h"
+#include "mech3/mech_fieldbase.h"
+#include "gamez/zmodel/gmod_matl.h"
+#include "gamez/zdeclient/zdec_init.h"
 #include "mech3/mech_parts.h"
 #include "gamez/zmath/zmth_vector.h"
 #include "crt/msvc_math.h"
@@ -63,10 +67,10 @@ void net_start() {
   znet::on(6, net_player_left, 2);
   znet::on(1, ignore, 2);
   znet::on(0xe, send_done, 2);
-  zdec::craters().veto = g_calls.crater_veto;
+  zdec::craters().veto = g_calls.crater_veto ? g_calls.crater_veto : net_crater_veto;  // 0x0046fd30
   g_net.running = true;
   weapon_world().lock_targets = true;  // the same flag
-  zeff::log_set_net(g_calls.anim_sent, 0xc);
+  zeff::log_set_net(g_calls.anim_sent ? g_calls.anim_sent : net_anim_sent, 0xc);  // 0x0046feb0
   if (g_calls.game_clear) g_calls.game_clear();
   g_net.reckon_gain = -6.5f;
   g_net.reckon_damp = -0.3f;
@@ -107,7 +111,7 @@ void net_route(uint32_t from, const uint8_t* msg, size_t size) {
   uint16_t type;
   std::memcpy(&type, msg, 2);
   const NetCalls& c = g_calls;
-  if (type == 0x19) return call(c.crater, nullptr, from, msg, size);
+  if (type == 0x19) return c.crater ? c.crater(nullptr, from, msg, size) : net_crater_in(msg, size);
   NetMech* m = net_mech(from);
   if (!m) {
     if (type != 0xf) return;
@@ -126,7 +130,7 @@ void net_route(uint32_t from, const uint8_t* msg, size_t size) {
   switch (type) {
     case 0xf: return c.state ? c.state(m, from, msg, size) : net_state_apply(*m, msg, size);
     case 0x10: return c.ping ? c.ping(m, from, msg, size) : net_ping_in(*m, msg, size);
-    case 0x11: return call(c.clock, m, from, msg, size);
+    case 0x11: return c.clock ? c.clock(m, from, msg, size) : net_clock_in(msg, size);
     case 0x12: {
       if (c.respawn) return c.respawn(m, from, msg, size);
       float pos[3] = {0, 0, 0};
@@ -138,8 +142,8 @@ void net_route(uint32_t from, const uint8_t* msg, size_t size) {
     case 0x16: return call(c.rules, m, from, msg, size);
     case 0x17: return c.posture ? c.posture(m, from, msg, size) : net_posture_in(*m, msg, size);
     case 0x18: return c.knockback ? c.knockback(m, from, msg, size) : net_shove_in(*m, msg, size);
-    case 0x1a: return call(c.effect, m, from, msg, size);
-    case 0x1b: return call(c.drop, m, from, msg, size);
+    case 0x1a: return c.effect ? c.effect(m, from, msg, size) : net_effect_in(msg, size);
+    case 0x1b: return c.drop ? c.drop(m, from, msg, size) : net_drop_in(*m, msg, size);
     case 0x1f: return call(c.chat, m, from, msg, size);
     case 0x21: return c.part_off ? c.part_off(m, from, msg, size) : net_part_off_in(msg, size);
     default: return;  // 0x15 is registered but not handled in a mission
@@ -366,8 +370,18 @@ int32_t net_send_event(Mech& m, int32_t kind, intptr_t arg) {
       znet::send(b, sizeof b, false, 0);
       return 0;
     }
-    case 0x11:
-      return c.send_other ? c.send_other(m, kind, arg) : 0;
+    case 0x11: {  // the clock (the host's) and the end's reason, arg the game
+      if (c.send_other) return c.send_other(m, kind, arg);
+      const auto* gf = reinterpret_cast<const NetGameFields*>(arg);
+      uint8_t b[0xc] = {0x11, 0, 0xc, 0};
+      const uint32_t reason = gf && gf->end_state ? static_cast<uint32_t>(*gf->end_state) & 3 : 0;  // [0x005e5674]'s low bits
+      const float left = c.clock_left ? c.clock_left() : 0.0f;  // [0x00609920]
+      std::memcpy(b + 4, &reason, 4);
+      std::memcpy(b + 8, &left, 4);
+      if (znet::is_host()) znet::send(b, sizeof b, false, 0);
+      c.clock ? c.clock(nullptr, 0, b, sizeof b) : net_clock_in(b, sizeof b);
+      return 0;
+    }
     default:
       return 0;
   }
@@ -776,6 +790,148 @@ void net_part_off_in(const uint8_t* msg, size_t size) {
   part->set_internal(0.0f, 0);  // vt+0x3c
 }
 
+namespace {
+// The 0x19 message (0x1c bytes): +4 bit 7 from the host, +8 the ground's
+// material by index, +0xc the place, +0x18 the radius.
+struct CraterMsg {
+  uint16_t type = 0x19, size = 0x1c;
+  uint32_t flags = 0;
+  uint32_t material = 0;
+  float at[3] = {};
+  float radius = 0;
+};
+static_assert(sizeof(CraterMsg) == 0x1c, "the crater message");
+int32_t make_crater(const zwep::CraterOrder* o) {
+  return g_calls.crater_make ? g_calls.crater_make(o) : zdec::crater_make(o);  // 0x004ffaa0
+}
+}  // namespace
+
+// Mech3.exe 1.2 @ 0x0046fd30
+int net_crater_veto(const zwep::CraterOrder* order) {
+  const NetCalls& c = g_calls;
+  if (order->radius <= 0.0f) {  // made from a 0x19: its own, passed
+    const_cast<zwep::CraterOrder*>(order)->radius = -order->radius;  // the exe writes the caller's order
+    return 1;
+  }
+  Mech* owner = c.node_mech ? c.node_mech(order->owner) : nullptr;  // 0x0040ef10
+  Mech* pilot = c.pilot_mech ? c.pilot_mech() : nullptr;
+  if (!owner || owner != pilot) return 0;
+  CraterMsg m;  // [0x005e5698]
+  m.material = c.material_index ? c.material_index(order->material) : zdec::material_word(order->material);  // 0x00535ff0
+  m.at[0] = order->at.x, m.at[1] = order->at.y, m.at[2] = order->at.z;
+  m.radius = order->radius;
+  if (znet::is_host()) net_crater_in(reinterpret_cast<const uint8_t*>(&m), sizeof m);
+  else znet::send(&m, sizeof m, true, 0);
+  return 0;
+}
+
+// Mech3.exe 1.2 @ 0x0046fde0 (ECX the message). The order is the defaults
+// (0x004ff920) with the message's ground, place and its radius negated
+// (for the veto). The host makes any and, when it is made, sends it to all
+// with bit 7; the others make only those.
+void net_crater_in(const uint8_t* msg, size_t size) {
+  if (size < sizeof(CraterMsg)) return;
+  CraterMsg m;
+  std::memcpy(&m, msg, sizeof m);
+  zwep::CraterOrder o;
+  zdec::crater_defaults(&o);
+  const bool host = znet::is_host();
+  if (!host && !(m.flags & 0x80)) return;
+  const auto index = static_cast<int32_t>(m.material);
+  o.material = g_calls.take_material ? g_calls.take_material(index) : zmod::take_material(index);  // 0x00536070
+  o.radius = -m.radius;
+  o.at = {m.at[0], m.at[1], m.at[2]};
+  if (make_crater(&o) == 0 && host) {
+    m.flags |= 0x80;
+    znet::send(&m, sizeof m, true, 0);
+  }
+}
+
+// Mech3.exe 1.2 @ 0x004700e0: one crater of the host's history, to all.
+// The history keeps the ground as its material index (FIX (A), zdec_crater.h).
+namespace {
+void replay_crater(const uint32_t* w) {
+  if (!znet::is_host()) return;
+  CraterMsg m;
+  m.flags = 0x80;
+  m.material = w[2];
+  std::memcpy(m.at, w + 6, 12);
+  std::memcpy(&m.radius, w + 5, 4);
+  znet::send(&m, sizeof m, true, 0);
+}
+}  // namespace
+
+// Mech3.exe 1.2 @ 0x004700a0, then 0x00500c60 (ECX 0x004700e0, EDX 0)
+void net_host_replay() {
+  if (znet::is_host()) {
+    const int32_t n = zeff::log_count();
+    for (int32_t i = 0; i < n; ++i) {
+      zeff::AnimLogRecord* r = zeff::log_record(i);
+      if (zeff::log_flags(r) & 2) net_anim_sent(r);
+    }
+  }
+  zdec::history_each(replay_crater, nullptr);
+}
+
+// Mech3.exe 1.2 @ 0x0046feb0 (ECX the record). The mobile field base
+// stations' animations are not sent; none is while one heard is replayed.
+void net_anim_sent(zeff::AnimLogRecord* rec) {
+  if (std::strstr(rec->name, "mfb_station_01")) return;  // [0x005e4b68], on 0x0050d260's name
+  if (g_net.echo) return;  // [0x00605fb8]
+  const auto n = static_cast<size_t>(zeff::log_record_size(rec));  // 0x0050ca20
+  std::vector<uint8_t> b(n + 4, 0);
+  put16(b, 0, 0x1a);
+  put16(b, 2, static_cast<uint16_t>(b.size()));
+  std::memcpy(b.data() + 4, rec, std::min(n, sizeof *rec));
+  znet::send(b.data(), static_cast<uint32_t>(b.size()), true, 0);
+}
+
+// Mech3.exe 1.2 @ 0x0046ff50
+void net_effect_in(const uint8_t* msg, size_t size) {
+  zeff::AnimLogRecord r;
+  std::memset(&r, 0, sizeof r);
+  if (size > 4) std::memcpy(&r, msg + 4, std::min(size - 4, sizeof r));
+  if (g_calls.log_has ? g_calls.log_has(&r) : zeff::log_has(&r)) return;  // 0x0050b680
+  g_net.echo = 1;
+  g_calls.log_replay ? g_calls.log_replay(&r) : (void)zeff::log_replay(&r);  // 0x0050ca90
+  g_net.echo = 0;
+}
+
+// Mech3.exe 1.2 @ 0x0046ff90 (ECX the station's id)
+void net_send_drop(uint32_t station) {
+  uint8_t b[8] = {0x1b, 0, 8, 0};
+  std::memcpy(b + 4, &station, 4);
+  znet::send(b, sizeof b, true, 0);
+}
+
+// Mech3.exe 1.2 @ 0x0046ffd0 (the mech, the message)
+void net_drop_in(NetMech& m, const uint8_t* msg, size_t size) {
+  if (size < 8) return;
+  uint32_t id;
+  std::memcpy(&id, msg + 4, 4);
+  g_calls.station ? g_calls.station(m, id) : field_bases_station_message(&m, id);  // 0x0045a140
+}
+
+// Mech3.exe 1.2 @ 0x00470740 (ECX the message). The reasons: 1 the time,
+// 2 the score limit (0x9aa, 0x9ab for 5 s); the game ends 3 s on.
+void net_clock_in(const uint8_t* msg, size_t size) {
+  const NetCalls& c = g_calls;
+  if (size < 12) return;
+  uint32_t flags;
+  float left;
+  std::memcpy(&flags, msg + 4, 4);
+  std::memcpy(&left, msg + 8, 4);
+  if (c.set_clock_left) c.set_clock_left(left);
+  NetGameFields* g = c.game ? c.game() : nullptr;  // FIX (bug): the exe reads it unchecked
+  const uint32_t reason = flags & 3;
+  if (reason == 0 || !g || !g->end_state) return;
+  if (*g->end_state == 0) *g->end_state = static_cast<int32_t>(reason);
+  if (reason == 1 && c.hud_message) c.hud_message(5.0f, 0x9aa, nullptr);
+  else if (reason == 2 && c.hud_message) c.hud_message(5.0f, 0x9ab, nullptr);
+  *g->end_state = 3;
+  if (g->end_time) *g->end_time = game_time() - -3.0f;
+}
+
 // Mech3.exe 1.2 @ 0x0046e0a0
 void net_spawn_offset(float pos[3], int32_t slot) {
   if (slot >= 2 && slot <= 4) pos[0] += 10.0f;
@@ -909,7 +1065,7 @@ void net_mech_create(uint32_t from) {
   c.skin ? c.skin(*m, s) : (void)mech_set_skin(*m, s);
   if (c.sensor_range) c.sensor_range(*m);  // 0x004d6d20 with its own +0x9c
   m->latency = 0;
-  if (znet::is_host() && c.host_replay) c.host_replay();
+  if (znet::is_host()) c.host_replay ? c.host_replay() : net_host_replay();
 }
 
 // Mech3.exe 1.2 @ 0x0046e3a0, with the destructor 0x0046e3c0 (its

@@ -452,10 +452,7 @@ extern "C" int32_t probe_mech_net_send(const int32_t* in, int32_t* out, int32_t 
   c.hud_message = [](float, int32_t id, const char*) { log({2, id}); };
   c.rules_check = [] { log({3}); };
   c.game_over = [] { log({4}); };
-  c.send_other = [](mech3::Mech&, int32_t kind, intptr_t) -> int32_t {
-    log({5, kind});
-    return 0;
-  };
+  c.clock = [](NetMech*, uint32_t, const uint8_t*, size_t) { log({7}); };  // 0x00470740
   g_clock_next = fbits(in[kClockNext]), g_end_time = fbits(in[kEndTime]), g_end_state = in[kEndState];
   g_fields = mech3::NetGameFields{0, in[kPlayers], &g_clock_next, &g_end_time, &g_end_state};
   c.game = []() -> mech3::NetGameFields* { return g_in[kHasGame] ? &g_fields : nullptr; };
@@ -549,6 +546,7 @@ extern "C" int32_t probe_mech_net_send(const int32_t* in, int32_t* out, int32_t 
     if (in[kKind] == 0x16) arg = reinterpret_cast<intptr_t>(&weapon);
     if (in[kKind] == 0x13) arg = reinterpret_cast<intptr_t>(weapon.projectile_target);
     if (in[kKind] == 0x21) arg = reinterpret_cast<intptr_t>(&part);
+    if (in[kKind] == 0x11) arg = reinterpret_cast<intptr_t>(&g_fields);  // the game
     ret = mech3::net_send_event(*m, in[kKind], arg);
   }
   part.mech = nullptr, part.node = nullptr;
@@ -852,3 +850,125 @@ extern "C" int32_t probe_mech_net_events(const int32_t* in, int32_t* out, int32_
   return n;
 }
 extern "C" int32_t probe_mech_net_ev_count() { return eEvCount; }
+
+// The world's events (piece 7b) for test_mech_net_world.py. in: the
+// handler (0 the veto, 1 a crater in, 2 an effect sent, 3 an effect in,
+// 4 a drop sent, 5 a drop in, 6 the clock in, 7 the host's replay of one
+// crater), host, local, the message (24 words) and its length, the order
+// (10 words: the veto's, or a history entry's), the crater defaults (10),
+// the order's shooter is the pilot, the crater made answer, an effect
+// like it runs, the game, its end state, the end time and clock as bits.
+#include "gamez/zdeclient/zdec_init.h"
+#include "gamez/zeffect/zeff_anim_save.h"
+namespace {
+enum Wd {
+  wKind, wHost, wLocal, wLen, wMsg, wOrder = wMsg + 24, wDefaults = wOrder + 10, wPilotShot = wDefaults + 10, wMade,
+  wHas, wHasGame, wEndState, wEndTime, wClock, wWdCount
+};
+const int32_t* g_wd;
+int32_t g_wd_end;
+float g_wd_end_time, g_wd_clock_left;
+mech3::NetGameFields g_wd_fields;
+zwep::CraterOrder order_of(const int32_t* w) {  // the exe's 10 dwords, field by field (Handles are wider here)
+  zwep::CraterOrder o;
+  o.x00 = static_cast<uint32_t>(w[0]), o.points = w[1];
+  o.material = reinterpret_cast<mech3::Handle>(static_cast<uintptr_t>(static_cast<uint32_t>(w[2])));
+  o.x0c = static_cast<uint32_t>(w[3]), o.depth = fbits(w[4]), o.radius = fbits(w[5]);
+  o.at = {fbits(w[6]), fbits(w[7]), fbits(w[8])};
+  o.owner = nullptr;
+  return o;
+}
+void log_order(const zwep::CraterOrder* o) {
+  log({41, o->points, static_cast<int32_t>(reinterpret_cast<uintptr_t>(o->material)), bits(o->depth), bits(o->radius),
+       bits(o->at.x), bits(o->at.y), bits(o->at.z)});
+}
+}  // namespace
+
+extern "C" int32_t probe_mech_net_world(const int32_t* in, int32_t* out, int32_t cap) {
+  std::vector<int32_t> lg;
+  g_log = &lg;
+  g_wd = in;
+  mech3::NetCalls& c = mech3::net_calls();
+  c = mech3::NetCalls{};
+  static mech3::Mech pilot, other;
+  g_rx_pilot = &pilot;
+  c.pilot_mech = []() -> mech3::Mech* { return g_rx_pilot; };
+  c.node_mech = [](mech3::Handle) -> mech3::Mech* { return g_wd[wPilotShot] ? g_rx_pilot : &other; };
+  c.crater_make = [](const zwep::CraterOrder* o) -> int32_t {
+    log_order(o);
+    return g_wd[wMade];
+  };
+  c.take_material = [](int32_t i) -> mech3::Handle { log({40, i}); return reinterpret_cast<mech3::Handle>(uintptr_t(0x1000 + i)); };
+  c.material_index = [](mech3::Handle m) { return static_cast<uint32_t>(reinterpret_cast<uintptr_t>(m) - 0x1000); };
+  c.log_has = [](const zeff::AnimLogRecord*) { log({44}); return g_wd[wHas] != 0; };
+  c.log_replay = [](const zeff::AnimLogRecord* r) {
+    log({43, mech3::net_game().echo});
+    const auto* w = reinterpret_cast<const int32_t*>(r);
+    for (int i = 0; i < 20; ++i) g_log->push_back(w[i]);
+  };
+  c.station = [](NetMech& m, uint32_t id) { log({45, static_cast<int32_t>(m.owner), static_cast<int32_t>(id)}); };
+  c.hud_message = [](float t, int32_t id, const char*) { log({2, bits(t), id}); };
+  c.set_clock_left = [](float v) { log({46, bits(v)}); };
+  g_wd_end = in[wEndState], g_wd_end_time = fbits(in[wEndTime]), g_wd_clock_left = fbits(in[wClock]);
+  g_wd_fields = mech3::NetGameFields{0, 0, nullptr, &g_wd_end_time, &g_wd_end};
+  c.game = []() -> mech3::NetGameFields* { return g_wd[wHasGame] ? &g_wd_fields : nullptr; };
+  c.game_time = [] { return 120.25f; };
+  zdec::state().crater = order_of(in + wDefaults);
+  Sends t;
+  g_send_id = 100;
+  znet::session() = znet::Session{};
+  znet::Session& s = znet::session();
+  s.transport = &t, s.initialised = true, s.open = true, s.async = true;
+  s.local = std::make_unique<znet::Player>();
+  s.local->id = static_cast<uint32_t>(in[wLocal]);
+  s.host_id = in[wHost] ? s.local->id : 99u;
+  mech3::NetGame& g = mech3::net_game();
+  g = mech3::NetGame{};
+  g.running = true;
+  zdec::craters().veto = mech3::net_crater_veto;
+  std::vector<uint8_t> msg(static_cast<size_t>(in[wLen]));
+  std::memcpy(msg.data(), in + wMsg, msg.size());
+  NetMech who;
+  who.owner = 5;
+  switch (in[wKind]) {
+    case 0: {
+      zwep::CraterOrder o = order_of(in + wOrder);
+      o.owner = reinterpret_cast<mech3::Handle>(uintptr_t(0x77));
+      const int r = mech3::net_crater_veto(&o);
+      log({47, r, bits(o.radius)});
+      break;
+    }
+    case 1: mech3::net_crater_in(msg.data(), msg.size()); break;
+    case 2: {
+      zeff::AnimLogRecord r;
+      std::memcpy(&r, msg.data(), std::min(msg.size(), sizeof r));
+      mech3::net_anim_sent(&r);
+      break;
+    }
+    case 3: mech3::net_effect_in(msg.data(), msg.size()); break;
+    case 4: mech3::net_send_drop(static_cast<uint32_t>(in[wOrder])); break;
+    case 5: mech3::net_drop_in(who, msg.data(), msg.size()); break;
+    case 6: mech3::net_clock_in(msg.data(), msg.size()); break;
+    case 7: {
+      std::vector<uint32_t> w(in + wOrder, in + wOrder + 10);
+      zdec::craters().history.clear();
+      zdec::HistoryEntry e;
+      e.type = 1;
+      std::copy(w.begin(), w.end(), e.words);
+      zdec::craters().history.push_back(e);
+      mech3::net_host_replay();
+      zdec::craters().history.clear();
+      break;
+    }
+    default: break;
+  }
+  log({90, g_wd_end, bits(g_wd_end_time), g.echo});
+  zdec::craters().veto = nullptr;
+  g = mech3::NetGame{};
+  znet::session() = znet::Session{};
+  c = mech3::NetCalls{};
+  const int32_t n = static_cast<int32_t>(std::min<size_t>(lg.size(), static_cast<size_t>(cap)));
+  std::copy(lg.begin(), lg.begin() + n, out);
+  return n;
+}
+extern "C" int32_t probe_mech_net_wd_count() { return wWdCount; }

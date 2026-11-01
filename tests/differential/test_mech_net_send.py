@@ -85,11 +85,7 @@ class Exe:
                  0x460000: (lambda c: self.emu.u32(c.ecx + 4), 0)}  # a part's mech (+0x04 here)
         for a, (fn, pop) in stubs.items():
             cpu.stub_function(a, fn, pop)
-        # the kinds of pieces 7 and 8: logged where their case starts, then the epilogue
-        index = cpu.read(0x46fd10, 0x13)
-        for kind in (0x11,):
-            target = struct.unpack('<I', cpu.read(0x46fce8 + 4 * index[kind - 0xf], 4))[0]
-            cpu.uc.hook_add(UC_HOOK_CODE, self.other(kind), begin=target, end=target)
+        cpu.stub_function(0x470740, self.log_(7), 0)  # the clock heard here too (test_mech_net_events.py)
 
     def other(self, kind):
         def run(uc, address, size, user):
@@ -251,7 +247,7 @@ class Exe:
         if v[K['kind']] == 100:
             cpu.call(0x46ef70, ecx=m)
         else:
-            arg = {0x16: weapon, 0x13: tobj, 0x21: part}.get(v[K['kind']], v[K['arg']])
+            arg = {0x16: weapon, 0x13: tobj, 0x21: part, 0x11: self.game}.get(v[K['kind']], v[K['arg']])
             cpu.call(SENDER, ecx=m, stack_args=(v[K['kind']], arg))
             ret = s32(cpu.uc.reg_read(UC_X86_REG_EAX))
         self.log += [90, ret, s32(emu.u32(m + 0x680)), emu.u32(m + 0x67c)]
@@ -354,7 +350,7 @@ def case(rng):
     v[K['rate_setting']] = rng.choice([0, 1, 2, 3])
     v[K['warned']], v[K['last_second']] = rng.randrange(2), rng.randrange(2)
     v[K['has_game']] = int(rng.random() < 0.9)
-    if v[K['kind']] == 0x10:
+    if v[K['kind']] in (0x10, 0x11):
         v[K['has_game']] = 1  # the host's ping reads the game unchecked; it is only sent from the timer, which has one
     v[K['weapon_locked']] = rng.randrange(2)
     v[K['weapon_slot']] = rng.randrange(0, 20)

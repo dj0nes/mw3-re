@@ -2562,3 +2562,15 @@ Assigned after 8b2 merged (fd3f05f). The lead asked for a section stepped at bot
   net_mech_new).
 - 0x004705b0: ECX and the stack argument are both the sender; the exe sets
   the sender's attacker. Kept, the fix behind bugs.
+
+## Multiplayer, piece 7b: the world's events (2026-10-31)
+
+- main merged in (0723eac1: the lead's NOMINMAX fix for the Windows build).
+- 0x0046fde0's resend: ECX the message copied, bit 7 set, guaranteed to all.
+  0x004700e0 is called with ECX the history entry's words; the port's
+  history keeps the material's index, the exe's its pointer (the test hands
+  each its own).
+- The test hooks added for 7b: crater_make, take_material, material_index,
+  log_has, log_replay, station.
+- A crater in the headless c1m1 (the hub test) was not made at any place
+  tried, so the crater path is checked by the emulator test only.

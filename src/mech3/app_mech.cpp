@@ -956,6 +956,7 @@ void wire_net(bool on) {
   nc.ff_stop = kept.ff_stop, nc.ff_spawn = kept.ff_spawn;
   nc.game_clear = kept.game_clear;  // the pilot's side's
   nc.game = kept.game, nc.game_time = kept.game_time, nc.clock_left = kept.clock_left, nc.clock_on = kept.clock_on;
+  nc.set_clock_left = kept.set_clock_left;
   if (!on) return;
   nc.set_position = [](NetMech& m, const float pos[3]) {  // vtable +0x18
     const Vec3 v{pos[0], pos[1], pos[2]};
@@ -1036,6 +1037,10 @@ void wire_net(bool on) {
     if (!t.empty()) message_panel_add("%s", t.c_str());
   };
   nc.mech_name = [](Mech& m) { return entity_name(g_w.handle_of(g_w.engine, &m)); };  // vt+0xa4
+  nc.node_mech = [](Handle node) -> Mech* {  // 0x0040ef10: the node's owner, when a mech
+    const Handle o = damage_calls().node_owner ? damage_calls().node_owner(node) : nullptr;
+    return o && entity_is_mech(o) ? static_cast<Mech*>(o) : nullptr;
+  };
   collide_calls().net_shove = [](Mech&, Mech& other, float damage, float vx, float vz) {
     net_send_shove(other, damage, vx, vz);
   };
@@ -1067,6 +1072,7 @@ void net_set_game_access(const NetGameAccess& a) {
     return &f;
   };
   nc.game_time = a.game_time, nc.clock_left = a.clock_left, nc.clock_on = a.clock_on;
+  nc.set_clock_left = a.set_clock_left;
 }
 
 bool program_net_mech_check(NetMechSeen* out) {

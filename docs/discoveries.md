@@ -899,6 +899,12 @@ From the weapon code (weapons.md).
   The game meant to note who pushed you, but it notes the pusher as its own
   attacker, so if the push finishes you, nobody gets the kill. The rebuild,
   with bug fixes on, gives it to the pusher. (`multiplayer-port.md`, piece 7a)
+- **In multiplayer every crater is the host's.** A crater your shot would
+  make is not made on your screen: it goes to the host, which makes it and
+  tells everyone (you included). Other players' shots make no craters on
+  your screen except those the host sends. A player who joins late gets
+  every crater so far. The mobile field bases' station animations are the
+  one kind of effect never shared. (`multiplayer-port.md`, piece 7b)
 - **Only one copy runs at a time.** Started a second time, the game finds the
   first window and brings it to the front instead. Launched from a multiplayer
   lobby, it closes the old copy instead.

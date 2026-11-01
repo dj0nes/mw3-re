@@ -2355,6 +2355,7 @@ void wire_mission_hooks(GameEngine* e) {
   acc.game_time = [] { return missions().time; };        // [0x0060991c]
   acc.clock_left = [] { return missions().clock; };      // [0x00609920]
   acc.clock_on = [] { return missions().clock_down != 0; };  // [0x00609924]
+  acc.set_clock_left = [](float v) { missions().clock = v; };
   net_set_game_access(acc);
   net_set_launch_game([](NetLaunchGame* out) {  // the network launch's (0x0046da80): slot 0 is +0x20 (0x00437800)
     MultiplayerGame* g = current_pilot() ? current_pilot()->multiplayer() : nullptr;

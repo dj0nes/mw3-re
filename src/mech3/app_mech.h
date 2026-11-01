@@ -46,6 +46,7 @@ struct NetGameAccess {
   float (*game_time)() = nullptr;   // [0x0060991c]
   float (*clock_left)() = nullptr;  // [0x00609920]
   bool (*clock_on)() = nullptr;     // [0x00609924]
+  void (*set_clock_left)(float v) = nullptr;  // [0x00609920] =
 };
 void net_set_game_access(const NetGameAccess& a);
 // Ours, for the tests (multiplayer-port.md piece 5c): in the mission that is
