@@ -75,3 +75,27 @@ zip (a long run).
    or Homebrew's) and defining MW3_HAVE_LIBARCHIVE, `mech3/source_archive`
    (ArchiveReader, cooked_sectors), `test_setup_sources.cpp` (4 tests; the
    raw sectors' offset broken: the ISO test fails).
+2. Sitting 2 (2026-10-31): `mech3/source_map` (`map_source`): a folder, an
+   exe, a disc or an image on disk (the existing `Disc`), or an archive walked
+   forward with archives inside it (to 4 deep). Content decides the game: an
+   installed copy's zbd/reader.zbd (its zArchive version: MW3 1, PM 2; 1.0 or
+   1.2 by its size and CRC), a disc's DATA1.HDR file list (Pirate's Moon by
+   its readersa1.zbd; the version by zbd/reader.zbd's size). A disc image in
+   an archive is read as a stream up to its DATA1.HDR (on both discs it lies
+   just after DATA1.CAB: MW3 sector 106705, about 209 MB in; PM 96735) and no
+   further; raw or 2048-byte sectors told by the sync pattern or CD001; the
+   volume label ("MW3", "MW3 PM") kept for the log only. A cue's tracks
+   matched to the archive's entries after the walk (Redump's zips put the
+   .bins before the .cue); an audio .bin is passed over after its first 17
+   sectors (no sync). An installed copy outranks a disc, MW3 outranks PM.
+   Tests: the installs on disk (1.0, 1.2 by its exe, PM refused, PM's
+   image), an installed copy zipped and zipped again, a disc image built at
+   test time around the 1.2 patch's data1.hdr (label "CDROM": content
+   decides) in a 7z and as Redump's raw .bin with an audio track and cue in a
+   zip, the same .cue and .bins on disk (each audio track's number and INDEX
+   01 kept, for the music), PM's disc in a zip in a zip, a zip with no game; the real Redump zip
+   (MW3_SETUP_LONG=1: "The MechWarrior 3 disc version 1.0, with its music
+   (2 CD tracks)", label MW3, 3 seconds over the network share). Breaks: the
+   zArchive version misread (both map tests fail), the cue's audio filter
+   inverted (the archive test fails), the on-disk cue read as its path, not
+   its text (as first written: the archive test fails).

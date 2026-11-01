@@ -10,6 +10,9 @@
 
 #include "check.h"
 #include "mech3/source_archive.h"
+#include "mech3/source_map.h"
+#include "mech3/disc_install.h"
+#include <filesystem>
 
 #if MW3_HAVE_LIBARCHIVE
 #include <archive.h>
@@ -169,6 +172,122 @@ TEST(setup_sources_refuse_damaged_and_unknown_files) {
   mech3::source::ArchiveReader t;
   EXPECT(!t.open_file(temp_file("plain.txt", "not an archive at all, just text\n")));
   EXPECT(mech3::source::archive_name("x.ZIP") && mech3::source::archive_name("a.tar.gz") && !mech3::source::archive_name("track.bin"));
+}
+
+
+namespace {
+
+std::string slurp(const std::string& path) {
+  std::string d;
+  if (std::FILE* f = std::fopen(path.c_str(), "rb")) {
+    char buf[1 << 16];
+    for (size_t n; (n = std::fread(buf, 1, sizeof buf, f)) > 0;) d.append(buf, n);
+    std::fclose(f);
+  }
+  return d;
+}
+const std::string kGame = std::string(MW3_SOURCE_DIR) + "/game";
+bool have_games() {
+  return std::filesystem::exists(kGame + "/mw3-1.0/zbd/reader.zbd") && std::filesystem::exists(kGame + "/mw3-1.2/zbd/reader.zbd") &&
+         std::filesystem::exists(kGame + "/pm/zbd/reader.zbd") && std::filesystem::exists(kGame + "/pm-disc/pm.iso") &&
+         std::filesystem::exists(kGame + "/patch-1.2/MechWarrior-3_Patch_Win_EN_Patch-12-US/data1.hdr");
+}
+// Pirate's Moon's disc header, from its image.
+std::string pm_hdr() {
+  mech3::Disc d;
+  std::string err;
+  if (!d.open(kGame + "/pm-disc/pm.iso", &err)) return "";
+  const mech3::Disc::File* f = d.find("DATA1.HDR");
+  if (!f) return "";
+  std::string out(static_cast<size_t>(f->size), '\0');
+  d.read(*f, 0, out.size(), reinterpret_cast<uint8_t*>(&out[0]));
+  return out;
+}
+// A raw MODE1/2352 track of an image, with an audio track and a cue as
+// Redump zips them (the .bins before the .cue).
+Files redump(const std::string& iso, const std::string& name) {
+  Files f;
+  f[name + " (Track 1).bin"] = raw_track(iso);
+  f[name + " (Track 2).bin"] = std::string(2352 * 200, '\x11');  // audio: no sync pattern
+  f[name + ".cue"] = "FILE \"" + name + " (Track 1).bin\" BINARY\n  TRACK 01 MODE1/2352\n    INDEX 01 00:00:00\nFILE \"" +
+                     name + " (Track 2).bin\" BINARY\n  TRACK 02 AUDIO\n    INDEX 00 00:00:00\n    INDEX 01 00:02:00\n";
+  return f;
+}
+
+}  // namespace
+
+// The map: installed copies on disk (1.0, 1.2, Pirate's Moon refused).
+TEST(setup_map_installed_copies_on_disk) {
+  if (!have_games()) return;
+  const mech3::source::Found a = mech3::source::map_source(kGame + "/mw3-1.0");
+  EXPECT(a.kind == mech3::source::Found::kInstall && a.game == mech3::source::Found::kMw3 && a.version == "1.0" && a.on_disk);
+  const mech3::source::Found b = mech3::source::map_source(kGame + "/mw3-1.2/Mech3.exe");  // its exe
+  EXPECT(b.kind == mech3::source::Found::kInstall && b.version == "1.2");
+  const mech3::source::Found c = mech3::source::map_source(kGame + "/pm");
+  EXPECT(c.game == mech3::source::Found::kPiratesMoon && c.summary.find("Pirate's Moon") != std::string::npos);
+  const mech3::source::Found d = mech3::source::map_source(kGame + "/pm-disc/pm.iso");
+  EXPECT(d.kind == mech3::source::Found::kDisc && d.game == mech3::source::Found::kPiratesMoon);
+  std::printf("  %s | %s | %s\n", a.summary.c_str(), b.summary.c_str(), c.summary.c_str());
+}
+
+// The map in archives: an installed copy zipped, the same zipped again, a
+// disc image (2048 and raw, an unknown label, Redump's cue and audio order)
+// in a zip and a 7z, Pirate's Moon's refused, and an archive with no game.
+TEST(setup_map_finds_the_game_inside_archives) {
+  if (!have_games()) return;
+  using mech3::source::Found;
+  const Files install = {{"MechWarrior 3/zbd/reader.zbd", slurp(kGame + "/mw3-1.0/zbd/reader.zbd")},
+                         {"MechWarrior 3/Mech3.exe", slurp(kGame + "/mw3-1.0/Mech3.exe")},
+                         {"MechWarrior 3/readme.txt", "hello"}};
+  const std::string zip = write_archive("zip", install);
+  Found a = mech3::source::map_source(temp_file("install.zip", zip));
+  EXPECT(a.kind == Found::kInstall && a.game == Found::kMw3 && a.version == "1.0" && a.root == "MechWarrior 3/" &&
+         a.steps.empty() && !a.on_disk);
+  Found b = mech3::source::map_source(temp_file("nested.zip", write_archive("zip", {{"inner/mw3.zip", zip}, {"box.jpg", "j"}})));
+  EXPECT(b.kind == Found::kInstall && b.steps.size() == 1 && b.steps[0].entry == "inner/mw3.zip");
+
+  // A disc: the 1.2 patch's installer header stands in for the disc's (it
+  // lists zbd/reader.zbd at 1.2's size); libarchive labels the image
+  // "CDROM", a label no pressing has: content decides.
+  const std::string hdr = slurp(kGame + "/patch-1.2/MechWarrior-3_Patch_Win_EN_Patch-12-US/data1.hdr");
+  const std::string iso = write_archive("iso9660", {{"DATA1.HDR", hdr}, {"DATA1.CAB", std::string(300000, 'c')}});
+  Found c = mech3::source::map_source(temp_file("disc.7z", write_archive("7zip", {{"MW3.iso", iso}})));
+  EXPECT(c.kind == Found::kDisc && c.game == Found::kMw3 && c.version == "1.2" && c.steps.size() == 1 &&
+         c.steps[0].kind == mech3::source::Step::kImage && c.label == "CDROM");
+  Found d = mech3::source::map_source(temp_file("redump.zip", write_archive("zip", redump(iso, "MechWarrior 3 (USA)"))));
+  EXPECT(d.kind == Found::kDisc && d.game == Found::kMw3 && d.raw && d.raw_offset == 16 && d.audio.size() == 1 && d.audio[0] == "MechWarrior 3 (USA) (Track 2).bin" &&
+         d.data_track == "MechWarrior 3 (USA) (Track 1).bin" && d.audio_track == std::vector<int>{2} &&
+         d.audio_start == std::vector<int64_t>{2 * 75 * 2352});
+  std::printf("  redump: %s (%s)\n", d.summary.c_str(), d.detail.c_str());
+  // The same on disk: its cue read for the music.
+  std::string cue;
+  for (const auto& [name, bytes] : redump(iso, "On Disk")) {
+    const std::string p = temp_file(name.c_str(), bytes);
+    if (name.size() > 4 && name.compare(name.size() - 4, 4, ".cue") == 0) cue = p;
+  }
+  Found g = mech3::source::map_source(cue);
+  EXPECT(g.kind == Found::kDisc && g.on_disk && g.game == Found::kMw3 && g.audio == std::vector<std::string>{"On Disk (Track 2).bin"} &&
+         g.audio_track == std::vector<int>{2} && g.audio_start == std::vector<int64_t>{2 * 75 * 2352});
+
+  // Pirate's Moon's disc in a zip in a zip: named, not installed.
+  const std::string pm_iso = write_archive("iso9660", {{"DATA1.HDR", pm_hdr()}});
+  Found e = mech3::source::map_source(
+      temp_file("pm.zip", write_archive("zip", {{"pm/disc.zip", write_archive("zip", {{"PM.iso", pm_iso}})}})));
+  EXPECT(e.game == Found::kPiratesMoon && e.summary.find("comes later") != std::string::npos);
+  // No game at all.
+  Found f = mech3::source::map_source(temp_file("other.zip", write_archive("zip", {{"notes.txt", "x"}, {"data/a.bin", "abc"}})));
+  EXPECT(f.kind == Found::kNothing && !f.summary.empty());
+}
+
+// The real thing, when the backups are here (a long read: MW3_SETUP_LONG=1):
+// Redump's MechWarrior 3 zip, its data track 626 MB and two audio tracks.
+TEST(setup_map_the_real_redump_zip) {
+  const char* zip = "/Volumes/iO/backups/win98/MechWarrior 3 (USA).zip";
+  if (!std::getenv("MW3_SETUP_LONG") || !std::filesystem::exists(zip)) return;
+  const mech3::source::Found f = mech3::source::map_source(zip);
+  std::printf("  %s\n%s", f.summary.c_str(), f.detail.c_str());
+  EXPECT(f.kind == mech3::source::Found::kDisc && f.game == mech3::source::Found::kMw3 && f.version == "1.0" &&
+         f.label == "MW3" && f.audio.size() == 2);
 }
 
 #else
