@@ -1,6 +1,7 @@
 #pragma once
 #include <cstdint>
 
+#include "gamez/zinput/zinput.h"
 #include "gamez/ztwod/twod.h"
 #include "mech3/veh_basic_object.h"
 #include "mech3/veh_controls.h"
@@ -23,8 +24,21 @@ struct StealthControls : VehicleControls {
   bool destroyed() override { return false; }  // vt+0x1c 0x004d72a0
   int32_t dynamics() override { return 1; }    // vt+0x20 0x004a5270
   int update(float dt) override;               // IControls vt+0x0c 0x004a5280
-  uint32_t xa18 = 0;                           // +0xa18 (0x004a51b0 zeroes it)
+  uint32_t ramp = 0;      // +0x010  set: the throttle keys ramp it by the frame time, released it stays
+  float in40 = 0;         // +0x040  an input clamped and smoothed into out48 (nothing here sets it)
+  float pitch_in = 0;     // +0x044  PITCH_UP/DN 1/-1, CENTER_TORSO back toward level, else 0
+  float out48 = 0;        // +0x048
+  float pitch_out = 0;    // +0x04c  pitch_in smoothed
+  float mouse_x = 0, mouse_y = 0;  // +0x0a4  the mouse from the centre, -1..1 (0 when it cannot be read)
+  uint32_t xa18 = 0;      // +0xa18 (0x004a51b0 zeroes it)
 };
+
+// Mech3.exe 1.2 @ 0x004abcf0: an input's response curve: 0 at 0, 2 (a/hi)^2
+// up to `knee`, 1 - 2 ((a - hi)/hi)^2 up to `hi`, 1 past it (a = |x|), with
+// x's sign. The stealth's controls take it with knee 0.5, hi 1.
+float input_curve(float x, float knee, float hi);
+// Mech3.exe 1.2 @ 0x004a5280: the stealth's controls' frame (editor.md S3).
+int stealth_controls_frame(StealthControls& c);
 
 struct Stealth;
 
@@ -92,7 +106,12 @@ class StealthHooks : public zgame::Unported {
   virtual void image_set(ztwod::Image& i, const char* name) { i.set_image(name); }
   virtual void readout(StealthLayer& l) { unported("0x004a56b0", {ref(&l)}); }
   virtual void layer_off() { unported("0x0040fb50", {0}); }
-  virtual int frame(StealthControls& c, float dt) { return static_cast<int>(unported("0x004a5280", {ref(&c), zgame::bits(dt)})); }
+  // The frame's input: a command's state (0x0051d300; & 3 held), the mouse
+  // (0x0051ba60, its answer: 0x8007001e when it cannot be read), the frame
+  // time ([0x0072c52c]).
+  virtual uint32_t command(int32_t cmd) { return zin::command(cmd); }
+  virtual int32_t mouse(zin::MouseInfo* m) { return zin::mouse_copy(m); }
+  virtual float frame_dt();
 };
 void set_stealth_hooks(StealthHooks* h);  // null: the defaults
 StealthHooks& stealth_hooks();

@@ -150,6 +150,8 @@ pseudocode) for the vehicle editor.
    (veh_move.cpp, test_veh_basicmode.py; vehicles.md, The stealth object).
 3. **S3** The stealth's controls' frame 0x004a5280 (the player's
    movement commands and the mouse) and 0x004abcf0; differential tests.
+   Done 2026-11-01 (veh_stealth: `stealth_controls_frame`, `input_curve`;
+   test_veh_stealth.py's frames).
    (The basic vehicle's own controls and their path modes, which an
    earlier reading took for the stealth's, wait: vehicles.md.)
 4. **S4** The entry 0x0040e430 and the exit 0x0040e7f0 for the camera: its

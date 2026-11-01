@@ -7,7 +7,9 @@ zeroed, the overlay, +0x09 cleared, vehicle.zrd's `stealth` with its
 common_mode and motion block, the points, aiv.zrd's `stealth` record
 placing it when there is one), the overlay 0x4a55c0 with its image
 0x4a5850 run for real (only the texture lookup 0x59bb10 stubbed), and the
-controls' answers (0x4a5260, 0x4d72a0, 0x4a5270).
+controls' answers (0x4a5260, 0x4d72a0, 0x4a5270), and their frame 0x4a5280
+(the commands and the mouse stubbed; the curve 0x4abcf0 the exe's, its
+_CIpow, always to the power 2, as the x87's square).
 
     cmake --build build && .venv/bin/python tests/differential/test_veh_stealth.py [runs]
 
@@ -26,7 +28,7 @@ from calltrace import Emu, Replay, Trace, compare, load_probe, rnd  # noqa: E402
 
 U, I = ctypes.c_uint32, ctypes.c_int32
 WORLD = 0x608c84
-COVER = {k: 0 for k in ('node', 'no node', 'record', 'no record')}
+COVER = {k: 0 for k in ('node', 'no node', 'record', 'no record', 'mouse lost', 'mouse read', 'ramp', 'no ramp')}
 
 
 def f2b(x):
@@ -165,6 +167,79 @@ def layer(probe):
     return True
 
 
+def frame(probe, seed):
+    """0x4a5280 on stealth controls (their IControls 0x5c85f8 at +0xa08, the
+    shared accessors' own), the commands and the mouse stubbed."""
+    r = rnd(seed, 'frame')
+    t = Trace()
+    e = Emu(t)
+    e.heap_stubs()
+    e.cpu.fpu_control(0x007f)
+    base = e.world_alloc(0xa40)
+    e.cpu.write(base, b'\0' * 0xa40)
+    ictl = base + 0xa08
+    vbt = e.world_alloc(0x10)
+    e.w32(vbt + 4, 0xa04)
+    e.w32(base + 4, vbt)
+    e.w32(ictl, 0x5c85f8)
+    # The CRT's _CIpow (0x5ac386) reaches tables the emulator lacks; the
+    # curve's exponent is always 2: the base squared on the x87 (fstp st0,
+    # fmul st0, st0, ret).
+    e.cpu.write(0x5ac386, bytes([0xdd, 0xd8, 0xd8, 0xc8, 0xc3]))
+
+    def val(lo, hi):
+        x = r.random()
+        return float('nan') if x < 0.03 else r.choice([0.0, 1.0, -1.0]) if x < 0.25 else r.uniform(lo, hi)
+    case = dict(throttle=val(-1.6, 1.6), turn=val(-1, 1), ramp=int(r.random() < 0.4), in40=val(-1.8, 1.8),
+                pitch_in=val(-1, 1), pitch=val(-0.6, 0.6), fx=r.uniform(-1, 1), fy=r.uniform(-1, 1),
+                dt=r.choice([0.033, 0.016, 0.1]), err=r.random() < 0.12,
+                held={c: r.choice([0, 0, 1, 3, 4, 7]) for c in (0x18, 0x19, 2, 3, 4, 5, 6)})
+    for off, k in ((8, 'throttle'), (0xc, 'turn'), (0x40, 'in40'), (0x44, 'pitch_in'), (0x32c, 'pitch')):
+        e.wf(base + off, case[k])
+    e.w32(base + 0x10, case['ramp'])
+    e.wf(0x72c52c, case['dt'])
+
+    def mouse(em, key, a, pop):
+        em.wf(a[0] + 0xc, case['fx'])
+        em.wf(a[0] + 0x10, case['fy'])
+        v = 0x8007001e if case['err'] else 0
+        em.t.handle(key, ())
+        em.t.override(key, v)
+        em._ret(v, pop)
+    e.stub(0x51ba60, spec='c', fn=mouse)
+
+    def command(em, key, a, pop):
+        v = case['held'][a[0]]
+        em.t.handle(key, (a[0],))
+        em.t.override(key, v)
+        em._ret(v, pop)
+    e.stub(0x51d300, spec='c', fn=command)
+    rep = Replay(t, e, e.snapshot())
+    probe.probe_app_set_callback(rep.callback())
+    want = e.call(0x4a5280, ecx=ictl, stack=(0,))
+    out = (U * 9)()
+    f32 = lambda x: struct.unpack('<f', struct.pack('<f', x))[0]  # noqa: E731
+    probe.probe_stealth_frame(f32(case['throttle']), f32(case['turn']), case['ramp'], f32(case['in40']), f32(case['pitch_in']),
+                              f32(case['pitch']), f32(case['fx']), f32(case['fy']), out)
+    name = f'frame seed {seed}'
+    if not compare(name, t.log, rep.log):
+        return False
+    a = [e.r32(base + o) for o in (8, 0xc, 0x40, 0x44, 0x48, 0x4c, 0xa4, 0xa8)] + [want]
+    b = list(out)
+    # The curve's four outputs within an ulp: its powers are the x87's 80
+    # bits there, a double here (arm64 has no longer one).
+    near = {0, 1, 4, 5}
+    bad = [i for i in range(9) if a[i] != b[i] and not (i in near and abs(a[i] - b[i]) <= 1 and (a[i] ^ b[i]) >> 31 == 0)]
+    if bad:
+        names = ['throttle', 'turn', 'in40', 'pitch_in', 'out48', 'pitch_out', 'mouse x', 'mouse y', 'answer']
+        k = bad[0]
+        print(f'{name} {case}: {names[k]} original {a[k]:#x} rebuild {b[k]:#x}')
+        return False
+    COVER['mouse lost' if case['err'] else 'mouse read'] += 1
+    COVER['ramp' if case['ramp'] else 'no ramp'] += 1
+    return True
+
+
 def controls(probe):
     e = Emu(Trace())
     c = e.world_alloc(0xa40)
@@ -185,13 +260,16 @@ def main():
     probe.probe_stealth_layer.argtypes = [ctypes.POINTER(U)]
     probe.probe_stealth_controls.argtypes = [ctypes.POINTER(I)]
     ok = all(run(probe, s) for s in range(runs))
+    probe.probe_stealth_frame.argtypes = [ctypes.c_float, ctypes.c_float, U, ctypes.c_float, ctypes.c_float, ctypes.c_float,
+                                          ctypes.c_float, ctypes.c_float, ctypes.POINTER(U)]
+    ok = all(frame(probe, s) for s in range(runs * 2)) and ok
     ok = layer(probe) and ok
     ok = controls(probe) and ok
     missing = [k for k, n in COVER.items() if n == 0]
     if missing:
         print('not reached:', missing)
         ok = False
-    print(f'stealth: {runs} constructions, the overlay, the controls: {"ok" if ok else "FAILED"}')
+    print(f'stealth: {runs} constructions, {runs * 2} frames, the overlay, the controls: {"ok" if ok else "FAILED"}')
     sys.exit(0 if ok else 1)
 
 

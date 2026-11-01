@@ -1,6 +1,9 @@
 #include "mech3/veh_stealth.h"
 
+#include <cmath>
+
 #include "gamez/zreader/zreader.h"
+#include "gamez/zutil/ztimer.h"
 
 namespace mech3 {
 
@@ -30,8 +33,68 @@ StealthLayer* StealthHooks::layer_create(Stealth& s) {
 void StealthHooks::vehicle_construct(BasicVehicle& v, Handle ctl) { mech3::vehicle_construct(v, ctl, nullptr); }
 void StealthHooks::vehicle_destroy(BasicVehicle& v) { mech3::vehicle_destroy(v); }
 
+float StealthHooks::frame_dt() { return ztimer::state().dt; }
+
+// Mech3.exe 1.2 @ 0x004abcf0 (the x87's: the powers in long double, the
+// answer a float).
+float input_curve(float x, float knee, float hi) {
+  const float a = std::fabs(x);
+  long double r;
+  if (a == 0.0f) {
+    r = 0.0L;
+  } else if (!(a > knee)) {
+    r = std::pow(static_cast<long double>(a) / hi, 2.0L);
+    r = r + r;
+  } else if (!(a > hi)) {
+    r = std::pow((static_cast<long double>(a) - hi) / hi, 2.0L);
+    r = 1.0L - (r + r);
+  } else {
+    r = 1.0L;
+  }
+  if (x < 0.0f) r = -r;
+  return static_cast<float>(r);
+}
+
+namespace {
+// The x87's clamp to -1..1: past 1, 1; under -1 or NaN, -1.
+float clamp1(float v) {
+  if (v > 1.0f) return 1.0f;
+  if (!(v >= -1.0f)) return -1.0f;
+  return v;
+}
+}  // namespace
+
 // Mech3.exe 1.2 @ 0x004a5280 (through IControls vt+0x0c, 0x004a5ae0).
-int StealthControls::update(float dt) { return g_hooks->frame(*this, dt); }
+int stealth_controls_frame(StealthControls& c) {
+  StealthHooks& h = *g_hooks;
+  float t = c.throttle;  // IControls vt+0x1c; vt+0x24 is asked too, its answer dropped
+  zin::MouseInfo m{};
+  if (h.mouse(&m) == static_cast<int32_t>(0x8007001e)) {
+    c.mouse_x = 0, c.mouse_y = 0;
+    return 1;
+  }
+  c.mouse_x = m.fx, c.mouse_y = m.fy;
+  const float dt = h.frame_dt();
+  if (h.command(0x18) & 3) t = c.ramp ? dt + t : 1.0f;  // THROTTLE_UP
+  else if (h.command(0x19) & 3) t = c.ramp ? t - dt : -1.0f;  // THROTTLE_DN
+  else if (!c.ramp) t = 0.0f;
+  float turn = 1.0f;  // TURN_LEFT
+  if (!(h.command(2) & 3)) turn = (h.command(3) & 3) ? -1.0f : 0.0f;  // TURN_RIGHT
+  if (h.command(4) & 3) c.pitch_in = 1.0f;  // PITCH_UP
+  else c.pitch_in = (h.command(5) & 3) ? -1.0f : 0.0f;  // PITCH_DN
+  if (h.command(6) & 3) c.pitch_in = (c.angles.x < 0.0f || std::isnan(c.angles.x)) ? 1.0f : -1.0f;  // CENTER_TORSO
+  c.in40 = clamp1(c.in40);
+  t = clamp1(t);
+  turn = clamp1(turn);
+  c.pitch_in = clamp1(c.pitch_in);
+  c.throttle = input_curve(t, 0.5f, 1.0f);  // IControls vt+0x20
+  c.turn = input_curve(turn, 0.5f, 1.0f);   // IControls vt+0x28
+  c.out48 = input_curve(c.in40, 0.5f, 1.0f);
+  c.pitch_out = input_curve(c.pitch_in, 0.5f, 1.0f);
+  return 1;
+}
+
+int StealthControls::update(float) { return stealth_controls_frame(*this); }
 
 // Mech3.exe 1.2 @ 0x004a55c0, with the image's 0x004a5850("ret_off").
 StealthLayer::StealthLayer(Stealth* s) : owner(s) {
