@@ -18,6 +18,7 @@
 #include <cstdio>
 #include <cstring>
 #include <unordered_set>
+#include <algorithm>
 #include <map>
 #include <memory>
 #include <string>
@@ -1120,17 +1121,60 @@ void program_net_debug_lobby() {
 }
 
 uint32_t program_net_drive(int cmd, double t, uint32_t seed) {
-  // Full throttle (THROTTLE0, 0x24) pressed in the first half second; then
-  // left (2) and right (3) turns of a few seconds by the seed; the trigger
-  // (TRIGGER1, 0x3d) a second in every seven.
-  const double phase = std::fmod(t + seed % 7, 10.0);
-  switch (cmd) {
-    case 0x24: return t < 0.5 ? 1u : 0u;
-    case 2: return phase < 3.0 ? 1u : 0u;
-    case 3: return phase >= 7.0 ? 1u : 0u;
-    case 0x3d: return std::fmod(t + seed % 3, 7.0) < 1.0 ? 1u : 0u;
-    default: return 0;
+  // The throttle up (0x18) held throughout (THROTTLE0's 0x24 is a key's
+  // callback, not polled, and with ThrottleConst off a let-go throttle eases
+  // back to zero). Turned (left 2, right 3) toward the nearest remote mech in
+  // play, the trigger (TRIGGER1, 0x3d) held while it is ahead within 400 m;
+  // inside 120 m, or with none, turns of a few seconds by the seed. Walking
+  // into something (under 3 m in 3 s): a turn by the seed's side for 1.5 s,
+  // then straight on for 3.5 s.
+  if (cmd == 0x18) return 1u;
+  if (cmd != 2 && cmd != 3 && cmd != 0x3d) return 0;
+  Mech* me = launched_mech();
+  float p[3] = {}, f[3] = {}, best = 1e30f, to[2] = {};
+  if (me) mech_world_position(me, p), mech_forward(me, f);
+  static float s_was[2] = {};
+  static double s_was_t = -1, s_free_at = -1;
+  if (t < s_was_t) s_was_t = s_free_at = -1;  // a new game
+  if (t >= s_free_at && (s_was_t < 0 || t - s_was_t > 3.0)) {
+    if (s_was_t >= 0 && std::hypot(p[0] - s_was[0], p[2] - s_was[1]) < 3.0f) s_free_at = t + 5.0;
+    s_was[0] = p[0], s_was[1] = p[2], s_was_t = s_free_at > t ? s_free_at : t;
   }
+  if (t < s_free_at) return t < s_free_at - 3.5 && cmd == (seed % 2 ? 2 : 3) ? 1u : 0u;
+  for (NetMech* m : net_game().mechs) {
+    if (!me || (m->state.flags >> 1 & 1)) continue;
+    float q[3];
+    mech_world_position(m, q);
+    const float d = std::hypot(q[0] - p[0], q[2] - p[2]);
+    if (d < best) best = d, to[0] = q[0] - p[0], to[1] = q[2] - p[2];
+  }
+  if (best < 1e29f && best > 120.0f) {
+    const float side = f[2] * to[0] - f[0] * to[1];  // > 0: the target to the left
+    const float ahead = (f[0] * to[0] + f[2] * to[1]) / best;
+    const float cos_aim = std::sqrt(f[0] * f[0] + f[2] * f[2]) > 0 ? ahead / std::sqrt(f[0] * f[0] + f[2] * f[2]) : 0;
+    if (cmd == 2) return side > 0 && cos_aim < 0.99f ? 1u : 0u;
+    if (cmd == 3) return side <= 0 && cos_aim < 0.99f ? 1u : 0u;
+    return best < 400.0f && cos_aim > 0.95f ? 1u : 0u;
+  }
+  const double phase = std::fmod(t + seed % 7, 10.0);
+  if (cmd == 2) return phase < 3.0 ? 1u : 0u;
+  if (cmd == 3) return phase >= 7.0 ? 1u : 0u;
+  return best < 1e29f && std::fmod(t + seed % 3, 7.0) < 2.0 ? 1u : 0u;
+}
+
+bool program_net_staged_kill() {
+  Mech* me = launched_mech();
+  if (!me || !me->active || me->anim_state == 10) return false;
+  float p[3], q[3], best = 300.0f;
+  mech_world_position(me, p);
+  me->attacker = nullptr;
+  for (NetMech* m : net_game().mechs) {
+    if (m->state.flags >> 1 & 1) continue;
+    mech_world_position(m, q);
+    const float d = std::hypot(q[0] - p[0], q[2] - p[2]);
+    if (d < best) best = d, me->attacker = m;
+  }
+  return mech_hit_part(me, 6, 1.0e6f);  // the head
 }
 
 std::string program_net_soak_line() {
@@ -1139,8 +1183,11 @@ std::string program_net_soak_line() {
   Mech* me = launched_mech();
   float p[3] = {0, 0, 0};
   if (me) mech_world_position(me, p);
-  std::snprintf(buf, sizeof buf, "me %u %.2f %.2f %.2f %d", znet::local_id(), p[0], p[1], p[2],
-                me && me->active && me->anim_state != 10 ? 1 : 0);
+  float f[3] = {0, 0, 0};
+  if (me) mech_forward(me, f);
+  std::snprintf(buf, sizeof buf, "me %u %.2f %.2f %.2f %d heat %.2f %x anim %d facing %.2f %.2f health %.3f", znet::local_id(),
+                p[0], p[1], p[2], me && me->active && me->anim_state != 10 ? 1 : 0, me ? me->heat : 0.0f,
+                me ? me->heat_state : 0u, me ? me->anim_state : 0, f[0], f[2], me ? mech_health(me) : 0.0f);
   s = buf;
   for (NetMech* m : net_game().mechs) {
     mech_world_position(m, p);
@@ -1153,9 +1200,12 @@ std::string program_net_soak_line() {
 std::string program_net_scores() {
   std::string s;
   char buf[64];
-  for (const auto& r : znet::lists().players) {
-    const DebugScore& d = g_debug_scores[r->id];
-    std::snprintf(buf, sizeof buf, "%s%u:%d/%d", s.empty() ? "" : " ", r->id, d.kills, d.deaths);
+  std::vector<uint32_t> ids;  // by id: each machine lists them as it heard of them
+  for (const auto& r : znet::lists().players) ids.push_back(r->id);
+  std::sort(ids.begin(), ids.end());
+  for (uint32_t id : ids) {
+    const DebugScore& d = g_debug_scores[id];
+    std::snprintf(buf, sizeof buf, "%s%u:%d/%d", s.empty() ? "" : " ", id, d.kills, d.deaths);
     s += buf;
   }
   return s;

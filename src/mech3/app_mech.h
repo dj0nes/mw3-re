@@ -73,6 +73,10 @@ bool program_net_game_over();
 void program_net_debug_lobby();
 uint32_t program_net_drive(int cmd, double seconds, uint32_t seed);
 std::string program_net_soak_line();
+// A kill staged on the pilot (hits that land are too few to kill in a soak):
+// its head destroyed, the nearest remote mech within 300 m its attacker
+// (else none: a suicide). False when it is not alive.
+bool program_net_staged_kill();
 std::string program_net_scores();
 // The pocket commander's program side (app_pocket.cpp), from wire_mech_build;
 // the marker a handle names, if it is the mission's.

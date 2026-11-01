@@ -119,6 +119,30 @@ TEST(net_enet_three_machines_join_talk_and_part) {
   EXPECT(told_host && b.t->is_host(2));
 }
 
+// Two joining at once (the soak test's find): both welcomed before either
+// has its player, so the second's welcome lists no first. The host's answer
+// to its player (kId) lists the players made since: it links to the first
+// and hears of it, the first hears of it, and they talk directly.
+TEST(net_enet_two_joining_at_once_meet) {
+  Machine a;
+  NetOptions o = loopback();
+  o.while_waiting = [&] { a.t->service(1), a.drain(); };
+  Machine b(o), c(o);
+  znet::SessionDesc d;
+  d.name = "Race";
+  EXPECT(a.t->host(d) && a.t->create_player("Ann", "Ann") == 1);
+  EXPECT(b.t->join(at(*a.t)) && c.t->join(at(*a.t)));  // both welcomed with Ann alone
+  EXPECT(b.t->create_player("Bob", "Bob") == 2 && c.t->create_player("Cy", "Cy") == 3);
+  EXPECT(pump({&a, &b, &c}, [&] {
+    return b.has_event(znet::kSysCreatePlayerOrGroup, 3) && c.has_event(znet::kSysCreatePlayerOrGroup, 2);
+  }));
+  std::vector<znet::Transport::Member> ps;
+  EXPECT(c.t->players(&ps) && ps.size() == 3);
+  const uint8_t hi[4] = {0x1f, 0, 4, 0};
+  EXPECT(c.t->send(2, hi, 4, true, nullptr) && b.t->send(3, hi, 4, true, nullptr));
+  EXPECT(pump({&a, &b, &c}, [&] { return b.messages_from(3, 0x1f) == 1 && c.messages_from(2, 0x1f) == 1; }));
+}
+
 TEST(net_enet_lan_discovery_and_the_shim) {
   Machine a;
   znet::SessionDesc d;

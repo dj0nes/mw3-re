@@ -425,8 +425,15 @@ void EnetTransport::Impl::on_frame(ENetPeer* from, uint8_t channel, const uint8_
       pl.link = from, pl.address = from->address;
       if (r.bad) return;
       players[pl.id] = pl;
+      // Its id, and the players made since its welcome (two joining at once:
+      // the other's was not in it).
       Writer id;
-      id.u8(kId), id.u32(pl.id);
+      id.u8(kId), id.u32(pl.id), id.u32(static_cast<uint32_t>(players.size() - 1));
+      for (auto& [oid, op] : players) {
+        if (oid == pl.id) continue;
+        const ENetAddress oa = op.link ? op.link->address : ENetAddress{};
+        id.u32(oid), id.str(op.short_name), id.str(op.long_name), id.u32(oa.host), id.u16(oa.port);
+      }
       put(from, 0, id.b);
       Writer told;
       told.u8(kPlayer), told.u32(pl.id), told.str(pl.short_name), told.str(pl.long_name), told.u32(from->address.host),
@@ -439,9 +446,23 @@ void EnetTransport::Impl::on_frame(ENetPeer* from, uint8_t channel, const uint8_
       event(e);
       return;
     }
-    case kId:
-      if (from == to_host) given_id = r.u32();
+    case kId: {
+      if (from != to_host) return;
+      const uint32_t id = r.u32(), n = r.u32();
+      for (uint32_t i = 0; i < n && !r.bad; ++i) {
+        Player pl;
+        pl.id = r.u32(), pl.short_name = r.str(), pl.long_name = r.str();
+        pl.address.host = r.u32(), pl.address.port = r.u16();
+        if (r.bad || players.count(pl.id)) continue;
+        players[pl.id] = pl;  // linked to by create_player, as the welcome's
+        znet::SystemEvent e;
+        e.kind = znet::kSysCreatePlayerOrGroup, e.player_type = 1, e.id = pl.id, e.short_name = pl.short_name,
+        e.long_name = pl.long_name;
+        event(e);
+      }
+      given_id = id;
       return;
+    }
     case kPlayer: {  // a new player, told by the host; it links to us
       Player pl;
       pl.id = r.u32(), pl.short_name = r.str(), pl.long_name = r.str();

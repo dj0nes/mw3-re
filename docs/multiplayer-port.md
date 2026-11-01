@@ -644,9 +644,36 @@ Then the two-process and soak tests over the whole flow, menus included.
   `test_mech_net_end.py` (500 ends identical; a break caught) and
   `net_game_over_reaches_the_main_menu_c1m1_headless` (in a running c1m1
   the end fades to the Multi-Exit State and the main menu, the mission
-  cleaned up; a break caught). The soak test of the plan waits for the
-  lobby (pieces 9-11), which starts real games.
-
+  cleaned up; a break caught). A network game's main menu goes on to the
+  Multiplayer State in the same frame (piece 8b found it).
+- **Piece 8b** (2026-11-01): the soak test, before the lobby, through a
+  debug start (ours, docs/program.md): `--mission c1mp1` with `--host` or
+  `--join` launches a network game (type 3, the map's `readermp1`) with a
+  stand-in game (no kill limit) and a stand-in lobby (each player its own
+  team, its start by id, kills and deaths kept as the lobby would);
+  `--net-wait N` holds the start until N players are in, `--net-minutes M`
+  sets the clock, `--net-drive SEED` drives the pilot (the throttle up held,
+  turned toward the nearest remote mech and firing when it is ahead within
+  400 m, a turn and a straight walk out of anything it walks into, and every
+  two minutes a kill staged on itself credited to the nearest remote mech:
+  hits that land are far too few to kill in a soak), `--net-soak` prints a
+  line each half second (the wall clock, memory, the mission clock, its
+  own mech and every remote one), the scores at the end, and quits.
+  `sdl_network_soak_four_players` (mw3sdltests, `MW3_SOAK=1`,
+  `MW3_SOAK_MINUTES`, default 30; `MW3_SOAK_DIR` keeps the logs): four
+  hidden processes under `nice` on loopback, 5% loss and 80 ms each way;
+  each exits cleanly after the game's end on the clock, memory within 10%
+  (the last tenth's median against the second tenth's), each sees the three
+  others at the end, every remote mech within 5 m (95th percentile) of its
+  owner's own track at the same moment (interpolated between its lines;
+  deaths and respawns left out), the four score tables alike and not empty.
+  The plan's counters of guaranteed messages and the convergence after the
+  shim is off are left to the lobby's two-process test (piece 11). Found
+  and fixed on the way: two players joining at once (ours, piece 4's
+  transport): the second's welcome was made before the first had a player,
+  and the host told only players already made of a new one, so the two
+  never met; the host's answer to a player's creation (kId) now lists the
+  players made since (`net_enet_two_joining_at_once_meet`, failing before).
 ## Open
 
 - The COM object at [0x007307e0] (CLSID 3faf0afe-...): what it is and

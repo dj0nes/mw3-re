@@ -20,4 +20,7 @@ SDL_Process* start_child(const char* const* args);
 // Here, not in mw3_main.cpp: <windows.h>'s near/far macros break game headers.
 bool log_to_file(const std::string& write_dir);
 
+// The process's resident memory in KB (the soak test's lines); 0 where unknown.
+size_t resident_kb();
+
 }  // namespace sdlfe

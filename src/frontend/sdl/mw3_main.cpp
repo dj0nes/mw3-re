@@ -13,7 +13,9 @@
 //   --assets DIR         a folder of replacement files searched first (repeatable)
 //   --write-dir DIR      where saves and settings go (default: the user's app data)
 //   --mission NAME       debug start into a mission through the Load and Core
-//                        states: c1, c1m2 (mission 2 of c1), c4b, t1 ...
+//                        states: c1, c1m2 (mission 2 of c1), c4b, t1 ...; c1mp1 a
+//                        network game on the map with --host/--join (the --net-*
+//                        soak options, multiplayer-port.md piece 8b)
 //   --fly NAME           debug start: the world alone with a free camera
 //     --variant BLOCK    the world.zrd block (default m1 or the first)
 //     --pos X Y Z, --look YAW PITCH (degrees): the camera's start
@@ -44,6 +46,7 @@
 #include <SDL3/SDL.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cstdio>
 #include <deque>
 #include <cstdlib>
@@ -176,6 +179,14 @@ struct Args {
   bool net_host = false;
   std::string net_join, net_name = "Pilot", net_bind = "0.0.0.0", net_say;
   int net_port = -1, net_say_at = 0;
+  // The soak test's (ours, piece 8b, until the lobby): --mission <dir>mp<N>
+  // a network game on the map; --net-wait N the start held until N players
+  // are in; --net-minutes M the game's clock; --net-drive SEED the pilot
+  // driven by a pattern; --net-soak a line of where every mech is each half
+  // second, the scores at the game's end, and a quit at the menu after it.
+  int net_wait = 0, net_minutes = 0;
+  long long net_drive = -1;
+  bool net_soak = false;
   bool shot_any = false;
 };
 
@@ -225,6 +236,10 @@ bool parse(int argc, char** argv, Args& a) {
     else if (s == "--net-name" && next(1)) a.net_name = argv[++i];
     else if (s == "--net-port" && next(1)) a.net_port = std::atoi(argv[++i]);
     else if (s == "--net-bind" && next(1)) a.net_bind = argv[++i];
+    else if (s == "--net-wait" && next(1)) a.net_wait = std::atoi(argv[++i]);
+    else if (s == "--net-minutes" && next(1)) a.net_minutes = std::atoi(argv[++i]);
+    else if (s == "--net-drive" && next(1)) a.net_drive = std::strtoll(argv[++i], nullptr, 10);
+    else if (s == "--net-soak") a.net_soak = true;
     else if (s == "--net-say" && next(1)) {
       const std::string v = argv[++i];
       const size_t atpos = v.rfind('@');
@@ -666,6 +681,16 @@ int main(int argc, char** argv) {
                     a.net_name.c_str(), znet::session().host_id);
       else
         std::printf("mw3: network: %s failed\n", a.net_host ? "hosting" : ("joining " + a.net_join).c_str());
+      // --net-wait N: the start held (up to two minutes) until N players are in.
+      if (ok && a.net_wait > 0) {
+        const uint64_t until = SDL_GetTicks() + 120000;
+        while (znet::lists().players.size() < static_cast<size_t>(a.net_wait) && SDL_GetTicks() < until) {
+          znet::poll(-1);
+          if (lan) lan->poll(znet::session().desc, static_cast<uint32_t>(znet::lists().players.size()), net->port());
+          SDL_Delay(10);
+        }
+        std::printf("mw3: network: %zu players in\n", znet::lists().players.size());
+      }
       // Each pass: the LAN's questions answered, and --net-say's line.
       g_net_pass = [&a, &net, &lan] {
         static int passes = 0;
@@ -759,6 +784,7 @@ int run(const Args& a, platform::VideoForWindows* vfw) {
 
     std::unique_ptr<mech3::State> debug;
     std::unique_ptr<mech3::ActionGame> ia_game;  // --mission ia<N>: the launch's game
+    std::unique_ptr<mech3::MultiplayerGame> multi_game;  // --mission <dir>mp<N>: the launch's
     std::vector<double> frame_ms;  // --frame-times: each frame's wall time
     uint64_t frame_last = 0;
     bool launch = false, launch_done = false;
@@ -777,6 +803,20 @@ int run(const Args& a, platform::VideoForWindows* vfw) {
         for (int i = 0; i < 4; ++i) ia_game->add(5, 1, nullptr, 0);
         l.type = 2, l.number = ia_map, l.action = ia_game.get();
         dir = "c1";
+      } else if (const size_t mp = a.mission.rfind("mp");
+                 mp != std::string::npos && mp > 0 && mp + 2 < a.mission.size() &&
+                 a.mission.find_first_not_of("0123456789", mp + 2) == std::string::npos) {
+        // --mission <dir>mp<N> (ours, the soak test's): a network game on the
+        // map (readermp<N>), its game a stand-in with no score limit to reach.
+        if (!znet::active()) {
+          std::fprintf(stderr, "mw3: --mission %s: a network game needs --host or --join\n", a.mission.c_str());
+          return 2;
+        }
+        dir = a.mission.substr(0, mp), l.number = std::atoi(a.mission.c_str() + mp + 2);
+        multi_game = std::make_unique<mech3::MultiplayerGame>(nullptr);
+        multi_game->x70 = 1 << 30;  // the kills to win (+0x70)
+        l.type = 3, l.multi = multi_game.get();
+        mech3::program_net_debug_lobby();
       } else {
         split_mission(a.mission, dir, variant, l.number);
       }
@@ -790,7 +830,7 @@ int run(const Args& a, platform::VideoForWindows* vfw) {
       // The mission's reader archive (mission.cpp's reader_open): c1 and c2
       // have m1..m4, c3 m1..m6, c4 m1..m3, c4b m4..m6. Without it the world
       // loads with no player and no mech.
-      const std::string reader = "zbd\\" + dir + "\\readerm" + std::to_string(l.number) + ".zbd";
+      const std::string reader = "zbd\\" + dir + (l.type == 3 ? "\\readermp" : "\\readerm") + std::to_string(l.number) + ".zbd";
       if (!ia_game && !zutl::exists(reader.c_str())) {
         std::fprintf(stderr, "mw3: --mission %s: no such mission (%s not found)\n", a.mission.c_str(), reader.c_str());
         return 2;
@@ -806,6 +846,7 @@ int run(const Args& a, platform::VideoForWindows* vfw) {
       l.yaw = a.look[0] * 0.0174533f, l.pitch = a.look[1] * 0.0174533f;
       engine.set_launch(l);
       launch = true;
+      const bool l_type3 = l.type == 3;
       int shots = 0;
       // --fire N (ours, for checking the weapons' effects): from the N-th frame
       // shown, the fire command reads as held.
@@ -814,7 +855,54 @@ int run(const Args& a, platform::VideoForWindows* vfw) {
         mech3::controls_calls().command = [](int cmd) {
           return zin::command(cmd) | (s_fire && cmd == 0x3d ? 1u : 0u);
         };
+      // --net-drive SEED (ours, the soak test's): the pilot's commands a pattern
+      // from the first Core frame on (app_mech.h).
+      static double s_drive_from = -1;
+      static uint32_t s_drive_seed = 0;
+      if (a.net_drive >= 0) {
+        s_drive_seed = static_cast<uint32_t>(a.net_drive);
+        mech3::controls_calls().command = [](int cmd) {
+          if (s_drive_from < 0) return zin::command(cmd);
+          return zin::command(cmd) | mech3::program_net_drive(cmd, SDL_GetTicks() / 1000.0 - s_drive_from, s_drive_seed);
+        };
+      }
+      bool net_core = false, net_over = false;
+      uint64_t net_line_at = 0;
       engine.on_present = [&, shots](int) mutable {
+        // The soak test's (ours): the clock and the drive from the first Core
+        // frame, the lines each half second, the scores at the end, the quit
+        // at the menu after it.
+        if (l_type3 && app.current() == &mech3::states().core && !net_core) {
+          net_core = true;
+          s_drive_from = SDL_GetTicks() / 1000.0;
+          if (a.net_minutes > 0) mech3::missions().clock = a.net_minutes * 60.0f, mech3::missions().clock_down = 1;
+        }
+        // --net-drive: a kill staged on the pilot every two minutes, from a
+        // minute in, staggered by the seed (the scores' traffic, the respawn).
+        static int s_kills = 0;
+        if (a.net_drive >= 0 && net_core && !net_over && app.current() == &mech3::states().core &&
+            SDL_GetTicks() / 1000.0 - s_drive_from >= 60.0 + 29.0 * (a.net_drive % 4) + 120.0 * s_kills)
+          if (mech3::program_net_staged_kill()) std::printf("mw3: soak staged kill %d\n", ++s_kills);
+        if (a.net_soak && net_core && !net_over) {
+          const uint64_t now = SDL_GetTicks();
+          if (app.current() == &mech3::states().core && now >= net_line_at) {
+            net_line_at = now + 500;
+            const long long wall = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                       std::chrono::system_clock::now().time_since_epoch()).count();
+            zwep::PoolStats ps;
+            zwep::pool_stats(&ps);
+            std::printf("mw3: soak %lld rss %zu clock %.1f shots %d %s\n", wall, sdlfe::resident_kb(), mech3::missions().clock,
+                        ps.flying, mech3::program_net_soak_line().c_str());
+          }
+          // The end: the fade, the Multi-Exit State and the main menu, which
+          // goes on to the Multiplayer State (unported until piece 9) in the
+          // same frame: any state but these two (or the pause) after Core.
+          const zgame::State* st = app.current();
+          if (st != &mech3::states().core && st != &mech3::states().fade && st != &mech3::states().pause) {
+            net_over = launch_done = true;
+            std::printf("mw3: soak game over, scores %s\n", mech3::program_net_scores().c_str());
+          }
+        }
         // --verbose (ours): each state the app moves to, by name, as the menus' driver prints them.
         static const zgame::State* launch_state = nullptr;
         if (a.verbose && app.current() != launch_state) {

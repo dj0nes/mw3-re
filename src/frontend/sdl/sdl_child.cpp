@@ -11,6 +11,11 @@
 #endif
 #include <io.h>
 #include <windows.h>
+#include <psapi.h>
+#elif defined(__APPLE__)
+#include <mach/mach.h>
+#else
+#include <unistd.h>
 #endif
 
 #include <cstdio>
@@ -52,6 +57,26 @@ bool log_to_file(const std::string& write_dir) {
 #else
   (void)write_dir;
   return false;
+#endif
+}
+
+size_t resident_kb() {
+#if defined(_WIN32)
+  PROCESS_MEMORY_COUNTERS c{};
+  if (!K32GetProcessMemoryInfo(GetCurrentProcess(), &c, sizeof c)) return 0;
+  return static_cast<size_t>(c.WorkingSetSize / 1024);
+#elif defined(__APPLE__)
+  mach_task_basic_info info{};
+  mach_msg_type_number_t n = MACH_TASK_BASIC_INFO_COUNT;
+  if (task_info(mach_task_self(), MACH_TASK_BASIC_INFO, reinterpret_cast<task_info_t>(&info), &n) != KERN_SUCCESS) return 0;
+  return static_cast<size_t>(info.resident_size / 1024);
+#else
+  long pages = 0, rss = 0;
+  std::FILE* f = std::fopen("/proc/self/statm", "r");
+  if (!f) return 0;
+  const bool ok = std::fscanf(f, "%ld %ld", &pages, &rss) == 2;
+  std::fclose(f);
+  return ok ? static_cast<size_t>(rss) * static_cast<size_t>(sysconf(_SC_PAGESIZE)) / 1024 : 0;
 #endif
 }
 
