@@ -2077,7 +2077,7 @@ void (*g_watch_shots)(const FiredShot&) = nullptr;
 }
 void program_watch_shots(void (*seen)(const FiredShot&)) {
   g_watch_shots = seen;
-  weapon_calls().test_fired = !seen ? nullptr : [](const Weapon& w) {
+  weapon_calls().test_fired = !seen ? nullptr : +[](const Weapon& w) {  // + : a function pointer (GCC wants one type)
     FiredShot s{};
     s.owner = w.manager ? w.manager->owner : nullptr;
     s.weapon = w.def && w.def->name ? w.def->name : "?";

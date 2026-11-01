@@ -53,21 +53,39 @@ remembers your choice after that.
 
 ## The first start
 
-The rebuild opens on its launcher.
+Start **MechWarrior 3** and it goes straight into the game when it finds
+your install: where the original installer put it, `Program Files`,
+`C:\Games`, a Wine, Proton or Lutris copy on Linux and the Mac, or a copy it
+installed itself earlier. It says which version it found in its log.
 
-- **It looks for your MechWarrior 3 install** in the usual places: where the
-  original installer put it, `Program Files`, `C:\Games`, and on Linux and
-  the Mac a Wine, Proton or Lutris copy. If it finds one, it says which
-  version, and **MECHWARRIOR 3** starts the game.
-- **If it finds none**, or you want to change something, **SETUP** has:
-  - **Find my installed MechWarrior 3**: pick the folder yourself.
-  - **Install from my disc or disc image**: copies the game from the disc
-    or an `.iso`/`.cue` into a folder of the rebuild's own. No Windows and
-    no original installer needed.
-  - **Apply the 1.2 patch**: only for game data of another version than
-    1.0 or 1.2 (or a mod). Give it the official patch's `.zip`; your install
-    is not changed.
-  - **Add the music from my disc image**: see below.
+**If it finds none**, it shows only its setup screen, and once the game is
+there it goes straight on into it:
+
+- **Point to your game**: pick whatever you have, and it works out the rest.
+  - your installed MechWarrior 3 (its `Mech3.exe`, or **a folder
+    instead** for its folder);
+  - the disc, or a disc image: an `.iso`, or a `.cue` with its `.bin` files,
+    whose CD audio becomes the music;
+  - the file you downloaded: a `.zip`, `.7z` or `.rar` holding any of
+    those, even a zip inside a zip. Nothing needs unpacking by hand.
+  It looks inside first and says what it found ("The MechWarrior 3 disc
+  version 1.0, with its music (2 CD tracks)"), then installs it into a
+  folder of the rebuild's own, with a progress bar and **Cancel**. An
+  installed copy is used where it is. No Windows and no original installer
+  needed. Pirate's Moon is recognised, but its support comes later.
+- **Search again**: looks for an install again (after you moved one), and
+  for a disc in a drive.
+- **Apply the 1.2 patch**: shown only for game data of a version the
+  rebuild does not know (a mod, or another release). Versions 1.0 and 1.2
+  need nothing: 1.0 plays as 1.2. Give it the official patch's `.zip`;
+  your install is not changed.
+- **Add the music from my disc image**: see below.
+
+If something is wrong (not enough space, a damaged download, a file that
+is not MechWarrior 3) it says so in plain words and changes nothing.
+
+- **The launcher**: `mw3 --launcher` opens the rebuild's own front screen
+  (the games, and SETUP with the same buttons).
 - On the first start it also tells you anything worth knowing about your
   copy (no music yet, or game files of an unknown version).
 - **The movies** play from your own copy. Where they cannot be played

@@ -21,8 +21,13 @@ foreach ($bin in Get-ChildItem -LiteralPath $Dist -File | Where-Object { $_.Exte
 }
 $game = Get-ChildItem -LiteralPath $Dist -Recurse -File |
   Where-Object { $_.Extension -in '.zbd', '.avi', '.fmv', '.m1v', '.ttf', '.zrd', '.wav', '.ogg', '.flac' -or $_.Name -ieq 'mech3.exe' }
+# The libraries linked into mw3.exe carry no file of their own: their licences must be there.
+foreach ($lib in 'libarchive-*', 'zlib-*', 'xz-*') {
+  $dir = Get-ChildItem -LiteralPath (Join-Path $Dist 'licenses') -Directory -Filter $lib -ErrorAction SilentlyContinue
+  if (-not $dir -or -not (Get-ChildItem -LiteralPath $dir[0].FullName -File)) { $missing += "licenses\$lib (its licence)" }
+}
 if ($missing.Count -gt 0) { $missing | ForEach-Object { Write-Host "missing: $_" } }
 if ($game) { $game | ForEach-Object { Write-Host "game file in the package: $($_.FullName)" } }
 if ($missing.Count -gt 0 -or $game) { exit 1 }
 $n = (Get-ChildItem -LiteralPath $Dist -File).Count
-Write-Host "check_dist: $n files; every DLL present or Windows'; no game files"
+Write-Host "check_dist: $n files; every DLL present or Windows'; the linked-in libraries' licences; no game files"

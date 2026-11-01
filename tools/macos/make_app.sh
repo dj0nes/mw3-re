@@ -188,6 +188,13 @@ EOF
 cp tools/macos/README.txt "$APP/Contents/Resources/README.txt"
 if [ -f LICENSE ]; then cp LICENSE "$APP/Contents/Resources/LICENSE.txt"; fi
 cp tools/macos/THIRD-PARTY.txt "$APP/Contents/Resources/THIRD-PARTY.txt"
+# libarchive, zlib and liblzma: linked in with --deps (build_deps.sh keeps
+# their licences in the prefix); Homebrew's libarchive is a dylib, its
+# licences copied with it above.
+if [ -n "$DEPS" ]; then
+  [ -d "$DEPS/share/licenses/libarchive-3.7.9" ] || { echo "no licences in $DEPS/share/licenses: run tools/deps/build_deps.sh mac again" >&2; exit 1; }
+  cp -R "$DEPS/share/licenses/." "$APP/Contents/Resources/licenses/"
+fi
 
 # Signing: the libraries first, then the app. Ad hoc by default (the
 # release form: macOS asks once before the first open, README.txt). With

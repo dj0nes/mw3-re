@@ -173,6 +173,25 @@ zip (a long run).
    in (the finder found Owen's own install there, so the setup-only start
    was checked on the Mac).
 
+5. Sitting 5 (2026-11-01): the packages. `build_deps.sh` and
+   `build_deps_archive.cmd` keep the three licences in their prefix
+   (deps.md); package.cmd copies them into licenses\ (and refuses to
+   package without deps\archive and its licences), check_dist.ps1 checks
+   they are there (a package without zlib's licence folder: "missing:
+   licenses\zlib-* (its licence)", exit 1), make_app.sh --deps copies them
+   into Contents/Resources/licenses (Homebrew's libarchive, a dylib, brings
+   its own and its libraries' from their kegs), make-appimage.sh into
+   usr/share/doc/mw3/licenses. THIRD-PARTY.txt (Windows and Linux; the
+   Mac's) gains libarchive (its BSD-2 notice in full), zlib and liblzma.
+   README's first start and both packages' read-mes describe any source,
+   the picker and the plain start. Checked: the Windows package, zip and
+   installer built on the PC with libarchive linked in (check_dist passes);
+   the Mac app (Homebrew form) with libarchive, libb2, lz4, xz and zstd and
+   their licences; the Linux AppImage in WSL with the three licences, the
+   THIRD-PARTY entry and mw3 needing no archive library at run time. The
+   Mac --deps (release) form not built here (no build-deps/mac on this
+   Mac); its licence copy checked on its own.
+
 ## What the player is told
 
 Every refusal and failure SETUP can meet, in the words shown (the status
