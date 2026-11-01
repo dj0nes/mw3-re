@@ -343,6 +343,13 @@ void GameEngine::widen_screen(MenuScreen* s, uint32_t ctor) {
       auto* cb = dynamic_cast<ztwod::CheckButton*>(m.o);  // its rect is BOUNDS as read (a list box's rows)
       if (cb && cb->bounds.right > cb->bounds.left) cb->bounds.left += m.off, cb->bounds.right += m.off;
     }
+  // Ours: the lobby's two address lines (piece 9c), under CANCEL and LOCK at
+  // 640, go to the middle column's band under the chat bar, which the width
+  // leaves room for (at 640 they would cross MECHLAB).
+  if (auto* l = dynamic_cast<LobbyScreen*>(s)) {
+    l->internet_line.set_pos(s->origin_x + 207 + extra / 2, s->origin_y + 379);
+    l->lan_line.set_pos(s->origin_x + 207 + extra / 2, s->origin_y + 389);
+  }
 }
 
 Handle GameEngine::construct(uint32_t ctor, std::initializer_list<Arg> args) {
@@ -445,8 +452,9 @@ Handle GameEngine::construct(uint32_t ctor, std::initializer_list<Arg> args) {
     case 0x405230: {  // the briefing, new(0x12e6c): its section's name
       const char* name = args.size() && args.begin()->s ? args.begin()->s : "default";
       const Handle h = alloc_block(0x12e6c);
-      auto* b = new BriefingScreen(*this, name);
+      auto* b = new BriefingScreen(*this, name, false);
       widen_screen(b, ctor);  // its script's objects are made with it (read_script)
+      b->draw_first();        // its first frame once widened (the constructor's end)
       screens_[h] = {b, 0x12e6c};
       briefing_screen() = b;
       return h;

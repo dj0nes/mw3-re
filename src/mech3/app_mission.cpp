@@ -2302,6 +2302,17 @@ MultiplayerGame* net_debug_game() {
 }
 }  // namespace
 
+MultiplayerGame* mission_multiplayer_game() { return net_debug_game(); }
+std::vector<std::string> mission_multiplayer_score_lines() {
+  std::vector<std::string> out;
+  MultiplayerGame* g = net_debug_game();
+  if (!g) return out;
+  g->rescore();
+  g->score_texts(0x14, 0xc);
+  for (const auto& l : g->score_lines) out.push_back(l->text);
+  return out;
+}
+
 void wire_mission_hooks(GameEngine* e) {
   g_mission_hooks.e = e;
   g_objective_hooks.e = e;

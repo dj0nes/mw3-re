@@ -135,6 +135,27 @@ struct NetPoseSeen {
   bool ready = false;
 };
 bool program_net_pose_step(int32_t frame, NetPoseSeen* out);
+// The player's death in a mission (14's census items): the pilot's zoom
+// window locked open (keypad 0), a weapon destroyed (0x004b3020: its name
+// and "destroyed" voices, 0x004e6dc0), the mech killed (the head): the HUD
+// off and the window closed (0x0041b263..0x0041b30c).
+struct PlayerDeathSeen {
+  int32_t hud_before = -1, hud_after = -1;          // the HUD's active
+  int32_t locked_before = -1, locked_after = -1;    // the zoom window's lock (+0x174)
+  int32_t hidden_after = -1;                        // its hidden bit (+0xc bit 4)
+  int32_t voices_wanted = 0, voices_started = 0;    // the destroyed weapon's voices, the voices that began
+  int32_t killed = 0;
+};
+bool program_player_death_check(PlayerDeathSeen* out);
+// The kill's score in a network game (0x00470170's 0x00446ad0): with the
+// view's mech's objectives box shown, it is filled again (the header
+// "Network Game Scores"); hidden, it is left alone.
+struct NetScoresBoxSeen {
+  int32_t refilled_open = 0;    // lines again after the kill, the box shown
+  std::string header;           // its first line
+  int32_t refilled_closed = -1; // lines after a kill with the box hidden
+};
+bool program_net_scores_box_check(NetScoresBoxSeen* out);
 bool program_chat_open();
 std::string program_chat_line();
 void program_chat_close();
@@ -190,6 +211,11 @@ bool program_net_wreck_fades();  // the dead list's net_fade: ALLOW RESPAWN's (t
 int32_t program_mech_anim_state(const void* mech);
 void* program_mech_part(void* mech, int32_t id);
 void program_part_set_internal(void* part, float v, int32_t section);
+void program_hud_scores_refill();  // app_hud.cpp: net_score_kill's 0x00446ad0 on the view's mech's open box
+int32_t program_net_mech_count();  // [0x00605f88]: the remote mechs in the network game
+// Ours (W40's probe): the pilot's weapons' trigger (the manager's +0x00)
+// and the sum of their reloads (a shot raises one); false without a mech.
+bool program_pilot_fire_probe(int32_t* trigger, float* reload_sum);
 bool program_net_running();  // a network game is up (net_start ran, net_end not yet)
 void program_objectives_again();  // app_mission.cpp: Missions::objectives_again (0x00491050)
 void program_options_apply();     // app_mission.cpp: every option set again (0x0040cb30)
@@ -282,6 +308,8 @@ void* mission_player_mech();  // for the tests: world().mission_player ([0x00608
 int32_t mechs_alive();  // mech_build.cpp: made and not yet deleted
 void program_motions_open();  // motion.zbd opened (0x005a9820), as the mechs' set-up does
 void program_check_cheats();  // app_mission.cpp: Missions::check_cheats (0x00491d20)
+class MultiplayerGame* mission_multiplayer_game();
+std::vector<std::string> mission_multiplayer_score_lines();  // app_mission.cpp: 0x004361e0, then 0x00435b60(0x14, 0xc)'s lines  // app_mission.cpp: 0x00479480, the pilot's network game (a debug start's), else null
 int mission_game_type();  // app_mission.cpp: the pilot's game's vt+0x2c (gametypes.md)  // app_mission.cpp: Missions::lose (0x0048f9e0), the player's mech destroyed  // 0x00431800: the canned effects' node copies
 
 // What the last launch built (0x00491150), for the program's log and its tests.

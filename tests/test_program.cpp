@@ -16938,7 +16938,8 @@ TEST(net_mobile_base_stations_c1mp1_headless) {
 // read-me's crash: Bob's respawn and then ours with our panel up, after
 // which the keys still type and the commands come back; 1.2's: a burst of
 // Shift-letters and '?' into the panel; a weapon's group kept through a
-// respawn; outside the boundary, the mech blown up.
+// respawn; outside the boundary, the mech blown up; a kill's score fills
+// the objectives box again while it is shown (0x00470170's 0x00446ad0).
 TEST(net_chat_panel_c1mp1_headless) {
   if (!have_game()) return;
   SavedMounts keep;
@@ -16965,7 +16966,8 @@ TEST(net_chat_panel_c1mp1_headless) {
   mech3::NetChatRespawnSeen rs;
   std::string burst_line;
   mech3::NetGroupsSeen gs;
-  bool groups_ran = false, boundary_set = false;
+  bool groups_ran = false, boundary_set = false, box_ran = false;
+  mech3::NetScoresBoxSeen box;
   int down_at = 0;
   {
     mech3::GameEngine engine(p, "mech3.exe -nofmv");
@@ -16985,6 +16987,7 @@ TEST(net_chat_panel_c1mp1_headless) {
       if (app.current() == &mech3::states().core && ++core_frames == 5) ran = mech3::program_net_chat_check(&seen);
       if (core_frames == 7) respawn_ran = mech3::program_net_chat_respawn_check(&rs);
       if (core_frames == 10) groups_ran = mech3::program_net_groups_check(&gs);
+      if (core_frames == 11) box_ran = mech3::program_net_scores_box_check(&box);
       // The read-me's boundary: outside it in a network game the mech blows up
       // (the mp objectives' fail on outside_c1m1, the loss's 0x0048f9e0).
       if (core_frames == 12)
@@ -17033,6 +17036,9 @@ TEST(net_chat_panel_c1mp1_headless) {
               gs.moved_to, gs.after, gs.respawned, gs.other_before, gs.other_after);
   EXPECT(groups_ran && gs.respawned && gs.moved_to != gs.moved_from && gs.after == gs.moved_to);
   EXPECT(gs.other_after == gs.other_before);
+  std::printf("  the kill's score: the open box refilled with %d lines (\"%s\"), the closed one %d\n", box.refilled_open,
+              box.header.c_str(), box.refilled_closed);
+  EXPECT(box_ran && box.refilled_open > 2 && box.header == "Network Game Scores" && box.refilled_closed == 0);
   std::printf("  boundary: outside_c1m1 set %d, the mech down %d frames on\n", boundary_set, down_at ? down_at - 12 : -1);
   EXPECT(boundary_set && down_at > 12);
   zrdr::close_archives(true);
@@ -17051,6 +17057,73 @@ TEST(net_chat_panel_c1mp1_headless) {
 // throttle, not the stream's places), then he stands where he stopped.
 // First a ping answer whose delay is past our round trip: his latency 0
 // (FIX (bug); unsigned, 2^32 ms, it threw his arms about as he walked).
+// The player's death in a campaign mission (14's census items, single
+// player): the zoom window locked open (keypad 0); a weapon destroyed plays
+// its name and "destroyed" voices (0x004e6dc0 through 0x00571cc0); the head
+// lost, the HUD goes off and the window closes, its lock let go
+// (0x0041b263..0x0041b30c); none of the three reaches the census.
+TEST(mission_c1m1_player_death_hud_and_voices_headless) {
+  if (!have_game()) return;
+  SavedMounts keep;
+  zutl::mounts() = zutl::Mounts{};
+  zutl::mount(MW3_GAME_DIR);
+  zutl::set_write_dir(temp_dir("player_death"));
+  mech3::reset_states();
+  reset_process_state();
+  mech3::missions() = mech3::Missions{};
+  mech3::mech_types_forget();
+  mech3::player_controls_instance() = nullptr;
+  mech3::options() = mech3::Options{};
+  FakeWindow window;
+  FakeAlert alert;
+  FakeClock clock;
+  FakeScreen screen;
+  platform::SilentSoundOutput sound;
+  mech3::MountFiles files;
+  mech3::Platform p;
+  p.window = &window, p.alert = &alert, p.clock = &clock, p.movie_clock = &fast_movie_clock(), p.screen = &screen,
+  p.sound = &sound, p.files = &files;
+  mech3::PlayerDeathSeen seen;
+  bool ran = false;
+  std::vector<std::string> gaps;
+  {
+    mech3::GameEngine engine(p, "mech3.exe -nofmv");
+    engine.quiet = true;
+    mech3::Mech3App app(&engine);
+    mech3::set_app(&app);
+    EXPECT(app.init_instance());
+    mech3::GameEngine::Launch l;  // c1m1, a campaign mission
+    engine.set_launch(l);
+    app.post_intro_ = &mech3::states().load;
+    int core_frames = 0;
+    engine.on_present = [&](int) {
+      if (app.current() == &mech3::states().core && ++core_frames == 10) ran = mech3::program_player_death_check(&seen);
+    };
+    CountingPump pump;
+    pump.limit = 3000;
+    pump.stop = [&] { return core_frames >= 40; };
+    app.run(pump);
+    for (const auto& [k, n] : engine.unported_counts())
+      if (k == "0x0041b263" || k == "0x004e6dc0" || k == "0x00446ad0") gaps.push_back(k);
+    mech3::missions().cleanup(false);
+    app.stop_game();
+    app.exit_instance();
+    mech3::set_app(nullptr);
+  }
+  std::printf("  HUD on %d -> %d; the zoom window locked %d -> %d, hidden %d; voices %d of %d; killed %d; census gaps %zu\n",
+              seen.hud_before, seen.hud_after, seen.locked_before, seen.locked_after, seen.hidden_after,
+              seen.voices_started, seen.voices_wanted, seen.killed, gaps.size());
+  EXPECT(ran && seen.killed);
+  EXPECT(seen.hud_before == 1 && seen.hud_after == 0);
+  EXPECT(seen.locked_before == 1 && seen.locked_after == 0 && seen.hidden_after == 1);
+  EXPECT(seen.voices_wanted > 0 && seen.voices_started == seen.voices_wanted);
+  EXPECT(gaps.empty());
+  zrdr::close_archives(true);
+  mech3::reset_states();
+  reset_process_state();
+  mech3::options() = mech3::Options{};
+}
+
 TEST(net_remote_pose_follows_the_states_c1mp1_headless) {
   if (!have_game()) return;
   SavedMounts keep;
@@ -19490,7 +19563,7 @@ struct WideMenus {
   int32_t ctl_accept = -1, ctl_reset = -1, ctl_keys = -1, ctl_lines_w = -1;
   int32_t popup_bar = -1, popup_label_dx = -1, popup_label_dy = -1;  // the load/save popup's name bar, its label from it
   int32_t pil_accept = -1, pil_bar_label_y = -1, pil_bar_label_x = -1, pil_up = -1, games_up = -1, pil_lines_w = -1;
-  int32_t map_w = -1, launch = -1, line_x = -1, waypoint_dx = -99;
+  int32_t map_w = -1, launch = -1, line_x = -1, waypoint_dx = -99, first_map_w = -2;
   bool pil_lines_alpha = false;  // LINES2 stretched (its alpha kept), not taken for a background
   int32_t win_bg = -1, win_continue = -1, win_abort = -1, win_card = -1, win_line = -1, win_line_end = -1;  // the debriefing
   int32_t lab_left_w = -1, lab_left_x = -1, lab_right_w = -1, lab_accept = -1, lab_view_x = -1, lab_view_w = -1;  // the lab
@@ -19502,6 +19575,7 @@ struct WideMenus {
   // The Multiplayer State's three screens (made with the main menu).
   int32_t cn_host = -1, cn_cancel = -1, cn_lines_w = -1, cn_lan = -1;  // the connection screen
   int32_t lb_start = -1, lb_cancel = -1, lb_mechlab = -1, lb_players = -1, lb_lines_w = -1;  // the lobby
+  int32_t lb_addr_x = -1, lb_addr_y = -1;  // the lobby's internet line (ours)
   int32_t tm_ok = -1, tm_backdrop = -1;  // the new team's dialog
 };
 WideMenus wide_menus_run(bool wide) {
@@ -19610,6 +19684,7 @@ WideMenus wide_menus_run(bool wide) {
         mech3::BriefingScreen* b = mech3::briefing_screen();
         if (!b || now != &st.load || !b->loaded) return;
         if (b->images[0].image) out.map_w = b->images[0].image->width;
+        out.first_map_w = b->first_map_w;
         out.launch = b->launch_btn.get_rect()->left;
         for (ztwod::Object2D* o = b->head; o; o = o->next) {
           if (auto* l = dynamic_cast<mech3::MapLine*>(o); l && out.line_x < 0 && l->count > 0) out.line_x = l->pts[0][0];
@@ -19740,6 +19815,7 @@ WideMenus wide_menus_run(bool wide) {
             out.lb_start = at(l->start_btn), out.lb_cancel = at(l->cancel_btn);
             out.lb_mechlab = at(l->mechlab_btn), out.lb_players = l->players_list.get_x();
             if (l->lines1.image) out.lb_lines_w = l->lines1.image->width;
+            out.lb_addr_x = l->internet_line.get_x(), out.lb_addr_y = l->internet_line.get_y();
           }
           if (auto* t = dynamic_cast<mech3::TeamScreen*>(engine.screen_of(ms->screens[2])))
             out.tm_ok = at(t->ok_btn), out.tm_backdrop = t->backdrop.get_x();
@@ -19850,6 +19926,9 @@ TEST(menus_wide_spread_by_their_groups_headless) {
   std::printf("briefing: map %d / %d wide, LAUNCH %d / %d, a line at %d / %d, a waypoint %d / %d from its nav point\n",
               off.map_w, on.map_w, off.launch, on.launch, off.line_x, on.line_x, off.waypoint_dx, on.waypoint_dx);
   EXPECT(off.map_w == 640 && on.map_w == 640 + extra && on.launch == off.launch + extra / 2);
+  // Its first frame (the constructor's draw) only once widened.
+  std::printf("briefing's first frame: the map %d / %d wide\n", off.first_map_w, on.first_map_w);
+  EXPECT(off.first_map_w == 640 && on.first_map_w == 640 + extra);
   EXPECT(off.line_x >= 0 && on.line_x == off.line_x + extra / 2);
   EXPECT(off.waypoint_dx == 0 && on.waypoint_dx == extra / 2);
   // The debriefing (c1m2 won): the circuit board widened, ABORT and the
@@ -19896,6 +19975,9 @@ TEST(menus_wide_spread_by_their_groups_headless) {
   EXPECT(off.lb_start > 0 && on.lb_start == off.lb_start + extra && on.lb_cancel == off.lb_cancel);
   EXPECT(on.lb_mechlab == off.lb_mechlab + extra / 2 && on.lb_players == off.lb_players + extra);
   EXPECT(off.lb_lines_w == 640 && on.lb_lines_w == 640 + extra);
+  // The address lines (ours): under CANCEL at 640; wide, the middle column's band under the chat bar.
+  std::printf("lobby's address line at %d,%d / %d,%d\n", off.lb_addr_x, off.lb_addr_y, on.lb_addr_x, on.lb_addr_y);
+  EXPECT(off.lb_addr_x == 20 && off.lb_addr_y == 460 && on.lb_addr_x == 207 + extra / 2 && on.lb_addr_y == 379);
   EXPECT(off.tm_ok > 0 && on.tm_ok == off.tm_ok + extra / 2 && off.tm_backdrop == 0 && on.tm_backdrop == 0);
   // The mech lab (from the briefing, before LAUNCH; one block): its edge
   // panels made wider outward (the left one staying at 0), ACCEPT half the

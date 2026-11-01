@@ -609,7 +609,15 @@ group, the part past it to the right; the right column stretched first),
 202 and 412, just inside the middle column's two dividers: that column's
 shade and lines widen, the outer two keep the screen's edges. The
 briefing in its multiplayer mode is the briefing's one block; there is no
-multiplayer debriefing (the lobby's scores after a game).
+multiplayer debriefing (the lobby's scores after a game). The lobby's two
+address lines (ours, piece 9c: under CANCEL and LOCK OPTIONS at 640, where
+nothing else fits) move on a wide canvas to the middle column's band under
+the chat bar (y 379 and 389), clear of the bottom row. The frame's bottom
+line stops under the middle column as it does at 640 (the art's: just left
+of MECHLAB). A briefing draws its first frame (the constructor's,
+0x00405230) only once widened (`BriefingScreen::draw_first`, called by
+GameEngine::construct after widen_screen); before, that one frame showed
+at 640 over the last screen.
 `--click-at` in the menus is a canvas pixel now (the menus' origin is 0).
 
 Test: `menus_wide_spread_by_their_groups_headless`, with a saved

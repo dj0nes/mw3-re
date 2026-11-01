@@ -104,14 +104,22 @@ struct ProgramHudHooks : HudHooks {
   void save_mfd_mode(int32_t m) override { mfd_mode = m; }
   int32_t saved_target_mode() override { return target_mode; }
   void save_target_mode(int32_t m) override { target_mode = m; }
-  // The pilot's game when multiplayer (0x00479480): none, multiplayer is
-  // not ported (deferred); its screens reach the census themselves.
-  uint32_t multiplayer_game() override { return 0; }
+  // The pilot's game when multiplayer (0x00479480): only whether there is one.
+  uint32_t multiplayer_game() override { return mission_multiplayer_game() ? 1u : 0u; }
+  // The objectives box's end in a network game (0x00446ad0 at 0x00447237):
+  // the scores again (0x004361e0) and their lines at 0x14 and 0xc
+  // (0x00435b60), each a line of the box. FIX (bug): the exe gives each line
+  // as the format (a name with a '%' read garbage); the box takes it as a
+  // "%s" argument, as the objectives' texts.
+  std::vector<std::string> multiplayer_scores() override { return mission_multiplayer_score_lines(); }
   // 0x0043c820's debug numbers while [0x005fc384] bit 4 is clear: developer
   // only (the census's known table); the flags are not ported.
   void hud_debug(void* hud) override { unported("0x0043c820.debug", {id(hud)}); }
   // The MFD's title (DISHONORABLE) updates while [0x00609994], a cheat used.
   bool title_flag() override { return program_cheated(); }
+  // In a network game the title ("You are alone.") while no remote mech is
+  // in it: [0x00605f88], the remote mechs' count.
+  bool title_mp_off() override { return program_net_mech_count() != 0; }
   // The missions' map (0x00491c80, their +0xbc: the briefing's MAP) and its
   // +0xd0 (mpp): above 0, the compass turned half round and the radar's
   // direction reversed (0x0043f590, 0x0043f130). The handle is a token (the
@@ -842,6 +850,16 @@ void wire_hud() {
     else z.hide();
   };
   part_calls().screen_flags = [](void* s) { return static_cast<Hud*>(s)->reticle.zoom.flags; };
+  // 0x0041b263..0x0041b30c, the player's death: the zoom window hidden
+  // unless locked, then (still shown: locked open) its lock let go, then the
+  // HUD off (vt+0x04 with 0).
+  damage_calls().player_died_hud = [](void* s) {
+    Hud& h = *static_cast<Hud*>(s);
+    HudZoomWindow& z = h.reticle.zoom;
+    if (!z.x174) z.hide();             // +0x1508 vt+0x64 unless +0x167c
+    if (!(z.flags >> 4 & 1)) z.toggle_lock();  // +0x1514 bit 4 clear: 0x00442e00
+    h.set_active(0);
+  };
   update_calls().hud_weapons = [](void* s) { static_cast<Hud*>(s)->weapons.layout(); };
   damage_calls().hud_weapons = [](void* s) { static_cast<Hud*>(s)->weapons.refresh_all(); };
   damage_calls().message = [](int id) { return hud_hooks().message(id); };
@@ -957,6 +975,7 @@ void unwire_hud() {
   command_calls().hud = nullptr, command_calls().hud_aimed_node = nullptr;
   controls_calls().screen_busy = nullptr, controls_calls().zoom = nullptr;
   part_calls().screen_flags = nullptr;
+  damage_calls().player_died_hud = nullptr;
   update_calls().hud_weapons = nullptr;
   damage_calls().hud_weapons = nullptr;
   damage_calls().head_hit_hud = nullptr;
@@ -1291,6 +1310,16 @@ void* program_mech_hud(void* mech) {
 }
 void program_hud_objectives_fill(void* hud) {
   if (hud) static_cast<Hud*>(hud)->objectives.fill();
+}
+
+// 0x00470170's end: the view's mech's box filled again while it is shown
+// (+0x17970 bit 4 clear). FIX (bug): with the player's mech not the view's
+// target the exe reads the box through a null HUD; nothing here.
+void program_hud_scores_refill() {
+  Mech* m = static_cast<Mech*>(mech_mission_player());
+  if (!m || m != program_view_target() || !m->pilot) return;
+  Hud* h = pilot_hud(*m->pilot);
+  if (h && !(h->objectives.flags >> 4 & 1)) h->objectives.fill();
 }
 
 bool program_hud_aim(int32_t reticle[2], float point[3], bool* hit) {

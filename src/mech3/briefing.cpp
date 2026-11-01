@@ -4,6 +4,7 @@
 
 #include <cstring>
 
+#include "gamez/zimage/zimg_library.h"
 #include "gamez/zreader/zreader.h"
 #include "gamez/ztwod/twod_host.h"
 #include "gamez/zutil/zfix.h"
@@ -259,7 +260,7 @@ void MapLine::update(float dt) {
 // Mech3.exe 1.2 @ 0x00405230. The dialog is the briefing's own section of
 // briefing.zrd (multiplayer's from mpinfo.zrd), else "default"; the buttons
 // are BRIEFINGDIALOG's. Built, it is drawn once at once (the load starts next).
-BriefingScreen::BriefingScreen(Engine& e, const char* name)
+BriefingScreen::BriefingScreen(Engine& e, const char* name, bool draw_now)
     : MenuScreen(e, 0),
       abort_btn(e, -1),
       launch_btn(e, -1),
@@ -327,6 +328,15 @@ BriefingScreen::BriefingScreen(Engine& e, const char* name)
   unload();
   loaded = 1;
   set_loaded(false);
+  if (draw_now) draw_first();
+}
+
+// The constructor's end (0x00405230): drawn once at once, the load next.
+// Ours apart: a wide canvas's screen draws only once widened, or its first
+// frame showed at 640 over the menus (GameEngine::construct).
+void BriefingScreen::draw_first() {
+  Engine& e = engine();
+  first_map_w = images[0].image ? images[0].image->width : 0;
   e.sound_update(1, 0);
   e.video_lock();
   update(e.frame_dt());

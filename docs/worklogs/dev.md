@@ -2658,4 +2658,7 @@ Assigned after 8b2 merged (fd3f05f). The lead asked for a section stepped at bot
   the soak's leak (every mission's animations: a dword store over the def
   count in 0x0050b380) fixed; the 1.2 read-me's six checks (two fixes: the
   ping's latency, a Mac's keypad; the network loss ported).
+- The census's three (the player's death, a destroyed weapon's voices, a
+  network kill's box refill), the lobby's address lines at 16:9, the
+  briefing's first frame after its widening.
 - Next: the lead's.

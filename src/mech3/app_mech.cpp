@@ -987,6 +987,7 @@ void wire_net(bool on) {
     message_panel_add("%s", text);
   };
   nc.chat = net_chat_in;  // 0x00470490 (piece 14)
+  nc.hud_scores = program_hud_scores_refill;  // 0x00446ad0 on the box
   nc.forget = [](NetMech& m) { ai::entities_forget(g_w.handle_of(g_w.engine, &m)); };  // 0x004aa6b0
   nc.free = [](NetMech* m) {  // vt+0 (1), and off the program's own lists (as mech_free)
     net_mech_unlist(m);
@@ -1258,6 +1259,18 @@ void* program_mech_part(void* mech, int32_t id) {
 }
 void program_part_set_internal(void* part, float v, int32_t section) {
   if (part) static_cast<MechPart*>(part)->set_internal(v, section);
+}
+int32_t program_net_mech_count() { return static_cast<int32_t>(net_game().mechs.size()); }
+bool program_pilot_fire_probe(int32_t* trigger, float* reload_sum) {
+  Mech* m = launched_mech();
+  const auto* wm = m ? static_cast<const WeaponManager*>(m->ammo) : nullptr;
+  if (!wm) return false;
+  *trigger = wm->trigger_down ? 1 : 0;
+  float r = 0;
+  for (uint32_t i = 0; i < wm->count && i < 16; ++i)
+    if (wm->weapons[i]) r += wm->weapons[i]->reload + (wm->weapons[i]->is_firing() ? 100.0f : 0.0f);  // a beam's: firing
+  *reload_sum = r;
+  return true;
 }
 bool program_net_running() { return net_game().running; }
 bool program_pilot_alive(float* health, float pos[3]) {
@@ -1593,6 +1606,61 @@ bool program_net_pose_step(int32_t frame, NetPoseSeen* out) {
   std::memcpy(last_aim, aim, sizeof aim);
   p.moved = std::hypot(at[0] - first_place[ph][0], at[2] - first_place[ph][2]);
   if (frame == 240) net_end(), znet::shutdown();  // its mechs freed while the world stands
+  return true;
+}
+
+bool program_player_death_check(PlayerDeathSeen* out) {
+  Mech* me = launched_mech();
+  Hud* h = me ? static_cast<Hud*>(program_mech_hud(me)) : nullptr;
+  auto* wm = me ? static_cast<WeaponManager*>(me->ammo) : nullptr;
+  if (!h || !wm) return false;
+  HudZoomWindow& z = h->reticle.zoom;
+  if (!z.x174) z.toggle_lock();  // keypad 0: locked open
+  out->hud_before = h->active, out->locked_before = z.x174;
+  auto playing = [] {  // the voices playing and the radio lines queued (QUEUE sounds wait their turn)
+    zsnd::Snapshot* s = zsnd::snapshot();
+    const int32_t n = static_cast<int32_t>(s->size()) - 1;  // the master volume's record first
+    zsnd::free_snapshot(s);
+    const std::list<zsnd::Queued*>* q = zsnd::state().queue;
+    return n + (q ? static_cast<int32_t>(q->size()) : 0);
+  };
+  Weapon* w = nullptr;  // the first with a NAMESOUND (weapons.zrd), its voices
+  const WeaponType* t = nullptr;
+  for (uint32_t i = 0; i < wm->count && i < 16 && !w; ++i)
+    if (Weapon* c = wm->weapons[i]; c && c->def && c->def->type && c->def->type->name_sound) w = c, t = c->def->type;
+  if (!w) return false;
+  out->voices_wanted = (t->name_sound ? 1 : 0) + (t->part_destroy_sound ? 1 : 0);
+  const int32_t before = playing();
+  w->destroy();
+  out->voices_started = playing() - before;
+  out->killed = mech_hit_part(me, 6, 1.0e6f);  // the head
+  out->hud_after = h->active, out->locked_after = z.x174, out->hidden_after = z.flags >> 4 & 1;
+  return true;
+}
+
+bool program_net_scores_box_check(NetScoresBoxSeen* out) {
+  Mech* me = launched_mech();
+  znet::Transport* b = nullptr;
+  if (!me || !chat_session(me, &b)) return false;
+  Hud* h = static_cast<Hud*>(program_mech_hud(me));
+  if (!h) return false;
+  HudObjectives& box = h->objectives;
+  auto written = [&box] {  // its lines with a text (it keeps 25)
+    int32_t n = 0;
+    for (const ztwod::Text& t : box.lines) n += t.text && *t.text;
+    return n;
+  };
+  box.show_for(-1.0f);  // F12: shown and filled
+  box.clear();
+  net_score_kill(1, 1);  // our own death: the host scores it
+  out->refilled_open = written();
+  if (box.lines.size() && box.lines[0].text) out->header = box.lines[0].text;
+  box.hide();
+  box.clear();
+  net_score_kill(1, 1);
+  out->refilled_closed = written();
+  net_end();
+  znet::shutdown();
   return true;
 }
 

@@ -164,11 +164,11 @@ struct Args {
   int win = 0;  // --win N (ours): the mission won N frames in, by its Exit Mission
   int frame_times = 0;  // --frame-times N (ours): each frame's wall time from the N-th frame shown, summed up at the end
   int lab_mech = -1;  // --lab-mech N (ours): the lab's 3D view shows chassis N (alone: through c1m2's briefing)
-  struct Tap { int down, up, dik; };
+  struct Tap { int down, up, dik, ingame = 0; };
   std::vector<Tap> taps;  // --tap DIK@N[:M]
   // group: a wide menu's left (0), middle (1) or right (2); players: N > 0
   // counts the frame from the first one the session holds N players (ours)
-  struct ClickAt { int frame, x, y, group = 0, players = 0, back = 0; };
+  struct ClickAt { int frame, x, y, group = 0, players = 0, back = 0, ingame = 0; };
   std::vector<ClickAt> clicks_at;  // --click-at X,Y@N (the game's 640 x 480 pixels)
   std::string briefing;  // --briefing NAME (ours): a campaign mission's briefing, as the menus reach it
   bool walk = false;  // --walk: full throttle (THROTTLE0's key) at the start (ours)
@@ -188,6 +188,7 @@ struct Args {
   int net_wait = 0, net_minutes = 0;
   int net_seconds = 0;  // --net-seconds: a network game the menus start lasts this long (each one)
   int net_kill_at = 0;  // --net-kill-at S: a kill staged on the pilot S seconds (of 30 frames) into each such game
+  bool fire_probe = false;  // --fire-probe (ours, W40): each menu game frame, the trigger and the reloads, timed
   int net_walk[2] = {0, 0};  // --net-walk A,B: the throttle held up from A to B seconds (of 30 frames) into each
   long long net_drive = -1;
   bool net_staged = true;  // --net-staged 0: the drive stages no kills
@@ -254,6 +255,7 @@ bool parse(int argc, char** argv, Args& a) {
     else if (s == "--net-minutes" && next(1)) a.net_minutes = std::atoi(argv[++i]);
     else if (s == "--net-seconds" && next(1)) a.net_seconds = std::atoi(argv[++i]);
     else if (s == "--net-kill-at" && next(1)) a.net_kill_at = std::atoi(argv[++i]);
+    else if (s == "--fire-probe") a.fire_probe = true;
     else if (s == "--net-walk" && next(1)) std::sscanf(argv[++i], "%d,%d", &a.net_walk[0], &a.net_walk[1]);
     else if (s == "--net-drive" && next(1)) a.net_drive = std::strtoll(argv[++i], nullptr, 10);
     else if (s == "--net-soak") a.net_soak = true;
@@ -283,6 +285,18 @@ bool parse(int argc, char** argv, Args& a) {
       Args::ClickAt c{};
       if (std::sscanf(argv[++i], "%d,%d@%d/%d", &c.x, &c.y, &c.frame, &c.players) == 4 && c.players > 0)
         a.clicks_at.push_back(c);
+    }
+    else if ((s == "--tap-ingame" || s == "--hold-ingame") && next(1)) {  // DIK@N[:M] / N:M (the left button), each game's frames
+      const bool hold = s == "--hold-ingame";
+      const char* v = argv[++i];
+      const char* at = hold ? v - 1 : std::strchr(v, '@');
+      const char* c = at ? std::strchr(at + 1, ':') : nullptr;
+      if (at) a.taps.push_back({std::atoi(at + 1), c ? std::atoi(c + 1) : std::atoi(at + 1) + 1,
+                                hold ? -1 : static_cast<int>(std::strtol(v, nullptr, 0)), 1});
+    }
+    else if (s == "--click-ingame" && next(1)) {  // X,Y@N: N frames into each game the menus start
+      Args::ClickAt c{};
+      if (std::sscanf(argv[++i], "%d,%d@%d", &c.x, &c.y, &c.frame) == 3) c.ingame = 1, a.clicks_at.push_back(c);
     }
     else if (s == "--click-return" && next(1)) {  // X,Y@N: N frames after each return to the lobby from a game
       Args::ClickAt c{};
@@ -1251,7 +1265,7 @@ int run(const Args& a, platform::VideoForWindows* vfw) {
             }
         };
         for (const Args::Tap& t : a.taps)
-          if (menu_frames == t.down || menu_frames == t.up) key(t.dik, menu_frames == t.down);
+          if (!t.ingame && (menu_frames == t.down || menu_frames == t.up)) key(t.dik, menu_frames == t.down);
         std::vector<Args::ClickAt> clicks = a.clicks_at;
         clicks.insert(clicks.end(), auto_clicks.begin(), auto_clicks.end());
         // --net-soak (ours) in a network game the menus started: the soak's
@@ -1284,6 +1298,27 @@ int run(const Args& a, platform::VideoForWindows* vfw) {
           s_walk_hooked = true;
           mech3::controls_calls().command = [](int cmd) { return zin::command(cmd) | (s_walk && cmd == 0x18 ? 1u : 0u); };
         }
+        // --tap-ingame and --hold-ingame: keys and the left button by each game's frames.
+        for (const Args::Tap& t : a.taps) {
+          const int f = s_menu_in_game ? menu_frames - s_menu_game_from : -1;
+          if (!t.ingame || (f != t.down && f != t.up)) continue;
+          if (t.dik >= 0) {
+            key(t.dik, f == t.down);
+          } else {
+            SDL_Event ev{};
+            ev.type = f == t.down ? SDL_EVENT_MOUSE_BUTTON_DOWN : SDL_EVENT_MOUSE_BUTTON_UP;
+            ev.button.button = SDL_BUTTON_LEFT;
+            ev.button.down = f == t.down;
+            SDL_PushEvent(&ev);
+          }
+        }
+        if (a.fire_probe && s_menu_in_game && app.current() == &mech3::states().core) {
+          int32_t trig = 0;
+          float reload = 0;
+          if (mech3::program_pilot_fire_probe(&trig, &reload))
+            std::printf("mw3: fire probe frame %d ms %llu buttons %u trigger %d reload %.3f\n", menu_frames,
+                        static_cast<unsigned long long>(SDL_GetTicks()), input.mouse_buttons, trig, reload);
+        }
         if (a.net_kill_at > 0 && s_menu_in_game && !s_menu_killed && app.current() == &mech3::states().core &&
             menu_frames >= s_menu_game_from + 30 * a.net_kill_at) {
           s_menu_killed = true;
@@ -1310,6 +1345,8 @@ int run(const Args& a, platform::VideoForWindows* vfw) {
         }
         for (Args::ClickAt& c : clicks)
           if (c.back) c.frame = s_back_at >= 0 ? s_back_at + c.frame : -100;
+        for (Args::ClickAt& c : clicks)
+          if (c.ingame) c.frame = s_menu_in_game ? s_menu_game_from + c.frame : -100;
         for (const Args::ClickAt& c : clicks) {
           // The cursor put on the point (zInput's 0x0051b440, the game's
           // 640 x 480 about its centre), then the press and the release.

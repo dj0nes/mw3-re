@@ -1245,6 +1245,17 @@ Ours, in three pieces:
      state). Test: `net_chat_panel_c1mp1_headless` (the valve set, the mech
      down a frame on; break caught: the torso left alone).
 
+- **The census's three** (the lead, after 14): the player's death on the
+  HUD (0x0041b263), a destroyed weapon's voices (0x004e6dc0) and the
+  objectives box's refill (0x00446ad0, which in a network game came from a
+  kill's score: 0x00470170, not the death). Ported, with the HUD hooks'
+  `multiplayer_game` (it answered 0) and their network scores and title;
+  hud.md 24b. Two FIX (bug): the refill's null HUD read, the score lines
+  as formats. A network game with a staged kill now reaches nothing
+  unported.
+- **The lobby's bottom row at 16:9 and the briefing's first frame** (the
+  lead): resolution.md section 12.
+
 - **16:9** (the lead, 2026-11-01, release.md): the three screens widened
   (resolution.md section 12): the connection screen (NET NAME, SESSIONS,
   CANCEL and JOIN left; CONNECT, HOST SETUP and HOST right; its 610x345
