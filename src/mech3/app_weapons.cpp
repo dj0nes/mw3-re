@@ -446,7 +446,7 @@ void wire_weapons(uint32_t (*log)(const char* key)) {
   // vt+0x58: 0x0040bae0 (0) for the mech, the basic vehicle, the field base
   // and the turret; only a network game's classes answer otherwise.
   wc.owner_x58 = [](Handle) -> int32_t { return 0; };
-  collide_calls().remote = [](Mech&) { return false; };
+  collide_calls().remote = [](Mech& m) { return m.remote; };  // a network mech's (vt+0x5c)
   // The vehicle builder's (0x004b4660) firepoint lookups.
   wc.node_find = [](Handle node, const char* name) -> Handle {  // 0x004eb0d0
     return zcls::node_find(static_cast<zcls::Node*>(node), name);

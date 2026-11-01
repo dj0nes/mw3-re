@@ -167,7 +167,6 @@ DamageCalls.anim_speed	fallback: unset runs the port (0x0041ef90; test hook, uns
 DamageCalls.gait_speed	fallback: unset runs the port (0x004329c0 on +0x684 with +0x4a0; test hook, unset runs scale_gaits)
 CollideCalls.segments	fallback: unset runs the port
 CollideCalls.node_intersect	fallback: unset runs the port (0x004eb6d0; unset: the zcls node's flag 0x10)
-CollideCalls.net_shove	multiplayer: a remote (network) mech shoved, 0x00470320 (not ported); unset, the shove is skipped
 CollideCalls.crouch	fallback: unset runs the port (test hook (0x004622a0): unset runs Hip::duck)
 CommandCalls.own	fallback: unset runs the port
 CommandCalls.torso_center	fallback: unset runs the port (0x00465a00 on the torso (1, 2))

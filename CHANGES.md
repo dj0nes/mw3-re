@@ -573,3 +573,7 @@ Known quirks the rebuild deliberately keeps:
 - Another player's record that arrives cut short makes no mech instead of being read past its end.
 - A multiplayer update or shot aimed at something that is not another player's mech names no player, instead of whatever memory followed that object.
 - A multiplayer update that arrives cut short is dropped, and its shots and damage are read only as far as it goes.
+- With bug fixes on, other players' aim is carried forward by the measured lag as intended (the original mixed seconds and milliseconds, so it barely moved).
+- With bug fixes on, a player whose mech is shoved to death by another player's collision credits that player with the kill.
+- A multiplayer clock message that would end the game outside a network game is ignored instead of crashing.
+- The multiplayer host no longer re-checks its locked game rules every 51 seconds (a guard against memory editing that ended the game).

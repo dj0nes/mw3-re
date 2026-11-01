@@ -87,15 +87,19 @@ struct NetGame {
   uint32_t ping_counter = 1;           // [0x005e5690]
   uint32_t ping_turn = 0;              // [0x00605fc8]  the player pinged last (0x00470ab0)
   uint32_t acked_time = 0;             // [0x00605fc4]  the last state acknowledged's send time (0x004709d0)
+  uint8_t echo = 0;                    // [0x00605fb8]  an effect heard is being replayed: not sent again
 };
 NetGame& net_game();
 
 // The network game's fields the sends use (MultiplayerGame, the app's).
 struct NetGameFields {
+  int32_t score_limit = 0;       // +0x70  the kills that end the game
   int32_t players = 0;           // +0x50  the lobby's count
   float* clock_next = nullptr;   // +0x7c  when the host sends the clock (0x11) again
   float* end_time = nullptr;     // +0x80
   int32_t* end_state = nullptr;  // +0x84  0, 1 ending (the clock under 3 s), 3 ended
+  int32_t* kills = nullptr;      // +0x98  the pilot's totals over network games
+  int32_t* deaths = nullptr;     // +0x9c
 };
 
 // The in-game messages' handlers and what the router calls besides, until
@@ -124,6 +128,7 @@ struct NetCalls {
   void (*reckon)(NetMech& m, float dt) = nullptr;  // vt+0x158, 0x0046ed70 with [0x0072c52c]
   uint32_t (*now_ms)() = nullptr;                  // 0x00575d30, timeGetTime; unset: ztimer's clock
   void (*hud_message)(float seconds, int32_t id, const char* name) = nullptr;  // 0x0040fe70
+  void (*hud_message2)(float seconds, int32_t id, const char* a, const char* b) = nullptr;  // the same with two
   void (*forget)(NetMech& m) = nullptr;            // 0x004aa6b0, the sensors' (ai::entities_forget)
   void (*free)(NetMech* m) = nullptr;              // vt+0 (1), 0x0046e3a0; unset: net_mech_delete
   void (*lobby_left)(uint32_t player) = nullptr;   // 0x00495b10 on the game's +0x48: the slot's +0x18 = 1
@@ -155,10 +160,27 @@ struct NetCalls {
   NetGameFields* (*game)() = nullptr;              // 0x00479480 on [0x0060861c]: none outside a network game
   float (*game_time)() = nullptr;                  // [0x0060991c]
   float (*clock_left)() = nullptr;                 // [0x00609920]
+  void (*set_clock_left)(float v) = nullptr;       // [0x00609920] = (0x00470740)
   bool (*clock_on)() = nullptr;                    // [0x00609924]
-  int32_t (*send_other)(Mech& m, int32_t kind, intptr_t arg) = nullptr;  // 0x11-0x13, 0x17, 0x21 (piece 7)
-  void (*rules_check)() = nullptr;                 // the host's every tenth ping (0x00576c10, 0x004707c0; piece 8)
-  void (*game_over)() = nullptr;                   // 0x004707c0
+  int32_t (*send_other)(Mech& m, int32_t kind, intptr_t arg) = nullptr;  // test hook: the kinds a test stands in for
+  void (*game_over)() = nullptr;                   // test hook; unset: net_game_over (0x004707c0)
+  // The game over's: the lobby's deaths (0x00435b40), the pilot written
+  // (0x00478ce0, its header, vt+0x04, closed), the fade to the Multi-Exit
+  // State.
+  int32_t (*lobby_deaths)(uint32_t player) = nullptr;
+  void (*pilot_save)() = nullptr;
+  void (*exit_fade)() = nullptr;
+  // The crater's: a node's mech (0x0040ef10), the crater made (0x004ffaa0;
+  // the test's), the station's repair (0x0045a140; the test's).
+  Mech* (*node_mech)(Handle node) = nullptr;
+  int32_t (*crater_make)(const zwep::CraterOrder* order) = nullptr;
+  void (*station)(NetMech& m, uint32_t id) = nullptr;
+  // ... and the materials by index (0x00536070, 0x00535ff0) and the anim
+  // log's lookup and replay (0x0050b680, 0x0050ca90), the test's.
+  Handle (*take_material)(int32_t index) = nullptr;
+  uint32_t (*material_index)(Handle material) = nullptr;
+  bool (*log_has)(const zeff::AnimLogRecord* rec) = nullptr;
+  void (*log_replay)(const zeff::AnimLogRecord* rec) = nullptr;
   // The apply's: the target picked (0x004a7b40, null none), the passive
   // radar's light (the mech's vt+0xb8, 0x0041ded0), the respawn (0x0046ed30
   // with the state's place; piece 7), the pilot's mech (+0x14).
@@ -166,6 +188,24 @@ struct NetCalls {
   void (*radar_toggled)(NetMech& m) = nullptr;
   void (*respawn_at)(NetMech& m, const float pos[3]) = nullptr;
   Mech* (*pilot_mech)() = nullptr;
+  // The events' (piece 7): a mech's name (vt+0xa4: 0x0041df30, a network
+  // mech's player's 0x004709c0); the lobby's scores (piece 11): a suicide
+  // 0x00435ac0, a kill 0x004359b0, a player's kills 0x00435a50, the list
+  // (id, kills, deaths) for 0x14, the kills and deaths set (0x004359f0,
+  // 0x00435b00); the HUD's scores (0x00446ad0 on the view's mech's HUD,
+  // when it shows them).
+  const char* (*mech_name)(Mech& m) = nullptr;
+  void (*lobby_suicide)(uint32_t player) = nullptr;
+  void (*lobby_kill)(uint32_t player) = nullptr;
+  int32_t (*lobby_kills)(uint32_t player) = nullptr;
+  int32_t (*lobby_scores)(uint32_t* out, int32_t cap) = nullptr;  // 3 words a player; their count
+  void (*lobby_set_kills)(uint32_t player, uint32_t kills) = nullptr;
+  void (*lobby_set_deaths)(uint32_t player, uint32_t deaths) = nullptr;
+  void (*hud_scores)() = nullptr;
+  // ... and the respawn's rebuild (0x0046e0f0) and place (0x00418e90) as
+  // the test sees them.
+  void (*rebuild)(NetMech& m) = nullptr;
+  void (*reset_at)(NetMech& m, const float pos[3]) = nullptr;
   // The state's reads of the mech: its world position (0x005a85e0), the
   // torso node's (0x004ed530), the target's player (0x004e7010 +0x6fc).
   bool (*position)(Mech& m, float out[3]) = nullptr;
@@ -237,6 +277,34 @@ void net_ping_in(NetMech& m, const uint8_t* msg, size_t size);
 // last state has gone (its id and send time).
 void net_send_done(const uint8_t* msg, size_t size);
 
+// The events (piece 7a): the receivers' defaults.
+void net_posture_in(NetMech& m, const uint8_t* msg, size_t size);   // 0x0046ed10: the action queued
+void net_respawn_in(NetMech& m, const float pos[3]);                // 0x0046ed30: a dead mech made again there
+void net_mech_rebuild(NetMech& m);                                  // 0x0046e0f0: its fresh mech, in place
+void net_kill_in(const uint8_t* msg, size_t size);                  // 0x0046eba0: the HUD's line; the host scores
+void net_score_kill(uint32_t victim, uint32_t killer);              // 0x00470170: the host's count and 0x14
+void net_scores_in(const uint8_t* msg, size_t size);                // 0x004708e0
+void net_shove_in(NetMech& from, const uint8_t* msg, size_t size);  // 0x004705b0: a collision's push on the pilot
+void net_part_off_in(const uint8_t* msg, size_t size);              // 0x0046fff0: the pilot's part shot off
+// 0x00470320: a collision's push on a network mech, to its player.
+void net_send_shove(Mech& other, float damage, float vx, float vz);
+
+// The world's events (piece 7b). 0x0046fd30, zDecal's veto in a network
+// game: a crater the pilot's shot makes goes through the host (0x19), which
+// makes it and sends it to all; no other crater is made here. One with a
+// negative radius (made from a 0x19) passes, its radius made positive.
+int net_crater_veto(const zwep::CraterOrder* order);
+void net_crater_in(const uint8_t* msg, size_t size);   // 0x0046fde0
+void net_anim_sent(zeff::AnimLogRecord* rec);          // 0x0046feb0, the anim log's: the effect to all (0x1a)
+void net_effect_in(const uint8_t* msg, size_t size);   // 0x0046ff50: replayed unless one like it runs
+void net_send_drop(uint32_t station);                  // 0x0046ff90: a repair station used (0x1b)
+void net_drop_in(NetMech& m, const uint8_t* msg, size_t size);  // 0x0046ffd0
+void net_clock_in(const uint8_t* msg, size_t size);    // 0x00470740: the clock, and the game's end with its reason
+void net_game_over();  // 0x004707c0
+// 0x004700a0 and 0x00500c60 with 0x004700e0: the host's effects and craters
+// sent again to a player joining.
+void net_host_replay();
+
 // 0x0046da80 (ECX the pilot), at the multiplayer launch: the local player's
 // record (2, the skin, the mech, the packed loadout: Config::packed of the
 // game's slot 0) as its player data, its team, the game's settings on it,
@@ -254,8 +322,10 @@ void net_spawn_offset(float pos[3], int32_t slot);
 // host replays the anims and craters to it.
 void net_mech_create(uint32_t from);
 // 0x0046e280: the mech, with the network's: not colliding, on the list, in
-// the world, its torso in mode 2, powered up.
+// the world, its torso in mode 2, powered up. net_mech_construct builds it
+// in place (the respawn's rebuild does so on the old mech's memory).
 NetMech* net_mech_new(uint32_t owner, MechData* data, NetControls* ctl, Config* cfg, const char* name);
+void net_mech_construct(NetMech* m, uint32_t owner, MechData* data, NetControls* ctl, Config* cfg, const char* name);
 // 0x0046d820: a player's record, empty when it is under 8 bytes or not got.
 bool net_read_record(uint32_t player, std::vector<uint8_t>* out);
 

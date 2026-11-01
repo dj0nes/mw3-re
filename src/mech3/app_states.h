@@ -81,6 +81,17 @@ class TrDummyState : public State {
   uint32_t message(uint32_t, uint32_t) override { return 1; }  // 0x0042a130
 };
 
+// "Multi-Exit State" (0x00605fa8, constructor 0x00470650, vtable 0x005c3680):
+// after a network game's end (0x004707c0, through a fade): the mission
+// unloaded, then the main menu.
+class MultiExitState : public State {
+ public:
+  MultiExitState() : State("Multi-Exit State", 0x605fa8) {}
+  bool enter() override;              // 0x00470710
+  bool update() override { return false; }  // 0x0040bae0
+  uint32_t message(uint32_t, uint32_t) override { return 1; }  // 0x004a5bc0
+};
+
 // 1 "Intro State" (0x00608f58, vtable 0x005c40c8): INTRO, then the SPLASH logos.
 class IntroState : public State {
  public:
@@ -349,6 +360,7 @@ struct States {
   WinMovieState win_movie;
   IaDummyState ia_dummy;
   TrDummyState tr_dummy;
+  MultiExitState multi_exit;
 };
 States& states();
 void reset_states();

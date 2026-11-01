@@ -142,6 +142,13 @@ SkinSet::~SkinSet() {
   }
 }
 
+// Mech3.exe 1.2 @ 0x00475b00: the first skin of that name.
+Skin* SkinSet::named(const char* name) const {
+  for (Skin* k : skins)
+    if (k && k->name && name && std::strcmp(name, k->name) == 0) return k;
+  return nullptr;
+}
+
 // Mech3.exe 1.2 @ 0x004752e0. A second "damage" skin replaces the first.
 bool SkinSet::add(Skin* skin) {
   if (!skin || !skin->name) return false;

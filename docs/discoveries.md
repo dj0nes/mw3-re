@@ -869,6 +869,7 @@ From the weapon code (weapons.md).
 - **In multiplayer the host re-checks the locked rules every 51 seconds**;
   changing them in memory (say, unlimited ammo after the lock) ends the game
   a minute or two later as if the clock ran out.
+  The rebuild leaves this check out.
 - **In a multiplayer mission another player's mech appears with their first
   position update.** Until it does, everything else they send in the mission
   is ignored, including chat. A player who leaves vanishes on the spot (no
@@ -892,7 +893,19 @@ From the weapon code (weapons.md).
   by about a quarter a second. The aim is meant to be pushed forward by the
   measured lag, but the lag (in seconds) is divided by the time since the
   last update (in milliseconds), so the correction is a tenth of a percent:
-  in effect none. (`multiplayer-port.md`, piece 6b)
+  in effect none. The rebuild, with bug fixes on, corrects it as meant.
+  (`multiplayer-port.md`, piece 6b)
+- **In multiplayer, ramming kills credit no one.** Two mechs colliding
+  hurt each other, and the push of another player's mech is sent to you.
+  The game meant to note who pushed you, but it notes the pusher as its own
+  attacker, so if the push finishes you, nobody gets the kill. The rebuild,
+  with bug fixes on, gives it to the pusher. (`multiplayer-port.md`, piece 7a)
+- **In multiplayer every crater is the host's.** A crater your shot would
+  make is not made on your screen: it goes to the host, which makes it and
+  tells everyone (you included). Other players' shots make no craters on
+  your screen except those the host sends. A player who joins late gets
+  every crater so far. The mobile field bases' station animations are the
+  one kind of effect never shared. (`multiplayer-port.md`, piece 7b)
 - **Only one copy runs at a time.** Started a second time, the game finds the
   first window and brings it to the front instead. Launched from a multiplayer
   lobby, it closes the old copy instead.
