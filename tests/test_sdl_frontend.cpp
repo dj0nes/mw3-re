@@ -2668,12 +2668,15 @@ TEST(sdl_network_soak_four_players) {
                       &z, &alive, &used) < 8)
         continue;
       L.id = id, L.rss.push_back(kb), L.own.push_back({t, x, z, alive});
-      L.last_seen.clear();
+      // The others seen at the end: the last line with 2 s left (in the last
+      // seconds the end's unload takes the mechs).
+      const bool counted = clock >= 2.0f;
+      if (counted) L.last_seen.clear();
       for (size_t p = line.find("; sees ", used); p != std::string::npos; p = line.find("; sees ", p + 1)) {
         unsigned who;
         int active;
         if (std::sscanf(line.c_str() + p, "; sees %u %f %f %f %d", &who, &x, &y, &z, &active) != 5) continue;
-        L.last_seen.insert(who);
+        if (counted) L.last_seen.insert(who);
         if (active) L.seen.push_back({t, who, x, z});
       }
     }

@@ -958,7 +958,7 @@ void wire_net(bool on) {
   NetCalls& nc = net_calls();
   const NetCalls kept = nc;  // the force feedback's are app_force.cpp's
   nc = NetCalls{};
-  nc.ff_stop = kept.ff_stop, nc.ff_spawn = kept.ff_spawn;
+  nc.ff_stop = kept.ff_stop, nc.ff_spawn = kept.ff_spawn, nc.ff_respawn = kept.ff_respawn;
   nc.game_clear = kept.game_clear;  // the pilot's side's
   nc.game = kept.game, nc.game_time = kept.game_time, nc.clock_left = kept.clock_left, nc.clock_on = kept.clock_on;
   nc.set_clock_left = kept.set_clock_left, nc.exit_fade = kept.exit_fade;
@@ -983,6 +983,11 @@ void wire_net(bool on) {
     delete m;
   };
   nc.view_outside = [] { program_view_set_camera(1); };  // 0x0040ae70(1)
+  // The pilot's respawn's (0x0046dde0, piece 8d; net_start sets the dead list's call of it).
+  nc.pilot_set_mech = [](Mech&, int32_t roster) { program_pilot_set_mech(roster); };  // 0x004783c0
+  nc.view_camera = [](int32_t id) { program_view_set_camera(id); };                 // 0x0040ae70
+  nc.options_apply = [] { program_options_apply(); };                                // 0x0040cb30
+  nc.objectives_again = [] { program_objectives_again(); };                          // 0x00491050
   nc.pilot_save = [] {  // 0x00478ce0, the header, vt+0x04, the handle closed (0x004707c0's)
     program_pilot_file(0);
     if (program_pilot_file(1)) program_pilot_file(2);
@@ -1000,7 +1005,7 @@ void wire_net(bool on) {
     const NetMech* t = v ? net_mech_of(v) : nullptr;
     return t ? t->owner : 0;
   };
-  nc.sensor_range = [](NetMech& m) { m.set_sensor_range(g_w.handle_of(g_w.engine, &m), m.sensor_range); };
+  nc.sensor_range = [](Mech& m) { m.set_sensor_range(g_w.handle_of(g_w.engine, &m), m.sensor_range); };
   nc.world_add = [](NetMech& m) {  // [0x00608c84] vt+0x00
     if (zcls::Node* w = world_hooks().world) zcls::node_add_child(w, zn(m.node));
   };
@@ -1078,7 +1083,8 @@ void net_set_game_access(const NetGameAccess& a) {
   nc.game = []() -> NetGameFields* {
     static NetGameFields f;
     if (!g_game_access.fields ||
-        !g_game_access.fields(&f.players, &f.clock_next, &f.end_time, &f.end_state, &f.kills, &f.deaths, &f.score_limit))
+        !g_game_access.fields(&f.players, &f.clock_next, &f.end_time, &f.end_state, &f.kills, &f.deaths, &f.score_limit,
+                              &f.flags))
       return nullptr;
     return &f;
   };
@@ -1161,6 +1167,62 @@ uint32_t program_net_drive(int cmd, double t, uint32_t seed) {
   if (cmd == 2) return phase < 3.0 ? 1u : 0u;
   if (cmd == 3) return phase >= 7.0 ? 1u : 0u;
   return best < 1e29f && std::fmod(t + seed % 3, 7.0) < 2.0 ? 1u : 0u;
+}
+
+// Mech3.exe 1.2 @ 0x004783c0 (ECX the pilot [0x0060861c], its mech +0x14):
+// the pilot's mech made again as `roster` where it stands, facing as it
+// did: its team and the weapons' fire mode (kept in the pilot's +0x80) kept,
+// its own loadout again for its own roster (0x00414430), the view taken off
+// it and put back in the mode it had (1 without a view), the level of
+// detail -1 (0x0041e9e0), the HUD reset when it is the view's, then powered
+// up from down. The stealth object's view attach (vt+0x108 on [0x00609a2c])
+// takes the view's target ([0x005f4c8c]+0x64) off the mech while it is made
+// again, so its weapons' adding asks no HUD of it: here the target is none
+// (the stealth object is not made) until the mech's own attach.
+void player_clear_60b56c();  // mech3/player.h ([0x0060b56c] = 0), not includable with mech.h
+namespace {
+int32_t g_pilot_fire_mode = 0;  // the pilot's +0x80
+}  // namespace
+void program_pilot_set_mech(int32_t roster) {
+  Mech* m = world().mission_player;
+  if (!m) return;
+  const int32_t cam = program_view() ? program_view_camera_id() : 1;
+  float pos[3];
+  mech_world_position(m, pos);
+  const float yaw = std::atan2(m->forward.x, -m->forward.z);
+  Config* cfg = m->pilot && roster == m->pilot->roster ? m->config : nullptr;
+  const uint32_t team = m->team;
+  if (const auto* wm = static_cast<const WeaponManager*>(m->ammo)) g_pilot_fire_mode = wm->mode;
+  char name[64] = {};
+  if (const char* n = entity_name(g_w.handle_of(g_w.engine, m))) std::snprintf(name, sizeof name, "%s", n);  // vt+0xa4
+  world().player = nullptr, weapon_world().player = nullptr;  // the stealth's vt+0x108
+  mech_rebuild(*m, roster, name);  // 0x004148c0
+  m->place(pos, yaw);              // 0x004161c0
+  m->allies = team & ~1u, m->team = team, m->enemies = ~m->allies & ~1u;
+  player_clear_60b56c();
+  program_view_attach(*m);  // vt+0x108
+  world().player = m, weapon_world().player = m;  // the view's target again
+  mech_configure(*m, cfg);  // 0x00414430
+  if (program_view()) {
+    program_view_look(2);     // +0x58 vt+0x10
+    program_view_set_camera(cam);  // 0x0040ae70
+  }
+  m->detail = static_cast<uint32_t>(-1);  // 0x0041e9e0
+  if (m == program_view_target())
+    if (auto* hud = static_cast<Hud*>(program_mech_hud(m))) hud->reset();  // 0x00430aa0, 0x0043be10
+  m->powered_down = true;
+  m->hud_saved = 1;
+  m->power(0);  // 0x0041cc30
+  if (auto* wm = static_cast<WeaponManager*>(m->ammo)) wm->mode = g_pilot_fire_mode;
+}
+
+bool program_net_running() { return net_game().running; }
+bool program_pilot_alive(float* health, float pos[3]) {
+  Mech* m = world().mission_player;
+  if (!m) return false;
+  *health = mech_health(m);
+  mech_world_position(m, pos);
+  return m->active && m->anim_state != 10;
 }
 
 bool program_net_staged_kill() {

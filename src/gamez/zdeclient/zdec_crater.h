@@ -64,7 +64,7 @@ struct CraterState {
   };
   std::set<zcls::Node*, ByIndex> touched;
   std::deque<Feature> features;                           // the port's: the crater nodes' records (FIX, see .cpp)
-  int (*quicksand_veto)(const zwep::QuicksandOrder* order) = nullptr;  // 0x0060c0c8
+  int (*quicksand_veto)(const zwep::QuicksandOrder* order) = nullptr;  // 0x0060c0c8 (Mech3.exe never sets it)
 };
 CraterState& craters();
 

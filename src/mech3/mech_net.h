@@ -100,6 +100,7 @@ struct NetGameFields {
   int32_t* end_state = nullptr;  // +0x84  0, 1 ending (the clock under 3 s), 3 ended
   int32_t* kills = nullptr;      // +0x98  the pilot's totals over network games
   int32_t* deaths = nullptr;     // +0x9c
+  uint8_t* flags = nullptr;      // +0x8c respawn on, +0x8d unlimited ammo, +0x8e (cleared when respawn is off)
 };
 
 // The in-game messages' handlers and what the router calls besides, until
@@ -154,7 +155,13 @@ struct NetCalls {
   void (*label_free)(Handle label) = nullptr;
   void (*world_add)(NetMech& m) = nullptr;
   void (*host_replay)() = nullptr;
-  void (*sensor_range)(NetMech& m) = nullptr;      // 0x004d6d20 (the AI target's) with its own range
+  void (*sensor_range)(Mech& m) = nullptr;         // 0x004d6d20 (the AI target's) with its own range
+  // The pilot's respawn's (0x0046dde0, piece 8d):
+  void (*pilot_set_mech)(Mech& m, int32_t roster) = nullptr;  // 0x004783c0 on the pilot
+  void (*view_camera)(int32_t id) = nullptr;       // 0x0040ae70 on [0x005f4c8c]
+  void (*options_apply)() = nullptr;               // 0x0040cb30
+  void (*objectives_again)() = nullptr;            // 0x00491050 on the missions (0x006098d0)
+  void (*ff_respawn)() = nullptr;                  // 0x004338d0(0), 0x004338a0(1) on [0x00608620], when there is one
   // The sends' (0x0046f160, 0x0046ef70): the game, the mission's clock, the
   // kinds of pieces 7 and 8.
   NetGameFields* (*game)() = nullptr;              // 0x00479480 on [0x0060861c]: none outside a network game
@@ -279,6 +286,7 @@ void net_send_done(const uint8_t* msg, size_t size);
 
 // The events (piece 7a): the receivers' defaults.
 void net_posture_in(NetMech& m, const uint8_t* msg, size_t size);   // 0x0046ed10: the action queued
+bool net_pilot_respawn(Mech& m);                                     // 0x0046dde0: the pilot's mech made again at a start
 void net_respawn_in(NetMech& m, const float pos[3]);                // 0x0046ed30: a dead mech made again there
 void net_mech_rebuild(NetMech& m);                                  // 0x0046e0f0: its fresh mech, in place
 void net_kill_in(const uint8_t* msg, size_t size);                  // 0x0046eba0: the HUD's line; the host scores

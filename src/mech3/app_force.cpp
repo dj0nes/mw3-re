@@ -22,6 +22,9 @@ void program_force_feedback(ForceFeedback* f) {
   world().force_feedback = weapon_world().force_feedback = f != nullptr;
   net_calls().ff_stop = [] { if (g_force) g_force->stop_all(); };  // the network end's 0x00433530
   net_calls().ff_spawn = [] { if (g_force) g_force->spring(true); };  // the network launch's 0x004338a0(1)
+  net_calls().ff_respawn = [] {  // the respawn's 0x004338d0(0), 0x004338a0(1)
+    if (g_force) g_force->dead_spring(false), g_force->spring(true);
+  };
   if (!f) return;
   damage_calls().ff = [](uint32_t fn, int arg) {  // the death's (0x00433530, 0x00433900, 0x004338d0), the fall's
     if (!g_force) return;

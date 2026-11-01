@@ -43,7 +43,7 @@ void net_set_launch_game(bool (*fn)(NetLaunchGame* out));
 // The network game's fields and the mission's clock for the sends (0x0046ef70).
 struct NetGameAccess {
   bool (*fields)(int32_t* players, float** clock_next, float** end_time, int32_t** end_state, int32_t** kills,
-                 int32_t** deaths, int32_t* score_limit) = nullptr;
+                 int32_t** deaths, int32_t* score_limit, uint8_t** flags) = nullptr;
   float (*game_time)() = nullptr;   // [0x0060991c]
   float (*clock_left)() = nullptr;  // [0x00609920]
   bool (*clock_on)() = nullptr;     // [0x00609924]
@@ -90,6 +90,14 @@ std::string program_net_soak_line();
 // its head destroyed, the nearest remote mech within 300 m its attacker
 // (else none: a suicide). False when it is not alive.
 bool program_net_staged_kill();
+// The pilot's mech made again as `roster` in place (0x004783c0; the
+// respawn's, and the exe's mech change).
+void program_pilot_set_mech(int32_t roster);
+bool program_net_running();  // a network game is up (net_start ran, net_end not yet)
+void program_objectives_again();  // app_mission.cpp: Missions::objectives_again (0x00491050)
+void program_options_apply();     // app_mission.cpp: every option set again (0x0040cb30)
+// For the tests: the pilot's mech alive (active, not dead), its health and place.
+bool program_pilot_alive(float* health, float pos[3]);
 std::string program_net_scores();
 // The pocket commander's program side (app_pocket.cpp), from wire_mech_build;
 // the marker a handle names, if it is the mission's.

@@ -2268,6 +2268,9 @@ const char* mission_nav_name(uint32_t nav) {
   return program_nav_name(g_mission_engine ? g_mission_engine->object_of(nav) : nullptr);
 }
 
+void program_objectives_again() { missions().objectives_again(); }
+void program_options_apply() { apply_all(); }
+
 namespace {
 // The pilot's network game, else a network debug start's (ours).
 MultiplayerGame* net_debug_game() {
@@ -2354,12 +2357,13 @@ void wire_mission_hooks(GameEngine* e) {
   });
   NetGameAccess acc;
   acc.fields = [](int32_t* players, float** clock_next, float** end_time, int32_t** end_state, int32_t** kills,
-                  int32_t** deaths, int32_t* score_limit) {
+                  int32_t** deaths, int32_t* score_limit, uint8_t** flags) {
     MultiplayerGame* g = net_debug_game();  // 0x00479480
     if (!g) return false;
     *players = static_cast<int32_t>(znet::lists().players.size());  // +0x50, the lobby's count (piece 11: the session's)
     *clock_next = &g->clock_next, *end_time = &g->end_time, *end_state = &g->end_state;
     *kills = &g->kills, *deaths = &g->deaths, *score_limit = g->x70;
+    *flags = &g->b8c;  // +0x8c..+0x8f
     return true;
   };
   acc.exit_fade = [] { fade_replace(&states().multi_exit, 0, 1, 2, kFadeSeconds, 0, 0, 0); };  // 0x0048ef00

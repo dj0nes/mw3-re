@@ -685,6 +685,32 @@ Then the two-process and soak tests over the whole flow, menus included.
   sends each of them, then 3000 random messages of every routed type at
   any length. The handlers still to come (chat text, names, the lobby's
   lists, pieces 9-14) take the same care: sizes, NUL-ended strings, indices.
+- **Piece 8d** (2026-11-01, the soak's find): the pilot's respawn. The
+  dead list (0x0041e220) asks the pilot's game's 0x0046dde0 once the pilot
+  has been dead 7.1 s; the port's hook (`dead_calls().respawn`) was never
+  set, so a dead pilot stayed dead (a soak's four mechs were all down from
+  its second minute). Ported: 0x0046dde0 (`net_pilot_respawn`, set by
+  net_start and cleared by net_end): respawn off (+0x8c) clears +0x8e and
+  gives the view camera 4; on, the pilot's mech is made again (0x004783c0,
+  `program_pilot_set_mech`: the place, the facing, the team and the fire
+  mode kept, 0x004148c0 `mech_rebuild` in place, its loadout again
+  0x00414430, the view back in its mode, the HUD reset, powered up), its
+  team, unlimited ammo (+0x8d), the options (0x0040cb30), the cockpit's
+  explosion reset, the "remote_N" start farthest from the nearest remote
+  mech (0x0046e030, the squared flat distance), the lobby slot's spread,
+  the place, 0x12, the sensor range, the objectives again (0x00491050,
+  `Missions::objectives_again`), the force feedback. In the exe the
+  stealth object takes the view while the mech is made again, so the
+  weapons' adding asks no HUD of it; the port's target is none meanwhile
+  (the stealth object is not made). Tests: `test_mech_net_respawn.py`
+  (1500 respawns identical, 323 with respawn off; a break caught),
+  `net_pilot_respawns_c1mp1_headless` (both branches in c1mp1), and the
+  census in a network game, `program_hooks_set_in_a_network_game_headless`:
+  every hook hook_allow.txt lets be null for "multiplayer:" must be set
+  there (it fails with the respawn's hook unset). It found two such
+  entries wrong: [0x0060c0c8] (the quicksand veto) and [0x0072fcac] (the
+  shot gate) are read, null-checked, and never written by Mech3.exe, now
+  "never set:".
 
 ## Open
 

@@ -23,6 +23,7 @@
 #include "gamez/zutil/ztimer.h"
 #include "mech3/mech_config.h"
 #include "mech3/mech_dead.h"
+#include "mech3/mech_data.h"
 #include "mech3/mech_build.h"
 #include "mech3/mech_control.h"
 #include "mech3/mech_reader.h"
@@ -73,6 +74,9 @@ void net_start() {
   weapon_world().lock_targets = true;  // the same flag
   zeff::log_set_net(g_calls.anim_sent ? g_calls.anim_sent : net_anim_sent, 0xc);  // 0x0046feb0
   if (g_calls.game_clear) g_calls.game_clear();
+  // The dead list's respawn of the pilot (the exe's 0x0041e220 calls
+  // 0x0046dde0 in a network game): set while the network game runs (ours).
+  dead_calls().respawn = net_pilot_respawn;
   g_net.reckon_gain = -6.5f;
   g_net.reckon_damp = -0.3f;
 }
@@ -85,6 +89,7 @@ void net_end() {
   znet::off(1, ignore);
   znet::off(0xe, send_done);
   zdec::craters().veto = nullptr;
+  dead_calls().respawn = nullptr;
   g_net.running = false;
   weapon_world().lock_targets = false;
   if (g_calls.player_mech_end) g_calls.player_mech_end();
@@ -1034,6 +1039,59 @@ bool net_launch_player(Mech& m, const std::vector<uint32_t>& p, int32_t skin, bo
   net_spawn_offset(pos, slot);
   c.place ? c.place(m, pos, yaw) : m.set_place(pos, yaw);  // vtable +0xdc
   if (c.ff_spawn) c.ff_spawn();
+  return true;
+}
+
+// Mech3.exe 1.2 @ 0x0046dde0 (ECX the pilot, its mech `m`), from the dead
+// list once the pilot has been dead 7.1 s: with respawn off (+0x8c) the
+// player watches (+0x8e cleared, the view's camera 4) and stays dead.
+// Otherwise its mech is made again where it lay (0x004783c0), its team,
+// unlimited ammo (+0x8d) and options set again, the cockpit's explosion
+// reset, and it starts at the "remote_N" (N 0..15) farthest from every
+// remote mech (the nearest's flat distance, squared), moved by its lobby
+// slot; then 0x12 to all, its sensor range, the objectives again, the
+// force feedback. Whether it was made again (off the dead list).
+bool net_pilot_respawn(Mech& m) {
+  const NetCalls& c = g_calls;
+  NetGameFields* g = c.game ? c.game() : nullptr;  // the exe reads it unchecked: the dead list asks only in one
+  if (!g) return false;
+  if (!g->flags || !g->flags[0]) {
+    if (g->flags) g->flags[2] = 0;
+    if (c.view_camera) c.view_camera(4);
+    return false;
+  }
+  if (c.pilot_set_mech) c.pilot_set_mech(m, m.pilot ? m.pilot->roster : -1);  // 0x004783c0 with +0x684 +0xc
+  const uint32_t local = znet::local_id();
+  m.set_team(c.team_of ? c.team_of(local) : 0);  // 0x00435910, the masks, [0x0060b56c] = 0
+  if (c.unlimited) c.unlimited(m, g->flags[1] != 0);  // 0x004b0220 on +0xd4
+  else if (auto* w = static_cast<WeaponManager*>(m.ammo)) w->set_unlimited(g->flags[1] != 0);
+  if (c.options_apply) c.options_apply();  // 0x0040cb30
+  if (m.pilot && m.pilot->cockpit_explosion && m.pilot->cockpit_model)  // the exe reads +0x228 unchecked
+    mech_data_hooks().anim_restart(m.pilot->cockpit_explosion, m.pilot->cockpit_model->node);  // 0x00508460
+  const int32_t slot = c.start_of ? c.start_of(local) : 0;  // the lobby's record +0x20 (0x00495b10)
+  float pos[3] = {0, 0, 0}, yaw = 0, best = 0;
+  if (c.position) c.position(m, pos);  // 0x005a85e0: where it lay, without a start
+  for (int32_t i = 0; i < 0x10; ++i) {
+    char name[0x20];
+    std::snprintf(name, sizeof name, "remote_%d", i);  // [0x005e56e0]
+    float at[3], at_yaw = 0;
+    if (!c.spawn_point || !c.spawn_point(name, at, &at_yaw)) continue;  // 0x004e0680
+    float d = 1.0e8f;  // 0x0046e030: the nearest remote mech, squared flat
+    for (NetMech* o : g_net.mechs) {
+      float q[3] = {0, 0, 0};
+      if (c.position) c.position(*o, q);
+      const float dx = at[0] - q[0], dz = at[2] - q[2];
+      const float dd = dz * dz + dx * dx;
+      if (dd < d) d = dd;
+    }
+    if (d > best) best = d, std::memcpy(pos, at, sizeof pos), yaw = at_yaw;
+  }
+  net_spawn_offset(pos, slot);  // 0x0046e0a0
+  c.place ? c.place(m, pos, yaw) : m.set_place(pos, yaw);  // vtable +0xdc
+  net_send_event(m, 0x12, 0);  // vtable +0x168
+  if (c.sensor_range) c.sensor_range(m);  // 0x004d6d20 with its own +0x9c
+  if (c.objectives_again) c.objectives_again();  // 0x00491050
+  if (c.ff_respawn) c.ff_respawn();
   return true;
 }
 

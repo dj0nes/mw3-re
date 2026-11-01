@@ -2598,4 +2598,9 @@ Assigned after 8b2 merged (fd3f05f). The lead asked for a section stepped at bot
   minutes of the autopilots' fight, so kills are staged.
 - 8c: the lead's review items, FIX (A) for a peer's packets (fixes.md row,
   `net_hostile_peer_c1m1_headless`).
-- Next: piece 9 (the Multiplayer State and the connection screen).
+- 8d: the pilot's respawn 0x0046dde0 with the pilot's mech change 0x004783c0
+  and the rebuild in place 0x004148c0, the objectives again 0x00491050; the
+  hook census in a network game (multiplayer-port.md, piece 8d). Found
+  while porting: the rebuilt mech's weapons asked the HUD of a freed
+  manager (the exe's view is on the stealth object meanwhile).
+- Next: the 30-minute soak again, then piece 9.
