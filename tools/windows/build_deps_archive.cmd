@@ -44,6 +44,8 @@ echo built liblzma
 set OPTS=-DBUILD_SHARED_LIBS=OFF -DENABLE_TAR=OFF -DENABLE_CPIO=OFF -DENABLE_CAT=OFF -DENABLE_UNZIP=OFF -DENABLE_TEST=OFF -DENABLE_INSTALL=ON -DENABLE_ZLIB=ON -DENABLE_LZMA=ON -DENABLE_BZip2=OFF -DENABLE_ZSTD=OFF -DENABLE_LZ4=OFF -DENABLE_LIBB2=OFF -DENABLE_OPENSSL=OFF -DENABLE_MBEDTLS=OFF -DENABLE_NETTLE=OFF -DENABLE_CNG=OFF -DENABLE_LIBXML2=OFF -DENABLE_EXPAT=OFF -DENABLE_PCREPOSIX=OFF -DENABLE_PCRE2POSIX=OFF -DENABLE_ICONV=OFF -DENABLE_ACL=OFF -DENABLE_XATTR=OFF -DENABLE_LZO=OFF "-DZLIB_LIBRARY=%PREFIXF%/lib/zlibstatic.lib" "-DZLIB_INCLUDE_DIR=%PREFIXF%/include"
 call :build "%WORK%\libarchive-3.7.9" || exit /b 1
 echo built libarchive
+rem Their licences, for the package (linked into mw3.exe, so no DLL carries them).
+for %%l in ("libarchive-3.7.9 COPYING" "zlib-1.3.1 LICENSE" "xz-5.8.1 COPYING COPYING.0BSD") do call :licences %%~l || exit /b 1
 echo prefix: %PREFIX%
 exit /b 0
 
@@ -52,6 +54,17 @@ if not exist "%DL%\%1" curl -sSfL -o "%DL%\%1" %2 || exit /b 1
 for /f "usebackq delims=" %%h in (`powershell -NoProfile -Command "(Get-FileHash -Algorithm SHA256 '%DL%\%1').Hash.ToLower()"`) do set GOT=%%h
 if not "%GOT%"=="%3" (echo %1: sha256 %GOT%, pinned %3: refused & exit /b 1)
 exit /b 0
+
+:licences
+rem %1 a source folder, then its licence files
+set LIC=%PREFIX%\share\licenses\%1
+mkdir "%LIC%" 2>nul
+set SRCDIR=%WORK%\%1
+:licences_next
+shift
+if "%~1"=="" exit /b 0
+copy /y "%SRCDIR%\%~1" "%LIC%\" >nul || exit /b 1
+goto licences_next
 
 :build
 rem one library: %1 its source folder, OPTS its options

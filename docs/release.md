@@ -18,9 +18,10 @@ every box here is ticked:
       patch button gone (shown only for data of an unknown version).
 - [ ] The stealth object, BASIC and the Battlesport game editor ported as
       the original has them, on a debug key (--debug-camera).
-- [ ] SETUP takes any source foolproof: an install, a disc, .iso, .cue/.bin,
+- [x] SETUP takes any source foolproof: an install, a disc, .iso, .cue/.bin,
       .zip (nested too), .7z; maps it and installs without the player
-      unpacking anything.
+      unpacking anything (`docs/setup-sources.md`; the packages carry
+      libarchive, zlib and liblzma with their licences).
 - [x] The software renderer no longer offered anywhere in the menus.
 - [x] Every row in `docs/playtest.md` closed: fixed, by design or the
       original's, none open.

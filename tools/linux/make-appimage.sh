@@ -54,6 +54,8 @@ else
   done
 fi
 
+# libarchive, zlib and liblzma are linked in: build_deps.sh keeps their licences in the prefix.
+[ -d "$PREFIX/share/licenses" ] && cp -R "$PREFIX/share/licenses/." "$APPDIR/usr/share/doc/mw3/licenses/"
 # The libraries they load (SDL's from PREFIX), the desktop entry and icon.
 LD_LIBRARY_PATH="$PREFIX/lib:$LD_LIBRARY_PATH" "$TOOLS/linuxdeploy-x86_64.AppImage" --appdir "$APPDIR" $EXES \
   -d tools/linux/mw3.desktop -i tools/linux/mw3.png

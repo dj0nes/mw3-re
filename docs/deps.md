@@ -39,7 +39,11 @@ What is built:
   `tools\windows\build_deps_archive.cmd` (clang-cl, CMake, Ninja) into
   `deps\archive`. A development Mac may use Homebrew's libarchive instead
   (CMakeLists.txt finds either; without one SETUP takes folders, drives,
-  .iso and .cue only).
+  .iso and .cue only). Both scripts copy the three licences into the
+  prefix's `share/licenses/<name>-<version>/` (libarchive's COPYING, zlib's
+  LICENSE, xz's COPYING and COPYING.0BSD), from where each package takes
+  them: package.cmd (check_dist.ps1 refuses a package without them),
+  make_app.sh --deps and make-appimage.sh.
 - **SDL3**: shared, no tests or examples.
 - **FreeType** 2.13.2 (the version SDL3_ttf 3.2.2 vendors), static and
   position-independent, inside SDL3_ttf, with none of its optional
