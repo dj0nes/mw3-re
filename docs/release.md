@@ -26,6 +26,15 @@ every box here is ticked:
       unpacking anything (`docs/setup-sources.md`; the packages carry
       libarchive, zlib and liblzma with their licences).
 - [x] The software renderer no longer offered anywhere in the menus.
+- [ ] Moddable, simply (Owen, 2026-11-01): players and hobbyists can add
+      their own game data without any change to the exe later. A `mods/`
+      folder in the settings folder (one folder per mod, a small manifest,
+      mounted in front of the install in mw3.cfg's order, nothing written
+      into the install); new worlds, Instant Action maps, multiplayer maps
+      and a campaign declared by a mod (the 1.2 patch's add-on scan,
+      extended); a plain-text string file over Mech3Msg.dll's; readers that
+      refuse a broken file with a message, never crash; docs/modding.md and
+      `mw3 --check-mod DIR`. Nothing changes with no mods installed.
 - [x] Every row in `docs/playtest.md` closed: fixed, by design or the
       original's, none open.
 - [x] The community-reported problems (`docs/community-issues.md`) each
