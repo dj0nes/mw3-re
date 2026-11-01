@@ -16,8 +16,11 @@ every box here is ticked:
       the two-process and soak tests passing.
 - [x] The 1.2 patch rebuilt from 1.0 data (`docs/patch12.md`), and SETUP's
       patch button gone (shown only for data of an unknown version).
-- [ ] The stealth object, BASIC and the Battlesport game editor ported as
-      the original has them, on a debug key (--debug-camera).
+- [ ] The stealth object and BASIC ported as the original has them, its
+      fly camera on F11 under --debug-camera (docs/editor.md S1-S4). The
+      Battlesport editor's menus (the AI net editor, the vehicle editor) come
+      after v1.0, with Pirate's Moon, whose net editor changed (Owen,
+      2026-11-01).
 - [x] SETUP takes any source foolproof: an install, a disc, .iso, .cue/.bin,
       .zip (nested too), .7z; maps it and installs without the player
       unpacking anything (`docs/setup-sources.md`; the packages carry
