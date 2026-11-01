@@ -4005,3 +4005,30 @@ The screen after the pilot for INSTANT ACTION, 0x00488bc0 (details:
   call. The rebuild, with bug fixes on, keeps them where they are for the
   next mech.
 
+
+- **A multiplayer game has no debriefing.** When the time or score limit
+  ends a network game, the game saves your pilot and goes straight back
+  through the main menu to the lobby, where the SCORES box shows that
+  game's score, kills and suicides for each player. The host's options
+  are unlocked again, so the host locks them and starts the next game as
+  the first time. With "Allow Respawn" on, a destroyed mech fades away in
+  the last second before its pilot comes back. (docs/multiplayer-port.md,
+  piece 14c)
+
+- **1.2 still has a cause of flailing arms in multiplayer.** Each player's
+  'Mech on your screen aims its arms where that player aims, carried a
+  little ahead by the connection's measured lag. The game measures the lag
+  from its pings, and when a player's answer reports a delay longer than
+  the whole round trip (a stall or hiccup on their side), the subtraction
+  goes below zero. The game reads that as an unsigned number: a lag of
+  about 24 days. Until the next ping, that 'Mech's arms swing between
+  their limits whenever its aim changes, most of all while it slows down
+  or turns. The rebuild, with bug fixes on, takes it as no lag.
+  (docs/multiplayer-port.md, the 1.2 read-me's six)
+
+- **Leaving the map in multiplayer is an invisible objective.** Each
+  multiplayer map has a hidden "left mission boundaries" fail objective,
+  as the campaign missions do. In a network game a failed mission does not
+  end anything; instead your 'Mech's centre torso loses all its internal
+  structure, and it blows up (then respawns, if respawn is on).
+  (docs/multiplayer-port.md, the 1.2 read-me's six)

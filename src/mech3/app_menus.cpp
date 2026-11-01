@@ -174,6 +174,7 @@ struct Stretch {
   int32_t at;          // the column repeated, out to the right group
   int32_t from_y = 0;  // from this row down
   bool to_middle = false;  // the part right of `at` goes to the middle group, not the right
+  int32_t at2 = -1;        // a second column: `at`..`at2` to the middle group, past `at2` to the right
 };
 struct ScreenGroups {
   uint32_t ctor;  // the screen's constructor (GameEngine::construct)
@@ -222,6 +223,19 @@ const std::vector<ScreenGroups>& screen_groups() {
       {0x4289a0, {{0, 70, 1, 71, kLeft}}, {{0, 70, 431, 100, 0, true}}},
       // The salvage screen: one block on the debriefing's circuit board.
       {0x47d3b0, {}, {}, 0, 256, 160},
+      // The connection screen: NET NAME, SESSIONS, CANCEL and JOIN left;
+      // CONNECT, HOST SETUP and HOST right; the boxes' lines (one 610x345
+      // overlay) lengthened at column 300, which only the two links cross.
+      {0x493260, {{0, 0, 330, 480, kLeft}, {330, 0, 640, 480, kRight}}, {{0, 0, 610, 300}}},
+      // The lobby: GAME SETUP left, SCORES and CHAT in the middle, PLAYER
+      // SETUP right; along the bottom CANCEL and LOCK OPTIONS left, MECHLAB
+      // in the middle, I AM READY and START right. The columns' lines (one
+      // 640x480 overlay) widen the middle column at 202 and 412, inside its
+      // two dividers.
+      {0x495f90,
+       {{0, 400, 280, 480, kLeft}, {280, 400, 400, 480, kCentre}, {400, 400, 640, 480, kRight},
+        {0, 0, 200, 400, kLeft}, {415, 0, 640, 400, kRight}},
+       {{0, 0, 640, 202, 0, false, 412}}},
   };
   return k;
 }
@@ -255,7 +269,8 @@ void GameEngine::widen_screen(MenuScreen* s, uint32_t ctor) {
     // opens (prepare), already the canvas's width: left where they are.
     auto* lsp = dynamic_cast<LoadSavePopupScreen*>(s);
     auto* axp = dynamic_cast<AxisPopupScreen*>(s);
-    if ((lsp && o == &lsp->backdrop) || (axp && o == &axp->background)) continue;
+    auto* team = dynamic_cast<TeamScreen*>(s);  // the new team's dialog's: the same (0x00579500(2) as it enters)
+    if ((lsp && o == &lsp->backdrop) || (axp && o == &axp->background) || (team && o == &team->backdrop)) continue;
     if (im && !stretched && (right - left >= 600 || (img_w >= 600 && img_w <= 640))) {
       widen_background(*im, extra, table ? table->inset : 0, table ? table->shade0 : 150, table ? table->shade1 : 60);
       continue;
@@ -294,8 +309,14 @@ void GameEngine::widen_screen(MenuScreen* s, uint32_t ctor) {
     const int32_t off = a == kLeft ? 0 : a == kRight ? extra : extra / 2;
     if (im && im->image && table)
       for (const Stretch& st : table->stretches)
-        if (left == st.x && top == st.y && im->image->width == st.w)
-          stretch_image(*im, st.at, st.from_y, (st.to_middle ? extra / 2 : extra) - off);
+        if (left == st.x && top == st.y && im->image->width == st.w) {
+          if (st.at2 >= 0) {  // the right column first, so `at` still stands where it was
+            stretch_image(*im, st.at2, st.from_y, extra - extra / 2);
+            stretch_image(*im, st.at, st.from_y, extra / 2 - off);
+          } else {
+            stretch_image(*im, st.at, st.from_y, (st.to_middle ? extra / 2 : extra) - off);
+          }
+        }
     if (off) moves.push_back({o, o->get_x(), o->get_y(), off});
   }
   for (const bool controls : {true, false})
@@ -1285,7 +1306,16 @@ void GameEngine::multiplayer_switch(Handle state) {
   } else if (g->want == 2) {
     g->screen_ = g->screens[1];
     if (g->x19)
-      if (auto* l = dynamic_cast<LobbyScreen*>(screen_of(g->screens[1]))) l->enter();
+      if (auto* l = dynamic_cast<LobbyScreen*>(screen_of(g->screens[1]))) {
+        l->enter();
+        // Ours: each entry counted, and what the scores show (the after-game checks).
+        ++lobby_entries_;
+        if (!quiet) {
+          std::string t;
+          for (const std::string& x : l->shown_scores) t += (t.empty() ? "" : " | ") + x;
+          std::printf("mw3: lobby entered %d, scores: %s\n", lobby_entries_, t.empty() ? "none" : t.c_str());
+        }
+      }
   } else if (g->want == 3) {
     g->screen_ = g->screens[2];
     if (g->x19)

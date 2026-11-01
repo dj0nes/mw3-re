@@ -25,6 +25,7 @@ namespace zeff {
 
 namespace {
 const char kFile[] = "C:\\zipper\\GameZMech3\\zEffect\\zeff_anim_init.c";
+int32_t g_freed_defs = 0;  // ours: the defs anim_free_all has freed in all (the tests)
 AnimState g_anim;
 AnimHooks g_hooks{};
 
@@ -645,8 +646,9 @@ void anim_free_copies() {
 int32_t anim_free_all() {
   AnimState& a = g_anim;
   a.block.put<int32_t>(0x04, 0);  // 0x0073f724: the source list, dropped at the read (none kept)
-  a.block.put<int32_t>(0x08, 0);
+  a.block.put<int16_t>(0x08, 0);  // a word: the def count beside it (+0x0a) is the loop's
   for (int32_t i = 0; i < a.def_count(); ++i) anim_free(&a.defs[i], true);
+  g_freed_defs += a.def_count();
   delete[] a.defs;
   a.defs = nullptr;
   a.block.put<int16_t>(0x0a, 0);
@@ -659,6 +661,8 @@ int32_t anim_free_all() {
   zmod::puff_shutdown();
   return 0;
 }
+
+int32_t anim_freed_defs() { return g_freed_defs; }
 
 // Mech3.exe 1.2 @ 0x0050b430
 int32_t anim_shutdown() {

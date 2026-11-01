@@ -2652,4 +2652,10 @@ Assigned after 8b2 merged (fd3f05f). The lead asked for a section stepped at bot
   PICK_SKIN.
 - 14a done (multiplayer-port.md, 14a): zTwoD's console, the chat panel,
   the chat keys, the HUD's chat line.
-- Next: 14b (the multiplayer briefing), 14c (the debriefing's scores).
+- 14b checked (no code), 14c done (the way back to the lobby, the wreck's
+  fade), 16:9 for the multiplayer screens (multiplayer-port.md, 14b, 14c,
+  16:9). The whole-flow test and the 30-minute soak over the menu path;
+  the soak's leak (every mission's animations: a dword store over the def
+  count in 0x0050b380) fixed; the 1.2 read-me's six checks (two fixes: the
+  ping's latency, a Mac's keypad; the network loss ported).
+- Next: the lead's.

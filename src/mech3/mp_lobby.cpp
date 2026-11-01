@@ -404,13 +404,17 @@ void LobbyScreen::scores(bool report) {
   (void)report;
   scores_list.clear_items();
   scores_list.layout();
+  shown_scores.clear();
   if (!game) return;
   if (game->lobby_players.empty()) {
     scores_list.add_item(engine().message(0x2bd), 0);  // "  No Scores to report"
     return;
   }
   game->score_texts(0x15, 7);
-  for (const auto& l : game->score_lines) scores_list.add_item(l->text.c_str(), 0);
+  for (const auto& l : game->score_lines) {
+    scores_list.add_item(l->text.c_str(), 0);
+    shown_scores.push_back(l->text);
+  }
 }
 
 // Mech3.exe 1.2 @ 0x00498710: the records made again from the network's

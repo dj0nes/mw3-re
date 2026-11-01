@@ -168,7 +168,7 @@ struct Args {
   std::vector<Tap> taps;  // --tap DIK@N[:M]
   // group: a wide menu's left (0), middle (1) or right (2); players: N > 0
   // counts the frame from the first one the session holds N players (ours)
-  struct ClickAt { int frame, x, y, group = 0, players = 0; };
+  struct ClickAt { int frame, x, y, group = 0, players = 0, back = 0; };
   std::vector<ClickAt> clicks_at;  // --click-at X,Y@N (the game's 640 x 480 pixels)
   std::string briefing;  // --briefing NAME (ours): a campaign mission's briefing, as the menus reach it
   bool walk = false;  // --walk: full throttle (THROTTLE0's key) at the start (ours)
@@ -186,6 +186,9 @@ struct Args {
   // driven by a pattern; --net-soak a line of where every mech is each half
   // second, the scores at the game's end, and a quit at the menu after it.
   int net_wait = 0, net_minutes = 0;
+  int net_seconds = 0;  // --net-seconds: a network game the menus start lasts this long (each one)
+  int net_kill_at = 0;  // --net-kill-at S: a kill staged on the pilot S seconds (of 30 frames) into each such game
+  int net_walk[2] = {0, 0};  // --net-walk A,B: the throttle held up from A to B seconds (of 30 frames) into each
   long long net_drive = -1;
   bool net_staged = true;  // --net-staged 0: the drive stages no kills
   float net_ahead = 0;     // --net-ahead M: the pilot held M m from the nearest remote mech, facing it
@@ -206,7 +209,7 @@ void usage() {
       "mw3 [install-dir] [--install DIR | --install-from DISC|ISO|CUE [--install-to DIR]] [--assets DIR]... [--write-dir DIR] [--version]\n"
       "    [--mission NAME | --fly NAME [--variant BLOCK]] [--pos X Y Z] [--look YAW PITCH] [--vehicle-ahead M [--vehicle-hold]] [--turret-ahead M] [--mech-ahead M] [--dialog FILE NAME]\n"
       "    [--shot FILE.bmp [--shot-frame N] [--shot-any] [--shot-series K]] [--fire N [--fire-group 1..5]] [--objectives N] [--win N] [--lab-mech N]\n"
-      "    [--windowed] [--original] [--import | --no-import] [--no-launcher] [--wide-menus | --no-wide-menus] [--patch ZIP|DIR] [--vfw-helper EXE | --no-vfw-helper] [--briefing c1m2] [--click N[:M]] [--click-at X,Y@N]... [--click-players X,Y@N/P]... [--walk] [--tap DIK@N[:M]]... [--frames N] [--frame-ms N] [--frame-times N] [--seed N] [--window WxH] [--nosound] [--hidden] [--verbose]\n"
+      "    [--windowed] [--original] [--import | --no-import] [--no-launcher] [--wide-menus | --no-wide-menus] [--patch ZIP|DIR] [--vfw-helper EXE | --no-vfw-helper] [--briefing c1m2] [--click N[:M]] [--click-at X,Y@N]... [--click-players X,Y@N/P]... [--click-return X,Y@N]... [--walk] [--tap DIK@N[:M]]... [--frames N] [--frame-ms N] [--frame-times N] [--seed N] [--window WxH] [--nosound] [--hidden] [--verbose]\n"
       "    [-nofmv] [-seasick] [-cdN]\n"
       "See docs/program.md.\n");
 }
@@ -249,6 +252,9 @@ bool parse(int argc, char** argv, Args& a) {
     else if (s == "--net-bind" && next(1)) a.net_bind = argv[++i];
     else if (s == "--net-wait" && next(1)) a.net_wait = std::atoi(argv[++i]);
     else if (s == "--net-minutes" && next(1)) a.net_minutes = std::atoi(argv[++i]);
+    else if (s == "--net-seconds" && next(1)) a.net_seconds = std::atoi(argv[++i]);
+    else if (s == "--net-kill-at" && next(1)) a.net_kill_at = std::atoi(argv[++i]);
+    else if (s == "--net-walk" && next(1)) std::sscanf(argv[++i], "%d,%d", &a.net_walk[0], &a.net_walk[1]);
     else if (s == "--net-drive" && next(1)) a.net_drive = std::strtoll(argv[++i], nullptr, 10);
     else if (s == "--net-soak") a.net_soak = true;
     else if (s == "--net-staged" && next(1)) a.net_staged = std::atoi(argv[++i]) != 0;
@@ -277,6 +283,10 @@ bool parse(int argc, char** argv, Args& a) {
       Args::ClickAt c{};
       if (std::sscanf(argv[++i], "%d,%d@%d/%d", &c.x, &c.y, &c.frame, &c.players) == 4 && c.players > 0)
         a.clicks_at.push_back(c);
+    }
+    else if (s == "--click-return" && next(1)) {  // X,Y@N: N frames after each return to the lobby from a game
+      Args::ClickAt c{};
+      if (std::sscanf(argv[++i], "%d,%d@%d", &c.x, &c.y, &c.frame) == 3) c.back = 1, a.clicks_at.push_back(c);
     }
     else if (s == "--tap" && next(1)) {
       const char* v = argv[++i];
@@ -1247,10 +1257,43 @@ int run(const Args& a, platform::VideoForWindows* vfw) {
         // --net-soak (ours) in a network game the menus started: the soak's
         // line each half second in play (who each machine sees).
         static uint64_t s_menu_net_line_at = 0;
-        if (a.net_soak && a.mission.empty() && engine.launch().type == 3 && app.current() == &mech3::states().core &&
-            SDL_GetTicks() >= s_menu_net_line_at) {
-          s_menu_net_line_at = SDL_GetTicks() + 500;
-          std::printf("mw3: soak menus clock %.1f %s\n", mech3::missions().clock, mech3::program_net_soak_line().c_str());
+        // Each game's first Core frame: --net-seconds its clock; its end: any
+        // state but Core, the fade or the pause after it.
+        static bool s_menu_in_game = false, s_menu_killed = false;
+        static int s_menu_game_from = 0;
+        const bool menu_net = a.mission.empty() && engine.launch().type == 3;
+        if (menu_net && !s_menu_in_game && app.current() == &mech3::states().core) {
+          s_menu_in_game = true;
+          s_menu_killed = false;
+          s_menu_game_from = menu_frames;
+          if (a.net_seconds > 0) mech3::missions().clock = static_cast<float>(a.net_seconds), mech3::missions().clock_down = 1;
+          if (a.net_soak) std::printf("mw3: soak menus game in\n");
+        } else if (s_menu_in_game && app.current() != &mech3::states().core && app.current() != &mech3::states().fade &&
+                   app.current() != &mech3::states().pause) {
+          s_menu_in_game = false;
+          if (a.net_soak) std::printf("mw3: soak menus game over, rss %zu\n", sdlfe::resident_kb());  // its scores: the lobby's line
+        }
+        if (a.net_ahead > 0 && s_menu_in_game && app.current() == &mech3::states().core) mech3::program_net_hold_near(a.net_ahead);
+        // --net-walk: THROTTLE_UP (0x18) held in its window; let go, the
+        // throttle eases back to 0 (ThrottleConst off) and the mech stops.
+        static bool s_walk = false;
+        static bool s_walk_hooked = false;
+        s_walk = a.net_walk[1] > a.net_walk[0] && s_menu_in_game && menu_frames >= s_menu_game_from + 30 * a.net_walk[0] &&
+                 menu_frames < s_menu_game_from + 30 * a.net_walk[1];
+        if (a.net_walk[1] > a.net_walk[0] && !s_walk_hooked) {
+          s_walk_hooked = true;
+          mech3::controls_calls().command = [](int cmd) { return zin::command(cmd) | (s_walk && cmd == 0x18 ? 1u : 0u); };
+        }
+        if (a.net_kill_at > 0 && s_menu_in_game && !s_menu_killed && app.current() == &mech3::states().core &&
+            menu_frames >= s_menu_game_from + 30 * a.net_kill_at) {
+          s_menu_killed = true;
+          if (mech3::program_net_staged_kill()) std::printf("mw3: soak menus staged kill\n");
+        }
+        if (a.net_soak && menu_net && app.current() == &mech3::states().core &&
+            static_cast<uint64_t>(menu_frames) >= s_menu_net_line_at) {
+          s_menu_net_line_at = static_cast<uint64_t>(menu_frames) + 15;  // half a second of game time
+          std::printf("mw3: soak menus clock %.1f rss %zu %s\n", mech3::missions().clock, sdlfe::resident_kb(),
+                      mech3::program_net_soak_line().c_str());
         }
         // --click-players: the first frame each player count was reached.
         static int s_players_at[9] = {-1, -1, -1, -1, -1, -1, -1, -1, -1};
@@ -1259,6 +1302,14 @@ int run(const Args& a, platform::VideoForWindows* vfw) {
           if (s_players_at[n] < 0) s_players_at[n] = menu_frames;
         for (Args::ClickAt& c : clicks)
           if (c.players > 0) c.frame = c.players < 9 && s_players_at[c.players] >= 0 ? s_players_at[c.players] + c.frame : -100;
+        // --click-return: from the frame the lobby was last entered after a game.
+        static int s_entries = 0, s_back_at = -1;
+        if (engine.lobby_entries() != s_entries) {
+          s_entries = engine.lobby_entries();
+          if (s_entries >= 2) s_back_at = menu_frames;
+        }
+        for (Args::ClickAt& c : clicks)
+          if (c.back) c.frame = s_back_at >= 0 ? s_back_at + c.frame : -100;
         for (const Args::ClickAt& c : clicks) {
           // The cursor put on the point (zInput's 0x0051b440, the game's
           // 640 x 480 about its centre), then the press and the release.

@@ -12,7 +12,7 @@
 // (0x00470380, 0x00470490).
 namespace mech3 {
 
-class Mech;
+struct Mech;
 struct NetMech;
 
 // The panel (0x0041e5a0, vtable 0x005bd070), 0x720 bytes: "CHAT ALL" or

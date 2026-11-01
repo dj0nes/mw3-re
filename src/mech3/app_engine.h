@@ -385,6 +385,7 @@ class GameEngine : public Engine {
   static const char* known_unported(const std::string& key);
   void print_unported_summary() const;
   bool quiet = false;  // no log lines (tests)
+  int lobby_entries() const { return lobby_entries_; }  // ours: the lobby's page entered this many times
 
   // The memory of modules not ported: what is poked reads back.
   uint32_t peek32(uint32_t addr) override;
@@ -647,6 +648,7 @@ class GameEngine : public Engine {
   void screen_size(int32_t w, int32_t h, int32_t frame_w, int32_t frame_h);
   Platform p_;
   bool network_on_ = false;  // the app's +0x1bd (0x0047fc40)
+  int lobby_entries_ = 0;    // ours: the lobby's entries (multiplayer_switch), for the tests
   std::string command_line_;
   bool video_opened_ = false;
   std::map<std::string, uint32_t> counts_;

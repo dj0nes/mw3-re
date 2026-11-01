@@ -49,6 +49,7 @@
 #include "mech3/mech_dead.h"
 #include "mech3/app_sensors.h"
 #include "mech3/mech_net.h"
+#include "gamez/zutil/ztimer.h"
 #include "gamez/znetwork/znet_session.h"
 #include "gamez/znetwork/znet_dplay.h"
 #include "gamez/zutil/zutl_msgdll.h"
@@ -846,6 +847,10 @@ void wire_mech_parts() {
   DeadCalls& dc = dead_calls();
   dc.networked = [] { return mission_game_type() == 3; };       // 0x00479480
   dc.instant_action = [] { return mission_game_type() == 2; };  // 0x00479460
+  dc.net_fade = [] {  // [0x0060861c]+0x8c, ALLOW RESPAWN's: a network wreck fades out
+    const NetGameFields* g = net_calls().game ? net_calls().game() : nullptr;
+    return g && g->flags && g->flags[0] != 0;
+  };
   dc.node_set_active = [](Handle n, int32_t on) { zcls::node_set_active(zn(n), on); };
   dc.use_opacity = [](Handle n, int32_t on) { zcls::object3d_use_opacity(zn(n), on); };
   dc.set_opacity = [](Handle n, float v) { zcls::object3d_set_opacity(zn(n), v); };
@@ -1245,6 +1250,15 @@ void program_pilot_set_mech(int32_t roster) {
   if (auto* wm = static_cast<WeaponManager*>(m->ammo)) wm->mode = g_pilot_fire_mode;
 }
 
+int32_t program_mech_anim_state(const void* mech) {
+  return entity_is_mech(mech) ? static_cast<const Mech*>(mech)->anim_state : -1;
+}
+void* program_mech_part(void* mech, int32_t id) {
+  return entity_is_mech(mech) ? part_by_id(*static_cast<Mech*>(mech), id) : nullptr;
+}
+void program_part_set_internal(void* part, float v, int32_t section) {
+  if (part) static_cast<MechPart*>(part)->set_internal(v, section);
+}
 bool program_net_running() { return net_game().running; }
 bool program_pilot_alive(float* health, float pos[3]) {
   Mech* m = world().mission_player;
@@ -1291,8 +1305,13 @@ bool program_net_staged_kill() {
   return mech_hit_part(me, 6, 1.0e6f);  // the head
 }
 
+bool program_net_wreck_fades() {
+  const DeadCalls& dc = dead_calls();
+  return dc.net_fade && dc.net_fade();
+}
+
 std::string program_net_soak_line() {
-  char buf[128];
+  char buf[256];
   std::string s;
   Mech* me = launched_mech();
   float p[3] = {0, 0, 0};
@@ -1303,10 +1322,18 @@ std::string program_net_soak_line() {
                 p[0], p[1], p[2], me && me->active && me->anim_state != 10 ? 1 : 0, me ? me->heat : 0.0f,
                 me ? me->heat_state : 0u, me ? me->anim_state : 0, f[0], f[2], me ? mech_health(me) : 0.0f);
   s = buf;
+  if (me) {
+    std::snprintf(buf, sizeof buf, " gait %d arms %.4f %.4f %.4f %.4f", me->anim_index, me->arms[0] ? me->arms[0]->aim_pitch : 0.0f,
+                  me->arms[0] ? me->arms[0]->aim_yaw : 0.0f, me->arms[1] ? me->arms[1]->aim_pitch : 0.0f,
+                  me->arms[1] ? me->arms[1]->aim_yaw : 0.0f);
+    s += buf;
+  }
   for (NetMech* m : net_game().mechs) {
     mech_world_position(m, p);
-    std::snprintf(buf, sizeof buf, "; sees %u %.2f %.2f %.2f %d health %.3f", m->owner, p[0], p[1], p[2],
-                  (m->state.flags >> 1 & 1) ? 0 : 1, mech_health(m));
+    std::snprintf(buf, sizeof buf, "; sees %u %.2f %.2f %.2f %d health %.3f gait %d arms %.4f %.4f %.4f %.4f", m->owner,
+                  p[0], p[1], p[2], (m->state.flags >> 1 & 1) ? 0 : 1, mech_health(m), m->anim_index,
+                  m->arms[0] ? m->arms[0]->aim_pitch : 0.0f, m->arms[0] ? m->arms[0]->aim_yaw : 0.0f,
+                  m->arms[1] ? m->arms[1]->aim_pitch : 0.0f, m->arms[1] ? m->arms[1]->aim_yaw : 0.0f);
     s += buf;
   }
   return s;
@@ -1340,9 +1367,10 @@ bool program_net_game_over() {
   return up;
 }
 
-bool program_net_chat_check(NetChatSeen* out) {
-  Mech* me = launched_mech();
-  if (!me) return false;
+namespace {
+// The chat checks' session: hosting over a hub, Bob in with a mech of our
+// type 30 m to our right; his transport out.
+bool chat_session(Mech* me, znet::Transport** bob) {
   if (net_game().running) net_end();  // the launch's (a network debug start's), on its own session
   static znet::Hub* hub = nullptr;  // kept: the session is shut by the end
   delete hub;
@@ -1350,7 +1378,7 @@ bool program_net_chat_check(NetChatSeen* out) {
   znet::session() = znet::Session{};
   znet::initialise(hub->endpoint());
   if (!znet::host_session(znet::SessionDesc{}, "Host")) return false;
-  znet::Transport* b = hub->endpoint();
+  znet::Transport* b = *bob = hub->endpoint();
   if (!b->join("loopback") || b->create_player("Bob", "Bob") != 2) return false;
   // Bob's mech, as program_net_mech_check's (a player without one is not heard).
   if (me->config && me->pilot) {
@@ -1373,6 +1401,14 @@ bool program_net_chat_check(NetChatSeen* out) {
     b->send(1, state, sizeof state, true, nullptr);
     znet::poll(-1);
   }
+  return true;
+}
+}  // namespace
+
+bool program_net_chat_check(NetChatSeen* out) {
+  Mech* me = launched_mech();
+  znet::Transport* b = nullptr;
+  if (!me || !chat_session(me, &b)) return false;
   static std::vector<std::string> lines;
   lines.clear();
   NetCalls& c = net_calls();
@@ -1415,8 +1451,164 @@ bool program_net_chat_check(NetChatSeen* out) {
     if (pk.from == 1 && !pk.data.empty() && pk.data[0] == 0x1f) out->empty_sent = 1;
   c.hud_line = keep;
   if (me->chat) mech_chat_close(*me);
+  net_end();  // Bob's mech freed while the world stands (a next check's session would free it after)
   znet::shutdown();
   return true;
+}
+
+bool program_net_chat_respawn_check(NetChatRespawnSeen* out) {
+  Mech* me = launched_mech();
+  znet::Transport* b = nullptr;
+  if (!me || !chat_session(me, &b)) return false;
+  auto heard = [b](const char* text) {
+    bool got = false;
+    znet::Packet pk;
+    while (b->receive(&pk))
+      got |= pk.from == 1 && pk.data.size() > 8 && pk.data[0] == 0x1f &&
+             std::string(reinterpret_cast<const char*>(pk.data.data() + 8)) == text;
+    return got;
+  };
+  auto type = [](Mech* m, const char* text) {
+    for (const char* k = text; *k; ++k) m->chat->key(*k, 0);
+    m->chat->key('\r', 0x1c);
+  };
+  NetMech* bob = nullptr;
+  for (NetMech* m : net_game().mechs)
+    if (m->owner == 2) bob = m;
+  me->command(0x77);  // CHAT_ALL
+  if (bob && me->chat) {
+    me->chat->key('h', 0);  // part way through a line
+    bob->active = 0;        // Bob dead, then his respawn (0x12) at his place
+    float at[3];
+    mech_world_position(bob, at);
+    uint8_t msg[0x10] = {0x12, 0, 0x10, 0};
+    std::memcpy(msg + 4, at, 12);
+    b->send(1, msg, sizeof msg, true, nullptr);
+    znet::poll(-1);
+    for (NetMech* m : net_game().mechs) out->peer_rebuilt |= m->owner == 2 && m->active;
+    out->open_after_peer = me->chat != nullptr;
+    if (me->chat) type(me, "i");
+    out->sent_after_peer = heard("hi");
+    out->commands_after_peer = zin::current_map() && zin::current_map()->enabled;
+  }
+  me->command(0x77);
+  if (me->chat) {
+    me->chat->key('x', 0);
+    program_pilot_set_mech(me->pilot ? me->pilot->roster : 0);  // ours made again with the panel up
+    Mech* now = launched_mech();
+    out->own_closed = now && now->chat == nullptr;
+    out->commands_after_own = zin::current_map() && zin::current_map()->enabled;
+    if (now) {
+      now->command(0x77);
+      out->reopened = now->chat != nullptr;
+      if (now->chat) type(now, "back");
+      out->sent_after_own = heard("back");
+      if (now->chat) mech_chat_close(*now);
+    }
+  }
+  net_end();  // Bob's mech freed while the world stands (a next check's session would free it after)
+  znet::shutdown();
+  return true;
+}
+
+bool program_net_groups_check(NetGroupsSeen* out) {
+  Mech* me = launched_mech();
+  znet::Transport* b = nullptr;
+  if (!me || !chat_session(me, &b)) return false;
+  auto* wm = static_cast<WeaponManager*>(me->ammo);
+  if (!wm || wm->count < 2 || !wm->weapons[0] || !wm->weapons[1]) return false;
+  out->moved_from = wm->weapons[0]->group;
+  out->moved_to = (out->moved_from + 1) % 5;
+  wm->weapons[0]->set_group(out->moved_to);  // 0x004b1e10, as the group keys do
+  out->other_before = wm->weapons[1]->group;
+  const DeadCalls& dc = dead_calls();
+  out->respawned = dc.respawn && dc.respawn(*me);
+  Mech* now = launched_mech();
+  auto* w2 = now ? static_cast<WeaponManager*>(now->ammo) : nullptr;
+  if (w2 && w2->weapons[0]) out->after = w2->weapons[0]->group;
+  if (w2 && w2->weapons[1]) out->other_after = w2->weapons[1]->group;
+  net_end();  // Bob's mech freed while the world stands (a next check's session would free it after)
+  znet::shutdown();
+  return true;
+}
+
+bool program_net_pose_step(int32_t frame, NetPoseSeen* out) {
+  static znet::Transport* b = nullptr;
+  static float start[3], first_place[3][3], first_aim[3][4], last_aim[4];
+  Mech* me = launched_mech();
+  if (!me) return false;
+  if (frame == 0) {
+    if (!chat_session(me, &b)) return false;
+    mech_world_position(me, start);
+    start[0] += 30.0f;
+    out->ready = true;
+    return true;
+  }
+  if (!out->ready || frame > 240) return false;
+  NetMech* bob = nullptr;
+  for (NetMech* m : net_game().mechs)
+    if (m->owner == 2) bob = m;
+  if (!bob) return false;
+  if (frame == 1) {  // his answer to our ping, his delay past our round trip (a stall, a skewed clock)
+    const uint32_t now = net_calls().now_ms ? net_calls().now_ms() : ztimer::ticks_ms();
+    const uint32_t ans[5] = {0x10 | 0x14u << 16, 2, bob->ping_id, 0, now - bob->ping_sent + 5000};
+    b->send(1, ans, sizeof ans, true, nullptr);
+    znet::poll(-1);
+    out->latency = bob->latency;
+  }
+  const int ph = frame <= 60 ? 0 : frame <= 150 ? 1 : 2;
+  // His place: still, then 1/3 m a frame along -z (10 m/s), then still there.
+  const int walked = frame <= 60 ? 0 : frame <= 150 ? frame - 60 : 90;
+  NetStateIn st;
+  st.type = 0xf, st.size = sizeof st;
+  st.pos[0] = start[0], st.pos[1] = start[1], st.pos[2] = start[2] - walked / 3.0f;
+  if (ph == 1) st.vel[2] = static_cast<int16_t>(-10 * 127), st.throttle = static_cast<int8_t>(0.6f * 127);
+  st.aim[0] = 0.1f + 0.0005f * walked, st.aim[1] = -0.05f, st.range = 200.0f;  // walking, his aim drifts up
+  st.flags = static_cast<uint32_t>(me->anim_state & 0x1f) << 2;
+  b->send(1, &st, sizeof st, true, nullptr);
+  znet::poll(-1);
+  NetPoseSeen::Phase& p = out->phase[ph];
+  float at[3];
+  mech_world_position(bob, at);
+  const float aim[4] = {bob->arms[0] ? bob->arms[0]->aim_pitch : 0.0f, bob->arms[0] ? bob->arms[0]->aim_yaw : 0.0f,
+                        bob->arms[1] ? bob->arms[1]->aim_pitch : 0.0f, bob->arms[1] ? bob->arms[1]->aim_yaw : 0.0f};
+  if (p.frames++ == 0) {
+    std::memcpy(first_place[ph], at, sizeof at);
+    std::memcpy(first_aim[ph], aim, sizeof aim);
+  }
+  // Each phase's first frames settle: the aim's slerp (40), the gait's change
+  // (15), the stop's ease (70: his own throttle eases back as the owner's).
+  if (p.frames > (ph == 0 ? 40 : ph == 1 ? 15 : 70)) {
+    p.stand += bob->anim_index == 2;
+    p.walking += bob->anim_index != 2;
+    for (int i = 0; i < 4; ++i) {
+      p.aim_spread = std::max(p.aim_spread, std::fabs(aim[i] - first_aim[ph][i]));
+      p.aim_jump = std::max(p.aim_jump, std::fabs(aim[i] - last_aim[i]));
+    }
+  } else {
+    std::memcpy(first_aim[ph], aim, sizeof aim);
+  }
+  std::memcpy(last_aim, aim, sizeof aim);
+  p.moved = std::hypot(at[0] - first_place[ph][0], at[2] - first_place[ph][2]);
+  if (frame == 240) net_end(), znet::shutdown();  // its mechs freed while the world stands
+  return true;
+}
+
+bool program_chat_open() {
+  Mech* me = launched_mech();
+  if (!me) return false;
+  if (!me->chat) me->command(0x77);
+  return me->chat != nullptr;
+}
+std::string program_chat_line() {
+  Mech* me = launched_mech();
+  if (!me || !me->chat) return {};
+  const char* t = me->chat->editor ? me->chat->editor->text() : nullptr;
+  const char* gt = t ? std::strchr(t, '>') : nullptr;
+  return gt ? std::string(gt + 1 + (gt[1] == ' ')) : std::string(t ? t : "");
+}
+void program_chat_close() {
+  if (Mech* me = launched_mech(); me && me->chat) mech_chat_close(*me);
 }
 
 bool program_net_mech_check(NetMechSeen* out) {
