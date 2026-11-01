@@ -3400,6 +3400,68 @@ TEST(net_mech_made_from_a_record_c1m1_headless) {
   mech3::options() = mech3::Options{};
 }
 
+// Multiplayer piece 8c in a running mission (c1m1): a peer's packet is
+// untrusted (FIX (A), fixes.md). Over the hub, another player's network
+// mech made, it sends a crater on a ground past the table, effects naming
+// bad or free nodes and one with an unended name, a state saying more shots
+// than it holds, postures of no action, then 3000 random messages of every
+// routed type at any length. Each bad one stops at the edge; nothing crashes.
+TEST(net_hostile_peer_c1m1_headless) {
+  if (!have_game()) return;
+  SavedMounts keep;
+  zutl::mounts() = zutl::Mounts{};
+  zutl::mount(MW3_GAME_DIR);
+  zutl::set_write_dir(temp_dir("net_hostile_write"));
+  mech3::reset_states();
+  reset_process_state();
+  mech3::missions() = mech3::Missions{};
+  mech3::mech_types_forget();
+  mech3::options() = mech3::Options{};
+  FakeWindow window;
+  FakeAlert alert;
+  FakeClock clock;
+  FakeScreen screen;
+  platform::SilentSoundOutput sound;
+  mech3::MountFiles files;
+  mech3::Platform p;
+  p.window = &window, p.alert = &alert, p.clock = &clock, p.movie_clock = &fast_movie_clock(), p.screen = &screen, p.sound = &sound, p.files = &files;
+  {
+    mech3::GameEngine engine(p, "mech3.exe -nofmv");
+    engine.quiet = true;
+    mech3::Mech3App app(&engine);
+    mech3::set_app(&app);
+    EXPECT(app.init_instance());
+    mech3::GameEngine::Launch l;
+    engine.set_launch(l);
+    engine.missions_start(0x6098d0);
+    EXPECT(!mech3::missions().failed);
+    const int32_t cap = zmod::materials().capacity;
+    EXPECT(cap > 0 && zmod::take_material(cap) == nullptr && zmod::take_material(cap + 5000) == nullptr);
+    EXPECT(zmod::take_material(0) != nullptr);
+    mech3::NetHostileSeen seen;
+    EXPECT(mech3::program_net_hostile_check(&seen));
+    std::printf("  craters %d bad / %d good, effects %d bad / %d good (name ended %d), fires %d of 127, actions %d, fuzzed %d\n",
+                seen.craters_bad, seen.craters_good, seen.effects_bad, seen.effect_good, seen.name_ended, seen.fires,
+                seen.actions_queued, seen.fuzzed);
+    EXPECT(seen.made == 1);
+    EXPECT(seen.craters_bad == 0 && seen.craters_good == 1);
+    EXPECT(seen.effects_bad == 0 && seen.effect_good == 1 && seen.name_ended == 1);
+    EXPECT(seen.fires == 4);
+    EXPECT(seen.actions_queued == 0);
+    EXPECT(seen.fuzzed > 2500);
+    mech3::missions().cleanup(false);
+    app.stop_game();
+    app.exit_instance();
+    mech3::set_app(nullptr);
+  }
+  zrdr::close_archives(true);
+  mech3::reset_states();
+  reset_process_state();
+  mech3::missions() = mech3::Missions{};
+  mech3::mech_types_forget();
+  mech3::options() = mech3::Options{};
+}
+
 // Multiplayer piece 8 in a running mission (c1m1): the network game's end
 // (0x004707c0) fades to the Multi-Exit State, which unloads the mission and
 // goes to the main menu; the network game is over.

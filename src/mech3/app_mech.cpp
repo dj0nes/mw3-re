@@ -29,6 +29,7 @@
 #include "gamez/zclass/object3d.h"
 #include "gamez/zmath/zmth_matrix.h"
 #include "gamez/zmodel/gmod_matl.h"
+#include "gamez/zeffect/zeff_anim_save.h"
 #include "gamez/zclass/class.h"
 #include "gamez/zclass/cls_util.h"
 #include "gamez/zclass/list.h"
@@ -1296,6 +1297,117 @@ bool program_net_mech_check(NetMechSeen* out) {
   out->after_leave = static_cast<int32_t>(net_game().mechs.size());
   net_end();
   out->handlers_after = static_cast<int32_t>(znet::session().handlers.size() - before);
+  znet::shutdown();
+  return true;
+}
+
+bool program_net_hostile_check(NetHostileSeen* out) {
+  Mech* me = launched_mech();
+  if (!me || !me->config || !me->pilot) return false;
+  znet::Hub hub;
+  znet::session() = znet::Session{};
+  znet::initialise(hub.endpoint());
+  if (!znet::host_session(znet::SessionDesc{}, "Host")) return false;
+  znet::Transport* b = hub.endpoint();
+  if (!b->join("loopback") || b->create_player("Bob", "Bob") != 2) return false;
+  const std::vector<uint32_t> p = me->config->packed();
+  const uint32_t n = p[0] & 0xffff;
+  std::vector<uint8_t> rec(n + 0xc, 0);
+  const int32_t head[3] = {2, 0, me->pilot->roster};
+  std::memcpy(rec.data(), head, 0xc);
+  std::memcpy(rec.data() + 0xc, p.data(), n);
+  b->set_data(false, 2, rec.data(), static_cast<uint32_t>(rec.size()));
+  znet::poll(-1);
+  net_start();
+  float at[3];
+  mech_world_position(me, at);
+  at[0] += 30.0f;
+  uint8_t state[0x40] = {0x0f, 0, 0x40, 0};
+  std::memcpy(state + 4, at, 12);
+  auto send = [&](const void* m, size_t size) {
+    b->send(1, m, static_cast<uint32_t>(size), true, nullptr);
+    znet::poll(-1);
+  };
+  send(state, sizeof state);
+  NetMech* m = net_mech(2);
+  if (m) {
+    out->made = 1;
+    NetCalls& c = net_calls();
+    const NetCalls kept = c;
+    static int32_t s_craters, s_effects, s_fires;
+    static char s_last31;
+    c.crater_make = [](const zwep::CraterOrder*) -> int32_t { return ++s_craters, 1; };
+    c.log_has = [](const zeff::AnimLogRecord* r) { return ++s_effects, s_last31 = r->name[0x1f], true; };
+    c.fire = [](NetMech&, uint32_t, uint32_t, int32_t) { ++s_fires; };
+    // The crater (0x19, from the host's side: made and resent unless bit 7).
+    auto crater = [&](uint32_t material) {
+      uint8_t q[0x1c] = {0x19, 0, 0x1c, 0};
+      std::memcpy(q + 8, &material, 4);
+      const float r = 5.0f;
+      std::memcpy(q + 0xc, at, 12), std::memcpy(q + 0x18, &r, 4);
+      send(q, sizeof q);
+    };
+    s_craters = 0;
+    crater(static_cast<uint32_t>(zmod::materials().capacity));
+    crater(0x7fffffffu);
+    out->craters_bad = s_craters;
+    s_craters = 0;
+    crater(0);
+    out->craters_good = s_craters;
+    // The effect (0x1a): the record after the header.
+    auto effect = [&](int32_t type, int32_t node, uint32_t arg0, bool long_name) {
+      uint8_t q[0x54] = {0x1a, 0, 0x54, 0};
+      zeff::AnimLogRecord r;
+      r.type = type, r.node = node, r.args[0] = arg0, r.args[4] = static_cast<uint32_t>(-1);
+      std::memset(r.name, 'A', long_name ? sizeof r.name : 4);
+      std::memcpy(q + 4, &r, sizeof r);
+      send(q, sizeof q);
+    };
+    const zcls::NodePool& pool = zcls::nodes();
+    s_effects = 0;
+    effect(2, -5, 0, false);
+    effect(2, static_cast<int32_t>(pool.blocks.size()) * pool.block_size, 0, false);
+    if (pool.free_head >= 0) effect(2, pool.free_head, 0, false);
+    effect(3, -1, static_cast<uint32_t>(-7), false);
+    out->effects_bad = s_effects;
+    s_effects = 0, s_last31 = 'A';
+    effect(2, -1, 0, true);
+    out->effect_good = s_effects;
+    out->name_ended = s_effects == 1 && s_last31 == 0;
+    // A state saying 127 shots (flags bits 12..18) in a message holding 4.
+    uint8_t shots[0x40] = {0x0f, 0, 0x40, 0};
+    std::memcpy(shots + 4, at, 12);
+    const uint32_t f = 127u << 12;
+    std::memcpy(shots + 0x38, &f, 4);
+    s_fires = 0;
+    send(shots, sizeof shots);
+    out->fires = s_fires;
+    // Postures (0x17) of no action.
+    const size_t before = m->actions.size();
+    for (int32_t kind : {1000, -3, 10}) {
+      uint8_t q[8] = {0x17, 0, 8, 0};
+      std::memcpy(q + 4, &kind, 4);
+      send(q, sizeof q);
+    }
+    out->actions_queued = static_cast<int32_t>(m->actions.size() - before);
+    c = kept;
+    // Every routed type, any length to 0x60, random bytes: none may crash. The
+    // game's clock (0x11) and a leave are left out: they end what is tested.
+    static const uint16_t kTypes[] = {0xf, 0x10, 0x12, 0x13, 0x14, 0x16, 0x17, 0x18, 0x19, 0x1a, 0x1b, 0x1f, 0x21};
+    uint32_t seed = 12345;
+    auto next = [&seed] { return seed = seed * 1103515245u + 12345u, seed >> 8; };
+    for (int i = 0; i < 3000; ++i) {
+      std::vector<uint8_t> q(next() % 0x61);
+      for (uint8_t& v : q) v = static_cast<uint8_t>(next());
+      const uint16_t type = kTypes[next() % std::size(kTypes)];
+      if (q.size() >= 2) q[0] = static_cast<uint8_t>(type), q[1] = static_cast<uint8_t>(type >> 8);
+      if (q.size() >= 4 && next() % 2) q[2] = static_cast<uint8_t>(q.size()), q[3] = 0;
+      if (q.size() >= 2) send(q.data(), q.size()), ++out->fuzzed;
+    }
+  }
+  b->close();
+  znet::poll(-1);
+  net_end();
   znet::shutdown();
   return true;
 }

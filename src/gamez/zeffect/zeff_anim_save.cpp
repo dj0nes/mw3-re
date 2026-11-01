@@ -224,10 +224,12 @@ void save_node(uint8_t* p, zcls::Node* n, bool model) {
 }
 
 // FIX (bug): a node index read from a saved game, as 0x004fe1d0 takes it,
-// but one past the pool (a damaged save) is no node instead of memory past it.
+// but one past the pool (a damaged save) is no node instead of memory past it;
+// FIX (A): a peer's effect record (0x1a) names them too (fixes.md). Below 0
+// none, as 0x004fe1d0 answers any negative one.
 zcls::Node* saved_node(int32_t i) {
   const zcls::NodePool& p = zcls::nodes();
-  if (i >= static_cast<int32_t>(p.blocks.size()) * p.block_size) return nullptr;
+  if (i < 0 || i >= static_cast<int32_t>(p.blocks.size()) * p.block_size) return nullptr;
   return zcls::node_at(i);
 }
 

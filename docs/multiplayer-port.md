@@ -674,6 +674,18 @@ Then the two-process and soak tests over the whole flow, menus included.
   and the host told only players already made of a new one, so the two
   never met; the host's answer to a player's creation (kId) now lists the
   players made since (`net_enet_two_joining_at_once_meet`, failing before).
+- **Piece 8c** (2026-11-01, the lead's review): a peer's packet is
+  untrusted over the internet; the exe trusted DirectPlay's peers. FIX (A)
+  (fixes.md): a crater on a ground past the material table is dropped, and
+  0x00536070 answers none past the table; an effect record's name is ended
+  at its 32nd byte and its nodes (its own, a connector's one or two) must be
+  -1 or live (0x004fe1d0 answers null for any negative index, as the exe:
+  `saved_node` says so too); a state's shots stop at the message's end; a
+  posture's kind outside 1..9 queues nothing. `net_hostile_peer_c1m1_headless`
+  sends each of them, then 3000 random messages of every routed type at
+  any length. The handlers still to come (chat text, names, the lobby's
+  lists, pieces 9-14) take the same care: sizes, NUL-ended strings, indices.
+
 ## Open
 
 - The COM object at [0x007307e0] (CLSID 3faf0afe-...): what it is and

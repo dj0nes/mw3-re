@@ -1,6 +1,7 @@
 #include "mech3/mech_move.h"
 
 #include <cmath>
+#include <iterator>
 
 #include "crt/msvc_rand.h"
 #include "gamez/zutil/zfix.h"
@@ -508,9 +509,11 @@ bool Mech::vital_part_lost() const {
 }
 
 // Mech3.exe 1.2 @ 0x00416780. Remote mechs take actions only from the
-// network (force); the same kind twice in a row is dropped.
+// network (force); the same kind twice in a row is dropped. FIX (A): a
+// kind past the table is none (a peer's 0x17 names any, fixes.md).
 bool Mech::queue_action(int kind, bool force) {
-  if (!kind || !action_objects[kind] || anim_state == kDead) return false;
+  if (kind <= 0 || kind >= static_cast<int>(std::size(action_objects)) || !action_objects[kind] || anim_state == kDead)
+    return false;
   if (remote && !force) return false;
   if (!actions.empty() && actions.back() == kind) return false;
   actions.push_back(kind);

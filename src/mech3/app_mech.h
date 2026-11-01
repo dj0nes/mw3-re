@@ -63,6 +63,19 @@ struct NetMechSeen {
   int32_t respawned = 0;   // dead (inactive), a 0x12 20 m on: made again in place, active, there, still remote
 };
 bool program_net_mech_check(NetMechSeen* out);
+// Ours, for the tests (piece 8c): another player over the hub, with its
+// network mech made, sends what a hostile or broken peer could. Each count
+// is what reached the handler's next step.
+struct NetHostileSeen {
+  int32_t made = 0;
+  int32_t craters_bad = -1, craters_good = -1;   // a ground past the table; ground 0
+  int32_t effects_bad = -1, effect_good = -1;    // nodes -5, past the pool, free, a connector's -7; node -1
+  int32_t name_ended = 0;                        // a 32-letter name with no NUL: ended at [0x1f]
+  int32_t fires = -1;                            // a state saying 127 shots, holding 4
+  int32_t actions_queued = -1;                   // postures 1000 and -3
+  int32_t fuzzed = 0;                            // random messages of every routed type, any length, sent
+};
+bool program_net_hostile_check(NetHostileSeen* out);
 // Ours, for the tests (piece 8): a network game started over the hub in the
 // mission that is up, then its end (0x004707c0). Whether the game was up.
 bool program_net_game_over();

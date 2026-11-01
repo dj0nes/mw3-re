@@ -7,6 +7,7 @@
 #include <cstring>
 #include <new>
 
+#include "gamez/zclass/cls_node.h"
 #include "gamez/zdeclient/zdec_crater.h"
 #include "gamez/zweapon/zweapon.h"
 #include "mech3/mech_fieldbase.h"
@@ -521,7 +522,9 @@ void net_state_apply(NetMech& m, const uint8_t* msg, size_t size) {
       const uint8_t* part = shots == 0 ? msg + 0x3c : shots + 0x3c < full ? msg + 0x3c + shots : nullptr;
       if (!inactive && shot) {
         auto* w = static_cast<WeaponManager*>(m.ammo);
-        for (uint32_t k = 0; k < shots; ++k) {
+        // FIX (A): a peer's packet is untrusted over the internet (the exe
+        // trusted DirectPlay's peers): the shots it holds, not the count's (fixes.md).
+        for (uint32_t k = 0; k < shots && 0x3c + k < full; ++k) {
           const uint8_t b = shot[k];
           const uint32_t at = b & 0x40 ? st.target : 0;  // a player id, as the exe passes it
           if (c.fire) c.fire(m, b & 0xf, at, b >> 4 & 3);
@@ -842,6 +845,14 @@ void net_crater_in(const uint8_t* msg, size_t size) {
   const bool host = znet::is_host();
   if (!host && !(m.flags & 0x80)) return;
   const auto index = static_cast<int32_t>(m.material);
+  // FIX (A): a peer's packet is untrusted over the internet (the exe trusted
+  // DirectPlay's peers): a ground past the table, a place beyond 100 km or
+  // no number, a radius under 0.25 m (its points all repeat: the clipper
+  // reads an empty region) or over 64 m is no crater (fixes.md).
+  if (!g_calls.take_material && index >= zmod::materials().capacity) return;
+  for (float v : m.at)
+    if (!(std::fabs(v) <= 1.0e5f)) return;
+  if (!(std::fabs(m.radius) >= 0.25f && std::fabs(m.radius) <= 64.0f)) return;
   o.material = g_calls.take_material ? g_calls.take_material(index) : zmod::take_material(index);  // 0x00536070
   o.radius = -m.radius;
   o.at = {m.at[0], m.at[1], m.at[2]};
@@ -895,6 +906,21 @@ void net_effect_in(const uint8_t* msg, size_t size) {
   zeff::AnimLogRecord r;
   std::memset(&r, 0, sizeof r);
   if (size > 4) std::memcpy(&r, msg + 4, std::min(size - 4, sizeof r));
+  // FIX (A): a peer's packet is untrusted over the internet (the exe trusted
+  // DirectPlay's peers): its def's name ends in the record, and the nodes it
+  // names (its own, a connector's two) are none (-1) or live ones (fixes.md).
+  r.name[sizeof r.name - 1] = 0;
+  if (!g_calls.log_replay) {
+    auto live = [](int32_t i) {
+      const zcls::NodePool& p = zcls::nodes();
+      if (i == -1) return true;
+      if (i < 0 || i >= static_cast<int32_t>(p.blocks.size()) * p.block_size) return false;
+      return (zcls::node_at(i)->link & zcls::kNodeLive) != 0;
+    };
+    if (!live(r.node)) return;
+    if ((r.type == 3 || r.type == 4) && !live(static_cast<int32_t>(r.args[0]))) return;
+    if (r.type == 4 && !live(static_cast<int32_t>(r.args[4]))) return;
+  }
   if (g_calls.log_has ? g_calls.log_has(&r) : zeff::log_has(&r)) return;  // 0x0050b680
   g_net.echo = 1;
   g_calls.log_replay ? g_calls.log_replay(&r) : (void)zeff::log_replay(&r);  // 0x0050ca90

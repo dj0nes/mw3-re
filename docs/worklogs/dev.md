@@ -2585,7 +2585,7 @@ Assigned after 8b2 merged (fd3f05f). The lead asked for a section stepped at bot
 - In the c1m1 test, Missions::loaded stays set after cleanup (as the exe's
   +0x5c); the test checks the load event (`done`) instead.
 
-## Multiplayer, piece 8b: the soak test (2026-11-01)
+## Multiplayer, pieces 8b and 8c: the soak test, a peer's packets (2026-11-01)
 
 - 8b: the debug start's network game (`--mission c1mp1 --host|--join`,
   `--net-wait`, `--net-minutes`, `--net-drive`, `--net-soak`; Launch::multi,
@@ -2596,4 +2596,6 @@ Assigned after 8b2 merged (fd3f05f). The lead asked for a section stepped at bot
   network game's end passes Multi-Exit and the main menu within a frame on
   to the Multiplayer State; landing hits do about 0.4% damage in two
   minutes of the autopilots' fight, so kills are staged.
+- 8c: the lead's review items, FIX (A) for a peer's packets (fixes.md row,
+  `net_hostile_peer_c1m1_headless`).
 - Next: piece 9 (the Multiplayer State and the connection screen).

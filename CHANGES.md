@@ -576,4 +576,5 @@ Known quirks the rebuild deliberately keeps:
 - With bug fixes on, other players' aim is carried forward by the measured lag as intended (the original mixed seconds and milliseconds, so it barely moved).
 - With bug fixes on, a player whose mech is shoved to death by another player's collision credits that player with the kill.
 - A multiplayer clock message that would end the game outside a network game is ignored instead of crashing.
+- Messages from other players are checked before they are used, as anyone on the internet can send anything: a crater on ground that does not exist, an effect on objects that do not exist, more shots than a message holds, or a move the mech does not have are dropped instead of reading or writing past the game's tables.
 - The multiplayer host no longer re-checks its locked game rules every 51 seconds (a guard against memory editing that ended the game).
