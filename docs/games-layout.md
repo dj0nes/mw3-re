@@ -47,7 +47,8 @@ own MW3 or PM files) and keeps its own settings and saves.
 - Until MW3 is tagged `v1.0` (`release.md`, "MW3 v1.0"), `main` is MW3
   only and PM work stays on the branch `mac5/pm`.
 - Before `v1.0` the launcher moves into its own program, so MW3's final
-  layout is this one from the start.
+  layout is this one from the start. Done 2026-11-01: `mw3launcher`
+  (launcher.md, The two programs); `mw3pm` has its greyed entry until then.
 - After `v1.0`, `mac5/pm` merges into `main` (after the full MW3
   differential set passes on it, `pm-map.md`), and both games live on
   `main` from then on. One branch per game would mean merging every

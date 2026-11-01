@@ -13,7 +13,7 @@ class RunLog {
   // The log in `dir`; false (and no log) when it cannot be made. The console
   // keeps every line as before.
   RunLog();
-  bool open(const std::string& dir);
+  bool open(const std::string& dir, const std::string& name = "mw3");  // <name>.log, <name>.old.log
   ~RunLog();  // the last lines written, the console's own handles back
   const std::string& path() const { return path_; }
 

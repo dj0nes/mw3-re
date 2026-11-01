@@ -27,7 +27,7 @@ rem The build, from scratch each time so the version and the switches are this c
 if exist build-win-pkg rmdir /s /q build-win-pkg
 cmake -S . -B build-win-pkg -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=clang-cl -DCMAKE_CXX_COMPILER=clang-cl ^
   -DMW3_PACKAGE=ON "-DSDL3_DIR=%SDL3_DIR%" "-DSDL3_ttf_DIR=%SDL3_ttf_DIR%" || exit /b 1
-cmake --build build-win-pkg --target mw3 mw3import || exit /b 1
+cmake --build build-win-pkg --target mw3 mw3launcher mw3import || exit /b 1
 if not exist build-win-pkg\mw3import.exe (echo mw3import.exe was not built: FFmpeg's shared build is missing from deps\ ^(docs/windows.md^). & exit /b 1)
 rem The helper, 32-bit (its own vcvarsall x86, in a child shell).
 cmd /c tools\windows\build_indeo.cmd build-win-pkg || exit /b 1
@@ -42,6 +42,7 @@ mkdir "%DIST%\licenses" || exit /b 1
 
 rem The three programs and the DLLs their builds copied beside them.
 copy /y build-win-pkg\mw3.exe "%DIST%\" >nul || exit /b 1
+copy /y build-win-pkg\mw3launcher.exe "%DIST%\" >nul || exit /b 1
 copy /y build-win-pkg\mw3indeo.exe "%DIST%\" >nul || exit /b 1
 copy /y build-win-pkg\mw3import.exe "%DIST%\" >nul || exit /b 1
 copy /y build-win-pkg\*.dll "%DIST%\" >nul || exit /b 1

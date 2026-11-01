@@ -86,7 +86,8 @@ tree with `MW3_PACKAGE`, then linuxdeploy (the libraries `mw3` and
 `mw3import` load, SDL's from PREFIX) and appimagetool, both from their
 GitHub releases (continuous). In the AppDir:
 
-- `usr/bin/mw3`, `usr/bin/mw3import` when built, and
+- `usr/bin/mw3launcher` (the entry: mw3.desktop's Exec), `usr/bin/mw3`,
+  `usr/bin/mw3import` when built, and
   `usr/bin/assets/launcher/` (the launcher's art, where `SDL_GetBasePath`
   finds it);
 - `usr/share/doc/mw3/`: README.txt, THIRD-PARTY.txt, LICENSE.txt, the SDL

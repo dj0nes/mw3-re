@@ -21,6 +21,10 @@ foreach ($bin in Get-ChildItem -LiteralPath $Dist -File | Where-Object { $_.Exte
 }
 $game = Get-ChildItem -LiteralPath $Dist -Recurse -File |
   Where-Object { $_.Extension -in '.zbd', '.avi', '.fmv', '.m1v', '.ttf', '.zrd', '.wav', '.ogg', '.flac' -or $_.Name -ieq 'mech3.exe' }
+# The launcher (the main shortcut) and the game it starts.
+foreach ($exe in 'mw3launcher.exe', 'mw3.exe') {
+  if (-not (Test-Path -LiteralPath (Join-Path $Dist $exe))) { $missing += "$exe (the program itself)" }
+}
 # The libraries linked into mw3.exe carry no file of their own: their licences must be there.
 foreach ($lib in 'libarchive-*', 'zlib-*', 'xz-*') {
   $dir = Get-ChildItem -LiteralPath (Join-Path $Dist 'licenses') -Directory -Filter $lib -ErrorAction SilentlyContinue

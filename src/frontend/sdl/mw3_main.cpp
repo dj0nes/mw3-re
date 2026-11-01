@@ -151,10 +151,7 @@ struct Args {
   int click = 0, click_up = 0, shot_series = 0;
   bool no_import = false, force_import = false;  // --no-import, --import (ours: first_run_import.h)
   bool no_launcher = false;   // --no-launcher (ours: launcher.h): no SETUP screen, the old dialog if there is no install
-  bool launcher = false;      // --launcher: the launcher's main screen first (its own program after the split)
-  std::string launcher_shot, launcher_screen = "main";  // --launcher-shot FILE [--launcher-screen NAME]
-  bool launcher_play = false;  // --launcher-play: the launcher shown, MECHWARRIOR 3 pressed at once (checks)
-  bool launcher_mw1 = false;   // --launcher-mw1: likewise MECHWARRIOR (1989), the launcher quit when it returns
+  std::string ready_file;     // --ready-file F (ours, sdl_child.h): written at the first frame shown, for mw3launcher
   std::string vfw_helper;     // --vfw-helper EXE (ours, sdl_vfw.h): the movies' Video for Windows helper; "-" none
   std::string patch;          // --patch PATH (ours, patch_import.h): the official 1.2 patch into the write dir's overlay
   std::string install_from, install_to;  // --install-from PATH, --install-to DIR (ours, disc_install.h)
@@ -207,7 +204,7 @@ void usage() {
       "mw3 [install-dir] [--install DIR | --install-from DISC|ISO|CUE [--install-to DIR]] [--assets DIR]... [--write-dir DIR] [--version]\n"
       "    [--mission NAME | --fly NAME [--variant BLOCK]] [--pos X Y Z] [--look YAW PITCH] [--vehicle-ahead M [--vehicle-hold]] [--turret-ahead M] [--mech-ahead M] [--dialog FILE NAME]\n"
       "    [--shot FILE.bmp [--shot-frame N] [--shot-any] [--shot-series K]] [--fire N [--fire-group 1..5]] [--objectives N] [--win N] [--lab-mech N]\n"
-      "    [--windowed] [--original] [--import | --no-import] [--launcher | --no-launcher] [--launcher-shot FILE [--launcher-screen main|setup|work|notes]] [--launcher-play] [--launcher-mw1] [--wide-menus | --no-wide-menus] [--patch ZIP|DIR] [--vfw-helper EXE | --no-vfw-helper] [--briefing c1m2] [--click N[:M]] [--click-at X,Y@N]... [--walk] [--tap DIK@N[:M]]... [--frames N] [--frame-ms N] [--frame-times N] [--seed N] [--window WxH] [--nosound] [--hidden] [--verbose]\n"
+      "    [--windowed] [--original] [--import | --no-import] [--no-launcher] [--wide-menus | --no-wide-menus] [--patch ZIP|DIR] [--vfw-helper EXE | --no-vfw-helper] [--briefing c1m2] [--click N[:M]] [--click-at X,Y@N]... [--walk] [--tap DIK@N[:M]]... [--frames N] [--frame-ms N] [--frame-times N] [--seed N] [--window WxH] [--nosound] [--hidden] [--verbose]\n"
       "    [-nofmv] [-seasick] [-cdN]\n"
       "See docs/program.md.\n");
 }
@@ -291,11 +288,7 @@ bool parse(int argc, char** argv, Args& a) {
     else if (s == "--windowed") a.windowed = true;
     else if (s == "--no-import") a.no_import = true;
     else if (s == "--no-launcher") a.no_launcher = true;
-    else if (s == "--launcher") a.launcher = true;
-    else if (s == "--launcher-shot" && next(1)) a.launcher_shot = argv[++i];
-    else if (s == "--launcher-play") a.launcher_play = true;
-    else if (s == "--launcher-mw1") a.launcher_mw1 = true;
-    else if (s == "--launcher-screen" && next(1)) a.launcher_screen = argv[++i];
+    else if (s == "--ready-file" && next(1)) a.ready_file = argv[++i];
     else if (s == "--wide-menus") a.wide_menus = 1;
     else if (s == "--no-wide-menus") a.wide_menus = 0;
     else if (s == "--original") a.play_original = true;
@@ -586,13 +579,14 @@ int main(int argc, char** argv) {
   // The launcher (ours: launcher.h, docs/launcher.md, games-layout.md): a
   // player's plain start goes straight into the game when an install is
   // found, else to the SETUP screen alone and on into the game once there is
-  // one; --launcher shows its main screen. Checks, shots, debug starts and a
+  // one (the launcher's main screen is mw3launcher's). Checks, shots, debug starts and a
   // named install or source go straight on.
   const bool player_start = !a.hidden && a.frames == 0 && a.shot.empty() && a.chain.empty() && a.modes.empty() &&
                             a.mission.empty() && !a.fly && a.dialog_file.empty() && a.movie.empty() && a.install.empty() &&
                             a.install_from.empty() && a.patch.empty() && a.original.find("-nofmv") == std::string::npos;
   bool setup_only = false;
-  if (player_start && !a.no_launcher && !a.launcher && a.launcher_shot.empty() && !a.launcher_play && !a.launcher_mw1) {
+  if (!a.ready_file.empty()) sdlfe::set_ready_file(a.ready_file);
+  if (player_start && !a.no_launcher) {
     std::vector<std::string> more;
 #ifdef MW3_GAME_DIR
     if (!std::getenv("MW3_FIND_INSTALL")) more.push_back(MW3_GAME_DIR);
@@ -609,7 +603,7 @@ int main(int argc, char** argv) {
       std::printf("mw3: no install found: the SETUP screen\n");
     }
   }
-  if (!a.launcher_shot.empty() || a.launcher_play || a.launcher_mw1 || setup_only || (player_start && a.launcher)) {
+  if (setup_only) {
     sdlfe::LauncherOptions lo;
     lo.setup_only = setup_only;
     lo.write_dir = a.write_dir, lo.cfg_install = a.cfg_install, lo.cfg_mw1_game = a.cfg_mw1_game;
@@ -619,7 +613,6 @@ int main(int argc, char** argv) {
     lo.fullscreen = !a.windowed && !a.window_given;
     lo.sound = !a.nosound;
     lo.win_w = a.win_w, lo.win_h = a.win_h;
-    lo.shot = a.launcher_shot, lo.screen = a.launcher_screen, lo.play = a.launcher_play, lo.play_mw1 = a.launcher_mw1;
     const sdlfe::LauncherChoice c = sdlfe::run_launcher(lo);
     if (c.kind != sdlfe::LauncherChoice::kPlay) {
       SDL_Quit();

@@ -22,14 +22,15 @@ export PKG_CONFIG_PATH="$PREFIX/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PAT
 
 rm -rf build-linux-pkg
 cmake -S . -B build-linux-pkg -G Ninja -DCMAKE_BUILD_TYPE=Release -DMW3_PACKAGE=ON -DCMAKE_PREFIX_PATH="$PREFIX"
-cmake --build build-linux-pkg --target mw3
+cmake --build build-linux-pkg --target mw3 mw3launcher
 cmake --build build-linux-pkg --target mw3import 2>/dev/null || echo "mw3import not built (no FFmpeg): the package has no movie importer"
 
 VER=$(git describe --tags --always --dirty 2>/dev/null || echo dev)
 APPDIR=build-linux-pkg/AppDir
 mkdir -p "$APPDIR/usr/bin/assets/launcher" "$APPDIR/usr/share/doc/mw3/licenses"
-cp build-linux-pkg/mw3 "$APPDIR/usr/bin/"
-EXES="-e $APPDIR/usr/bin/mw3"
+# The launcher is the AppImage's entry (mw3.desktop's Exec); the game beside it.
+cp build-linux-pkg/mw3launcher build-linux-pkg/mw3 "$APPDIR/usr/bin/"
+EXES="-e $APPDIR/usr/bin/mw3launcher -e $APPDIR/usr/bin/mw3"
 if [ -x build-linux-pkg/mw3import ]; then
   cp build-linux-pkg/mw3import "$APPDIR/usr/bin/"
   EXES="$EXES -e $APPDIR/usr/bin/mw3import"
@@ -59,6 +60,9 @@ fi
 # The libraries they load (SDL's from PREFIX), the desktop entry and icon.
 LD_LIBRARY_PATH="$PREFIX/lib:$LD_LIBRARY_PATH" "$TOOLS/linuxdeploy-x86_64.AppImage" --appdir "$APPDIR" $EXES \
   -d tools/linux/mw3.desktop -i tools/linux/mw3.png
+# Both programs, the launcher as the entry (AppRun follows the desktop file's Exec).
+for p in mw3launcher mw3; do [ -x "$APPDIR/usr/bin/$p" ] || { echo "no $p in the AppDir" >&2; exit 1; }; done
+grep -qx 'Exec=mw3launcher' "$APPDIR"/*.desktop || { echo "the AppImage does not start the launcher" >&2; exit 1; }
 mkdir -p build-linux-pkg/dist
 OUT="build-linux-pkg/dist/MW3-Rebuild-$VER-x86_64.AppImage"
 ARCH=x86_64 "$TOOLS/appimagetool-x86_64.AppImage" "$APPDIR" "$OUT"

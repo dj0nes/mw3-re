@@ -18,8 +18,10 @@ download of one (.zip, .7z, .rar). Pirate's Moon is not supported yet.
 Installing
 ----------
 Run MW3-Rebuild-Setup.exe and start "MechWarrior 3 Rebuild" from the Start
-menu or the desktop. (Or, from the zip: unzip this folder anywhere (not
-inside your MechWarrior 3 folder) and run mw3.exe.)
+menu or the desktop: the launcher, which finds your game, sets it up and
+starts it. "MechWarrior 3" in the Start menu goes straight into the game.
+(Or, from the zip: unzip this folder anywhere (not inside your MechWarrior 3
+folder) and run mw3launcher.exe, or mw3.exe for the game alone.)
 
 On the first start:
 - It looks for your MechWarrior 3 install (where the original installer put

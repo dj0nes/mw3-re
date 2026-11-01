@@ -667,6 +667,39 @@ if(SDL3_FOUND)
                          COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_RUNTIME_DLLS:mw3> $<TARGET_FILE_DIR:mw3>
                          COMMAND_EXPAND_LISTS)
     endif()
+    # The launcher (docs/launcher.md, The two programs; games-layout.md): the
+    # main icon, its own program; MECHWARRIOR 3 starts mw3 beside it.
+    add_executable(mw3launcher
+      src/frontend/sdl/launcher_main.cpp
+      src/frontend/sdl/launcher.cpp
+      src/frontend/sdl/run_log.cpp
+    )
+    target_link_libraries(mw3launcher PRIVATE mw3text mw3sdl mw3core SDL3::SDL3)
+    target_compile_definitions(mw3launcher PRIVATE MW3_VERSION="${MW3_VERSION}")
+    if(NOT MW3_PACKAGE)
+      target_compile_definitions(mw3launcher PRIVATE MW3_ASSETS_DIR="${CMAKE_SOURCE_DIR}/assets"
+                                                     MW3_GAME_DIR="${MW3_GAME_DIR}")
+    endif()
+    add_dependencies(mw3launcher mw3)
+    if(WIN32)
+      set(MW3_RC_NAME "MW3 Rebuild")
+      set(MW3_RC_FILE "mw3launcher.exe")
+      set(MW3_RC_ICON "ICON_MAIN ICON \"${CMAKE_SOURCE_DIR}/tools/windows/mw3.ico\"")
+      configure_file(tools/windows/version.rc.in ${CMAKE_BINARY_DIR}/mw3launcher.rc)
+      target_sources(mw3launcher PRIVATE ${CMAKE_BINARY_DIR}/mw3launcher.rc)
+      # No console, in every build: it is only ever a window (its log is
+      # mw3launcher.log in the write dir).
+      if(MSVC)
+        target_link_options(mw3launcher PRIVATE /SUBSYSTEM:WINDOWS /ENTRY:mainCRTStartup)
+      else()
+        target_link_options(mw3launcher PRIVATE -mwindows)
+      endif()
+      if(NOT CMAKE_VERSION VERSION_LESS 3.21)
+        add_custom_command(TARGET mw3launcher POST_BUILD
+                           COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_RUNTIME_DLLS:mw3launcher> $<TARGET_FILE_DIR:mw3launcher>
+                           COMMAND_EXPAND_LISTS)
+      endif()
+    endif()
     # The Indeo helper's stand-in for the tests (tools/indeo; the real
     # mw3indeo.exe is 32-bit Windows, built by tools/windows/build.cmd).
     add_executable(mw3indeo_fake tools/indeo/mw3indeo_fake.cpp)
@@ -681,10 +714,12 @@ if(SDL3_FOUND)
     target_compile_definitions(mw3sdltests PRIVATE MW3_GAME_DIR="${MW3_GAME_DIR}"
                                                  MW3_TEST_TMP_ROOT="${CMAKE_BINARY_DIR}"
                                                  MW3_BIN="$<TARGET_FILE:mw3>"
+                                                 MW3_LAUNCHER_BIN="$<TARGET_FILE:mw3launcher>"
                                                  MW3_FAKE_INDEO="$<TARGET_FILE:mw3indeo_fake>"
                                                  MW3_IMPORT_BIN="$<TARGET_FILE_DIR:mw3>/mw3import")
     add_dependencies(mw3sdltests mw3indeo_fake)
     add_dependencies(mw3sdltests mw3)
+    add_dependencies(mw3sdltests mw3launcher)
     add_test(NAME mw3sdltests COMMAND mw3sdltests)
   else()
     message(STATUS "SDL3_ttf not found: mw3 is not built (brew install sdl3_ttf)")

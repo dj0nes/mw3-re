@@ -93,8 +93,9 @@ zip, made by Inno Setup's compiler from `tools\windows\installer.iss`
 (`iscc /DAppVersion=... /DDist=<the folder> /O<out>`). It installs the
 package folder to `Program Files\MechWarrior 3 Rebuild` (or, for a player
 without administrator rights, "only for me" in the user's Programs folder),
-with a Start-menu shortcut (and one to the read-me), a desktop shortcut
-(ticked by default), the rebuild's `LICENSE.txt` as its licence page, and
+with a Start-menu shortcut to the launcher, mw3launcher.exe ("MechWarrior 3
+Rebuild"), one straight to the game, mw3.exe ("MechWarrior 3"), one to the
+read-me, a desktop shortcut to the launcher (ticked by default), the rebuild's `LICENSE.txt` as its licence page, and
 an uninstaller. The game writes nothing in that folder, so the uninstaller
 leaves `%APPDATA%\MicroProse\MechWarrior 3` (settings, pilots, saves, the
 imported movies and music, a disc install) and says so. The same AppId
