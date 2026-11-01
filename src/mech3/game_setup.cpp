@@ -10,6 +10,7 @@
 #include "mech3/data_version.h"
 #include "mech3/disc_install.h"
 #include "mech3/patch_import.h"
+#include "mech3/source_install.h"
 #include "platform/cue_audio.h"
 
 #if defined(_WIN32)
@@ -80,11 +81,11 @@ ProgressFn forward_only(const ProgressFn& p) { return p ? p : [](const Progress&
 }  // namespace
 
 Result install_from_disc(const std::string& source, const std::string& out_dir, const std::string& patch,
-                         const std::string& music_dir, const ProgressFn& progress) {
+                         const std::string& music_dir, const ProgressFn& progress, const std::string& movies_from) {
   const ProgressFn p = forward_only(progress);
   const DiscInstall d = mech3::install_from_disc(
       source, out_dir, patch, music_dir,
-      [&](const std::string& stage, double f, const std::string& msg) { return p(Progress{stage, f, msg}); });
+      [&](const std::string& stage, double f, const std::string& msg) { return p(Progress{stage, f, msg}); }, movies_from);
   Result r;
   r.ok = d.ok, r.cancelled = d.failure == DiscInstall::kCancelled;
   r.install_dir = out_dir, r.version = d.version;
@@ -131,6 +132,129 @@ Result install_from_disc(const std::string& source, const std::string& out_dir, 
       break;
     case DiscInstall::kNone: r.summary = "The installation failed."; break;
   }
+  return r;
+}
+
+Result install_from_source(const source::Found& found, const std::string& out_dir, const std::string& patch,
+                           const std::string& music_dir, const std::string& write_dir, const ProgressFn& progress) {
+  using source::Found;
+  using source::Staged;
+  const ProgressFn p = forward_only(progress);
+  Result r;
+  r.detail = found.detail;
+  if (found.game != Found::kMw3) {
+    r.summary = found.summary.empty() ? source::game_words(found) : found.summary;
+    return r;
+  }
+  if (found.on_disk && found.kind == Found::kInstall) return check_install(found.path, write_dir);
+  if (found.on_disk) return install_from_disc(found.path, out_dir, patch, music_dir, progress);
+
+  const fs::path out(out_dir), staging = fs::path(write_dir) / "setup-staging";
+  std::error_code ec;
+  if (fs::exists(out, ec) && !fs::exists(out / "mw3-install.txt", ec) && !fs::is_empty(out, ec)) {
+    r.summary = "The folder " + out_dir + " already has other files in it. Choose an empty folder.";
+    return r;
+  }
+  const std::string tmp = out_dir + ".new";
+  fs::remove_all(tmp, ec);
+  fs::remove_all(staging, ec);
+  // The read: most of the time for a disc image, all of it for a copy.
+  const double share = found.kind == Found::kInstall ? 0.95 : 0.6;
+  const Staged s = source::stage_source(found, staging.string(), found.kind == Found::kInstall ? tmp : std::string(),
+                                        [&](double f, const std::string& entry) {
+                                          return p(Progress{"Reading " + fs::path(found.path).filename().string(), f * share, entry});
+                                        });
+  for (const std::string& l : s.log) r.detail += l + "\n";
+  if (!s.ok) {
+    r.detail += s.error + "\n";
+    r.cancelled = s.failure == Staged::kCancelled;
+    switch (s.failure) {
+      case Staged::kCancelled: r.summary = "The installation was cancelled. Nothing was changed."; break;
+      case Staged::kNoSpace: {
+        const uint64_t more = s.space_needed > s.space_free ? s.space_needed - s.space_free : 0;
+        r.summary = "There is not enough free space for the game: about " + mb(std::min<uint64_t>(more, uint64_t{1} << 50)) +
+                    " more is needed on the disk that holds " + s.space_where + ". Free some space and try again.";
+        break;
+      }
+      case Staged::kCannotWrite:
+        r.summary = "The game could not be written: " + s.error + ". Is the disk full, or the folder read-only?";
+        break;
+      case Staged::kDamaged:
+        r.summary = "Part of " + found.path + " could not be read, so nothing was installed. The file may be damaged or incomplete.";
+        break;
+      case Staged::kUnsafePath:
+        r.summary = "Nothing was installed: a file in " + fs::path(found.path).filename().string() +
+                    " is named to go outside the game's folder, so it is not trusted.";
+        break;
+      default: r.summary = "Nothing was installed: " + s.error + "."; break;
+    }
+    return r;
+  }
+
+  if (found.kind == Found::kInstall) {
+    // The copy's files are in place: checked, marked complete, renamed in.
+    auto abandon = [&](const std::string& summary) {
+      fs::remove_all(tmp, ec);
+      r.summary = summary;
+      return r;
+    };
+    if (!fs::exists(fs::path(tmp) / "zbd" / "reader.zbd", ec))
+      return abandon("Nothing was installed: the copy's zbd\\reader.zbd was not found again.");
+    const std::string note = "Installed by mw3 from " + found.path + " (docs/setup-sources.md).\nfiles=" +
+                             std::to_string(s.files) + "\n";
+    std::FILE* m = std::fopen((fs::path(tmp) / "mw3-install.txt").string().c_str(), "wb");
+    const bool marked = m && std::fwrite(note.data(), 1, note.size(), m) == note.size();
+    const bool closed = m && std::fclose(m) == 0;
+    if (!marked || !closed) return abandon("The game could not be written to " + out_dir + ".");
+    if (!p(Progress{"Finishing", 0.97, ""})) {
+      r.cancelled = true;
+      return abandon("The installation was cancelled. Nothing was changed.");
+    }
+    fs::remove_all(out, ec);
+    fs::create_directories(out.parent_path(), ec);
+    fs::rename(tmp, out, ec);
+    if (ec) return abandon("The game could not be written to " + out_dir + ": " + ec.message() + ".");
+    r = check_install(out_dir, write_dir);
+    r.detail = found.detail;
+    for (const std::string& l : s.log) r.detail += l + "\n";
+    r.files = s.files, r.bytes = s.bytes;
+    if (r.ok) r.summary = version_words(r.version) + " is installed in " + out_dir + " (" + std::to_string(s.files) +
+                          " files, " + mb(s.bytes) + "), copied from " + fs::path(found.path).filename().string() + ".";
+    p(Progress{"Done", 1, ""});
+    return r;
+  }
+
+  // A disc: installed from the staged cabinet, then its movies and music moved in.
+  r = install_from_disc((staging / "disc").string(), out_dir, patch, "",
+                        [&](const Progress& q) { return p(Progress{q.stage, share + q.fraction * (0.97 - share), q.message}); },
+                        s.video_dir);
+  r.detail = found.detail + r.detail;
+  for (const std::string& l : s.log) r.detail += l + "\n";
+  auto move_in = [&](const std::string& from, const fs::path& to) {
+    int n = 0;
+    if (from.empty()) return n;
+    fs::create_directories(to, ec);
+    for (const auto& e : fs::directory_iterator(from, ec)) {
+      const fs::path dst = to / e.path().filename();
+      std::error_code mv;
+      fs::remove(dst, mv);
+      fs::rename(e.path(), dst, mv);
+      if (mv) fs::copy_file(e.path(), dst, fs::copy_options::overwrite_existing, mv);  // another volume
+      n += !mv;
+    }
+    return n;
+  };
+  if (r.ok) {
+    if (!music_dir.empty()) r.music_tracks = move_in(s.music_dir, music_dir);
+    if (r.music_tracks < s.music && !music_dir.empty()) r.warnings.push_back("Some of the music could not be copied.");
+    r.summary = version_words(r.version) + " is installed in " + out_dir + " (" + std::to_string(r.files) + " files and " +
+                std::to_string(r.movies) + " movies), from " + fs::path(found.path).filename().string() + ".";
+    if (r.music_tracks)
+      r.summary += r.music_tracks == 1 ? " The disc's music track was added too."
+                                       : " The disc's " + std::to_string(r.music_tracks) + " music tracks were added too.";
+  }
+  fs::remove_all(staging, ec);
+  p(Progress{"Done", 1, ""});
   return r;
 }
 

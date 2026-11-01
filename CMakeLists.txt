@@ -70,6 +70,9 @@ add_library(mw3core STATIC
   src/mech3/patch12_world.cpp
   src/mech3/patch_import.cpp
   src/mech3/disc_install.cpp
+  src/mech3/source_archive.cpp
+  src/mech3/source_map.cpp
+  src/mech3/source_install.cpp
   src/mech3/game_setup.cpp
   third_party/miniz/miniz_tinfl.c
   src/gamez/zutil/zutl_zar.cpp
@@ -305,6 +308,33 @@ else()
   target_compile_definitions(enet PRIVATE HAS_FCNTL=1 HAS_POLL=1 HAS_GETADDRINFO=1 HAS_GETNAMEINFO=1
                              HAS_INET_PTON=1 HAS_INET_NTOP=1 HAS_MSGHDR_FLAGS=1 HAS_SOCKLEN_T=1)
 endif()
+# SETUP's archives (docs/setup-sources.md): libarchive with zlib and liblzma.
+# The release's are static, from tools/deps (build_deps.sh, the PC's
+# tools/windows/build_deps_archive.cmd into deps\archive); a development
+# Mac may use Homebrew's (brew install libarchive). Without it the game
+# builds and SETUP takes folders, drives, .iso and .cue only.
+find_path(LIBARCHIVE_INCLUDE archive.h
+          HINTS "${CMAKE_SOURCE_DIR}/deps/archive/include" /opt/homebrew/opt/libarchive/include /usr/local/opt/libarchive/include)
+find_library(LIBARCHIVE_LIB NAMES archive archive_static
+             HINTS "${CMAKE_SOURCE_DIR}/deps/archive/lib" /opt/homebrew/opt/libarchive/lib /usr/local/opt/libarchive/lib)
+if(LIBARCHIVE_INCLUDE AND LIBARCHIVE_LIB)
+  target_include_directories(mw3core PUBLIC "${LIBARCHIVE_INCLUDE}")
+  target_link_libraries(mw3core PUBLIC "${LIBARCHIVE_LIB}")
+  if(LIBARCHIVE_LIB MATCHES "\\.(a|lib)$")  # static: its own libraries beside it
+    target_compile_definitions(mw3core PUBLIC LIBARCHIVE_STATIC)  # the tests write archives with it too
+    find_library(MW3_LZMA_LIB NAMES lzma liblzma HINTS "${CMAKE_SOURCE_DIR}/deps/archive/lib")
+    find_library(MW3_Z_LIB NAMES z zlibstatic zlib zs HINTS "${CMAKE_SOURCE_DIR}/deps/archive/lib")
+    target_link_libraries(mw3core PUBLIC ${MW3_LZMA_LIB} ${MW3_Z_LIB})
+    if(WIN32)
+      target_link_libraries(mw3core PUBLIC bcrypt)
+    endif()
+  endif()
+  target_compile_definitions(mw3core PUBLIC MW3_HAVE_LIBARCHIVE=1)
+  message(STATUS "libarchive: ${LIBARCHIVE_LIB}")
+else()
+  message(STATUS "libarchive not found: SETUP reads folders, drives, .iso and .cue only")
+endif()
+
 # The x87 never fuses a multiply and an add; clang does by default on arm64,
 # which rounds differently from the original (CLAUDE.md, FPU precision).
 if(NOT MSVC)
@@ -462,6 +492,7 @@ add_executable(mw3tests
   tests/test_zrndr_span.cpp
   tests/test_fixes.cpp
   tests/test_lance.cpp
+  tests/test_setup_sources.cpp
   tests/test_patch12.cpp
   tests/test_video_device.cpp
   tests/test_resolution.cpp

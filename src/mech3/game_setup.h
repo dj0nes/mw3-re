@@ -4,6 +4,8 @@
 #include <string>
 #include <vector>
 
+#include "mech3/source_map.h"
+
 // The first-start setup's operations for a UI (ours, not original code;
 // docs/assets.md): install from the disc, apply the 1.2 patch, add the music,
 // check an install. Each takes a progress callback and returns what a player
@@ -38,7 +40,17 @@ struct Result {
 // loose files) its data becomes 1.2's in the same step. A .cue's CD audio
 // becomes music_dir/trackNN.wav when `music_dir` is given.
 Result install_from_disc(const std::string& source, const std::string& out_dir, const std::string& patch,
-                         const std::string& music_dir, const ProgressFn& progress);
+                         const std::string& music_dir, const ProgressFn& progress, const std::string& movies_from = "");
+
+// Whatever map_source found (source_map.h), installed. An installed copy on
+// disk is used where it is (check_install); a disc or image on disk goes to
+// install_from_disc; anything in an archive is read out in one forward pass
+// (source_install.h): an installed copy's files into `out_dir`.new, a disc's
+// cabinet and movies staged in `write_dir`/setup-staging (removed after) and
+// installed from there, its CD audio as music_dir/trackNN.wav. `out_dir`
+// appears only once complete, its mw3-install.txt written last.
+Result install_from_source(const source::Found& found, const std::string& out_dir, const std::string& patch,
+                           const std::string& music_dir, const std::string& write_dir, const ProgressFn& progress);
 
 // The official 1.2 patch's 28 data files into `write_dir`/patch12, mounted in
 // front of the install at every start (the install is never written).
