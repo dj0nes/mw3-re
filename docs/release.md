@@ -26,6 +26,12 @@ every box here is ticked:
       unpacking anything (`docs/setup-sources.md`; the packages carry
       libarchive, zlib and liblzma with their licences).
 - [x] The software renderer no longer offered anywhere in the menus.
+- [ ] Fully 16:9 at the desktop's resolution (Owen, 2026-11-01): every
+      screen widened (the multiplayer screens and the logo screens checked);
+      the movies with black bars baked into their 4:3 frame (INTRO 640x320,
+      C4WIN 640x240) shown without them, scaled to the screen's width, the
+      whole picture kept; the 17 true-4:3 briefing movies centred with
+      plain black sides.
 - [ ] Moddable, simply (Owen, 2026-11-01): players and hobbyists can add
       their own game data without any change to the exe later. A `mods/`
       folder in the settings folder (one folder per mod, a small manifest,
