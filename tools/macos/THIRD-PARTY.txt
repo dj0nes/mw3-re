@@ -98,6 +98,52 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
+libarchive 3.7.9 (built into mw3 and mw3import)
+-----------------------------------------------
+https://www.libarchive.org/. Copyright (c) 2003-2018 Tim Kientzle and
+others. Two-clause BSD licence (licenses/libarchive-3.7.9/COPYING, which also
+names the few source files under other terms). It reads what SETUP is
+pointed at: zip, 7z, RAR, tar and disc images.
+
+Copyright (c) 2003-2018 <author(s)>
+All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions
+are met:
+1. Redistributions of source code must retain the above copyright
+   notice, this list of conditions and the following disclaimer
+   in this position and unchanged.
+2. Redistributions in binary form must reproduce the above copyright
+   notice, this list of conditions and the following disclaimer in the
+   documentation and/or other materials provided with the distribution.
+
+THIS SOFTWARE IS PROVIDED BY THE AUTHOR(S) ``AS IS'' AND ANY EXPRESS OR
+IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
+OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
+IN NO EVENT SHALL THE AUTHOR(S) BE LIABLE FOR ANY DIRECT, INDIRECT,
+INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
+NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
+THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+
+zlib 1.3.1 (built into mw3 and mw3import)
+-----------------------------------------
+https://zlib.net/. (C) 1995-2022 Jean-loup Gailly and Mark Adler. zlib
+licence (licenses/zlib-1.3.1/LICENSE). libarchive's deflate (zip).
+
+
+liblzma from XZ Utils 5.8.1 (built into mw3 and mw3import)
+----------------------------------------------------------
+https://tukaani.org/xz/. Lasse Collin and the XZ Utils contributors. liblzma
+is under the BSD Zero Clause License, 0BSD (licenses/xz-5.8.1/COPYING.0BSD;
+licenses/xz-5.8.1/COPYING says which licence covers which part of XZ
+Utils: only liblzma is used). libarchive's LZMA and LZMA2 (7z, xz).
+
+
 pl_mpeg (built into the program)
 --------------------------------
 Dominic Szablewski, https://github.com/phoboslab/pl_mpeg. MIT licence.

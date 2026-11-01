@@ -19,17 +19,21 @@ for /d %%d in (deps\SDL3-3*) do set SDL3_DIR=%CD%\%%d\cmake
 for /d %%d in (deps\SDL3_ttf-*) do set SDL3_ttf_DIR=%CD%\%%d\cmake
 for /d %%d in (deps\SDL3_sound-*) do set SDL3_sound_ROOT=%CD%\%%d
 if not defined SDL3_sound_ROOT echo Warning: no deps\SDL3_sound-*: the package's music plays .wav only.
+rem SETUP's archives (docs/setup-sources.md): a package always reads them.
+if not exist deps\archive\lib\archive.lib (echo No deps\archive: run tools\windows\build_deps_archive.cmd first. & exit /b 1)
+if not exist deps\archive\share\licenses\libarchive-3.7.9\COPYING (echo deps\archive has no licences: run tools\windows\build_deps_archive.cmd again. & exit /b 1)
 
 rem The build, from scratch each time so the version and the switches are this checkout's.
 if exist build-win-pkg rmdir /s /q build-win-pkg
 cmake -S . -B build-win-pkg -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=clang-cl -DCMAKE_CXX_COMPILER=clang-cl ^
   -DMW3_PACKAGE=ON "-DSDL3_DIR=%SDL3_DIR%" "-DSDL3_ttf_DIR=%SDL3_ttf_DIR%" || exit /b 1
-cmake --build build-win-pkg --target mw3 mw3import || exit /b 1
+cmake --build build-win-pkg --target mw3 mw3launcher mw3import || exit /b 1
 if not exist build-win-pkg\mw3import.exe (echo mw3import.exe was not built: FFmpeg's shared build is missing from deps\ ^(docs/windows.md^). & exit /b 1)
 rem The helper, 32-bit (its own vcvarsall x86, in a child shell).
 cmd /c tools\windows\build_indeo.cmd build-win-pkg || exit /b 1
 
-for /f "usebackq delims=" %%v in (`git describe --tags --always --dirty`) do set VER=%%v
+for /f "usebackq delims=" %%v in (`git describe --tags --always --dirty 2^>nul`) do set VER=%%v
+if not defined VER set VER=dev
 set NAME=mw3-%VER%-win64
 set DIST=build-win\dist\%NAME%
 if exist "%DIST%" rmdir /s /q "%DIST%"
@@ -38,6 +42,7 @@ mkdir "%DIST%\licenses" || exit /b 1
 
 rem The three programs and the DLLs their builds copied beside them.
 copy /y build-win-pkg\mw3.exe "%DIST%\" >nul || exit /b 1
+copy /y build-win-pkg\mw3launcher.exe "%DIST%\" >nul || exit /b 1
 copy /y build-win-pkg\mw3indeo.exe "%DIST%\" >nul || exit /b 1
 copy /y build-win-pkg\mw3import.exe "%DIST%\" >nul || exit /b 1
 copy /y build-win-pkg\*.dll "%DIST%\" >nul || exit /b 1
@@ -53,7 +58,13 @@ mkdir "%DIST%\assets\launcher"
 copy /y assets\launcher\*.png "%DIST%\assets\launcher\" >nul || exit /b 1
 copy /y tools\windows\dist\THIRD-PARTY.txt "%DIST%\" >nul || exit /b 1
 if exist LICENSE copy /y LICENSE "%DIST%\LICENSE.txt" >nul
-for /d %%d in (deps\*) do (
+rem libarchive, zlib and liblzma: linked into mw3.exe, their licences from
+rem tools\windows\build_deps_archive.cmd's prefix.
+for /d %%d in (deps\archive\share\licenses\*) do (
+  mkdir "%DIST%\licenses\%%~nxd" 2>nul
+  copy /y "%%d\*" "%DIST%\licenses\%%~nxd\" >nul || exit /b 1
+)
+for /d %%d in (deps\*) do if /i not "%%~nxd"=="archive" (
   mkdir "%DIST%\licenses\%%~nxd" 2>nul
   for %%f in ("%%d\LICENSE*" "%%d\COPYING*" "%%d\README-SDL.txt") do copy /y "%%f" "%DIST%\licenses\%%~nxd\" >nul
 )

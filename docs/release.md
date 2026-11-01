@@ -16,11 +16,15 @@ every box here is ticked:
       the two-process and soak tests passing.
 - [x] The 1.2 patch rebuilt from 1.0 data (`docs/patch12.md`), and SETUP's
       patch button gone (shown only for data of an unknown version).
-- [ ] The stealth object, BASIC and the Battlesport game editor ported as
-      the original has them, on a debug key (--debug-camera).
-- [ ] SETUP takes any source foolproof: an install, a disc, .iso, .cue/.bin,
+- [ ] The stealth object and BASIC ported as the original has them, its
+      fly camera on F11 under --debug-camera (docs/editor.md S1-S4). The
+      Battlesport editor's menus (the AI net editor, the vehicle editor) come
+      after v1.0, with Pirate's Moon, whose net editor changed (Owen,
+      2026-11-01).
+- [x] SETUP takes any source foolproof: an install, a disc, .iso, .cue/.bin,
       .zip (nested too), .7z; maps it and installs without the player
-      unpacking anything.
+      unpacking anything (`docs/setup-sources.md`; the packages carry
+      libarchive, zlib and liblzma with their licences).
 - [x] The software renderer no longer offered anywhere in the menus.
 - [x] Every row in `docs/playtest.md` closed: fixed, by design or the
       original's, none open.
@@ -44,6 +48,11 @@ every box here is ticked:
       Owen has read them.
 - [ ] The players' read-mes match the build: `tools/windows/dist/README.txt`,
       `tools/macos/README.txt`, the top-level `README.md`.
+- [ ] Open since 2026-11-01: the Mac `--deps` release form
+      (`tools/macos/make_app.sh --deps`) not built since libarchive, zlib
+      and liblzma arrived: rebuild build-deps/mac (`build_deps.sh mac`),
+      build the app, and check it is universal, links them in, and carries
+      their licences in Contents/Resources/licenses.
 
 ## 2. The version
 

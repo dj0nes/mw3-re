@@ -360,6 +360,8 @@ class Launcher {
   void find_install();
   void find_mw1();
   void run_mw1();
+  void start_game();
+  void watch_game();
   void layout();
   void draw(float dt);
   void background(float dt);
@@ -399,6 +401,10 @@ class Launcher {
     return {b.r.x + b.r.w / 2, b.r.y + b.r.h / 2};
   }
   Install install_;
+  SDL_Process* game_ = nullptr;  // mw3, started by MECHWARRIOR 3 (game_bin)
+  Uint64 game_click_ = 0;
+  bool game_shown_ = false;
+  std::string ready_file_;
   std::string mw1_exe_, mw1_game_;  // MechWarrior (1989): Elthial's port beside ours, the player's folder
   std::string status_;
   bool status_good_ = true;
@@ -498,6 +504,61 @@ void Launcher::run_mw1() {
   status_ = code == 0 ? "MechWarrior (1989) closed." : "MechWarrior (1989) closed with an error (" + std::to_string(code) + "): see its log.";
   status_good_ = code == 0;
   if (win_) SDL_ShowWindow(win_), SDL_RaiseWindow(win_);
+}
+
+// MechWarrior 3 as its own program (game_bin): the install and the options
+// passed on, the launcher kept on screen until the game's first frame
+// (mw3 --ready-file) so the switch shows no empty moment, then hidden until
+// the game exits.
+void Launcher::start_game() {
+  std::error_code ec;
+  ready_file_ = (fs::temp_directory_path(ec) / ("mw3-ready-" + std::to_string(SDL_GetTicksNS()))).string();
+  fs::remove(ready_file_, ec);
+  std::vector<std::string> args = {o_.game_bin, install_.dir};
+  args.insert(args.end(), o_.game_args.begin(), o_.game_args.end());
+  args.push_back("--ready-file"), args.push_back(ready_file_);
+  std::vector<const char*> argv;
+  std::string line;
+  for (const std::string& a : args) argv.push_back(a.c_str()), line += (line.empty() ? "" : " ") + a;
+  argv.push_back(nullptr);
+  save_install(o_.write_dir, install_.dir);
+  game_click_ = SDL_GetTicksNS(), game_shown_ = false;
+  game_ = SDL_CreateProcess(argv.data(), false);
+  if (!game_) {
+    status_ = std::string("MechWarrior 3 did not start: ") + SDL_GetError(), status_good_ = false;
+    std::printf("mw3launcher: %s (%s)\n", status_.c_str(), line.c_str());
+    layout();
+    return;
+  }
+  std::printf("mw3launcher: started %s\n", line.c_str());
+  status_ = "Starting MechWarrior 3...", status_good_ = true;
+}
+
+// Each pass while the game runs: hidden at its first frame (or after 20 s
+// without one), shown again when it exits.
+void Launcher::watch_game() {
+  if (!game_) return;
+  std::error_code ec;
+  const double ms = static_cast<double>(SDL_GetTicksNS() - game_click_) / 1e6;
+  int code = 0;
+  if (SDL_WaitProcess(game_, false, &code)) {
+    SDL_DestroyProcess(game_);
+    game_ = nullptr;
+    fs::remove(ready_file_, ec);
+    std::printf("mw3launcher: MechWarrior 3 exited (%d) after %.1f s\n", code, ms / 1000.0);
+    status_ = code == 0 ? "" : "MechWarrior 3 closed with an error (" + std::to_string(code) + "): see mw3.log.";
+    status_good_ = code == 0;
+    if (win_) SDL_ShowWindow(win_), SDL_RaiseWindow(win_);
+    if (o_.quit_after_game) done_ = true;
+    layout();
+    return;
+  }
+  if (!game_shown_ && (fs::exists(ready_file_, ec) || ms > 20000.0)) {
+    game_shown_ = true;
+    std::printf("mw3launcher: the game's first frame %.0f ms after MECHWARRIOR 3 was pressed%s\n", ms,
+                fs::exists(ready_file_, ec) ? "" : " (no signal: hidden after 20 s)");
+    if (win_) SDL_HideWindow(win_);
+  }
 }
 
 void Launcher::layout() {
@@ -879,7 +940,9 @@ void Launcher::activate(int id) {
   static const SDL_DialogFileFilter kZip[] = {{"The 1.2 patch (.zip, .exe)", "zip;exe"}, {"All files", "*"}};
   switch (id) {
     case kMw3:
-      if (install_.ok) {
+      if (install_.ok && !o_.game_bin.empty()) {
+        if (!game_) start_game();
+      } else if (install_.ok) {
         choice_ = {LauncherChoice::kPlay, install_.dir};
         done_ = true;
       } else {
@@ -1012,6 +1075,7 @@ LauncherChoice Launcher::run() {
     while (SDL_PollEvent(&e)) {
       SDL_ConvertEventToRenderCoordinates(ren_, &e);
       if (e.type == SDL_EVENT_QUIT) done_ = true;
+      if (game_) continue;  // the game is starting or running
       if (asking_ || screen_ == kWorking) {
         if (screen_ == kWorking && e.type == SDL_EVENT_MOUSE_BUTTON_UP && e.button.button == SDL_BUTTON_LEFT)
           for (const Button& b : buttons_)
@@ -1063,6 +1127,11 @@ LauncherChoice Launcher::run() {
       }
     }
     if (work_ && work_->done) finish_work();
+    watch_game();
+    if (game_ && game_shown_) {  // hidden while the game runs
+      SDL_Delay(50);
+      continue;
+    }
     const Uint64 now = SDL_GetTicks();
     const float dt = std::min(0.1f, static_cast<float>(now - last) / 1000.0f);
     last = now;
@@ -1086,6 +1155,10 @@ LauncherChoice Launcher::run() {
     std::printf("mw3: launcher: paced by %s\n", vsync_ ? "vsync" : "a timed sleep to 60 a second");
   }
   if (work_) work_->cancel = true;
+  if (game_) {  // quit while the game runs: it goes on, we stop watching
+    SDL_DestroyProcess(game_);
+    game_ = nullptr;
+  }
   if (choice_.kind == LauncherChoice::kPlay) {
     save_install(o_.write_dir, choice_.install);
     // The window goes on to the game, its renderer freed first (a window

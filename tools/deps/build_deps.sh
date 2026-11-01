@@ -154,4 +154,10 @@ cmake_build "$WORK/src/libarchive-3.7.9" -DBUILD_SHARED_LIBS=OFF -DCMAKE_POSITIO
   -DENABLE_ICONV=OFF -DENABLE_ACL=OFF -DENABLE_XATTR=OFF -DENABLE_LZO=OFF
 rm -f "$PREFIX"/lib/libarchive*.dylib "$PREFIX"/lib/libarchive.so*
 echo "built libarchive"
+# Their licences, for the packages (linked in, so no library file carries them).
+for l in "libarchive-3.7.9 COPYING" "zlib-1.3.1 LICENSE" "xz-5.8.1 COPYING COPYING.0BSD"; do
+  set -- $l; d=$1; shift
+  mkdir -p "$PREFIX/share/licenses/$d"
+  for f in "$@"; do cp "$WORK/src/$d/$f" "$PREFIX/share/licenses/$d/"; done
+done
 echo "prefix: $PREFIX"
