@@ -19,6 +19,33 @@ struct SessionDesc {
   uint32_t user[4] = {};  // dwUser1..4: the lobby's settings (0x00586ed0, 0x00586f20)
 };
 
+// DirectPlay's answers the game reads (HRESULTs).
+constexpr int32_t kOk = 0;
+constexpr int32_t kErrGeneric = static_cast<int32_t>(0x80004005u);     // E_FAIL
+constexpr int32_t kErrConnecting = static_cast<int32_t>(0x8877015eu);  // DPERR_CONNECTING: still searching
+constexpr int32_t kErrNoConnection = static_cast<int32_t>(0x887700aau);  // DPERR_NOCONNECTION
+
+// A game the search heard of (ours: DirectPlay's session description as the
+// transport got it, and where to join it).
+struct FoundGame {
+  SessionDesc desc;
+  uint32_t players = 0;  // dwCurrentPlayers
+  std::string address;   // "ip:port"
+};
+
+// zNetwork's game information (0x74 bytes in the exe): the game list's
+// entry (0x00586ea0, 0x00587680) and what a host asks for (0x00586f60,
+// 0x00587370). The words are the session's dwUser1..4: the host sets bit 0
+// of the first, the second is the game's version ([0x005e55e8], checked
+// by the join), the fourth 3 in a game that cannot be joined.
+struct GameInfo {
+  uint32_t user[4] = {};    // +0x00..+0x0c
+  int32_t index = 0;        // +0x10  the game list's entry to join
+  uint32_t max_players = 0; // +0x14
+  uint32_t players = 0;     // +0x18
+  std::string name;         // +0x1c
+};
+
 // One of DirectPlay's system events as the transport gives it (the DPMSG_*
 // fields the translation 0x00588a70 reads; multiplayer-port.md section 3:
 // fields, not the exe's struct with its pointers).
@@ -109,6 +136,15 @@ class Transport {
     *size = 0;
     return false;
   }
+  // The game list's search (DirectPlay's EnumSessions, asynchronous, ALL |
+  // RETURNSTATUS: 0x00587140): `address` empty asks the LAN, else that
+  // host. Not blocking: the games heard so far into `out`, kOk, or an error.
+  virtual int32_t find_sessions(const std::string& address, std::vector<FoundGame>* out) {
+    (void)address;
+    out->clear();
+    return kErrGeneric;
+  }
+  virtual void stop_search() {}  // DPENUMSESSIONS_STOPASYNC
 };
 
 // The local player's record, [0x0073075c] (0xec bytes in the exe; its id at
@@ -140,6 +176,10 @@ struct Session {
   Transport* transport = nullptr;  // [0x00730724]'s place
   std::vector<HandlerEntry> handlers;  // [0x00730794] (a std::list), its count [0x00730798]
   int dispatching = 0;                 // ours: handlers removed meanwhile are erased after
+  // The game list (0x00587140's two lists [0x00730768] / [0x00730778], the
+  // answers of the last search) and the connection's address ("" the LAN).
+  std::vector<FoundGame> games;
+  std::string address;
   // The system events' translation into MW3 messages 2..0xe (0x00588a70,
   // with the players' lists: piece 3); null drops them.
   void (*system_message)(const Packet& p) = nullptr;
@@ -157,6 +197,27 @@ bool join_session(const std::string& address, const char* name);
 // names) after the players, teams and members are enumerated; the host's
 // caps make it the host (0xd sent). Its id, 0 when it failed.
 uint32_t create_player(const char* name);
+
+// The service providers (0x005881f0, EnumConnections into [0x007307c8]):
+// ours one by design, TCP/IP's kind 0 over our transport (IPX, modem and
+// serial are gone, not listed; multiplayer-port.md, piece 9's plan).
+struct Connection {
+  std::string name;
+  int32_t kind = 0;  // +0x10: 0 TCP/IP (an address), 1 IPX, 2 modem, 3 serial
+};
+const std::vector<Connection>& connections();
+// 0x00586ff0: the games' search through the connection (its address in
+// the session); kErrGeneric without zNetwork up; `count` the games heard.
+int32_t find_games(uint32_t* count);
+void stop_search();
+// 0x00586ea0: the game list's entry `index` (-1: the session joined or made)
+// into `out`; false when there is none.
+bool game_info(int32_t index, GameInfo* out);
+// 0x00586f60: a session opened as `info` asks (its name, limit and words);
+// 0x00586fb0: the game list's entry info.index joined. kOk or an error; the
+// local player is made after (create_player).
+int32_t open_host(const GameInfo& info);
+int32_t open_join(const GameInfo& info);
 
 bool active();          // 0x00586ce0: up, with a session or a lobby's
 uint32_t local_id();    // 0x00586d10: the local player's id, 0 without one

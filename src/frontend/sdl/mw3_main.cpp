@@ -688,7 +688,6 @@ int main(int argc, char** argv) {
 
   // The network's session, before the game (ours, piece 4).
   std::unique_ptr<sdlfe::EnetTransport> net;
-  std::unique_ptr<sdlfe::DiscoveryAnswer> lan;
   if (a.net_host || !a.net_join.empty()) {
     sdlfe::NetOptions o;
     o.bind = a.net_bind;
@@ -704,7 +703,6 @@ int main(int argc, char** argv) {
         znet::SessionDesc d;
         d.name = a.net_name + "'s game";
         ok = znet::host_session(d, a.net_name.c_str());
-        lan = std::make_unique<sdlfe::DiscoveryAnswer>(sdlfe::kDiscoveryPort, a.net_bind);
       } else {
         ok = znet::join_session(a.net_join, a.net_name.c_str());
       }
@@ -719,16 +717,14 @@ int main(int argc, char** argv) {
         const uint64_t until = SDL_GetTicks() + 120000;
         while (znet::lists().players.size() < static_cast<size_t>(a.net_wait) && SDL_GetTicks() < until) {
           znet::poll(-1);
-          if (lan) lan->poll(znet::session().desc, static_cast<uint32_t>(znet::lists().players.size()), net->port());
           SDL_Delay(10);
         }
         std::printf("mw3: network: %zu players in\n", znet::lists().players.size());
       }
-      // Each pass: the LAN's questions answered, and --net-say's line.
-      g_net_pass = [&a, &net, &lan] {
+      // Each pass: --net-say's line (the transport answers the LAN's search itself).
+      g_net_pass = [&a] {
         static int passes = 0;
         ++passes;
-        if (lan) lan->poll(znet::session().desc, static_cast<uint32_t>(znet::lists().players.size()), net->port());
         if (!a.net_say.empty() && passes == a.net_say_at) net_say(a.net_say);
       };
     }

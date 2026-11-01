@@ -36,6 +36,67 @@ bool join_session(const std::string& address, const char* name) {
   return create_player(name) != 0;
 }
 
+// Mech3.exe 1.2 @ 0x005881f0
+const std::vector<Connection>& connections() {
+  static const std::vector<Connection> kOne = {{"LAN / Internet (UDP)", 0}};
+  return kOne;
+}
+
+// Mech3.exe 1.2 @ 0x00586ff0 with 0x00587140
+int32_t find_games(uint32_t* count) {
+  Session& s = session();
+  if (count) *count = 0;
+  if (!s.initialised || !s.transport) return kErrGeneric;
+  const int32_t r = s.transport->find_sessions(s.address, &s.games);
+  if (count) *count = static_cast<uint32_t>(s.games.size());
+  return r;
+}
+
+void stop_search() {
+  if (Session& s = session(); s.transport) s.transport->stop_search();
+}
+
+// Mech3.exe 1.2 @ 0x00586ea0 (0x005872a0 the entry, 0x00587680 its copy)
+bool game_info(int32_t index, GameInfo* out) {
+  const Session& s = session();
+  const SessionDesc* d = nullptr;
+  uint32_t players = 0;
+  if (index == -1) {
+    if (!s.open) return false;
+    d = &s.desc;
+  } else if (index >= 0 && static_cast<size_t>(index) < s.games.size()) {
+    d = &s.games[static_cast<size_t>(index)].desc;
+    players = s.games[static_cast<size_t>(index)].players;
+  }
+  if (!d) return false;
+  for (int i = 0; i < 4; ++i) out->user[i] = d->user[i];
+  out->max_players = d->max_players, out->players = players;
+  out->name = d->name;  // an empty one is [0x005e56f0] in the exe's copy
+  return true;
+}
+
+// Mech3.exe 1.2 @ 0x00586f60 (0x00587370 the description, 0x00587480 Open)
+int32_t open_host(const GameInfo& info) {
+  Session& s = session();
+  if (!s.initialised || s.open || !s.transport) return kErrGeneric;
+  SessionDesc d;
+  d.name = info.name, d.max_players = info.max_players;
+  for (int i = 0; i < 4; ++i) d.user[i] = info.user[i];
+  if (!s.transport->host(d)) return kErrGeneric;
+  s.open = true, s.desc = d;
+  return kOk;
+}
+
+// Mech3.exe 1.2 @ 0x00586fb0 (0x00587580 Open on the entry)
+int32_t open_join(const GameInfo& info) {
+  Session& s = session();
+  if (!s.initialised || s.open || !s.transport) return kErrGeneric;
+  if (info.index < 0 || static_cast<size_t>(info.index) >= s.games.size()) return kErrGeneric;
+  if (!s.transport->join(s.games[static_cast<size_t>(info.index)].address)) return kErrGeneric;
+  s.open = true, s.desc = s.transport->session_desc();
+  return kOk;
+}
+
 // Mech3.exe 1.2 @ 0x00586ce0
 bool active() {
   const Session& s = session();
@@ -147,13 +208,15 @@ void shutdown() {
   if (!s.initialised) return;
   poll(-1);
   clear_handlers();
-  if (s.transport) s.transport->close();  // DestroyPlayer(local) and Close
+  if (s.transport) s.transport->stop_search(), s.transport->close();  // DestroyPlayer(local) and Close
   s.initialised = false;
   s.open = false;
   s.lobby = 0;
   s.async = false;
   s.host_id = 0;
   s.local.reset();
+  s.games.clear();
+  s.address.clear();
   s.transport = nullptr;
   clear_lists();  // 0x00587db0, 0x00587e30, 0x00587ed0
 }

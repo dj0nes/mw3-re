@@ -2608,4 +2608,6 @@ Assigned after 8b2 merged (fd3f05f). The lead asked for a section stepped at bot
 - The lead's damage question: sdl_network_damage_point_blank (A held 40 m
   from a still B): the path works, the soak's low damage is the autopilot's
   aim and the ground (multiplayer-port.md, 8d).
-- Next: piece 9.
+- Piece 9's plan accepted (multiplayer-port.md); 9a done: zNetwork's
+  connections, the search over the transport, its answers checked.
+- Next: 9b, the connection screen.
