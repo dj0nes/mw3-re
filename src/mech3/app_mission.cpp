@@ -2268,6 +2268,17 @@ const char* mission_nav_name(uint32_t nav) {
   return program_nav_name(g_mission_engine ? g_mission_engine->object_of(nav) : nullptr);
 }
 
+void program_objectives_again() { missions().objectives_again(); }
+void program_options_apply() { apply_all(); }
+
+namespace {
+// The pilot's network game, else a network debug start's (ours).
+MultiplayerGame* net_debug_game() {
+  if (MultiplayerGame* g = current_pilot() ? current_pilot()->multiplayer() : nullptr) return g;
+  return g_mission_engine && g_mission_engine->launch().type == 3 ? g_mission_engine->launch().multi : nullptr;
+}
+}  // namespace
+
 void wire_mission_hooks(GameEngine* e) {
   g_mission_hooks.e = e;
   g_objective_hooks.e = e;
@@ -2342,16 +2353,17 @@ void wire_mission_hooks(GameEngine* e) {
   wire_mech_build(&w);
   wire_sensors(&w, [](void* p, int32_t id) { return static_cast<GameEngine*>(p)->message(id); });
   net_set_game_clear([] {  // the network start's (0x0046ceb0): the network game's +0x7c, +0x80, +0x84
-    if (MultiplayerGame* g = current_pilot() ? current_pilot()->multiplayer() : nullptr) g->clock_next = g->end_time = 0, g->end_state = 0;
+    if (MultiplayerGame* g = net_debug_game()) g->clock_next = g->end_time = 0, g->end_state = 0;
   });
   NetGameAccess acc;
   acc.fields = [](int32_t* players, float** clock_next, float** end_time, int32_t** end_state, int32_t** kills,
-                  int32_t** deaths, int32_t* score_limit) {
-    MultiplayerGame* g = current_pilot() ? current_pilot()->multiplayer() : nullptr;  // 0x00479480
+                  int32_t** deaths, int32_t* score_limit, uint8_t** flags) {
+    MultiplayerGame* g = net_debug_game();  // 0x00479480
     if (!g) return false;
-    *players = 0;  // +0x50, the lobby's count (piece 11)
+    *players = static_cast<int32_t>(znet::lists().players.size());  // +0x50, the lobby's count (piece 11: the session's)
     *clock_next = &g->clock_next, *end_time = &g->end_time, *end_state = &g->end_state;
     *kills = &g->kills, *deaths = &g->deaths, *score_limit = g->x70;
+    *flags = &g->b8c;  // +0x8c..+0x8f
     return true;
   };
   acc.exit_fade = [] { fade_replace(&states().multi_exit, 0, 1, 2, kFadeSeconds, 0, 0, 0); };  // 0x0048ef00
@@ -2361,7 +2373,7 @@ void wire_mission_hooks(GameEngine* e) {
   acc.set_clock_left = [](float v) { missions().clock = v; };
   net_set_game_access(acc);
   net_set_launch_game([](NetLaunchGame* out) {  // the network launch's (0x0046da80): slot 0 is +0x20 (0x00437800)
-    MultiplayerGame* g = current_pilot() ? current_pilot()->multiplayer() : nullptr;
+    MultiplayerGame* g = net_debug_game();
     if (!g) return false;
     out->loadout = g->slot.config, out->skin = g->slot.skin;
     out->unlimited_ammo = g->b8d != 0, out->outside_view = g->b8e != 0;
@@ -2393,7 +2405,9 @@ void GameEngine::missions_start(uint32_t list) {
       ztwod::host().image_path("..\\data\\common\\images\\maps");
       briefing_pick_map(map);
     }
-    // The briefing's Launch (0x0040500a): the player's mech (0x00491150).
+    // The briefing's Launch (0x0040500a): a network game's start first
+    // (0x0046ceb0, briefing.cpp), then the player's mech (0x00491150).
+    if (launch_.type == 3) multiplayer_launch_prep();
     LaunchedMech s;
     if (!launch_player() || !launched_mech(&s)) {
       std::fprintf(stderr, "mw3: the launch made no mech\n");

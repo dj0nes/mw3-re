@@ -354,7 +354,7 @@ extern "C" int32_t probe_mech_net_create(const int32_t* in, const uint32_t* rec,
     return m;
   };
   c.skin = [](NetMech&, mech3::Handle s) { log({26, static_cast<int32_t>(reinterpret_cast<uintptr_t>(s))}); };
-  c.sensor_range = [](NetMech&) { log({27}); };
+  c.sensor_range = [](mech3::Mech&) { log({27}); };
   c.host_replay = [] { log({28, 29, 1}); };
   Records t;
   znet::session() = znet::Session{};
@@ -1001,6 +1001,106 @@ extern "C" int32_t probe_mech_net_end(const int32_t* in, int32_t* out, int32_t c
   mech3::net_game() = mech3::NetGame{};
   mech3::net_game_over();
   log({90, g_end_kills, g_end_deaths});
+  znet::session() = znet::Session{};
+  c = mech3::NetCalls{};
+  const int32_t n = static_cast<int32_t>(std::min<size_t>(lg.size(), static_cast<size_t>(cap)));
+  std::copy(lg.begin(), lg.begin() + n, out);
+  return n;
+}
+
+// The pilot's respawn (0x0046dde0) for test_mech_net_respawn.py. in: the
+// game's +0x8c (respawn), +0x8d (unlimited), +0x8e; the local id, its team,
+// its lobby slot, the roster, a cockpit explosion, force feedback, the
+// remote mechs (0..3) and their places (x y z each), the mech's place, then
+// 16 starts (found, x y z, yaw).
+#include "mech3/mech_data.h"
+namespace {
+const int32_t* g_rs;
+std::vector<std::unique_ptr<mech3::NetMech>> g_rs_mechs;
+mech3::Mech* g_rs_me;
+uint8_t g_rs_flags[4];
+mech3::NetGameFields g_rs_game;
+struct RespawnData : mech3::MechDataHooks {
+  void anim_restart(mech3::Handle anim, mech3::Handle node) override { log({14, static_cast<int32_t>(low(anim)), static_cast<int32_t>(low(node))}); }
+};
+}  // namespace
+
+extern "C" int32_t probe_mech_net_respawn(const int32_t* in, int32_t* out, int32_t cap) {
+  std::vector<int32_t> lg;
+  g_log = &lg;
+  g_rs = in;
+  mech3::NetCalls& c = mech3::net_calls();
+  c = mech3::NetCalls{};
+  g_rs_flags[0] = static_cast<uint8_t>(in[0]), g_rs_flags[1] = static_cast<uint8_t>(in[1]);
+  g_rs_flags[2] = static_cast<uint8_t>(in[2]), g_rs_flags[3] = 0;
+  g_rs_game = mech3::NetGameFields{};
+  g_rs_game.flags = g_rs_flags;
+  c.game = [] { return &g_rs_game; };
+  c.view_camera = [](int32_t id) { log({10, id}); };
+  c.pilot_set_mech = [](mech3::Mech&, int32_t roster) { log({11, roster}); };
+  c.team_of = [](uint32_t p) { log({2, static_cast<int32_t>(p)}); return static_cast<uint32_t>(g_rs[4]); };
+  c.unlimited = [](mech3::Mech&, bool on) { log({3, on ? 1 : 0}); };
+  c.options_apply = [] { log({13}); };
+  c.start_of = [](uint32_t p) { log({7, static_cast<int32_t>(p)}); return g_rs[5]; };
+  c.position = [](mech3::Mech& m, float o[3]) {
+    const int32_t* at = &g_rs[19];
+    for (size_t k = 0; k < g_rs_mechs.size(); ++k)
+      if (g_rs_mechs[k].get() == &m) at = &g_rs[10 + 3 * static_cast<int32_t>(k)];
+    std::memcpy(o, at, 12);
+    return true;
+  };
+  c.spawn_point = [](const char* name, float pos[3], float* yaw) {
+    const int32_t i = std::atoi(name + 7);
+    log({8, i});
+    const int32_t* s = &g_rs[22 + 5 * i];
+    if (!s[0]) return false;
+    std::memcpy(pos, s + 1, 12), std::memcpy(yaw, s + 4, 4);
+    return true;
+  };
+  c.place = [](mech3::Mech&, const float p[3], float yaw) { log({9, bits(p[0]), bits(p[1]), bits(p[2]), bits(yaw)}); };
+  c.sensor_range = [](mech3::Mech&) { log({17}); };
+  c.objectives_again = [] { log({18}); };
+  c.ff_respawn = [] { if (g_rs[8]) log({19, 0, 20, 1}); };
+  RespawnData data_hooks;
+  mech3::set_mech_data_hooks(&data_hooks);
+  Sends rec;
+  znet::session() = znet::Session{};
+  znet::Session& s = znet::session();
+  s.transport = &rec, s.initialised = true, s.open = true;
+  s.local = std::make_unique<znet::Player>();
+  s.local->id = static_cast<uint32_t>(in[3]);
+  mech3::NetGame& g = mech3::net_game();
+  g = mech3::NetGame{};
+  g.running = true;
+  g_rs_mechs.clear();
+  for (int32_t k = 0; k < in[9]; ++k) {
+    g_rs_mechs.push_back(std::make_unique<mech3::NetMech>());
+    g.mechs.push_back(g_rs_mechs.back().get());
+  }
+  auto* data = static_cast<mech3::MechData*>(::operator new(sizeof(mech3::MechData)));
+  std::memset(static_cast<void*>(data), 0, sizeof(mech3::MechData));
+  data->roster = in[6];
+  mech3::CockpitModel cockpit;
+  if (in[7]) {
+    data->cockpit_explosion = reinterpret_cast<mech3::Handle>(static_cast<uintptr_t>(0x5150));
+    cockpit.node = reinterpret_cast<mech3::Handle>(static_cast<uintptr_t>(0x6160));
+    data->cockpit_model = &cockpit;
+  }
+  auto* m = new mech3::Mech();
+  g_rs_me = m;
+  m->pilot = data;
+  m->team = m->allies = m->enemies = 0;  // as the exe's test memory
+  const bool ok = mech3::net_pilot_respawn(*m);
+  log({21, ok ? 1 : 0, 12, static_cast<int32_t>(m->team), static_cast<int32_t>(m->allies),
+       static_cast<int32_t>(m->enemies), 22, g_rs_flags[2]});
+  data->cockpit_model = nullptr;
+  m->pilot = nullptr;
+  delete m;
+  ::operator delete(data);
+  g.mechs.clear();
+  g_rs_mechs.clear();
+  g = mech3::NetGame{};
+  mech3::set_mech_data_hooks(nullptr);
   znet::session() = znet::Session{};
   c = mech3::NetCalls{};
   const int32_t n = static_cast<int32_t>(std::min<size_t>(lg.size(), static_cast<size_t>(cap)));

@@ -107,6 +107,7 @@
 #include "mech3/options_menu.h"
 #include "mech3/menu_states.h"
 #include "mech3/pilot.h"
+#include "gamez/znetwork/znet_session.h"
 #include "mech3/briefing.h"
 #include "gamez/zutil/zfix.h"
 #include "mech3/debriefing.h"
@@ -3452,6 +3453,68 @@ TEST(net_mech_made_from_a_record_c1m1_headless) {
     EXPECT(seen.respawned == 1);   // made again in place by a respawn (piece 7a)
     EXPECT(seen.configs == 1 && seen.config_named == 1);  // "Bob's Config", valid
     EXPECT(seen.after_leave == 0 && seen.handlers_after == 0);
+    mech3::missions().cleanup(false);
+    app.stop_game();
+    app.exit_instance();
+    mech3::set_app(nullptr);
+  }
+  zrdr::close_archives(true);
+  mech3::reset_states();
+  reset_process_state();
+  mech3::missions() = mech3::Missions{};
+  mech3::mech_types_forget();
+  mech3::options() = mech3::Options{};
+}
+
+// Multiplayer piece 8c in a running mission (c1m1): a peer's packet is
+// untrusted (FIX (A), fixes.md). Over the hub, another player's network
+// mech made, it sends a crater on a ground past the table, effects naming
+// bad or free nodes and one with an unended name, a state saying more shots
+// than it holds, postures of no action, then 3000 random messages of every
+// routed type at any length. Each bad one stops at the edge; nothing crashes.
+TEST(net_hostile_peer_c1m1_headless) {
+  if (!have_game()) return;
+  SavedMounts keep;
+  zutl::mounts() = zutl::Mounts{};
+  zutl::mount(MW3_GAME_DIR);
+  zutl::set_write_dir(temp_dir("net_hostile_write"));
+  mech3::reset_states();
+  reset_process_state();
+  mech3::missions() = mech3::Missions{};
+  mech3::mech_types_forget();
+  mech3::options() = mech3::Options{};
+  FakeWindow window;
+  FakeAlert alert;
+  FakeClock clock;
+  FakeScreen screen;
+  platform::SilentSoundOutput sound;
+  mech3::MountFiles files;
+  mech3::Platform p;
+  p.window = &window, p.alert = &alert, p.clock = &clock, p.movie_clock = &fast_movie_clock(), p.screen = &screen, p.sound = &sound, p.files = &files;
+  {
+    mech3::GameEngine engine(p, "mech3.exe -nofmv");
+    engine.quiet = true;
+    mech3::Mech3App app(&engine);
+    mech3::set_app(&app);
+    EXPECT(app.init_instance());
+    mech3::GameEngine::Launch l;
+    engine.set_launch(l);
+    engine.missions_start(0x6098d0);
+    EXPECT(!mech3::missions().failed);
+    const int32_t cap = zmod::materials().capacity;
+    EXPECT(cap > 0 && zmod::take_material(cap) == nullptr && zmod::take_material(cap + 5000) == nullptr);
+    EXPECT(zmod::take_material(0) != nullptr);
+    mech3::NetHostileSeen seen;
+    EXPECT(mech3::program_net_hostile_check(&seen));
+    std::printf("  craters %d bad / %d good, effects %d bad / %d good (name ended %d), fires %d of 127, actions %d, fuzzed %d\n",
+                seen.craters_bad, seen.craters_good, seen.effects_bad, seen.effect_good, seen.name_ended, seen.fires,
+                seen.actions_queued, seen.fuzzed);
+    EXPECT(seen.made == 1);
+    EXPECT(seen.craters_bad == 0 && seen.craters_good == 1);
+    EXPECT(seen.effects_bad == 0 && seen.effect_good == 1 && seen.name_ended == 1);
+    EXPECT(seen.fires == 4);
+    EXPECT(seen.actions_queued == 0);
+    EXPECT(seen.fuzzed > 2500);
     mech3::missions().cleanup(false);
     app.stop_game();
     app.exit_instance();
@@ -15667,6 +15730,179 @@ TEST(program_hooks_set_after_a_mission_load_headless) {
     if (std::find(nulls.begin(), nulls.end(), n) == nulls.end()) ++stale, std::printf("    allowed but set: %s\n", n.c_str());
   EXPECT(unexplained == 0);
   EXPECT(stale == 0);
+  zrdr::close_archives(true);
+  mech3::reset_states();
+  reset_process_state();
+  mech3::options() = mech3::Options{};
+}
+
+// Multiplayer piece 8d in a running network game (c1mp1 over the hub, as
+// the soak's debug start): the pilot killed; with respawn on (the game's
+// +0x8c) it is made again 7.1 s on (the dead list's 0x0046dde0), alive and
+// whole at one of the map's starts; with it off it stays dead and the view
+// takes camera 4.
+static void net_respawn_run(bool respawn, bool* died, bool* back, float* health, int32_t* camera) {
+  SavedMounts keep;
+  zutl::mounts() = zutl::Mounts{};
+  zutl::mount(MW3_GAME_DIR);
+  zutl::set_write_dir(temp_dir("net_respawn_write"));
+  mech3::reset_states();
+  reset_process_state();
+  mech3::missions() = mech3::Missions{};
+  mech3::mech_types_forget();
+  mech3::player_controls_instance() = nullptr;
+  mech3::options() = mech3::Options{};
+  FakeWindow window;
+  FakeAlert alert;
+  FakeClock clock;
+  FakeScreen screen;
+  platform::SilentSoundOutput sound;
+  mech3::MountFiles files;
+  mech3::Platform p;
+  p.window = &window, p.alert = &alert, p.clock = &clock, p.movie_clock = &fast_movie_clock(), p.screen = &screen, p.sound = &sound, p.files = &files;
+  znet::Hub hub;
+  znet::session() = znet::Session{};
+  znet::initialise(hub.endpoint());
+  EXPECT(znet::host_session(znet::SessionDesc{}, "Host"));
+  *died = *back = false, *health = 0, *camera = -9;
+  {
+    mech3::GameEngine engine(p, "mech3.exe -nofmv");
+    engine.quiet = true;
+    mech3::Mech3App app(&engine);
+    mech3::set_app(&app);
+    EXPECT(app.init_instance());
+    mech3::MultiplayerGame game(nullptr);
+    game.x70 = 1 << 30;
+    game.b8c = respawn ? 1 : 0;
+    mech3::GameEngine::Launch l;
+    l.index = 0, l.number = 1, l.type = 3, l.multi = &game;
+    engine.set_launch(l);
+    mech3::program_net_debug_lobby();
+    app.post_intro_ = &mech3::states().load;
+    int core_frames = 0, dead_frames = 0;
+    engine.on_present = [&](int) {
+      if (app.current() != &mech3::states().core) return;
+      ++core_frames;
+      float h, at[3];
+      const bool alive = mech3::program_pilot_alive(&h, at);
+      if (core_frames == 30) *died = mech3::program_net_staged_kill();
+      if (*died && !alive) ++dead_frames;
+      if (*died && dead_frames > 0 && alive && !*back) *back = true, *health = h;
+      *camera = mech3::program_view_camera_id();
+    };
+    CountingPump pump;
+    pump.limit = 2600;
+    pump.stop = [&] { return *back || core_frames > 1500; };  // about 8 ms a frame here: 7.1 s dead is ~900
+    app.run(pump);
+    mech3::missions().cleanup(false);
+    app.stop_game();
+    app.exit_instance();
+    mech3::set_app(nullptr);
+  }
+  znet::shutdown();
+  zrdr::close_archives(true);
+  mech3::reset_states();
+  reset_process_state();
+  mech3::missions() = mech3::Missions{};
+  mech3::mech_types_forget();
+  mech3::options() = mech3::Options{};
+}
+TEST(net_pilot_respawns_c1mp1_headless) {
+  if (!have_game()) return;
+  bool died, back;
+  float health;
+  int32_t camera;
+  net_respawn_run(true, &died, &back, &health, &camera);
+  std::printf("  respawn on: died %d, back %d, health %.3f\n", died, back, health);
+  EXPECT(died && back && health > 0.99f);
+  net_respawn_run(false, &died, &back, &health, &camera);
+  std::printf("  respawn off: died %d, back %d, camera %d\n", died, back, camera);
+  EXPECT(died && !back && camera == 4);
+}
+
+// The same census in a network game (piece 8d: the respawn's hook was null
+// and only a soak found it): c1mp1 launched as the soak's debug start does,
+// hosting over the hub; at its 60th Core frame every hook hook_allow.txt
+// lets be null for "multiplayer:" is set.
+TEST(program_hooks_set_in_a_network_game_headless) {
+  if (!have_game()) return;
+  SavedMounts keep;
+  zutl::mounts() = zutl::Mounts{};
+  zutl::mount(MW3_GAME_DIR);
+  zutl::set_write_dir(temp_dir("program_hooks_net"));
+  mech3::reset_states();
+  reset_process_state();
+  mech3::missions() = mech3::Missions{};
+  mech3::mech_types_forget();
+  mech3::player_controls_instance() = nullptr;
+  mech3::options() = mech3::Options{};
+  FakeWindow window;
+  FakeAlert alert;
+  FakeClock clock;
+  FakeScreen screen;
+  platform::SilentSoundOutput sound;
+  mech3::MountFiles files;
+  mech3::Platform p;
+  p.window = &window, p.alert = &alert, p.clock = &clock, p.movie_clock = &fast_movie_clock(), p.screen = &screen, p.sound = &sound, p.files = &files;
+  std::vector<std::string> nulls;
+  bool networked = false;
+  znet::Hub hub;
+  znet::session() = znet::Session{};
+  znet::initialise(hub.endpoint());
+  EXPECT(znet::host_session(znet::SessionDesc{}, "Host"));
+  {
+    mech3::GameEngine engine(p, "mech3.exe -nofmv");
+    engine.quiet = true;
+    mech3::Mech3App app(&engine);
+    mech3::set_app(&app);
+    EXPECT(app.init_instance());
+    mech3::MultiplayerGame game(nullptr);
+    game.x70 = 1 << 30;
+    mech3::GameEngine::Launch l;
+    l.index = 0, l.number = 1, l.type = 3, l.multi = &game;  // c1mp1
+    engine.set_launch(l);
+    mech3::program_net_debug_lobby();
+    app.post_intro_ = &mech3::states().load;
+    int core_frames = 0;
+    engine.on_present = [&](int) {
+      if (app.current() == &mech3::states().core && ++core_frames == 60) {
+        networked = mech3::program_net_running();
+        for (const HookField& h : hook_fields())
+          if (h.null()) nulls.push_back(h.name);
+      }
+    };
+    CountingPump pump;
+    pump.limit = 2400;
+    pump.stop = [&] { return core_frames >= 60; };
+    app.run(pump);
+    mech3::missions().cleanup(false);
+    app.stop_game();
+    app.exit_instance();
+    mech3::set_app(nullptr);
+  }
+  znet::shutdown();
+  std::map<std::string, std::string> allow;
+  if (std::FILE* f = std::fopen(MW3_SOURCE_DIR "/tests/hook_allow.txt", "r")) {
+    char buf[512];
+    while (std::fgets(buf, sizeof buf, f)) {
+      std::string l = buf;
+      const size_t tab = l.find('\t');
+      if (l.empty() || l[0] == '#' || tab == std::string::npos) continue;
+      allow[l.substr(0, tab)] = l.substr(tab + 1);
+    }
+    std::fclose(f);
+  }
+  int multiplayer = 0, still_null = 0;
+  for (const auto& [n, why] : allow) {
+    if (why.rfind("multiplayer: ", 0) != 0) continue;
+    ++multiplayer;
+    if (std::find(nulls.begin(), nulls.end(), n) != nulls.end()) ++still_null, std::printf("    null in a network game: %s\n", n.c_str());
+  }
+  std::printf("  a network game (%s): %zu null, %d allowed for multiplayer, %d of them still null\n",
+              networked ? "running" : "not running", nulls.size(), multiplayer, still_null);
+  EXPECT(networked);
+  EXPECT(multiplayer >= 3);  // the crater veto, the anim log's copy, the respawn
+  EXPECT(still_null == 0);
   zrdr::close_archives(true);
   mech3::reset_states();
   reset_process_state();

@@ -467,6 +467,19 @@ void Missions::update(float dt) {
   play_voice();
 }
 
+// Mech3.exe 1.2 @ 0x00491050: a network game's objectives freed and read
+// again (as the load's: "mp<N>" of objectives.zrd, or mpinfo.zrd's
+// "objectives" past map 2), not won or lost any more. The respawn's.
+void Missions::objectives_again() {
+  MissionHooks& h = *g_hooks;
+  const int32_t number = h.game_mission_number();  // the game's vt+0x4c
+  const std::string block = format("mp%d", number);
+  h.objectives_free(kObj[0], kObj[1], kObj[2], kObj[3], kObj[4]);  // 0x0045c1d0
+  h.objectives_load(number > 2 ? "mpinfo.zrd" : "objectives.zrd", number > 2 ? "objectives" : block.c_str(), kObj[0],
+                    kObj[1], kObj[2], kObj[3], kObj[4]);  // 0x0045c2d0
+  ended = aborting = 0;
+}
+
 // Mech3.exe 1.2 @ 0x0048f630: the line asked for this frame plays unless a
 // line of higher priority still does.
 void Missions::play_voice() {

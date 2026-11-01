@@ -2584,3 +2584,23 @@ Assigned after 8b2 merged (fd3f05f). The lead asked for a section stepped at bot
   (0x00470710): Missions cleanup(1), then Replace(state(2)) — the main menu.
 - In the c1m1 test, Missions::loaded stays set after cleanup (as the exe's
   +0x5c); the test checks the load event (`done`) instead.
+
+## Multiplayer, pieces 8b and 8c: the soak test, a peer's packets (2026-11-01)
+
+- 8b: the debug start's network game (`--mission c1mp1 --host|--join`,
+  `--net-wait`, `--net-minutes`, `--net-drive`, `--net-soak`; Launch::multi,
+  the stand-in lobby, the autopilot, the staged kills, the lines) and
+  `sdl_network_soak_four_players` behind MW3_SOAK=1 (multiplayer-port.md,
+  piece 8b). Found: the join race in our ENet transport (fixed, tested);
+  THROTTLE0 is a key callback (the autopilot holds the polled 0x18); a
+  network game's end passes Multi-Exit and the main menu within a frame on
+  to the Multiplayer State; landing hits do about 0.4% damage in two
+  minutes of the autopilots' fight, so kills are staged.
+- 8c: the lead's review items, FIX (A) for a peer's packets (fixes.md row,
+  `net_hostile_peer_c1m1_headless`).
+- 8d: the pilot's respawn 0x0046dde0 with the pilot's mech change 0x004783c0
+  and the rebuild in place 0x004148c0, the objectives again 0x00491050; the
+  hook census in a network game (multiplayer-port.md, piece 8d). Found
+  while porting: the rebuilt mech's weapons asked the HUD of a freed
+  manager (the exe's view is on the stealth object meanwhile).
+- Next: the 30-minute soak again, then piece 9.

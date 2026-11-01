@@ -43,7 +43,7 @@ void net_set_launch_game(bool (*fn)(NetLaunchGame* out));
 // The network game's fields and the mission's clock for the sends (0x0046ef70).
 struct NetGameAccess {
   bool (*fields)(int32_t* players, float** clock_next, float** end_time, int32_t** end_state, int32_t** kills,
-                 int32_t** deaths, int32_t* score_limit) = nullptr;
+                 int32_t** deaths, int32_t* score_limit, uint8_t** flags) = nullptr;
   float (*game_time)() = nullptr;   // [0x0060991c]
   float (*clock_left)() = nullptr;  // [0x00609920]
   bool (*clock_on)() = nullptr;     // [0x00609924]
@@ -63,9 +63,42 @@ struct NetMechSeen {
   int32_t respawned = 0;   // dead (inactive), a 0x12 20 m on: made again in place, active, there, still remote
 };
 bool program_net_mech_check(NetMechSeen* out);
+// Ours, for the tests (piece 8c): another player over the hub, with its
+// network mech made, sends what a hostile or broken peer could. Each count
+// is what reached the handler's next step.
+struct NetHostileSeen {
+  int32_t made = 0;
+  int32_t craters_bad = -1, craters_good = -1;   // a ground past the table; ground 0
+  int32_t effects_bad = -1, effect_good = -1;    // nodes -5, past the pool, free, a connector's -7; node -1
+  int32_t name_ended = 0;                        // a 32-letter name with no NUL: ended at [0x1f]
+  int32_t fires = -1;                            // a state saying 127 shots, holding 4
+  int32_t actions_queued = -1;                   // postures 1000 and -3
+  int32_t fuzzed = 0;                            // random messages of every routed type, any length, sent
+};
+bool program_net_hostile_check(NetHostileSeen* out);
 // Ours, for the tests (piece 8): a network game started over the hub in the
 // mission that is up, then its end (0x004707c0). Whether the game was up.
 bool program_net_game_over();
+// Ours, for the soak test until the lobby (piece 11): each player its own
+// team, its start by id among the session's players, and the kills and
+// deaths kept here as the lobby would; the pilot driven by a pattern (the
+// commands it injects); a line of where everything is; the score table.
+void program_net_debug_lobby();
+uint32_t program_net_drive(int cmd, double seconds, uint32_t seed);
+std::string program_net_soak_line();
+// A kill staged on the pilot (hits that land are too few to kill in a soak):
+// its head destroyed, the nearest remote mech within 300 m its attacker
+// (else none: a suicide). False when it is not alive.
+bool program_net_staged_kill();
+// The pilot's mech made again as `roster` in place (0x004783c0; the
+// respawn's, and the exe's mech change).
+void program_pilot_set_mech(int32_t roster);
+bool program_net_running();  // a network game is up (net_start ran, net_end not yet)
+void program_objectives_again();  // app_mission.cpp: Missions::objectives_again (0x00491050)
+void program_options_apply();     // app_mission.cpp: every option set again (0x0040cb30)
+// For the tests: the pilot's mech alive (active, not dead), its health and place.
+bool program_pilot_alive(float* health, float pos[3]);
+std::string program_net_scores();
 // The pocket commander's program side (app_pocket.cpp), from wire_mech_build;
 // the marker a handle names, if it is the mission's.
 void wire_pocket(const MechWiring* w);

@@ -59,6 +59,7 @@ struct Platform {
 };
 
 class ActionGame;
+class MultiplayerGame;
 class GameEngine;
 class MenuScreen;
 class QuitBox;
@@ -101,6 +102,9 @@ class GameEngine : public Engine {
     // Action screen would set (not ported: the caller makes it). Else the
     // chosen pilot's.
     ActionGame* action = nullptr;
+    // A network debug start's game (type 3, ours: the lobby is not ported):
+    // its rules and totals; the pilot's own when it has one.
+    MultiplayerGame* multi = nullptr;
   };
   void set_launch(const Launch& l);
   // The launch's mech, loadout and skin read again from the chosen pilot's
