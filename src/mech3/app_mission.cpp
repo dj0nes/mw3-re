@@ -1499,9 +1499,19 @@ struct WiredObjectiveHooks : ObjectiveHooks {
 WiredObjectiveHooks g_objective_hooks;
 
 
+// [0x00479480]+0xa8: the lobby's ALLOW MOBILE BASES (piece 11c); a debug
+// start's game has none.
+bool mp_mobile_bases() {
+  const MultiplayerGame* g = current_pilot() ? current_pilot()->multiplayer() : nullptr;
+  if (!g && g_mission_engine && g_mission_engine->launch().type == 3) g = g_mission_engine->launch().multi;
+  return g && g->ba8;
+}
+
 struct WiredMissionHooks : MissionHooks {
   void hooks_check() override { hook_census_install(); }
   Handle multiplayer() override { return e->launch().type == 3 ? 1 : 0; }  // 0x00479480
+  uint8_t mp_flag() override { return mp_mobile_bases() ? 1 : 0; }
+  void mp_stations(Handle h) override { program_mp_stations(e->object_of(h)); }  // 0x00490950
   WiredObjectiveHooks& ob() { return g_objective_hooks; }
   // The end's cockpit (mission.cpp cockpit): 0x00430aa0 on the view's own mech's
   // +0x684, and its objectives box (+0x17964) shown for a time (vt+0x60, -1 held).
@@ -2269,6 +2279,10 @@ const char* mission_nav_name(uint32_t nav) {
 }
 
 void program_objectives_again() { missions().objectives_again(); }
+void program_net_clock(float left, bool on) {
+  missions().clock = left;
+  missions().clock_down = on ? 1 : 0;
+}
 void program_options_apply() { apply_all(); }
 
 namespace {
@@ -2286,6 +2300,7 @@ void wire_mission_hooks(GameEngine* e) {
   g_player_hooks.forget();  // a new engine numbers its handles afresh
   g_mission_engine = e;
   set_mission_hooks(e ? &g_mission_hooks : nullptr);
+  program_set_mp_mobile_bases(e ? &mp_mobile_bases : nullptr);
   // The mission's waynet, the missions' +0xb0 ([0x00609980]): as a handle there.
   program_waynet_mission(
       e ? +[]() -> void* { return g_mission_engine->object_of(missions().stations); } : nullptr,

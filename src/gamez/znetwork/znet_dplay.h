@@ -40,10 +40,12 @@ PlayerRecord* player(uint32_t id);  // 0x00589700: the record of that id, null n
 TeamRecord* team(uint32_t id);      // 0x00589960 on the teams: by id
 // 0x00588a60: the record's data (+0x44: its short name) of that player, null none.
 const char* player_name(uint32_t id);
-// 0x005898b0 / 0x00589910: each player (is it the host, its short name) / each
-// team (0, its name) through a callback; the teams' walk answers their count.
-void each_player(void (*fn)(bool host, const char* name, void* ctx), void* ctx);
-int32_t each_team(void (*fn)(bool host, const char* name, void* ctx), void* ctx);
+// 0x005898b0 / 0x00589910: each player (its id and team, is it the host, its
+// short name) / each team (its id, 0, 0, its name) through a callback (the
+// exe's fastcall: ECX, EDX, then the two pushed); the walks answer the count.
+using EachFn = void (*)(uint32_t id, uint32_t team, bool host, const char* name, void* ctx);
+int32_t each_player(EachFn fn, void* ctx);
+int32_t each_team(EachFn fn, void* ctx);
 
 // 0x00588a70: one system event into the lists and an MW3 local message
 // (types 2..0xe, network-messages.md Local only) dispatched.
@@ -59,6 +61,7 @@ uint32_t create_team(const char* name);              // 0x00588390: the team's i
 bool add_to_team(uint32_t team, uint32_t player);    // 0x005884c0
 bool remove_from_team(uint32_t team, uint32_t player);  // 0x00588500: the record's team cleared
 bool destroy_team(uint32_t team);                    // 0x00588590
+bool team_named(const char* name);                   // 0x00589680: a team of that name (strcmp) is listed
 int32_t enum_teams();                                // 0x00588200: the teams' list made again; their count
 bool enum_team_players();                            // 0x00588300: each team's players' records given it
 int32_t enum_players();                              // 0x005885c0: records for new players; their count

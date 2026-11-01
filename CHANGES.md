@@ -528,8 +528,9 @@ These change how the game talks to the computer, not how it plays.
   regions 1.0 left out of Op 4b Mission 5 (taken from your own Mission 6
   and 4 files, as 1.2 did), the other new AI paths, and 1.2's fixes to Op
   3's world (the dome's gaps, the helipads' stray wall, the terrain holes).
-  Only Op 3's two new multiplayer maps are left out until multiplayer is
-  ported. Your files are not changed, and data that is neither 1.0's nor
+  Op 3's two new multiplayer maps, which 1.2 added as files of their own,
+  are copied into your settings folder on the first start, so a 1.0 player
+  has every 1.2 map too. Your files are not changed, and data that is neither 1.0's nor
   1.2's (a mod) is left as it is. Details in `docs/patch12.md`.
 - A 1.0 install can be brought to 1.2 with the official patch file you
   already have (`--patch`, its ZIP or folder): the rebuild reads the patch
@@ -582,3 +583,10 @@ Known quirks the rebuild deliberately keeps:
 - A multiplayer clock message that would end the game outside a network game is ignored instead of crashing.
 - Messages from other players are checked before they are used, as anyone on the internet can send anything: a crater on ground that does not exist, an effect on objects that do not exist, more shots than a message holds, or a move the mech does not have are dropped instead of reading or writing past the game's tables.
 - The multiplayer host no longer re-checks its locked game rules every 51 seconds (a guard against memory editing that ended the game).
+- The multiplayer lobby no longer sends the scores to an online game service (the MSN Gaming Zone's score reporting, long gone).
+- The multiplayer lobby shows the host its internet and LAN addresses, with a click to copy, as the connection screen does.
+- The multiplayer lobby takes game settings only from the host, and checks them before use.
+- The multiplayer lobby takes the start of a game only from the host, and reads the scores between games only as far as the message goes.
+- The multiplayer lobby's chat reads each message only as far as it goes.
+- A locked multiplayer game turns away players who try to join it, instead of only greying out its Join button.
+- With bug fixes on, locking a multiplayer game with "Use stock 'Mechs" keeps the stock loadout a player chose instead of resetting it to the mech's first.

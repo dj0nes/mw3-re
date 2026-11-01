@@ -1,5 +1,6 @@
 #include "frontend/sdl/net_upnp.h"
 
+#include <chrono>
 #include <condition_variable>
 #include <cstdio>
 #include <cstdlib>
@@ -81,6 +82,7 @@ struct PortMapper::Impl {
   UPNPUrls urls{};
   IGDdatas data{};
   bool have_igd = false, mapped = false;
+  bool done = false;  // the worker has finished
   std::thread worker;
 
   void set(UpnpStatus::State s) {
@@ -161,25 +163,37 @@ struct PortMapper::Impl {
     }
     do_unmap();
     if (have_igd) FreeUPNPUrls(&urls);
+    std::lock_guard<std::mutex> l(mu);
+    done = true;
+    cv.notify_all();
   }
   void post(int ask) {
     std::lock_guard<std::mutex> l(mu);
     asks.push_back(ask);
     busy = true;
-    cv.notify_one();
+    cv.notify_all();
   }
 };
 
-PortMapper::PortMapper(uint16_t port, std::string description_url, int discover_ms) : impl_(std::make_unique<Impl>()) {
+PortMapper::PortMapper(uint16_t port, std::string description_url, int discover_ms) : impl_(std::make_shared<Impl>()) {
   impl_->port = port;
   impl_->url = std::move(description_url);
   impl_->discover_ms = discover_ms;
-  impl_->worker = std::thread([this] { impl_->run(); });
+  std::shared_ptr<Impl> m = impl_;
+  impl_->worker = std::thread([m] { m->run(); });
 }
 
+// The lead's review of 9c: quitting must not hang on the router.
 PortMapper::~PortMapper() {
   impl_->post(3);
-  if (impl_->worker.joinable()) impl_->worker.join();
+  bool finished;
+  {
+    std::unique_lock<std::mutex> l(impl_->mu);
+    finished = impl_->cv.wait_for(l, std::chrono::milliseconds(quit_ms), [this] { return impl_->done; });
+  }
+  if (!impl_->worker.joinable()) return;
+  if (finished) impl_->worker.join();
+  else impl_->worker.detach();  // it holds the Impl; the router's timeouts end it
 }
 
 void PortMapper::map() { impl_->post(1); }

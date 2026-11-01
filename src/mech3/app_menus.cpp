@@ -41,6 +41,7 @@
 #include "mech3/pilot.h"
 #include "mech3/pilot_menu.h"
 #include "mech3/mp_connect.h"
+#include "mech3/mp_lobby.h"
 
 namespace mech3 {
 
@@ -382,6 +383,10 @@ Handle GameEngine::construct(uint32_t ctor, std::initializer_list<Arg> args) {
     }
     case 0x493260:  // the Multiplayer State's first screen, new(0x13b04): the connection
       return screen(0x13b04, [](GameEngine& e, Handle s) -> MenuScreen* { return new ConnectScreen(e, s); });
+    case 0x495f90:  // its second, new(0x1505c): the lobby
+      return screen(0x1505c, [](GameEngine& e, Handle s) -> MenuScreen* { return new LobbyScreen(e, s); });
+    case 0x49bd80:  // its third, new(0x11f3c): the new team's dialog
+      return screen(0x11f3c, [](GameEngine& e, Handle s) -> MenuScreen* { return new TeamScreen(e, s); });
     case 0x488bc0:  // the Action State's screen, new(0x17730)
       return screen(0x17730, [](GameEngine& e, Handle s) -> MenuScreen* { return new ActionScreen(e, s); });
     case 0x48a6c0:
@@ -693,7 +698,7 @@ int32_t campaign_dir(const CampaignGame& c) {
 
 // The Load state from the menus: its game is the chosen pilot's (the
 // launch's stand-in filled from it; a debug start keeps its own). A
-// campaign's, training's and Instant Action's missions (not multiplayer).
+// campaign's, training's, Instant Action's and multiplayer's missions.
 void GameEngine::load_state_enter() {
   if (launch_.active && launch_.auto_launch) return;
   Pilot* p = current_pilot();
@@ -715,12 +720,19 @@ void GameEngine::load_state_enter() {
     l.index = a->x74;
     l.number = a->x78;
     l.op = a->x74 >= 0 && a->x74 <= 3 ? a->x74 + 1 : 0;
+  } else if (auto* m = dynamic_cast<MultiplayerGame*>(g)) {
+    // The lobby's world (0x0049b790): vt+0x54 the folder, vt+0x4c the mp
+    // number, vt+0x48 0 (0x0040bae0); UNAVAILABLE is folder -1.
+    l.index = m->x90;
+    l.number = m->x94;
+    l.op = 0;
+    l.multi = m;
   } else {
     l.index = -1;
   }
   if (l.index < 0) {
-    // Not ported (multiplayer), or no game: back to the
-    // main menu rather than a mission left from before.
+    // No game, or no world: back to the main menu rather than a
+    // mission left from before.
     unported("the Load state of this game", {l.type});
     launch_.active = false;
     replace_state(2);
@@ -734,10 +746,10 @@ void GameEngine::load_state_enter() {
 
 // The briefing's game texts (game_type, db_name, scenario_name,
 // scenario_desc: the game's vt+0x04 .. +0x10). A debug start has no pilot's
-// game: the one its launch names answers (ours). Multiplayer's stay logged.
+// game: the one its launch names answers (ours).
 const char* GameEngine::game_text(int32_t slot) {
   Pilot* p = launch_.auto_launch ? nullptr : current_pilot();
-  if (Game* g = p ? p->current : nullptr) return g->type() == kMultiplayer ? Engine::game_text(slot) : g->game_text(slot);
+  if (Game* g = p ? p->current : nullptr) return g->game_text(slot);
   if (launch_.action) return launch_.action->game_text(slot);
   if (launch_.index == 5) return TrainingGame::text_of(slot, launch_.number);  // t1
   if (slot != 0x0c) return nullptr;
@@ -1260,8 +1272,8 @@ void GameEngine::network_set(int32_t on) {
 // Mech3.exe 1.2 @ 0x0049cb20: the Multiplayer State's page shown as wanted
 // (1 the connection screen, 2 the lobby, 3 the new team), each told when
 // it starts over (+0x19): the connection screen forgets its kind
-// (0x004949d0), the lobby's (0x00497720) and the new team's (0x0049c2c0)
-// come with their pieces.
+// (0x004949d0), the lobby enters (0x00497720), the new team's dialog
+// enters over the lobby (0x0049c2c0).
 void GameEngine::multiplayer_switch(Handle state) {
   auto it = menu_states_.find(state);
   auto* g = it == menu_states_.end() ? nullptr : dynamic_cast<GameMenuState*>(it->second);
@@ -1272,10 +1284,13 @@ void GameEngine::multiplayer_switch(Handle state) {
       if (auto* c = dynamic_cast<ConnectScreen*>(screen_of(g->screens[0]))) c->forget_kind();
   } else if (g->want == 2) {
     g->screen_ = g->screens[1];
-    if (g->x19) unported("0x00497720", {g->screens[1]});
+    if (g->x19)
+      if (auto* l = dynamic_cast<LobbyScreen*>(screen_of(g->screens[1]))) l->enter();
   } else if (g->want == 3) {
     g->screen_ = g->screens[2];
-    if (g->x19) unported("0x0049c2c0", {g->screens[1]});
+    if (g->x19)
+      if (auto* t = dynamic_cast<TeamScreen*>(screen_of(g->screens[2])))
+        t->enter(dynamic_cast<LobbyScreen*>(screen_of(g->screens[1])));
   }
   if (!quiet && g->page != g->want) std::printf("mw3: multiplayer page %d\n", static_cast<int>(g->want));  // ours
   g->page = g->want;
@@ -1290,13 +1305,19 @@ void GameEngine::multiplayer_page(Handle state, int32_t page, uint8_t reenter) {
   g->x19 = reenter;
 }
 
-// Mech3.exe 1.2 @ 0x00494920 on the connection screen with the pilot; the
-// lobby's pilot and game (+0x15058, +0x116ec) come with the lobby.
+// Mech3.exe 1.2 @ 0x0049cc30's: 0x00494920 on the connection screen with the
+// pilot; the lobby's pilot and its current game (+0x15058, +0x116ec; 0x00479480).
 void GameEngine::multiplayer_take_pilot(Handle first, Handle second) {
   Pilot* p = current_pilot();
   if (auto* c = dynamic_cast<ConnectScreen*>(screen_of(first))) c->take_pilot(p ? handle_of(p) : 0, p ? p->name : nullptr);
   else Engine::multiplayer_take_pilot(first, second);
-  if (second) unported("lobby.take_pilot", {second});
+  if (auto* l = dynamic_cast<LobbyScreen*>(screen_of(second))) l->take_pilot(p ? handle_of(p) : 0, p ? p->multiplayer() : nullptr);
+}
+
+// Mech3.exe 1.2 @ 0x0049b660 on the lobby: back from the mech lab.
+void GameEngine::multiplayer_resume(Handle screen) {
+  if (auto* l = dynamic_cast<LobbyScreen*>(screen_of(screen))) l->resume();
+  else Engine::multiplayer_resume(screen);
 }
 
 }  // namespace mech3

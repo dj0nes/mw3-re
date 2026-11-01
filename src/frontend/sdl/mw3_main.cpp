@@ -166,7 +166,9 @@ struct Args {
   int lab_mech = -1;  // --lab-mech N (ours): the lab's 3D view shows chassis N (alone: through c1m2's briefing)
   struct Tap { int down, up, dik; };
   std::vector<Tap> taps;  // --tap DIK@N[:M]
-  struct ClickAt { int frame, x, y, group = 0; };  // group: a wide menu's left (0), middle (1) or right (2) (ours)
+  // group: a wide menu's left (0), middle (1) or right (2); players: N > 0
+  // counts the frame from the first one the session holds N players (ours)
+  struct ClickAt { int frame, x, y, group = 0, players = 0; };
   std::vector<ClickAt> clicks_at;  // --click-at X,Y@N (the game's 640 x 480 pixels)
   std::string briefing;  // --briefing NAME (ours): a campaign mission's briefing, as the menus reach it
   bool walk = false;  // --walk: full throttle (THROTTLE0's key) at the start (ours)
@@ -204,7 +206,7 @@ void usage() {
       "mw3 [install-dir] [--install DIR | --install-from DISC|ISO|CUE [--install-to DIR]] [--assets DIR]... [--write-dir DIR] [--version]\n"
       "    [--mission NAME | --fly NAME [--variant BLOCK]] [--pos X Y Z] [--look YAW PITCH] [--vehicle-ahead M [--vehicle-hold]] [--turret-ahead M] [--mech-ahead M] [--dialog FILE NAME]\n"
       "    [--shot FILE.bmp [--shot-frame N] [--shot-any] [--shot-series K]] [--fire N [--fire-group 1..5]] [--objectives N] [--win N] [--lab-mech N]\n"
-      "    [--windowed] [--original] [--import | --no-import] [--no-launcher] [--wide-menus | --no-wide-menus] [--patch ZIP|DIR] [--vfw-helper EXE | --no-vfw-helper] [--briefing c1m2] [--click N[:M]] [--click-at X,Y@N]... [--walk] [--tap DIK@N[:M]]... [--frames N] [--frame-ms N] [--frame-times N] [--seed N] [--window WxH] [--nosound] [--hidden] [--verbose]\n"
+      "    [--windowed] [--original] [--import | --no-import] [--no-launcher] [--wide-menus | --no-wide-menus] [--patch ZIP|DIR] [--vfw-helper EXE | --no-vfw-helper] [--briefing c1m2] [--click N[:M]] [--click-at X,Y@N]... [--click-players X,Y@N/P]... [--walk] [--tap DIK@N[:M]]... [--frames N] [--frame-ms N] [--frame-times N] [--seed N] [--window WxH] [--nosound] [--hidden] [--verbose]\n"
       "    [-nofmv] [-seasick] [-cdN]\n"
       "See docs/program.md.\n");
 }
@@ -270,6 +272,11 @@ bool parse(int argc, char** argv, Args& a) {
     else if (s == "--click-at" && next(1)) {
       Args::ClickAt c{};
       if (std::sscanf(argv[++i], "%d,%d@%d", &c.x, &c.y, &c.frame) == 3) a.clicks_at.push_back(c);
+    }
+    else if (s == "--click-players" && next(1)) {  // X,Y@N/P: N frames after the session first holds P players
+      Args::ClickAt c{};
+      if (std::sscanf(argv[++i], "%d,%d@%d/%d", &c.x, &c.y, &c.frame, &c.players) == 4 && c.players > 0)
+        a.clicks_at.push_back(c);
     }
     else if (s == "--tap" && next(1)) {
       const char* v = argv[++i];
@@ -1237,6 +1244,21 @@ int run(const Args& a, platform::VideoForWindows* vfw) {
           if (menu_frames == t.down || menu_frames == t.up) key(t.dik, menu_frames == t.down);
         std::vector<Args::ClickAt> clicks = a.clicks_at;
         clicks.insert(clicks.end(), auto_clicks.begin(), auto_clicks.end());
+        // --net-soak (ours) in a network game the menus started: the soak's
+        // line each half second in play (who each machine sees).
+        static uint64_t s_menu_net_line_at = 0;
+        if (a.net_soak && a.mission.empty() && engine.launch().type == 3 && app.current() == &mech3::states().core &&
+            SDL_GetTicks() >= s_menu_net_line_at) {
+          s_menu_net_line_at = SDL_GetTicks() + 500;
+          std::printf("mw3: soak menus clock %.1f %s\n", mech3::missions().clock, mech3::program_net_soak_line().c_str());
+        }
+        // --click-players: the first frame each player count was reached.
+        static int s_players_at[9] = {-1, -1, -1, -1, -1, -1, -1, -1, -1};
+        const size_t held = znet::session().open ? znet::lists().players.size() : 0;
+        for (size_t n = 1; n <= held && n < 9; ++n)
+          if (s_players_at[n] < 0) s_players_at[n] = menu_frames;
+        for (Args::ClickAt& c : clicks)
+          if (c.players > 0) c.frame = c.players < 9 && s_players_at[c.players] >= 0 ? s_players_at[c.players] + c.frame : -100;
         for (const Args::ClickAt& c : clicks) {
           // The cursor put on the point (zInput's 0x0051b440, the game's
           // 640 x 480 about its centre), then the press and the release.

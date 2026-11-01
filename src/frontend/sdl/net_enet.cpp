@@ -31,6 +31,7 @@ enum Kind : uint8_t {
   kData = 12,     // a player's or a team's data
   kKick = 13,     // the host -> a player: leave
   kRefused = 14,  // host -> joiner: another protocol, or full
+  kDesc = 15,     // host -> the others: the session's description changed (SetSessionDesc)
 };
 constexpr uint32_t kProtocol = 2;  // 2: the search's answer carries the user words
 
@@ -566,7 +567,9 @@ void EnetTransport::Impl::on_frame(ENetPeer* from, uint8_t channel, const uint8_
     }
     case kHello: {  // a joiner, at the host
       if (!hosting) return;
-      if (r.u32() != kProtocol || players.size() >= desc.max_players) {
+      // Ours (piece 11b): a locked game (its fourth word 3) is shut at the
+      // door; the exe's connection screen only greyed JOIN for it.
+      if (r.u32() != kProtocol || players.size() >= desc.max_players || desc.user[3] == 3) {
         Writer w;
         w.u8(kRefused);
         put(from, 0, w.b);
@@ -741,6 +744,18 @@ void EnetTransport::Impl::on_frame(ENetPeer* from, uint8_t channel, const uint8_
       event(e);
       return;
     }
+    case kDesc: {  // the host's new description
+      if (from != to_host) return;
+      znet::SessionDesc d;
+      d.name = r.str(), d.max_players = r.u32();
+      for (uint32_t& u : d.user) u = r.u32();
+      if (r.bad || d.max_players == 0 || d.max_players > kPlayersMax) return;
+      desc = d;
+      znet::SystemEvent e;
+      e.kind = znet::kSysSetSessionDesc, e.desc = d;
+      event(e);
+      return;
+    }
     case kKick: {  // we are out: our own end, then the links go
       znet::SystemEvent e;
       e.kind = znet::kSysDestroyPlayerOrGroup, e.player_type = 1, e.id = local_id;
@@ -878,10 +893,26 @@ bool EnetTransport::set_data(bool is_group, uint32_t id, const void* data, uint3
     into = &m.players[id].data;
   }
   if (!m.local_id || !into) return false;
-  into->assign(static_cast<const uint8_t*>(data), static_cast<const uint8_t*>(data) + size);
   Writer w;
   w.u8(kData), w.u8(is_group ? 1 : 0), w.u32(id), w.bytes(data, size);
-  m.to_everyone(0, w.b);  // DirectPlay does not tell the setter
+  m.to_everyone(0, w.b);
+  // The setter hears it too, as with the teams' changes: the lobby's own
+  // READY refreshes its lines by it (0x00499600 on 9; multiplayer-port.md 11c).
+  m.on_frame(nullptr, 0, w.b.data(), w.b.size());
+  return true;
+}
+
+// The host's (DirectPlay's SetSessionDesc): kept, and the others told; the
+// search's answers carry it from now on.
+bool EnetTransport::set_session_desc(const znet::SessionDesc& d) {
+  Impl& m = *impl_;
+  if (!m.hosting || !m.local_id) return false;
+  m.desc.name = d.name.substr(0, kNameMax), m.desc.max_players = d.max_players;
+  for (int i = 0; i < 4; ++i) m.desc.user[i] = d.user[i];
+  Writer w;
+  w.u8(kDesc), w.str(m.desc.name), w.u32(m.desc.max_players);
+  for (uint32_t u : m.desc.user) w.u32(u);
+  m.to_everyone(0, w.b);
   return true;
 }
 

@@ -16,7 +16,8 @@ namespace zutl { struct MessageDll; }
 // CRC, data_version.h), so 1.2's files, a mix's patched files and unknown
 // data (a mod, another version) are left as they are. Not behind zfix bugs:
 // it makes 1.0's data the 1.2 the port was ported from. The changes are our
-// own values, edits and wording, not the patch's bytes.
+// own values, edits and wording, except the small copies Owen agreed to
+// (patch12_copies.inc's entries, patch12_files.inc's two maps: 1.2's data).
 namespace mech3::patch12 {
 
 // Whether the install's file at `path` is 1.0's (a data_files() path, or an
@@ -24,6 +25,11 @@ namespace mech3::patch12 {
 // per file found.
 bool is_10(const std::string& path);
 void forget_files();  // after the mounts change
+
+// The whole files 1.2 adds that 1.0 has nowhere (c3's multiplayer maps),
+// written to the write dir when the install's world is 1.0's and no mount has
+// them; never into the install. Returns how many were written.
+int provide_files();
 
 // The reader's load hook (zrdr::set_load_hook) on or off.
 void install();

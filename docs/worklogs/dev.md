@@ -2615,4 +2615,39 @@ Assigned after 8b2 merged (fd3f05f). The lead asked for a section stepped at bot
 - 9c done: miniupnpc vendored, the PortMapper, the address lines with
   copy; a double-router state of its own (a private "public" address),
   not "your provider blocks hosting".
-- Next: the full suites for the 9a-9c batch, then piece 10.
+- Piece 10 folded into 9b (the lead). 11 in three sittings: 11a the frame,
+  the records, the lists, kicks; 11b the rules and LOCK; 11c START, READY,
+  the mech lab, the teams' buttons, the scores' 0x14.
+- 11a done (multiplayer-port.md, 11a): the lobby screen, the multiplayer
+  game's lobby records and scores, zNetwork's walks with ids and team,
+  `set_game_info` / `refresh_session` and ENet's kDesc. Found: the world
+  list's hidden UNAVAILABLE, the add-on worlds by file name and the "**"
+  mark, teams as colours in play, the Zone's score report (dropped, FIX
+  (A)). The address lines sit under CANCEL and LOCK (a shot of the host's
+  lobby).
+- The lead's 9c item: the port mapper's quit bounded to 1 s (multiplayer-port.md).
+- The lead's real-router check: `net_upnp_real_router` behind MW3_UPNP_REAL=1
+  (the lead ran it on the Mac: passes, double router).
+- 11b done (multiplayer-port.md, 11b): the rules out and in, LOCK_OPTIONS,
+  the lock's mech; FIX (A) for the rules message, the locked door. Found:
+  STOCK on resets every loadout to the first stock one on the lock (a
+  candidate, fixes.md).
+- The lead: the lock's stock loadout as FIX (bug) behind bugs (066dd199).
+- 11c done (multiplayer-port.md, 11c): START, the places, READY, MECHLAB,
+  the scores, the teams' calls, the Load state for a multiplayer game, the
+  network game's lobby calls on the real game. Found: mech_net's one kills
+  hook was two exe calls (0x00435a30 kills, 0x00435a50 score); the lobby
+  needs the setter told of its own data (both transports now do). A host
+  alone goes from the menus to Beachhead.
+- The lead's order: the two-process lobby-to-game test first
+  (`sdl_two_processes_from_the_lobby_into_a_game`, `--click-players`), then
+  the mobile bases' stations (0x00490950), then 12.
+- The mobile bases' stations (0x00490950): no null place in the exe (the
+  emulator on c1's waynet_mp1 and mp2: all elements points), ported as is.
+- 12 done (multiplayer-port.md, 12): the chat log, its scroll, the send
+  and the 0x1f, FIX (A) for a short or open message.
+- The lead's chat check: names and chat text never a format, control
+  characters as '?' (names in zNetwork's records).
+- 13 done (multiplayer-port.md, 13): the new team's dialog, NEW_TEAM and
+  PICK_SKIN.
+- Next: 14 (the in-game chat panel, the multiplayer briefing and debriefing).

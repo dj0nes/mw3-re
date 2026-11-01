@@ -1,11 +1,13 @@
 #include "mech3/patch12.h"
 
 #include <cctype>
+#include <filesystem>
 #include <map>
 
 #include "gamez/zclass/cls_zbd.h"
 #include "gamez/zsound/zsnd.h"
 #include "gamez/zutil/zutl_msgdll.h"
+#include "gamez/zutil/zutl_path.h"
 #include "gamez/zutil/zutl_zar.h"
 #include "mech3/data_version.h"
 
@@ -49,6 +51,16 @@ constexpr Added kAdded[] = {
 #include "mech3/patch12_added.inc"
 };
 
+// Whole files 1.2 adds: c3's multiplayer maps (patch12_files.inc; Owen,
+// 2026-11-01: copied, so a 1.0 player has every 1.2 map).
+struct File {
+  const char* path;
+  const unsigned char* data;
+  size_t size;
+  uint32_t crc;
+};
+#include "mech3/patch12_files.inc"
+
 bool archive_open(const std::string& path) {
   for (const zutl_zar::Archive* a : zrdr::state().archives)
     if (a && a->path && data_path(a->path) == path) return true;
@@ -69,6 +81,31 @@ bool is_10(const std::string& path) {
 }
 
 void forget_files() { g_is_10.clear(); }
+
+int provide_files() {
+  int n = 0;
+  const std::string& write = zutl::mounts().write;
+  for (const File& f : kFiles) {
+    if (write.empty() || zutl::exists(f.path)) continue;  // never into the install; a copy found anywhere wins
+    std::string folder = f.path;
+    folder = folder.substr(0, folder.rfind('\\') + 1) + "gamez.zbd";  // the world, which 1.2 changed
+    if (!is_10(folder)) continue;  // 1.0's world only: a mod's or unknown data is left as it is
+    const std::filesystem::path out = zutl::write_path(f.path);
+    std::error_code ec;
+    std::filesystem::create_directories(out.parent_path(), ec);
+    std::FILE* fp = std::fopen(out.string().c_str(), "wb");
+    if (!fp) continue;
+    const bool ok = std::fwrite(f.data, 1, f.size, fp) == f.size;
+    std::fclose(fp);
+    if (!ok) {
+      std::filesystem::remove(out, ec);
+      continue;
+    }
+    std::printf("mw3: 1.2 data: %s added to the write dir\n", f.path);
+    ++n;
+  }
+  return n;
+}
 
 void install() {
   forget_files();
