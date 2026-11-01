@@ -573,6 +573,7 @@ class GameEngine : public Engine {
   // 0x0040f8d0: the message panel's slide, then the view target's HUD data update.
   void camera_update() override;
   void hud_update() override;  // 0x0040fac0: the HUD frame, its parts in the exe's order
+  void hud_draw() override;    // 0x0040e4b0: the game editor's frame (game_editor)
   Handle pilot_hud(Handle data) override;          // 0x00430aa0 on the MechData
   void hud_static(Handle hud, float dt) override;  // 0x0043cd20
   void hud_zoom_pass(Handle hud, float dt) override;  // 0x00444230: the reticle's zoom window's 3D pass

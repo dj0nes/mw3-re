@@ -4,6 +4,7 @@
 #include "gamez/zclass/cls_node.h"
 #include "gamez/zimage/zimg_library.h"
 #include "mech3/app_engine.h"
+#include "mech3/game_editor.h"
 #include "mech3/force_feedback.h"
 
 #if !defined(_WIN32)
@@ -229,7 +230,6 @@ const std::map<std::string, const char*>& known_keys() {
       {"0x00576da0", "own: the back buffer's height, the same (lock_3d)"},
       {"0x00576dc0", "own: the back buffer's pitch, the same"},
       {"0x0041ab90", "deferred: multiplayer (the chat panel at mech +0x378, made by commands 0x76 / 0x77)"},
-      {"0x0040e4b0", "deferred: developer only (the 25 lines' draw and hit test, hud.md section 20)"},
       {"vt+0x7c", "deferred: developer only (the 25 lines cleared)"},
       {"hudline.vt+0x7c", "deferred: developer only (the 25 lines cleared)"},
       {"0x0040f7f0", "deferred: developer only (the 25 lines' Arial font)"},
@@ -865,6 +865,7 @@ void GameEngine::hud_update() {
   if (MessagePanel* p = message_panel()) p->update(dt);  // [0x00603d7c] vt+0x24: its text
   pocket_draw(dt);                                       // 0x0046a410
 }
+void GameEngine::hud_draw() { editor_frame(); }
 Handle GameEngine::pilot_hud(Handle data) { return handle_of(program_pilot_hud(object_of(data))); }
 void GameEngine::hud_static(Handle hud, float dt) { program_hud_static(object_of(hud), dt); }
 bool program_intensity_flag() { return options().intensity_flag[0] != 0; }

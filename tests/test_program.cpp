@@ -122,6 +122,8 @@
 #include "gamez/ztwod/twod.h"
 #include "gamez/ztwod/twod_host.h"
 #include "mech3/player.h"
+#include "mech3/game_editor.h"
+#include "mech3/app_keys.h"
 #include "mech3/sensors.h"
 #include "mech3/turret.h"
 #include "mech3/zai_brain.h"
@@ -11705,6 +11707,156 @@ static zgame::Handle follow_target_of(const mech3::ai::Brain& b) {
   return dynamic_cast<mech3::ai::FollowState*>(b.orders.back().state.get()) && vp && vp->target ? vp->target->vehicle : 0;
 }
 
+// The game editor on Shift+F12 under --debug-camera (docs/editor.md S4): on
+// c1m1 the key puts the view on the stealth object with the editor's menu
+// up (its rows the exe's); THROTTLE_UP held for a second flies the stealth
+// (the original's movement keys, S3) and, as in the exe, drives the
+// player's mech too (its controls read the same commands: the editor's key
+// map is a copy of the game's); the key again closes it and (ours) gives
+// the view back. Without the flag the key does nothing. Its movement is
+// printed.
+namespace {
+struct EditorRun {
+  bool entered = false, menu_rows = false, view_on_stealth = false, closed = false, view_back = false;
+  float stealth_moved = 0, mech_moved = 0, seconds = 0;
+};
+EditorRun run_editor_on_c1m1(bool flag) {
+  EditorRun out;
+  SavedMounts keep;
+  zutl::mounts() = zutl::Mounts{};
+  zutl::mount(MW3_GAME_DIR);
+  zutl::set_write_dir(temp_dir(flag ? "editor_on_write" : "editor_off_write"));
+  mech3::reset_states();
+  reset_process_state();
+  mech3::missions() = mech3::Missions{};
+  mech3::mech_types_forget();
+  mech3::player_controls_instance() = nullptr;
+  mech3::options() = mech3::Options{};
+  mech3::editor_reset();
+  mech3::app_key_calls().debug_camera = flag;
+  struct Keys : platform::Input {
+    std::vector<platform::KeyEvent> queue;
+    uint32_t t = 0;
+    void key(uint32_t dik, bool down) { queue.push_back({dik, down ? 0x80u : 0u, ++t, t}); }
+    bool open(Device d) override { return d == kKeyboard; }
+    void close(Device) override {}
+    int32_t acquire(Device) override { return 0; }
+    int32_t unacquire(Device) override { return 0; }
+    int32_t keyboard_data(platform::KeyEvent* o, uint32_t* count) override {
+      const uint32_t n = std::min<uint32_t>(*count, static_cast<uint32_t>(queue.size()));
+      std::copy(queue.begin(), queue.begin() + n, o);
+      queue.erase(queue.begin(), queue.begin() + n);
+      *count = n;
+      return 0;
+    }
+    int32_t mouse_state(platform::MouseState*) override { return kNotAcquired; }
+    int32_t joystick_state(platform::JoyState*) override { return kNotAcquired; }
+  } keys;
+  FakeWindow window;
+  FakeAlert alert;
+  FakeClock clock;
+  FakeScreen screen;
+  platform::SilentSoundOutput sound;
+  mech3::MountFiles files;
+  mech3::Platform p;
+  p.window = &window, p.alert = &alert, p.clock = &clock, p.movie_clock = &fast_movie_clock(), p.screen = &screen, p.sound = &sound, p.files = &files;
+  p.input = &keys;
+  {
+    mech3::GameEngine engine(p, "mech3.exe -nofmv");
+    engine.quiet = true;
+    mech3::Mech3App app(&engine);
+    mech3::set_app(&app);
+    EXPECT(app.init_instance());
+    mech3::GameEngine::Launch l;  // c1 mission 1
+    l.index = 1, l.op = 1, l.number = 1;
+    engine.set_launch(l);
+    app.post_intro_ = &mech3::states().load;
+    app.lobby_flow_ = 1;
+    auto shift_f12 = [&] { keys.key(0x2a, true), keys.key(0x58, true), keys.key(0x58, false), keys.key(0x2a, false); };
+    int frames = 0, phase = 0;
+    void* player = nullptr;
+    float s0[3] = {}, m0[3] = {};
+    auto spot = [&](float* sp, float* mp) {
+      mech3::VehicleSummary vs;
+      if (mech3::program_stealth() && mech3::describe_vehicle(mech3::program_stealth(), &vs))
+        for (int i = 0; i < 3; ++i) sp[i] = vs.pos[i];
+      mech3::mech_world_position(player, mp);
+    };
+    auto dist = [](const float* a, const float* b) {
+      return std::sqrt((a[0] - b[0]) * (a[0] - b[0]) + (a[1] - b[1]) * (a[1] - b[1]) + (a[2] - b[2]) * (a[2] - b[2]));
+    };
+    engine.on_present = [&](int) {
+      if (app.current() != &mech3::states().core) return;
+      ++frames;
+      if (frames == 3) {
+        player = mech3::mech_mission_player();
+        shift_f12();
+        phase = 1;
+      } else if (phase == 1 && frames == 6) {
+        out.entered = mech3::editor_state().active != 0;
+        out.view_back = player && mech3::program_view_target() == player;  // without the flag: still on the mech
+        out.view_on_stealth = mech3::program_stealth() && mech3::program_view_target() == mech3::program_stealth();
+        if (out.entered) {
+          const mech3::EditorPanel& pn = mech3::editor_panel();
+          out.menu_rows = std::string(pn.rows[0]->text) == "PICK A COMMAND" && std::string(pn.rows[1]->text) == " EDIT AI NETS" &&
+                          std::string(pn.rows[7]->text) == " EXIT GAME EDIT" && pn.layer.active;
+        }
+        spot(s0, m0);
+        keys.key(0xc8, true);  // THROTTLE_UP (Up), held
+        phase = 2;
+      } else if (phase == 2) {
+        out.seconds += ztimer::state().dt;
+        if (out.seconds >= 1.0f) {
+          keys.key(0xc8, false);
+          float s1[3] = {}, m1[3] = {};
+          spot(s1, m1);
+          out.stealth_moved = dist(s0, s1), out.mech_moved = dist(m0, m1);
+          shift_f12();
+          phase = 3;
+        }
+      } else if (phase == 3) {
+        out.closed = mech3::editor_state().active == 0;
+        if (flag) out.view_back = player && mech3::program_view_target() == player;
+        phase = 4;
+      }
+    };
+    CountingPump pump;
+    pump.stop = [&] { return phase == 4; };
+    pump.limit = 1500;
+    app.run(pump);
+    mech3::missions().cleanup(false);
+    app.stop_game();
+    app.exit_instance();
+    mech3::set_app(nullptr);
+  }
+  mech3::app_key_calls().debug_camera = false;
+  mech3::editor_reset();
+  zrdr::close_archives(true);
+  mech3::reset_states();
+  reset_process_state();
+  mech3::options() = mech3::Options{};
+  return out;
+}
+}  // namespace
+
+TEST(mission_c1m1_game_editor_on_shift_f12_headless) {
+  if (!have_game()) return;
+  const EditorRun on = run_editor_on_c1m1(true);
+  std::printf("  editor: entered %d, view on the stealth %d, rows %d; THROTTLE_UP %.2f s: the stealth moved %.2f m, the "
+              "player's mech %.2f m; closed %d, view back %d\n",
+              on.entered, on.view_on_stealth, on.menu_rows, on.seconds, on.stealth_moved, on.mech_moved, on.closed, on.view_back);
+  EXPECT(on.entered && on.view_on_stealth && on.menu_rows);
+  EXPECT(on.stealth_moved > 1.0f);
+  EXPECT(on.closed && on.view_back);
+  const EditorRun off = run_editor_on_c1m1(false);
+  std::printf("  without the flag: entered %d, view on the mech %d; THROTTLE_UP %.2f s: the player's mech %.2f m\n",
+              off.entered, off.view_back, off.seconds, off.mech_moved);
+  EXPECT(!off.entered && off.view_back && !off.view_on_stealth);  // without the flag the key does nothing
+  // The mech under the stealth answers THROTTLE_UP as it does without the
+  // editor (the exe's: the player's tick runs the pilot's vehicle either way).
+  EXPECT(off.mech_moved > 0.1f && std::fabs(on.mech_moved - off.mech_moved) < 0.05f);
+}
+
 TEST(mission_c2m1_lance_order_keys_end_to_end_headless) {
   if (!have_game()) return;
   SavedMounts keep;
@@ -15690,7 +15842,7 @@ TEST(vehicle_heading_from_its_record_is_the_float) {
 TEST(known_unported_keys_name_their_reason) {
   int n = 0;
   for (const char* k : {"0x005561a0", "0x005561e0", "0x00516f50", "[0x0072f3f0]",
-                        "0x0041ab90", "0x0040e4b0", "vt+0x7c",
+                        "0x0041ab90", "vt+0x7c",
                         "hudline.vt+0x7c", "0x0040f7f0", "0x0040f890", "0x0040fef0", "0x004b52e0", "0x0047f2b0",
                         "0x00518790", "0x005269e0", "0x004f8f20", "0x004f3540", "0x00557f90", "0x00558290",
                         "0x00576d90", "0x00576da0", "0x00576dc0", "0x00558070", "0x005a8390",
@@ -15706,7 +15858,7 @@ TEST(known_unported_keys_name_their_reason) {
            w.size() > 20);
     ++n;
   }
-  EXPECT(n == 40);  // 0x00586ce0, 0x00586c20, 0x00588930, 0x0046ef70, 0x0046f160 ported (multiplayer-port.md pieces 1, 2, 6a), 0x00493260 (9b), 0x00495f90 (11a), 0x0049bd80 (13); 0x004ac860, 0x004a4de0, 0x005a84c0 (the stealth object, editor.md S1)
+  EXPECT(n == 39);  // 0x0040e4b0 (the game editor's frame, editor.md S4), 0x00586ce0, 0x00586c20, 0x00588930, 0x0046ef70, 0x0046f160 ported (multiplayer-port.md pieces 1, 2, 6a), 0x00493260 (9b), 0x00495f90 (11a), 0x0049bd80 (13); 0x004ac860, 0x004a4de0, 0x005a84c0 (the stealth object, editor.md S1)
   for (const char* gap : {"0x00579ea0", "0x004f9fa0", "0x004fa0b0", "0x00479be0", "0x0051a300",
                           "[[0x0060861c]+0x14]", "0x004f3430", "0x005799f0", "0x0051d0c0",
                           "0x00556210", "game.vt", "0x00414000", "0x0047abe0", "0x004f8f50",

@@ -18,7 +18,7 @@ into the program in `mech3/app_view`.
 | +0x4c | where the camera is put |
 | +0x58 / +0x5c | the mode, the last mode's id (1 at first) |
 | +0x60 | the distance used |
-| +0x64 | the target (a mech) |
+| +0x64 | the target: a mech, or the stealth object (the game editor's, editor.md) |
 | +0x68 / +0x6a | handled (nothing in the family sets it), under water |
 | +0x78 | the last frame time |
 
@@ -34,7 +34,14 @@ renders, +0x08 0x0040ada0 updates.
   vt+0x104, the new target's vt+0x100 and the mode's activation, then one
   update with the last frame time. The mech's attach (0x0041ce30) passes its
   data's camera list's current camera (+0x10, 0 at first: tether), then sets
-  up the HUD (0x00430aa0, 0x0043bb80).
+  up the HUD (0x00430aa0, 0x0043bb80). The stealth's (0x004acd90) passes
+  the vehicles' current camera (0x004acde0's list): the base camera mode's
+  update (0x0040b8d0) reads only what every vehicle has (+0x30 the velocity,
+  +0x48 the orientation, +0x14's centroid node), so the port's target is a
+  `Vehicle` and the mech's own modes take it as a mech (they sit only in a
+  mech's list). The program asks `program_view_mech()` for a mech target:
+  none while the view is on the stealth, so no mech HUD draws then
+  (2026-11-01, editor.md S4).
 - **Camera switch** (0x0040ae70): the target's camera `id` (mech vt+0x10c)
   when it is usable: the last mode's id kept, its switch off, the new one on.
   The launch (0x00491150) switches to the options' camera (GameOptions bit 0

@@ -1358,8 +1358,13 @@ From the network code (network-messages.md).
   invisible vehicle, the "stealth" object every mission makes, and you fly
   it with the game's own movement keys: throttle, turn and pitch, plus the
   mouse. It hovers at a fixed height over the ground like a sled, and a
-  small readout names its movement mode. Nothing in the released game can
-  open it (docs/editor.md).
+  small readout names its movement mode (written into the debug text lines,
+  which the release never shows). Your own mech is still driven by the
+  same keys while you fly: hold throttle up and both move. And leaving the
+  editor leaves the camera where the editor put it, on the invisible
+  vehicle. Nothing in the released game can open it (docs/editor.md; the
+  rebuild opens it for developers with Shift+F12 under --debug-camera and
+  gives the view back on exit).
 - **Every mission builds that invisible camera vehicle anyway.** The
   loading screen's "Creating Stealth" step makes it in every mission, campaign,
   Instant Action and multiplayer alike, even though nothing in the release

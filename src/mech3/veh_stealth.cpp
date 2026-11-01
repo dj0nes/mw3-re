@@ -121,6 +121,25 @@ void StealthLayer::set_active(int32_t on) {
   if (!on) g_hooks->layer_off();
 }
 
+// Mech3.exe 1.2 @ 0x004a5a00. _ftol truncates.
+void stealth_reticle(ztwod::Image& i, float mouse_x, float mouse_y) {
+  const int32_t y = 0xf0 - static_cast<int32_t>(mouse_y * -240.0f);  // 0x005c85e0
+  const int32_t x = 0x140 - static_cast<int32_t>(mouse_x * -320.0f);  // 0x005c85e4
+  i.set_pos(x, y);
+  g_hooks->reticle_pick(i);
+}
+
+// Mech3.exe 1.2 @ 0x004a5050
+void stealth_frame(Stealth& s, float dt) {
+  VehicleControls& c = *s.controls;
+  c.update(dt);  // IControls vt+0x0c
+  const StealthControls& sc = static_cast<const StealthControls&>(c);
+  stealth_reticle(s.layer->image, sc.mouse_x, sc.mouse_y);
+  VehBasicHooks& vh = veh_basic_hooks();
+  vh.move(s);
+  vh.refresh(s);
+}
+
 // Mech3.exe 1.2 @ 0x004a4de0
 Stealth* stealth_create(StealthControls* ctl) {
   StealthHooks& h = *g_hooks;

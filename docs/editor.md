@@ -5,9 +5,14 @@ Battlesport: a mouse menu titled "BATTLESPORT GAME EDITOR" over a mission,
 with the view on the stealth object, an AI net editor and a vehicle editor.
 Nothing in the release reaches it: it opens on debug command 0x9a, which no
 key is bound to (0x0040db60 registers only 0x61, 0x70, 0x7e and 0x6c to the
-debug handler 0x0040dba0). Mapped 2026-10-31 (dev 2); not ported yet. The
-port will reach it with F11 under `--debug-camera` (or `debugcamera=1` in
-mw3.cfg) only, as Owen asked: "exactly what they did", a developer's tool.
+debug handler 0x0040dba0). Mapped 2026-10-31 (dev 2); the entry, exit,
+panel, main menu and the view on the stealth ported 2026-11-01 (S4, below;
+the AI net and vehicle editors behind its rows come after v1.0). The
+port reaches it with Shift+F12 under `--debug-camera` (or `debugcamera=1`
+in mw3.cfg) only, as Owen asked: "exactly what they did", a developer's
+tool. (F11 is the lancemate command screen in the original's default keys,
+Shift+F11 and Ctrl+F11 the awaiting orders; Shift+F12 is bound to nothing,
+on every keyboard. Agreed with the lead 2026-11-01.)
 
 ## The entry and the exit
 
@@ -15,17 +20,25 @@ mw3.cfg) only, as Owen asked: "exactly what they did", a developer's tool.
 0x0040dea4 and jump table 0x0040de34) calls **0x0040e430**:
 
 - [0x005fc314] = 1 (the editor is up);
-- a fresh command map (0x0051d3a0) with two bindings (0x0051d2c0): Space
-  (key 0x39) -> command 0x9b (select), key 0x439 -> command 0x9c (to trace);
-- the camera on the stealth object: [0x00609a2c]'s vt+0x108 (0x004acd90 ->
-  0x0040adf0 with the camera list [0x0060b140]);
-- the camera mode saved ([0x005f4dac] = 0x0040f880; when set, 0x0040f8b0);
-- the editor panel shown ([0x005f4db0]'s vt+0x04(1));
+- a command map pushed (0x0051d3a0 with null: a copy of the current one,
+  so every game key still works) with two bindings (0x0051d2c0): Space
+  (key 0x39) and mouse button 1 -> command 0x9b (pick), key 0x439 and mouse
+  button 2 -> command 0x9c (a trace, empty in the release: 0x005ac5c0);
+- the view on the stealth object: [0x00609a2c]'s vt+0x108 (0x004acd90 ->
+  0x0040adf0 with the vehicles' current camera, [0x0060b140]);
+- the debug lines hidden when they were up ([0x005f4dac] = 0x0040f880, the
+  state of [0x005fc33c]; when set, 0x0040f8b0 hides the two debug-line
+  layers 0x005fc338 and 0x005fc838). The release never turns them on (hud.md
+  section 20), so this does nothing there; corrected 2026-11-01: an earlier
+  reading here took it for the camera mode;
+- the editor panel's layer on ([0x005f4db0]'s vt+0x04(1));
 - 0x0040e7d0: the main menu (below).
 
-**0x0040e7f0** ("EXIT GAME EDIT"): the command map popped (0x0051d490), the
-panel hidden (vt+0x04(0)), the camera mode restored when it was saved
-(0x0040f890), [0x005fc314] = 0.
+**0x0040e7f0** ("EXIT GAME EDIT", its argument unread): the command map
+popped (0x0051d490), the panel's layer off (vt+0x04(0)), the debug lines
+back when they were up (0x0040f890), [0x005fc314] = 0. It leaves the view
+on the stealth object: in the original the camera stays where the editor
+left it, and the pilot's mech goes on without its view.
 
 ## The panel and its menus
 
@@ -39,12 +52,17 @@ and [0x005fc318] (table) and fills the rows (**0x0040e6a0**: every row
 cleared with "" at 0x005f4c90, then each entry's text, the panel's width
 the widest row's, its height count x 12).
 
-**The frame, 0x0040e4b0** (while [0x005fc314]): the row under the mouse
-(rows 0..24 by y; the row's vt+0x5c hit test) highlighted (+0x24c/+0x250
-colours, +0x474 dirty), the old one restored; Space (command 0x9b's state,
-0x0051d300 bit 4) on a row whose flags allow it calls that entry's handler
-with the frame's argument; the camera's step (0x0059fd20 with [0x0072c52c]);
-in modes 1..3 a 0.1 s step (0x00403140); 0x00404290 at the end.
+**The frame, 0x0040e4b0** (from the HUD's draw; while [0x005fc314]): the
+row under the mouse ((y - 0x5f) / 12, rows 0..24, then the row's vt+0x5c
+hit test) lit green (0xff00 in both colours, +0x24c/+0x250, +0x474 to
+render again), the one before back in the panel's colours; the title row
+is never lit. Space or the left button (command 0x9b's state, 0x0051d300
+bit 4: pressed) on a row calls its entry's handler with the mouse's y: a
+shown row its own (the input's state cleared first, 0x0051b1c0), the title
+the menu's first (none in the main menu); the panel's layer updated
+(0x0059fd20 with [0x0072c52c]); in modes 1..3 the net editor's 0.1 s step
+(0x00403140); 0x9c held calls the empty trace; then, up or not, the net
+editor's frame 0x00404290 (nothing without a net editor).
 
 ### The main menu (0x005e0d30, 8 rows; 0x0040e7d0)
 
@@ -107,6 +125,16 @@ it. Ported in S1 (mech3/veh_stealth; vehicles.md, The stealth object):
   [0x005fc848]; turning it off calls 0x0040fb50(0). The readout and that
   call come with the view, S4.
 
+**Its frame** (vt+0x34, **0x004a5050**; ported in S4): the controls' frame
+(below), the overlay's reticle (**0x004a5a00**: the image at
+(320 - trunc(-320 mouse_x), 240 - trunc(-240 mouse_y)) on the 640x480
+screen, then its pick 0x004a58d0, the world point under it through the
+view's camera, which only the editors read), the move 0x004a1240 (its
+motion mode's step: BASIC) and the node's matrix 0x005a85c0. Unlike a basic
+vehicle's frame (0x004a1040) it asks nothing of a path; its vt+0x100 is
+empty and its vt+0x104 (**0x004a50d0**: the view letting go of it) turns the
+overlay off.
+
 **Its controls** (0x004a51b0 over the base 0x004ac750, 0xa1c bytes;
 vtables 0x005c86b0, IControls 0x005c85f8; corrected 2026-11-01: an earlier
 reading here took the basic vehicle's own controls, 0x004ae270, for them)
@@ -157,8 +185,8 @@ pseudocode) for the vehicle editor.
 4. **S4** The entry 0x0040e430 and the exit 0x0040e7f0 for the camera: its
    command map (0x9b, 0x9c), the camera on the stealth and the camera
    mode's save and restore (0x0040f880, 0x0040f890, 0x0040f8b0); the key
-   under `--debug-camera` / `debugcamera=1` only (F11, unless the default
-   keymap binds F11 in play: then a key nothing uses), no keys of ours
+   under `--debug-camera` / `debugcamera=1` only (Shift+F12: the default
+   keymap binds F11), no keys of ours
    besides, the mission running on as in the original. The panel and its
    main menu (0x0040e270, 0x0040e6a0, 0x0040e7b0, 0x0040e7d0, the frame
    0x0040e4b0) too if the row object draws with primitives already ported:
@@ -166,6 +194,25 @@ pseudocode) for the vehicle editor.
    EXIT works; if the panel needs new HUD primitives it waits, and the key
    toggles the camera alone. Test: the key over c1m1 puts the view on the
    stealth and gives it back; without the flag, nothing.
+   Done 2026-11-01 (mech3/game_editor; the stealth's frame 0x004a5050 and
+   reticle 0x004a5a00 in veh_stealth, test_veh_stealth.py; the view's
+   target any vehicle, as the original's: player_view, view.md). Tests:
+   test_editor.cpp (the entry's and exit's calls in order, the main menu's
+   rows, the hovered row lit, a press on each kind of row) and
+   mission_c1m1_game_editor_on_shift_f12_headless. In that test, with
+   THROTTLE_UP held for a second, the stealth flies 20.6 m and the pilot's
+   mech under it moves 0.30 m, as it does with the key and no editor (0.00 m
+   with no key): **the mech drives too**, as in the original. The player's
+   tick (0x004a1160) runs the pilot's vehicle every tick and the stealth's
+   frame besides while the view is on it, and the editor's command map is
+   a copy of the game's, so the same movement commands reach both. Kept.
+   **Ours (debug only):** the exit puts the view back on the pilot's mech
+   (its 0x0041ce30), as the mech swap does; the original's leaves it on the
+   stealth (above). The panel's rows draw through zTwoD's FontText with
+   the font "mech_string" (the HUD's own). The pick under the reticle
+   (0x004a58d0) and the readout of the movement mode (0x004a56b0) are not
+   ported: the first is read only by the editors (S5 on), the second writes
+   into the debug lines, which the release never shows.
 
 **After v1.0, with Pirate's Moon** (its zainetedit.cpp changed: 35 changed
 functions, 85 new; ported once with both versions side by side):

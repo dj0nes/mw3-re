@@ -9,7 +9,8 @@ placing it when there is one), the overlay 0x4a55c0 with its image
 0x4a5850 run for real (only the texture lookup 0x59bb10 stubbed), and the
 controls' answers (0x4a5260, 0x4d72a0, 0x4a5270), and their frame 0x4a5280
 (the commands and the mouse stubbed; the curve 0x4abcf0 the exe's, its
-_CIpow, always to the power 2, as the x87's square).
+_CIpow, always to the power 2, as the x87's square), and the stealth's own
+frame 0x4a5050 with its reticle 0x4a5a00 (editor.md S4).
 
     cmake --build build && .venv/bin/python tests/differential/test_veh_stealth.py [runs]
 
@@ -28,7 +29,8 @@ from calltrace import Emu, Replay, Trace, compare, load_probe, rnd  # noqa: E402
 
 U, I = ctypes.c_uint32, ctypes.c_int32
 WORLD = 0x608c84
-COVER = {k: 0 for k in ('node', 'no node', 'record', 'no record', 'mouse lost', 'mouse read', 'ramp', 'no ramp')}
+COVER = {k: 0 for k in ('node', 'no node', 'record', 'no record', 'mouse lost', 'mouse read', 'ramp', 'no ramp',
+                         'reticle centred', 'reticle off centre')}
 
 
 def f2b(x):
@@ -240,6 +242,60 @@ def frame(probe, seed):
     return True
 
 
+def step(probe, seed):
+    """0x4a5050, the stealth's frame (its vt+0x34): the controls' frame
+    (IControls vt+0x0c) stubbed, the reticle 0x4a5a00 run for real with
+    the image's place 0x59bab0 and the pick 0x4a58d0 stubbed, the move
+    0x4a1240 and the matrix 0x5a85c0 stubbed."""
+    r = rnd(seed, 'step')
+    t = Trace()
+    e = Emu(t)
+    e.heap_stubs()
+    e.cpu.fpu_control(0x007f)
+    s = e.world_alloc(0x110)
+    ctl = e.world_alloc(0xa40)
+    ov = e.world_alloc(0x110)
+    vbt = e.world_alloc(0x10)
+    e.w32(vbt + 4, 0xa04)
+    e.w32(ctl + 4, vbt)
+    ivt = e.world_alloc(0x100)
+    e.w32(ctl + 0xa08, ivt)
+    e.w32(ivt + 0xc, e.new_stub('ictl.vt+0x0c', 'c,s0', 4))
+    e.w32(s + 0xe4, ctl)
+    e.w32(s + 0xfc, ov)
+    x = r.random()
+    mx = r.choice([0.0, 1.0, -1.0, 0.5, -0.5]) if x < 0.3 else r.uniform(-1, 1)
+    my = r.choice([0.0, 1.0, -1.0, 0.25]) if r.random() < 0.3 else r.uniform(-1, 1)
+    if r.random() < 0.15:
+        mx = my = 0.0  # the mouse lost: the controls leave it at the centre
+    dt = r.choice([0.033, 0.016, 0.1])
+    e.wf(ctl + 0xa4, mx)
+    e.wf(ctl + 0xa8, my)
+    placed = []
+
+    def place(em, key, a, pop):
+        placed.append((a[0], a[1] - (1 << 32) if a[1] >= 1 << 31 else a[1], a[2] - (1 << 32) if a[2] >= 1 << 31 else a[2]))
+        em._ret(0, pop)
+    e.stub(0x59bab0, spec='c,s0,s1', fn=place)
+    e.stub(0x4a58d0, spec='c')
+    e.stub(0x4a1240, spec='c')
+    e.stub(0x5a85c0, spec='c')
+    rep = Replay(t, e, e.snapshot())
+    probe.probe_app_set_callback(rep.callback())
+    f32 = lambda v: struct.unpack('<f', struct.pack('<f', v))[0]  # noqa: E731
+    e.call(0x4a5050, ecx=s, stack=(f2b(dt),))
+    out = (I * 2)()
+    probe.probe_stealth_step(s, ctl, ov + 0x14, f32(mx), f32(my), f32(dt), out)
+    name = f'step seed {seed} (mouse {mx:.3f}, {my:.3f})'
+    if not compare(name, t.log, rep.log):
+        return False
+    if len(placed) != 1 or placed[0][0] != ov + 0x14 or list(placed[0][1:]) != list(out):
+        print(f'{name}: the reticle original {placed} rebuild {list(out)}')
+        return False
+    COVER['reticle off centre' if (mx, my) != (0.0, 0.0) else 'reticle centred'] += 1
+    return True
+
+
 def controls(probe):
     e = Emu(Trace())
     c = e.world_alloc(0xa40)
@@ -263,13 +319,16 @@ def main():
     probe.probe_stealth_frame.argtypes = [ctypes.c_float, ctypes.c_float, U, ctypes.c_float, ctypes.c_float, ctypes.c_float,
                                           ctypes.c_float, ctypes.c_float, ctypes.POINTER(U)]
     ok = all(frame(probe, s) for s in range(runs * 2)) and ok
+    probe.probe_stealth_step.argtypes = [U, U, U, ctypes.c_float, ctypes.c_float, ctypes.c_float, ctypes.POINTER(I)]
+    ok = all(step(probe, s) for s in range(runs)) and ok
     ok = layer(probe) and ok
     ok = controls(probe) and ok
     missing = [k for k, n in COVER.items() if n == 0]
     if missing:
         print('not reached:', missing)
         ok = False
-    print(f'stealth: {runs} constructions, {runs * 2} frames, the overlay, the controls: {"ok" if ok else "FAILED"}')
+    print(f'stealth: {runs} constructions, {runs * 2} controls\' frames, {runs} frames, the overlay, the controls: '
+          f'{"ok" if ok else "FAILED"}')
     sys.exit(0 if ok else 1)
 
 

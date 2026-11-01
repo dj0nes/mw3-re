@@ -590,3 +590,4 @@ Known quirks the rebuild deliberately keeps:
 - The multiplayer lobby's chat reads each message only as far as it goes.
 - A locked multiplayer game turns away players who try to join it, instead of only greying out its Join button.
 - With bug fixes on, locking a multiplayer game with "Use stock 'Mechs" keeps the stock loadout a player chose instead of resetting it to the mech's first.
+- For developers only, with `--debug-camera` (or `debugcamera=1` in mw3.cfg): Shift+F12 opens the game editor the original carries but never lets you reach (its menu over the mission, the view on the invisible "stealth" camera flown with the movement keys); Shift+F12 again or EXIT GAME EDIT closes it and puts the view back on your mech (the original left it on the stealth). The AI net and vehicle editors behind its menu are not there yet.

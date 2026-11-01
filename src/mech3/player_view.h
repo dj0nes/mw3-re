@@ -22,6 +22,7 @@ namespace mech3 {
 
 using Node3 = void*;  // a zClass node (zcls::Node)
 struct Mech;
+struct Vehicle;
 class PlayerView;
 
 // A camera mode (base vtable 0x005bc2c0; 0x78 bytes as the mech's are).
@@ -111,6 +112,7 @@ class ViewHooks : public zgame::Unported {
   // How a node or object is named in the hooks' records (the probe's addresses).
   virtual uint32_t id(const void* p) { return static_cast<uint32_t>(reinterpret_cast<uintptr_t>(p)); }
   uint32_t m(Mech& x) { return id(&x); }
+  uint32_t v(Vehicle& x) { return id(&x); }
 
   // zClass.
   virtual void camera_set_position(Node3 cam, float x, float y, float z) {   // 0x004f3870
@@ -166,7 +168,7 @@ class ViewHooks : public zgame::Unported {
   virtual uint8_t water_flag() = 0;                                      // [0x005e06f0]
   // 0x0040b080's calls: the camera's zone from hit `index` (0x004f6c80),
   // [0x0074a328], zEntity's 0x005a80d0 and the animations' 0x00502d70.
-  virtual void camera_zone(Node3 cam, int32_t index, Mech* target) = 0;
+  virtual void camera_zone(Node3 cam, int32_t index, Vehicle* target) = 0;
   virtual void world_fog_range(float a, float b) = 0;                    // 0x004f2440
   virtual void world_fog_color(float r, float g, float b) = 0;           // 0x004f23f0
   virtual void world_fog_altitude(float a, float b) = 0;                 // 0x004f2420
@@ -181,12 +183,17 @@ class ViewHooks : public zgame::Unported {
   // 0x004efcd0 on the world ([0x00608c84] +4): `points` / 2 segments, a
   // record each (zcls::segment_query).
   virtual void world_segments(float* segs, int32_t points, zcls::SegmentHits* out) = 0;
-  virtual const float* entity_position(Mech& t) = 0;                     // 0x005a85e0
+  virtual const float* entity_position(Vehicle& t) = 0;                  // 0x005a85e0
+
+  // The view's target, a mech or (the game editor's, editor.md S4) the
+  // stealth object: its camera `id` (vt+0x10c; a mech's from its data, the
+  // stealth's the vehicles' list 0x004acde0), taken and let go (vt+0x100,
+  // vt+0x104).
+  virtual CameraMode* target_camera(Vehicle& t, int32_t id) = 0;
+  virtual void target_attached(Vehicle& t) { unported("target.vt+0x100", {v(t)}); }
+  virtual void target_detached(Vehicle& t) { unported("target.vt+0x104", {v(t)}); }
 
   // The mech.
-  virtual CameraMode* mech_camera(Mech& t, int32_t id) = 0;              // vt+0x10c: its data's camera `id`
-  virtual void mech_attached(Mech& t) { unported("mech.vt+0x100", {m(t)}); }
-  virtual void mech_detached(Mech& t) { unported("mech.vt+0x104", {m(t)}); }
   virtual uint32_t mech_dead(Mech& t) { return unported("mech.vt+0xa0", {m(t)}); }
   virtual const float* torso_aim(Mech& t) = 0;                           // 0x0041ce00 (0x00465940)
   virtual void torso_cockpit(Mech& t, int32_t on) { unported("0x0041ce10", {m(t), on}); }
@@ -208,7 +215,7 @@ class ViewHooks : public zgame::Unported {
   // The HUD (0x00430aa0 on the pilot data) and its look's 0x00446240 on +0x6520.
   virtual uint32_t mech_screen(Mech& t) { return unported("0x00430aa0", {m(t)}); }
   virtual void screen_look(uint32_t screen) { unported("0x00446240", {screen + 0x6520}); }
-  virtual Mech* player_target() = 0;                                     // [0x005f4c8c]+0x64
+  virtual Vehicle* player_target() = 0;                                  // [0x005f4c8c]+0x64
   // The pilot's game (0x00479480) and its +0x8e: outside cameras barred.
   virtual uint32_t pilot_game() { return unported("0x00479480", {}); }
   virtual uint8_t game_byte_8e(uint32_t game) = 0;
@@ -222,7 +229,7 @@ bool nearest_hit(zcls::SegmentHits* hits, int32_t n, const float from[3], float 
 // Mech3.exe 1.2 @ 0x0040b310: the camera at `pos`, looking at `at` along
 // -`back`, brought to the near side of what the view's target sees it
 // through, then off what is beside it.
-void pull_in(Mech* target, float pos[3], const float at[3], const float back[3]);
+void pull_in(Vehicle* target, float pos[3], const float at[3], const float back[3]);
 void set_view_hooks(ViewHooks* h);
 
 // The player's view (0x0040aca0, vtable 0x005bc2e8; base zView 0x004b5060).
@@ -231,7 +238,7 @@ class PlayerView {
   PlayerView(Node3 camera, Node3 window, Node3 x, int32_t hardware);  // 0x0040aca0
   void add_to_camera(Node3 node);                       // +0x00 0x0040bab0: `node` a child of the camera
   void update(float dt);                                // +0x08 0x0040ada0
-  bool attach(Mech* target, CameraMode* mode);          // 0x0040adf0
+  bool attach(Vehicle* target, CameraMode* mode);       // 0x0040adf0
   void set_camera_mode(int32_t id);                     // 0x0040ae70
   // The viewed mech falling (Mech's fall actions, mech_move) and standing
   // again: its torso centred, the mode told (the cockpit camera stops
@@ -264,7 +271,7 @@ class PlayerView {
   CameraMode* mode = nullptr;      // +0x58
   int32_t last_mode = 1;           // +0x5c
   float dist = 0;                  // +0x60
-  Mech* target = nullptr;          // +0x64
+  Vehicle* target = nullptr;       // +0x64  a mech, or the stealth object (editor.md S4)
   uint8_t handled = 0;             // +0x68
   uint8_t x69 = 0;                 // +0x69
   uint8_t underwater = 0;          // +0x6a

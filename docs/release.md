@@ -17,7 +17,8 @@ every box here is ticked:
 - [x] The 1.2 patch rebuilt from 1.0 data (`docs/patch12.md`), and SETUP's
       patch button gone (shown only for data of an unknown version).
 - [ ] The stealth object and BASIC ported as the original has them, its
-      fly camera on F11 under --debug-camera (docs/editor.md S1-S4). The
+      fly camera on Shift+F12 under --debug-camera (docs/editor.md S1-S4;
+      F11 stays the lancemate command screen). The
       Battlesport editor's menus (the AI net editor, the vehicle editor) come
       after v1.0, with Pirate's Moon, whose net editor changed (Owen,
       2026-11-01).

@@ -106,6 +106,9 @@ class StealthHooks : public zgame::Unported {
   virtual void image_set(ztwod::Image& i, const char* name) { i.set_image(name); }
   virtual void readout(StealthLayer& l) { unported("0x004a56b0", {ref(&l)}); }
   virtual void layer_off() { unported("0x0040fb50", {0}); }
+  // The reticle's pick (0x004a58d0): the world point under it, through the
+  // view's camera, kept on the image for the editors (S5 on).
+  virtual void reticle_pick(ztwod::Image& i) { unported("0x004a58d0", {ref(&i)}); }
   // The frame's input: a command's state (0x0051d300; & 3 held), the mouse
   // (0x0051ba60, its answer: 0x8007001e when it cannot be read), the frame
   // time ([0x0072c52c]).
@@ -126,5 +129,13 @@ StealthHooks& stealth_hooks();
 Stealth* stealth_create(StealthControls* ctl);
 // Mech3.exe 1.2 @ 0x004a4fc0 and the delete (0x004a4fa0(1)).
 void stealth_delete(Stealth* s);
+// Mech3.exe 1.2 @ 0x004a5a00: the overlay's reticle at the controls' mouse
+// (-1..1 from the centre) on the 640x480 screen, then its pick.
+void stealth_reticle(ztwod::Image& i, float mouse_x, float mouse_y);
+// Mech3.exe 1.2 @ 0x004a5050 (vt+0x34, from the player's tick while the
+// view is on it): the controls' frame, the reticle, the move (0x004a1240),
+// the node's matrix (0x005a85c0). Unlike a basic vehicle's frame (0x004a1040)
+// it asks nothing of a path.
+void stealth_frame(Stealth& s, float dt);
 
 }  // namespace mech3

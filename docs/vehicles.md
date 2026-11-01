@@ -1699,7 +1699,10 @@ before the one query from 500 up, picks within max(1 - that rise, 4) with
 water as ground, and refuses no empty record (its pick gives 0); the
 ground puts the vehicle at the highest support plus mode_alt and sets the
 turn rate's top to turns[1]. No shipped mission vehicle moves in BASIC; the
-stealth object does when the view is on it (editor.md S4).
+stealth object does when the view is on it, through its own frame 0x4a5050
+(the controls, the overlay's reticle 0x4a5a00, the move 0x4a1240, the
+matrix; no path test as a basic vehicle's 0x4a1040 has), ported 2026-11-01
+(editor.md S4).
 
 ## The basic vehicle's own controls (open; deferred 2026-11-01)
 
