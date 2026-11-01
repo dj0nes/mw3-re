@@ -270,6 +270,14 @@ functions (about 4,050 lines of pseudocode), the game's network code at
 
 Then the two-process and soak tests over the whole flow, menus included.
 
+## After v1.0
+
+- Matchmaking (Owen, 2026-10-31, through the lead): someday, after Pirate's
+  Moon and everything else, and only if many people play: a small master
+  server with a game browser, NAT punch-through, and a relay when
+  punch-through fails. The connection screen keeps room for it (a "Browse
+  internet games" entry, pieces 9-10). No work on it now.
+
 ## Progress
 
 - **Piece 1** (2026-10-31, mac4/mp): `gamez/znetwork/znet_session` holds
