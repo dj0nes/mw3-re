@@ -1248,6 +1248,10 @@ From the network code (network-messages.md).
 - **Your start point is your place in the lobby.** The host's START tells
   everyone the players' order in the lobby list, and each mech's starting
   point is chosen by that place.
+- **Mobile bases in multiplayer use the map's repair stations.** With
+  ALLOW MOBILE BASES on, each multiplayer map's station points (two per
+  map) get a copy of the world's station, renamed mfb_station_04 and on,
+  so the field bases have somewhere to dock.
 - **A dead check on READY.** The game means to refuse READY in team play
   when another team has your colour ("skin taken"), but asks the question
   in a way that can never be true, so the warning never shows.

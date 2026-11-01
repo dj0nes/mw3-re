@@ -16560,6 +16560,103 @@ TEST(net_pilot_respawns_c1mp1_headless) {
   EXPECT(died && !back && camera == 4);
 }
 
+// The mobile bases' stations in a network game (0x00490950, after piece
+// 11c): c1mp1 launched as a network game with ALLOW MOBILE BASES on; at each
+// point of the mission's waynet a copy of the world's mfb_station01, named
+// mfb_station_04 on (after the data's own labels, 01 and 02 here), in the
+// world, standing on the point, shown, the point's label its name. Off, none.
+TEST(net_mobile_base_stations_c1mp1_headless) {
+  if (!have_game()) return;
+  for (int on = 0; on < 2; ++on) {
+    SavedMounts keep;
+    zutl::mounts() = zutl::Mounts{};
+    zutl::mount(MW3_GAME_DIR);
+    zutl::set_write_dir(temp_dir("net_stations"));
+    mech3::reset_states();
+    reset_process_state();
+    mech3::missions() = mech3::Missions{};
+    mech3::mech_types_forget();
+    mech3::player_controls_instance() = nullptr;
+    mech3::options() = mech3::Options{};
+    FakeWindow window;
+    FakeAlert alert;
+    FakeClock clock;
+    FakeScreen screen;
+    platform::SilentSoundOutput sound;
+    mech3::MountFiles files;
+    mech3::Platform p;
+    p.window = &window, p.alert = &alert, p.clock = &clock, p.movie_clock = &fast_movie_clock(), p.screen = &screen,
+    p.sound = &sound, p.files = &files;
+    znet::Hub hub;
+    znet::session() = znet::Session{};
+    znet::initialise(hub.endpoint());
+    EXPECT(znet::host_session(znet::SessionDesc{}, "Host"));
+    int stations = 0, placed = 0, labelled = 0, points = 0;
+    {
+      mech3::GameEngine engine(p, "mech3.exe -nofmv");
+      engine.quiet = true;
+      mech3::Mech3App app(&engine);
+      mech3::set_app(&app);
+      EXPECT(app.init_instance());
+      mech3::MultiplayerGame game(nullptr);
+      game.x70 = 1 << 30;
+      game.ba8 = static_cast<uint8_t>(on);
+      mech3::GameEngine::Launch l;
+      l.index = 0, l.number = 1, l.type = 3, l.multi = &game;  // c1mp1
+      engine.set_launch(l);
+      mech3::program_net_debug_lobby();
+      app.post_intro_ = &mech3::states().load;
+      int core_frames = 0;
+      engine.on_present = [&](int) {
+        if (app.current() != &mech3::states().core || ++core_frames != 5) return;
+        for (int32_t n = 4; n < 40; ++n) {
+          char name[32];
+          std::snprintf(name, sizeof name, "mfb_station_%02d", n);
+          auto* node = static_cast<zcls::Node*>(zcls::list_find_by_name(6, name));
+          if (!node) break;
+          ++stations;
+        }
+        int32_t next = 4;
+        for (int32_t i = 0; i < 64; ++i) {
+          const char* label = nullptr;
+          float at[3];
+          if (!mech3::program_mission_point(i, &label, at)) continue;
+          ++points;
+          char want[32];
+          std::snprintf(want, sizeof want, "mfb_station_%02d", next);
+          if (!label || std::strcmp(label, want) != 0) continue;  // the data's own: 01, 02 on c1mp1
+          ++labelled, ++next;
+          auto* node = static_cast<zcls::Node*>(zcls::list_find_by_name(6, label));
+          float x = 0, y = 0, z = 0;
+          if (node) zcls::object3d_get_translation(node, &x, &y, &z);
+          const bool in_world = node && node->parent_count() == 1 && node->parents && node->parents[0] == mech3::world_hooks().world;
+          if (node && in_world && std::fabs(x - at[0]) < 0.01f && std::fabs(y - at[1]) < 0.01f &&
+              std::fabs(z - at[2]) < 0.01f && (node->flags() & 4) != 0)
+            ++placed;
+        }
+      };
+      CountingPump pump;
+      pump.limit = 2400;
+      pump.stop = [&] { return core_frames >= 5; };
+      app.run(pump);
+      mech3::missions().cleanup(false);
+      app.stop_game();
+      app.exit_instance();
+      mech3::set_app(nullptr);
+    }
+    znet::shutdown();
+    std::printf("  mobile bases %s: %d points, %d stations, %d labelled, %d placed\n", on ? "on" : "off", points, stations,
+                labelled, placed);
+    EXPECT(points > 0);
+    if (on) EXPECT(stations == points && labelled == points && placed == points);
+    else EXPECT(stations == 0 && labelled == 0);
+    zrdr::close_archives(true);
+    mech3::reset_states();
+    reset_process_state();
+    mech3::options() = mech3::Options{};
+  }
+}
+
 // The same census in a network game (piece 8d: the respawn's hook was null
 // and only a soak found it): c1mp1 launched as the soak's debug start does,
 // hosting over the hub; at its 60th Core frame every hook hook_allow.txt

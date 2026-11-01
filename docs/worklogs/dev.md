@@ -2642,4 +2642,6 @@ Assigned after 8b2 merged (fd3f05f). The lead asked for a section stepped at bot
 - The lead's order: the two-process lobby-to-game test first
   (`sdl_two_processes_from_the_lobby_into_a_game`, `--click-players`), then
   the mobile bases' stations (0x00490950), then 12.
-- Next: the mobile bases' stations.
+- The mobile bases' stations (0x00490950): no null place in the exe (the
+  emulator on c1's waynet_mp1 and mp2: all elements points), ported as is.
+- Next: 12 (the chat).

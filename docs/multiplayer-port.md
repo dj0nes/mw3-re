@@ -1016,8 +1016,7 @@ Ours, in three pieces:
   launch). Breaks caught: the world's folder and number swapped, any
   player's 0x1e taken, READY's states swapped, ENet's and the hub's setter
   left deaf, no team owner, no score hook, the Load state without
-  multiplayer. Left: the mobile bases' stations in a network game (0x00490950),
-  the chat (12), the new team's dialog (13), the briefing and debriefing
+  multiplayer. Left: the chat (12), the new team's dialog (13), the briefing and debriefing
   (14), two processes through the lobby into a game.
 
 - **Two processes through the lobby into a game** (the lead, after 11c):
@@ -1031,6 +1030,22 @@ Ours, in three pieces:
   the other's mech where the other puts itself (16 lines each, within
   2 m). The start places match the debug start's on c1mp1. Found while
   making it: nothing new between the lobby and the game.
+
+- **The mobile bases' stations** (0x00490950, the lead, after 11c): with
+  ALLOW MOBILE BASES the mission load (0x0048faf0's multiplayer branch)
+  gives each point of the mission's waynet (waynet_mp<N>, the missions'
+  +0xb0) a copy of the world's mfb_station01 (0x004f9af0(.., 0, 0)),
+  added to the world, placed on the point, named mfb_station_04 on and
+  shown; the point's label becomes that name (the dock asks by it). The
+  emulator on the shipped waynet_mp files shows every element of a built
+  waynet is a point with a place (c1's mp1: mfb_station_01 at -3104 -31
+  -1502 and _02 at -1600 3 -1600; mp2: _03, _04), so the exe reads no
+  null place; ported as it is (a placeless element would be passed over).
+  The field base's repairs in a network game (0x00479480+0xa8) read the
+  same flag (`program_set_mp_mobile_bases`). Test:
+  `net_mobile_base_stations_c1mp1_headless` (c1mp1 as a network game: on,
+  a station in the world on each point, shown, the points relabelled; off,
+  none); breaks caught: the names from 01, not in the world, the flag off.
 
 ## Open
 
