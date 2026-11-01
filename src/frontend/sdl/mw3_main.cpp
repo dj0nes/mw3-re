@@ -893,13 +893,16 @@ int run(const Args& a, platform::VideoForWindows* vfw) {
       // --mission ia<N>[w<W>] (ours, for measuring): Instant Action map N in
       // wave mode from wave W (1), four allies (Champions) with the player,
       // as the Action screen would set it (the AI survey's start).
+      // <dir>ia<N>[w<W>] the same on another world (c3ia2: c3's readeria2).
       int ia_map = 0, ia_wave = 1;
-      if (std::sscanf(a.mission.c_str(), "ia%dw%d", &ia_map, &ia_wave) >= 1 && ia_map > 0) {
+      const size_t ia_at = a.mission.find("ia");
+      if (ia_at != std::string::npos &&
+          std::sscanf(a.mission.c_str() + ia_at, "ia%dw%d", &ia_map, &ia_wave) >= 1 && ia_map > 0) {
         ia_game = std::make_unique<mech3::ActionGame>(nullptr);
         ia_game->mode = 2, ia_game->x6c = ia_wave, ia_game->slot.mech = 9;
         for (int i = 0; i < 4; ++i) ia_game->add(5, 1, nullptr, 0);
         l.type = 2, l.number = ia_map, l.action = ia_game.get();
-        dir = "c1";
+        dir = ia_at ? a.mission.substr(0, ia_at) : "c1";
       } else if (const size_t mp = a.mission.rfind("mp");
                  mp != std::string::npos && mp > 0 && mp + 2 < a.mission.size() &&
                  a.mission.find_first_not_of("0123456789", mp + 2) == std::string::npos) {

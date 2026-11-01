@@ -78,6 +78,7 @@ ai::AivRecord* PlayerHooks::aiv_read(ai::AivRecord& rec, int32_t i, const char**
 int32_t PlayerHooks::aiv_count() { return ai::aiv_file().record_count(); }
 Handle PlayerHooks::rec_handle(const ai::AivRecord*) { return 0; }
 uint32_t PlayerHooks::rec_yaw(const ai::AivRecord* rec) { return rec->get<uint32_t>(0x14); }
+float PlayerHooks::rec_heading(const ai::AivRecord* rec) { return zgame::from_bits(rec_yaw(rec)); }
 
 // Mech3.exe 1.2 @ 0x0049f924 (inline, also 0x0049fbe1 and the launch's
 // 0x00491262): the AiTarget masks from aiv.zrd's team, a 5-bit team number

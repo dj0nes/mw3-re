@@ -36,6 +36,9 @@
 #include "mech3/veh_basic_object.h"
 #include "mech3/veh_controls.h"
 #include "mech3/veh_move.h"
+#include "mech3/veh_stealth.h"
+#include "mech3/zrdraiv.h"
+#include "gamez/zreader/zreader.h"
 #include "mech3/weapon.h"
 #include "mech3/zai_brain.h"
 
@@ -50,11 +53,17 @@ namespace {
 MechWiring g_w;
 std::vector<Vehicle*> g_order;        // the same, as made
 std::set<const Vehicle*> g_vehicles;  // the program's, this mission's
+Stealth* g_stealth = nullptr;         // [0x00609a2c], made at each mission load (veh_stealth)
 zcls::Node* zn(Handle h) { return static_cast<zcls::Node*>(h); }
 
 struct WiredVehicles : VehBasicHooks {
   uint32_t unported(const char* key, std::initializer_list<zgame::Arg> args) override {
     return g_w.unported ? g_w.unported(g_w.engine, key, args) : 0;
+  }
+  int32_t view_camera_id() override { return program_view_camera_id(); }  // [0x005f4c8c]+0x58 +0x04
+  void no_ai_controls(const char* type, const char* name) override {
+    std::printf("mw3: vehicle %s (%s) has no AI controls: its own (0x004ae270) are not ported\n", name ? name : "?",
+                type ? type : "?");
   }
   // A new vehicle's address: a freed object's handle forgotten (WiredBuild's on_new).
   void on_new(uint32_t, const void* p) override {
@@ -317,12 +326,46 @@ void wire_vehicle_collisions() {
     return v ? v->transform : nullptr;
   };
 }
+// The stealth object's calls out (veh_stealth.h): the ports.
+struct WiredStealth : StealthHooks {
+  uint32_t unported(const char* key, std::initializer_list<zgame::Arg> args) override {
+    return g_w.unported ? g_w.unported(g_w.engine, key, args) : 0;
+  }
+  void on_new(uint32_t, const void* p) override {
+    if (g_w.forget_object) g_w.forget_object(g_w.engine, p);
+  }
+  Handle object3d_create() override { return zcls::object3d_create(); }  // 0x004fb740
+  zrdr::Node* reader_load(const char* file) override { return zrdr::load(file); }
+  zrdr::Node* reader_find(zrdr::Node* node, const char* key) override { return node ? zrdr::find(node, key) : nullptr; }
+  void reader_free(zrdr::Node* root) override {
+    if (root) zrdr::free_node(root);
+  }
+  ai::AivRecord* aiv = nullptr;
+  void aiv_open() override { aiv = new ai::AivRecord; }  // 0x004e0490
+  bool aiv_named(const char* name, float pos[3], float* yaw) override {  // 0x004e0680
+    ai::AivRecord* r = aiv ? aiv->read_named(name) : nullptr;
+    if (!r) return false;
+    for (int i = 0; i < 3; ++i) pos[i] = r->get<float>(0x08 + 4 * i);
+    *yaw = r->get<float>(0x14);
+    return true;
+  }
+  void aiv_close() override { delete aiv, aiv = nullptr; }  // 0x004e04f0
+};
+WiredStealth g_stealth_hooks;
 }  // namespace
+
+void* program_stealth_controls() { return static_cast<VehicleControls*>(new StealthControls); }  // 0x004ac860(0xa1c), 0x004a51b0(1)
+void* program_stealth_create(void* ctl) {
+  g_stealth = stealth_create(static_cast<StealthControls*>(static_cast<VehicleControls*>(ctl)));
+  return static_cast<BasicVehicle*>(g_stealth);
+}
+void* program_stealth() { return g_stealth ? static_cast<BasicVehicle*>(g_stealth) : nullptr; }
 
 void wire_vehicles(const MechWiring* w) {
   if (!w) {
     g_w = MechWiring{};
     set_veh_basic_hooks(nullptr);
+    set_stealth_hooks(nullptr);
     set_veh_controls_hooks(nullptr);
     set_field_base_hooks(nullptr);
     set_field_cut_hooks(nullptr);
@@ -332,6 +375,7 @@ void wire_vehicles(const MechWiring* w) {
   }
   g_w = *w;
   set_veh_basic_hooks(&g_hooks);
+  set_stealth_hooks(&g_stealth_hooks);
   set_veh_controls_hooks(&g_controls);
   set_field_base_hooks(&g_field_bases);
   set_field_cut_hooks(&g_field_cut);
@@ -706,6 +750,7 @@ bool program_vehicle_sees(void* v, uint32_t self) {
   return !b || b->sees_target(self);
 }
 void program_vehicle_set_sensed(void* v, bool on) { bv(v).x09 = on; }
+bool program_vehicle_sensed(const void* v) { return static_cast<const Vehicle*>(v)->x09; }
 void program_vehicle_sense_refresh(void* v) { bv(v).engine.release(); }
 void program_vehicle_engine_play(void* v, const float pos[3]) { bv(v).engine.play(pos, nullptr, 0); }
 uint8_t program_vehicle_active(const void* p) { return static_cast<const Vehicle*>(p)->active ? 1 : 0; }
@@ -748,6 +793,13 @@ float program_vehicle_damage(void* v, float amount) {
   return bv(v).controls->health / bv(v).controls->health_max;
 }
 bool program_vehicle_free(void* v) {
+  if (v && v == program_stealth()) {  // 0x004a4fa0(1); made before the mission's vehicles, not among them
+    stealth_delete(g_stealth), g_stealth = nullptr;
+    g_vehicles.erase(static_cast<Vehicle*>(v));
+    g_order.erase(std::remove(g_order.begin(), g_order.end(), static_cast<Vehicle*>(v)), g_order.end());
+    if (g_w.forget_object) g_w.forget_object(g_w.engine, v);
+    return true;
+  }
   if (!is_program_vehicle(v)) return false;
   // FIX (bug): a vehicle still glowing (alive at the mission's end) gives
   // zWeapon's light back first; the exe returns it only at the death
@@ -761,8 +813,19 @@ bool program_vehicle_free(void* v) {
   if (g_w.forget_object) g_w.forget_object(g_w.engine, v);
   return true;
 }
-void program_vehicles_forget() { g_vehicles.clear(), g_order.clear(); }
-std::vector<void*> program_vehicles() { return {g_order.begin(), g_order.end()}; }
+void program_vehicles_forget() {
+  g_vehicles.clear(), g_order.clear();
+  if (g_stealth) {  // made by the world's load, before the mission's vehicles: it stays the world's
+    g_vehicles.insert(static_cast<Vehicle*>(static_cast<BasicVehicle*>(g_stealth)));
+    g_order.push_back(static_cast<Vehicle*>(static_cast<BasicVehicle*>(g_stealth)));
+  }
+}
+std::vector<void*> program_vehicles() {  // the mission's: the world's stealth object apart
+  std::vector<void*> out;
+  for (Vehicle* v : g_order)
+    if (!g_stealth || v != static_cast<Vehicle*>(static_cast<BasicVehicle*>(g_stealth))) out.push_back(v);
+  return out;
+}
 bool describe_vehicle(const void* p, VehicleSummary* out) {
   if (!is_program_vehicle(p)) return false;
   const auto* v = static_cast<const BasicVehicle*>(p);

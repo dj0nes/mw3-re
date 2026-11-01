@@ -41,6 +41,16 @@ bool vehicle_support_ground(BasicVehicle& v, float* heights, float* top, float* 
 // a frame on (gravity g): falling while above ground (*air), landing at the
 // ground with `landing` for its speed, else following it.
 void vehicle_support_step(float* y, float* vs, float ground, int32_t* air, float g, float landing);
+
+// BASIC, the stealth object's movement (editor.md S2; vehicles.md, The
+// stealth object): its step 0x004a1d90, steering 0x004a20d0, the overhead
+// camera's panning 0x004a2000, ground 0x004a1f00 over the supports'
+// 0x004a2190.
+void vehicle_basic_step(BasicVehicle& v);
+void vehicle_basic_steer(BasicVehicle& v);
+void vehicle_basic_pan(BasicVehicle& v);
+void vehicle_basic_ground(BasicVehicle& v);
+void vehicle_platform_ground(BasicVehicle& v, float* heights, float* top, int32_t flag, int32_t* counts);
 // Mech3.exe 1.2 @ 0x004a1760 (TRACK): the top speeds (slowed by quicksand
 // or lava under two supports, which the pick never reports: never), the
 // supports stepped, the pitch and roll rates from three of them (or, all in

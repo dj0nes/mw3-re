@@ -3,6 +3,7 @@
 // Core states: the pilot's game for a debug launch (our addition), the view
 // the Core state draws through. Not original code: it stands where the exe's
 // other modules will be. What has no port is logged once by address.
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <algorithm>
@@ -560,7 +561,7 @@ struct WiredPlayerHooks : PlayerHooks {
   void vehicle_place(Handle v, const ai::AivRecord* rec) override {
     if (!vehicles.count(v)) return PlayerHooks::vehicle_place(v, rec);
     const float pos[3] = {rec->get<float>(0x08), rec->get<float>(0x0c), rec->get<float>(0x10)};
-    program_vehicle_place(e->object_of(v), pos, rec_yaw(rec));
+    program_vehicle_place(e->object_of(v), pos, rec_heading(rec));
   }
   void vehicle_setup(Handle v, Handle common, const char* name, int32_t kind) override {
     if (!vehicles.count(v)) return PlayerHooks::vehicle_setup(v, common, name, kind);
@@ -1707,7 +1708,11 @@ struct WiredMissionHooks : MissionHooks {
   }
   // The loading screen is the briefing's ([0x005f4c80]: 0x004050d0, 0x00405120);
   // its lines also go to the log.
-  void progress(float f) override { program_briefing_progress(f); }
+  void progress(float f) override {
+    if (f == 0.0f) load_t0_ = std::chrono::steady_clock::now();  // a mission load begins (mission.cpp)
+    program_briefing_progress(f);
+  }
+  std::chrono::steady_clock::time_point load_t0_ = std::chrono::steady_clock::now();
   void fn_431800() override { mech3::mech_canned_nodes_free(); }  // the canned effects' node copies
   // The mission's start animation (start_single_player_m<n>, else without the
   // number): found 0x0050b450, run at the load's end 0x00508c10(anim, 0, 0, 0, 0).
@@ -1724,7 +1729,10 @@ struct WiredMissionHooks : MissionHooks {
   }
   void progress_text(const char* s) override {
     program_briefing_line(s);
-    if (s && *s && !e->quiet) std::printf("mw3: load: %s\n", s);
+    if (s && *s && !e->quiet)
+      std::printf("mw3: load: %s (%lld ms)\n", s,
+                  static_cast<long long>(std::chrono::duration_cast<std::chrono::milliseconds>(
+                                             std::chrono::steady_clock::now() - load_t0_).count()));
   }
   int32_t game_mission_index() override { return e->launch().index; }
   int32_t game_type() override { return e->launch().type; }
@@ -1760,16 +1768,29 @@ struct WiredMissionHooks : MissionHooks {
   void set_608c84(Handle v) override { e->poke32(0x608c84, v); }
   Handle get_608c84() override { return e->peek32(0x608c84); }
   void set_stealth(Handle v) override { e->poke32(0x609a2c, v); }
-  // The stealth object (0x004a4de0) is not made (vehicles.md, The stealth
-  // object); its constructor's call that makes the vehicles' radar and TARGET
-  // markers (0x004ac3d0) is. The exe frees them with the stealth at the
-  // world's unload (0x004a4fc0 -> 0x004ac4e0); here the old ones go as the
-  // next are made.
-  Handle stealth_4a4de0(Handle mem, Handle x) override {
-    vehicle_markers_delete();
-    vehicle_markers_create();
-    return MissionHooks::stealth_4a4de0(mem, x);
+  // The stealth object (veh_stealth.h, editor.md): its controls (0x004ac860
+  // and 0x004a51b0 in one), then the object; its constructor makes the
+  // vehicles' radar and TARGET markers (0x004ac3d0), its destructor at the
+  // world's unload frees them (0x004a4fc0 -> 0x004ac4e0).
+  Handle stealth_4ac860(int32_t) override { return e->handle_of(program_stealth_controls()); }
+  Handle stealth_4a51b0(Handle obj, int32_t) override { return obj; }
+  Handle stealth_4a4de0(Handle, Handle ctl) override {
+    void* s = ctl ? program_stealth_create(e->object_of(ctl)) : nullptr;
+    return s ? e->handle_of(s) : 0;
   }
+  // 0x005a84c0 on the stealth: its node renamed (the vehicles' is entity_name).
+  void entity_named(Handle h, const char* name) override {
+    void* s = program_stealth();
+    if (!h || !s || e->object_of(h) != s) return MissionHooks::entity_named(h, name);
+    if (void* node = program_vehicle_node(s); node && name) zcls::node_set_name(static_cast<zcls::Node*>(node), name);
+  }
+  // zEntity's list (0x005a89c0, 0x005a8820): the unload keeps the stealth out
+  // while it frees the rest, then puts it back last.
+  void entities_remove(Handle h) override {
+    auto& l = ai::entity_list();
+    l.erase(std::remove(l.begin(), l.end(), h), l.end());
+  }
+  void entities_add(Handle h) override { ai::entity_list().push_back(h); }
   Handle stealth() override { return e->peek32(0x609a2c); }
   // Instant Action's game (the win's waves, 0x0048f740) and its next wave.
   Handle ia_game() override {
@@ -1976,6 +1997,9 @@ struct WiredMissionHooks : MissionHooks {
   Handle make_608c84(Handle mem, Handle world) override {
     unported("0x0047f2b0", {mem, world});
     build_soil_table();  // 0x0047f400, in the constructor
+    // [0x00608c84]+4, the world node, from here on (the stealth object, made
+    // later in this load, goes into it; read_world_params sets it again).
+    world_hooks().world = world ? static_cast<zcls::Node*>(e->object_of(world)) : nullptr;
     return mem;
   }
   void anim_allow_loading(int32_t on) override { zeff::anim_allow_loading(on); }
@@ -2401,7 +2425,12 @@ void wire_mission_hooks(GameEngine* e) {
 void GameEngine::missions_start(uint32_t list) {
   if (list != 0x6098d0) return Engine::missions_start(list);
   Missions& m = missions();
-  ai::entity_list().clear();  // zEntity's list: emptied by the last cleanup (0x0049dc40); a debug start's own
+  // zEntity's list: emptied by the last cleanup (0x0049dc40) but for the
+  // stealth object, which the cleanup puts back (the world's, kept when the
+  // next mission is on the same world); a debug start's own.
+  const Handle stealth = peek32(0x609a2c);
+  ai::entity_list().clear();
+  if (stealth) ai::entity_list().push_back(stealth);
   mech_entities_forget();
   m.start();
   if (m.failed) std::fprintf(stderr, "mw3: the mission load failed\n");
