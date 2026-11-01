@@ -146,8 +146,8 @@ pseudocode) for the vehicle editor.
    the full suites and the campaign runs as the proof that play does not
    change, with the mission load time before and after.
 2. **S2** BASIC: 0x004a1d90, 0x004a1f00, 0x004a20d0, 0x004a2000,
-   0x004a2190; differential tests on random states and the real worlds'
-   ground.
+   0x004a2190; differential tests on random states. Done 2026-11-01
+   (veh_move.cpp, test_veh_basicmode.py; vehicles.md, The stealth object).
 3. **S3** The stealth's controls' frame 0x004a5280 (the player's
    movement commands and the mouse) and 0x004abcf0; differential tests.
    (The basic vehicle's own controls and their path modes, which an

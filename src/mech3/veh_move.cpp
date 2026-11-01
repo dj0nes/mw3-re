@@ -200,6 +200,143 @@ bool vehicle_support_ground(BasicVehicle& v, float* heights, float* top, float* 
   return true;
 }
 
+// Mech3.exe 1.2 @ 0x004a2190 (EDX `heights`; `flag` the pick's water
+// switch, 0 from BASIC). The supports into the world, each raised by the
+// frame's vertical motion, one query from 500 above, each point's ground
+// picked within max(1 - that rise, 4); the highest water surface in *top
+// (-200 without); the first point's zone the vehicle's. Unlike
+// 0x004a23f0 an empty record is not refused: its pick gives 0.
+void vehicle_platform_ground(BasicVehicle& v, float* heights, float* top, int32_t flag, int32_t* counts) {
+  VehBasicHooks& h = hk();
+  VehicleControls& c = *v.controls;
+  VehicleMotion& m = c.motion;
+  for (int i = 0; i < 100; ++i) counts[i] = 0;
+  const int32_t flag8 = h.node_flag8(v.node);
+  h.node_set_flag8(v.node, 0);
+  const float rise = c.velocity.y * h.frame_dt();
+  const float* t = v.transform;
+  const int32_t n = m.support_count;
+  for (int32_t i = 0; i < n; ++i) {
+    const Vec3c& s = m.support[i];
+    m.support[8 + i] = {((s.x * t[0] + s.y * t[3]) + s.z * t[6]) + t[9], ((s.x * t[1] + s.y * t[4]) + s.z * t[7]) + t[10],
+                        ((s.x * t[2] + s.y * t[5]) + s.z * t[8]) + t[11]};
+    m.support[8 + i].y = rise + m.support[8 + i].y;
+  }
+  float step = 1.0f - rise;
+  if (!(4.0f <= step)) step = 4.0f;  // the x87's compare: NaN keeps it
+  static zcls::GroundHits recs[8];
+  for (auto& r : recs) r = zcls::GroundHits{};
+  h.ground_many(&m.support[8].x, n, 500.0f, recs);
+  h.node_set_flag8(v.node, flag8);
+  *top = -200.0f;
+  for (int32_t i = 0; i < n; ++i) {
+    int32_t best = 0, water = 0;
+    float surface = 0;
+    heights[i] = ground_pick(recs[i], m.support[8 + i].y, step, &best, flag, &water, &surface);
+    *top = *top > surface ? *top : surface;
+    if (i == 0 && recs[0].count > 0) {
+      const zcls::GroundHit& g = recs[0].hit[best];
+      uint8_t rec[4];
+      std::memcpy(rec, &g.zone[0], 4);
+      const uint8_t* cam = h.camera_zones();
+      int32_t zone = cam ? zmod::zone_common(cam, rec) : 0xff;
+      if (zone == -1) zone = rec[1];
+      v.x64 = rec[0];  // 0x005a80d0
+      std::memcpy(v.zones, rec + 1, 3);
+      h.node_set_zone(v.node, static_cast<uint8_t>(zone));
+    }
+    ++counts[water];
+  }
+}
+
+// Mech3.exe 1.2 @ 0x004a1f00: BASIC's ground: the turn rate's top from the
+// motion (turns[1]), the highest support's ground plus mode_alt under the
+// vehicle, pitch and roll 0.
+void vehicle_basic_ground(BasicVehicle& v) {
+  VehBasicHooks& h = hk();
+  VehicleControls& c = *v.controls;
+  VehicleMotion& m = c.motion;
+  float heights[16] = {}, top = 0;
+  int32_t counts[100];
+  vehicle_platform_ground(v, heights, &top, 0, counts);
+  c.top_turn = m.turns[1];
+  float high = heights[0];
+  for (int32_t i = 1; i < m.support_count && i < 16; ++i)
+    if (high < heights[i]) high = heights[i];
+  c.angles.x = 0, c.angles.z = 0;
+  const float* p = h.entity_position(v);
+  const float to[3] = {p[0], m.mode_alt + high, p[2]};
+  h.set_position(v, to);  // vt+0x18
+}
+
+// Mech3.exe 1.2 @ 0x004a20d0: BASIC's steering. A heading asked for
+// (+0x760) becomes the yaw at once, the turn dropped; then the turn rate's
+// step and the yaw turned by it, wrapped once past 2 pi.
+void vehicle_basic_steer(BasicVehicle& v) {
+  VehicleControls& c = *v.controls;
+  if (c.x760) {
+    c.angles.y = static_cast<float>(std::atan2(-double{c.heading.z}, -double{c.heading.x}));
+    c.turn = 0;  // IControls vt+0x28
+    c.x50.y = 0;
+    c.x760 = 0;
+  }
+  c.turn_step(c.motion, hk().frame_dt());  // vt+0x14
+  const float yaw = c.x50.y * hk().frame_dt() + c.angles.y;
+  c.angles.y = yaw;
+  if (yaw < -6.2831855f) c.angles.y = yaw - -6.2831855f;
+  else if (6.2831855f < yaw) c.angles.y = yaw - 6.2831855f;
+}
+
+// Mech3.exe 1.2 @ 0x004a2000: BASIC under the overhead camera (mode 3):
+// north up (yaw 0), the turn input on the sideways speed, which stops dead
+// when the input would carry it the way it already goes.
+void vehicle_basic_pan(BasicVehicle& v) {
+  VehicleControls& c = *v.controls;
+  c.angles.y = 0;
+  const float t = c.turn;  // IControls vt+0x24
+  if (t == 0.0f) {
+    c.x70.x = 0;
+    return;
+  }
+  if ((t > 0.0f && c.x70.x > 0.0f) || (t < 0.0f && c.x70.x < 0.0f)) c.x70.x = 0;
+  c.x70.x = c.x70.x - t * c.motion.rates[0] * hk().frame_dt();
+}
+
+void VehBasicHooks::basic_step(BasicVehicle& v) { vehicle_basic_step(v); }
+void VehBasicHooks::basic_ground(BasicVehicle& v) { vehicle_basic_ground(v); }
+
+// Mech3.exe 1.2 @ 0x004a1d90: BASIC's step (the stealth object's movement).
+void vehicle_basic_step(BasicVehicle& v) {
+  VehBasicHooks& h = hk();
+  VehicleControls& c = *v.controls;
+  const bool overhead = h.view_camera_id() == 3;
+  float kept = 0;
+  if (overhead) {
+    vehicle_basic_pan(v);
+    kept = c.x70.x;
+  } else {
+    vehicle_basic_steer(v);
+  }
+  euler_rotation(&c.angles.x, v.transform);  // 0x004ab990
+  vehicle_up_refresh(v);                    // 0x004a2890
+  c.top_speed = c.motion.rates[1];
+  vehicle_speed_step(v);  // 0x004a2b10
+  if (h.view_camera_id() == 3) c.x70.x = kept;
+  const float fz = v.forward.z, nfx = -v.forward.x;
+  c.velocity.y = c.x70.y;
+  c.velocity.x = -fz * c.x70.x + nfx * c.x70.z;
+  c.velocity.z = -fz * c.x70.z - nfx * c.x70.x;
+  const float* p = h.entity_position(v);
+  const float dt = h.frame_dt();
+  const float to[3] = {dt * c.velocity.x + p[0], p[1], dt * c.velocity.z + p[2]};
+  h.set_position(v, to);  // vt+0x18
+  vehicle_basic_ground(v);
+  h.node_set_rotation(v.node, c.angles.x, c.angles.y, c.angles.z);  // 0x004fbd80
+  h.refresh(v);                                                     // 0x005a85c0
+  for (int i = 0; i < 12; ++i) c.last_matrix[i] = v.transform[i];
+  c.x314 = {v.forward.x, v.forward.y, v.forward.z};
+}
+
 // Mech3.exe 1.2 @ 0x004abf70
 void height_on_plane(float pos[3], const float at[3], const float n[3]) {
   if (n[1] == 0.0f || std::isnan(n[1])) {

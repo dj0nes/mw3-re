@@ -60,6 +60,7 @@ struct WiredVehicles : VehBasicHooks {
   uint32_t unported(const char* key, std::initializer_list<zgame::Arg> args) override {
     return g_w.unported ? g_w.unported(g_w.engine, key, args) : 0;
   }
+  int32_t view_camera_id() override { return program_view_camera_id(); }  // [0x005f4c8c]+0x58 +0x04
   void no_ai_controls(const char* type, const char* name) override {
     std::printf("mw3: vehicle %s (%s) has no AI controls: its own (0x004ae270) are not ported\n", name ? name : "?",
                 type ? type : "?");

@@ -1675,7 +1675,20 @@ by camera mode, a car's steering (0x4a20d0: the turn into the heading
 reversing); the speed step 0x4a2b10; the move on the horizontal plane;
 then the four platform points' ground (0x4a2190), the highest taken plus
 an offset (+0x88 of the motion block, likely `mode_alt`), pitch and roll 0:
-a level sled glued above the ground (editor.md S2).
+a level sled glued above the ground (editor.md S2). Ported 2026-11-01
+(veh_move.cpp: `vehicle_basic_step`, `_steer`, `_pan`, `_ground`,
+`vehicle_platform_ground`; test_veh_basicmode.py on the suspension's and
+the frame's vehicles, each entry and the step). Details from the exe:
+the steering's heading asked for is atan2(-heading.z, -heading.x) (z
+first, the reverse of 0x4a28c0's); the panning zeroes the sideways speed
+when the turn input has its sign (it would carry it further), then takes
+turn x rates[0] x dt off it; the supports' ground (0x4a2190, beside the
+suspension's 0x4a23f0) raises each support by the vertical speed x dt
+before the one query from 500 up, picks within max(1 - that rise, 4) with
+water as ground, and refuses no empty record (its pick gives 0); the
+ground puts the vehicle at the highest support plus mode_alt and sets the
+turn rate's top to turns[1]. No shipped mission vehicle moves in BASIC; the
+stealth object does when the view is on it (editor.md S4).
 
 ## The basic vehicle's own controls (open; deferred 2026-11-01)
 

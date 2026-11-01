@@ -231,9 +231,11 @@ class VehBasicHooks : public zgame::Unported {
   virtual Handle anim_run(Handle def, Handle node) { return h(unported("0x00508c10", {low(def), low(node), 0, 0, 0})); }
   virtual float game_time();
   virtual void collisions(BasicVehicle& v);  // 0x0049ff80 (vehicle_collisions, veh_move)
-  virtual void basic_step(BasicVehicle& v) { unported("0x004a1d90", {ref(&v)}); }
+  virtual void basic_step(BasicVehicle& v);  // 0x004a1d90 (veh_move: vehicle_basic_step)
   virtual void move(BasicVehicle& v);  // 0x004a1240 (vehicle_move, veh_move)
-  virtual void basic_ground(BasicVehicle& v) { unported("0x004a1f00", {ref(&v)}); }  // TRACK's step on a BASIC one
+  virtual void basic_ground(BasicVehicle& v);  // 0x004a1f00 (vehicle_basic_ground), after a BASIC one's move
+  // The view's camera id ([0x005f4c8c]+0x58 +0x04): 3 the overhead one.
+  virtual int32_t view_camera_id() { return static_cast<int32_t>(unported("[0x005f4c8c]+0x58+0x4", {})); }
   virtual void node_set_active(Handle node, int32_t on);
   virtual void node_set_rotation(Handle node, float x, float y, float z);
   virtual void node_update(Handle node);
