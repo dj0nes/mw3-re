@@ -12,7 +12,9 @@ THIRD-PARTY.txt describes the `--deps` build.
 
 - A package build (`-DMW3_PACKAGE=ON`, Release, its own tree
   `build-mac-pkg/`): no development copy of the game compiled in.
-- `Contents/MacOS/mw3`; every library outside the system, followed through
+- `Contents/MacOS/mw3launcher`, the app's executable (the launcher,
+  launcher.md, The two programs), and `Contents/MacOS/mw3`, the game it
+  starts; every library outside the system, followed through
   the ones those load, copied into `Contents/Frameworks` and every
   reference rewritten to `@rpath/<name>`, with the rpath
   `@executable_path/../Frameworks`. The script stops if any reference is

@@ -44,7 +44,7 @@ if [ -n "$DEPS" ]; then
   export PKG_CONFIG_LIBDIR="$DEPS/lib/pkgconfig"  # its FFmpeg, not Homebrew's
 fi
 cmake -S . -B build-mac-pkg "${CONF[@]}" >/dev/null
-cmake --build build-mac-pkg --target mw3 >/dev/null
+cmake --build build-mac-pkg --target mw3 mw3launcher >/dev/null
 # The movie importer beside mw3 (the first start converts the movies with it,
 # first_run_import.h), on the FFmpeg build_deps.sh built; Homebrew's FFmpeg
 # would bring dozens of libraries, so without --deps there is none.
@@ -52,6 +52,9 @@ if [ -n "$DEPS" ]; then cmake --build build-mac-pkg --target mw3import >/dev/nul
 
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Frameworks" "$APP/Contents/Resources"
+# The launcher is the app's own executable; the game beside it, started by it
+# and on its own (docs/games-layout.md).
+cp build-mac-pkg/mw3launcher "$APP/Contents/MacOS/mw3launcher"
 cp build-mac-pkg/mw3 "$APP/Contents/MacOS/mw3"
 if [ -n "$DEPS" ]; then cp build-mac-pkg/mw3import "$APP/Contents/MacOS/mw3import"; fi
 # The launcher's art (ours, assets/launcher), where SDL's base path is: Resources.
@@ -65,7 +68,7 @@ python3 - "$APP" "$DEPS" <<'EOF'
 import glob, os, shutil, subprocess, sys
 app = sys.argv[1]
 prefix = sys.argv[2] if len(sys.argv) > 2 else ''
-exes = [os.path.join(app, 'Contents/MacOS', n) for n in ('mw3', 'mw3import')]
+exes = [os.path.join(app, 'Contents/MacOS', n) for n in ('mw3launcher', 'mw3', 'mw3import')]
 exes = [e for e in exes if os.path.exists(e)]
 fw = os.path.join(app, 'Contents/Frameworks')
 def deps(f):
@@ -169,7 +172,7 @@ cat > "$APP/Contents/Info.plist" <<EOF
   <key>CFBundleName</key><string>$NAME</string>
   <key>CFBundleDisplayName</key><string>$NAME</string>
   <key>CFBundleIdentifier</key><string>$BUNDLE_ID</string>
-  <key>CFBundleExecutable</key><string>mw3</string>
+  <key>CFBundleExecutable</key><string>mw3launcher</string>
   <key>CFBundleIconFile</key><string>mw3</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>$VER</string>
@@ -204,12 +207,16 @@ if [ "$ID" = "-" ]; then SIGN=(--force --sign -); else SIGN=(--force --timestamp
 for f in "$APP"/Contents/Frameworks/*.dylib; do
   codesign "${SIGN[@]}" "$f"
 done
-# The importer, a second program in Contents/MacOS, before the app that seals it.
+# The game and the importer, second programs in Contents/MacOS, before the app that seals them.
+codesign "${SIGN[@]}" --entitlements tools/macos/mw3.entitlements "$APP/Contents/MacOS/mw3"
 if [ -f "$APP/Contents/MacOS/mw3import" ]; then
   codesign "${SIGN[@]}" --entitlements tools/macos/mw3.entitlements "$APP/Contents/MacOS/mw3import"
 fi
 codesign "${SIGN[@]}" --entitlements tools/macos/mw3.entitlements "$APP"
 codesign --verify --deep --strict --verbose=2 "$APP"
+# The package carries both programs, the launcher as the app's executable.
+for p in mw3launcher mw3; do [ -x "$APP/Contents/MacOS/$p" ] || { echo "no $p in the app" >&2; exit 1; }; done
+[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$APP/Contents/Info.plist")" = mw3launcher ] || { echo "the app does not start the launcher" >&2; exit 1; }
 
 # The DMG: the app and a link to Applications, compressed, signed.
 DMG="$OUT/MW3-Rebuild-$VER-mac.dmg"

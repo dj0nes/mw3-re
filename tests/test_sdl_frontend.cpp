@@ -1867,8 +1867,8 @@ bool bmp_shares(const std::string& path, int* w, int* h, double* lit, double* gr
   *lit = static_cast<double>(l) / n, *green = static_cast<double>(g) / n;
   return true;
 }
-pid_t spawn_mw3(const std::vector<std::string>& args, const std::string& log) {
-  std::vector<std::string> a = {MW3_BIN};
+pid_t spawn_bin(const char* bin, const std::vector<std::string>& args, const std::string& log) {
+  std::vector<std::string> a = {bin};
   a.insert(a.end(), args.begin(), args.end());
   std::vector<char*> argv;
   for (std::string& s : a) argv.push_back(s.data());
@@ -1878,9 +1878,14 @@ pid_t spawn_mw3(const std::vector<std::string>& args, const std::string& log) {
   posix_spawn_file_actions_addopen(&fa, 1, log.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
   posix_spawn_file_actions_adddup2(&fa, 1, 2);
   pid_t pid = 0;
-  const int err = posix_spawn(&pid, MW3_BIN, &fa, nullptr, argv.data(), environ);
+  const int err = posix_spawn(&pid, bin, &fa, nullptr, argv.data(), environ);
   posix_spawn_file_actions_destroy(&fa);
   return err == 0 ? pid : -1;
+}
+pid_t spawn_mw3(const std::vector<std::string>& args, const std::string& log) { return spawn_bin(MW3_BIN, args, log); }
+// mw3launcher, the launcher's own program (docs/launcher.md, The two programs).
+pid_t spawn_launcher(const std::vector<std::string>& args, const std::string& log) {
+  return spawn_bin(MW3_LAUNCHER_BIN, args, log);
 }
 }  // namespace
 
@@ -3005,7 +3010,7 @@ TEST(sdl_program_launcher_screens) {
                         Shot{"work", false, "launcher: Found MechWarrior 3"}, Shot{"notes", false, "launcher: note: No music yet"}}) {
     const std::string bmp = dir + "/" + s.screen + ".bmp", log = dir + "/" + s.screen + ".log";
     if (s.none) setenv("MW3_FIND_INSTALL", "1", 1);
-    const pid_t pid = spawn_mw3({"--write-dir", dir + (s.none ? "/wd2" : "/wd"), "--launcher-shot", bmp, "--launcher-screen", s.screen}, log);
+    const pid_t pid = spawn_launcher({"--write-dir", dir + (s.none ? "/wd2" : "/wd"), "--launcher-shot", bmp, "--launcher-screen", s.screen}, log);
     if (s.none) unsetenv("MW3_FIND_INSTALL");
     int status = 0;
     EXPECT(pid > 0 && waitpid(pid, &status, 0) == pid && WIFEXITED(status) && WEXITSTATUS(status) == 0);
@@ -3040,8 +3045,8 @@ TEST(sdl_program_plain_start_goes_straight_in_or_to_setup) {
   std::error_code ec;
   std::filesystem::remove_all(dir, ec);
   for (const char* d : {"/wd", "/wd2", "/wd3", "/wd4", "/disc"}) std::filesystem::create_directories(dir + d, ec);
-  auto run = [&](const std::vector<std::string>& args, const std::string& log) {
-    const pid_t pid = spawn_mw3(args, log);
+  auto run = [&](const std::vector<std::string>& args, const std::string& log, bool launcher = false) {
+    const pid_t pid = launcher ? spawn_launcher(args, log) : spawn_mw3(args, log);
     int status = 0;
     const bool ok = pid > 0 && waitpid(pid, &status, 0) == pid && WIFEXITED(status) && WEXITSTATUS(status) == 0;
     std::ifstream f(log);
@@ -3053,8 +3058,10 @@ TEST(sdl_program_plain_start_goes_straight_in_or_to_setup) {
   const std::string a = run({"--write-dir", dir + "/wd", "--window", "640x480", "--nosound"}, dir + "/a.log");
   EXPECT(a.find("mw3: start only: install ") != std::string::npos && a.find("(none yet)") == std::string::npos &&
          a.find("launcher:") == std::string::npos);
-  // --launcher: its main screen (quit after 20 frames).
-  const std::string b = run({"--launcher", "--write-dir", dir + "/wd2", "--window", "640x480", "--nosound"}, dir + "/b.log");
+  // The launcher's main screen is mw3launcher's (quit after 20 frames), and
+  // mw3 knows no --launcher any more.
+  const std::string b = run({"--write-dir", dir + "/wd2", "--window", "640x480", "--nosound"}, dir + "/b.log", true);
+  EXPECT(run({"--launcher", "--write-dir", dir + "/wd2"}, dir + "/b2.log") == "(failed)");
   EXPECT(b.find("launcher: Found MechWarrior 3") != std::string::npos && b.find("start only") == std::string::npos);
   // None: the SETUP screen alone (QUIT after 20 frames: no game).
   setenv("MW3_FIND_INSTALL", "1", 1);
@@ -3082,30 +3089,74 @@ TEST(sdl_program_plain_start_goes_straight_in_or_to_setup) {
   unsetenv("MW3_START_ONLY");
 }
 
-// One window from the launcher into the game (lead's launcher list, item
-// 2): PLAY (--launcher-play presses MECHWARRIOR 3 at once) hands the
-// launcher's window over, its renderer freed, and the game claims it for
-// its GPU device instead of opening a second window; the main menu draws
-// in it (--shot of the game's frame).
+// One window from the SETUP screen into the game: a plain mw3 start with no
+// install found (MW3_FIND_INSTALL), an installed copy picked
+// (MW3_LAUNCHER_PICK), hands its window over, its renderer freed, and the
+// game claims it for its GPU device instead of opening a second window and
+// shows a frame in it (--ready-file's line); then stopped.
 TEST(sdl_program_launcher_window_goes_on_to_the_game) {
   const std::string dir = std::string(MW3_TEST_TMP) + "/launcher_play";
   std::error_code ec;
   std::filesystem::remove_all(dir, ec);
+  std::filesystem::create_directories(dir + "/wd/music", ec);
+  std::ofstream(dir + "/wd/music/track02.wav") << "x";  // music there: no first-start notes box (modal) before the window
+  const std::string log = dir + "/play.log";
+  setenv("MW3_FIND_INSTALL", "1", 1);
+  setenv("MW3_LAUNCHER_PICK", MW3_GAME_DIR, 1);
+  const pid_t pid = spawn_mw3({"--write-dir", dir + "/wd", "--window", "1280x960", "--nosound", "--no-import", "--ready-file", dir + "/ready"}, log);
+  unsetenv("MW3_LAUNCHER_PICK");
+  unsetenv("MW3_FIND_INSTALL");
+  std::string text;
+  for (int i = 0; i < 600 && pid > 0; ++i) {  // up to a minute for the game's first frame
+    std::ifstream f(log);
+    text.assign((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+    if (text.find("(the launcher told)") != std::string::npos || waitpid(pid, nullptr, WNOHANG) == pid) break;
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  }
+  if (pid > 0) kill(pid, SIGKILL), waitpid(pid, nullptr, 0);  // SDL makes SIGTERM a quit event a modal box ignores
+  const bool handed = text.find("launcher: its window goes on to the game") != std::string::npos;
+  const bool took = text.find("the game took the launcher's window") != std::string::npos;
+  const bool shown = text.find("(the launcher told)") != std::string::npos && std::filesystem::exists(dir + "/ready");
+  std::printf("setup into the game: handed %d, taken %d, a frame shown %d\n", handed, took, shown);
+  if (!(handed && took && shown)) std::printf("%s\n", text.substr(text.size() > 1500 ? text.size() - 1500 : 0).c_str());
+  EXPECT(handed && took && shown);
+  EXPECT(text.find("the menu's sounds") == std::string::npos);  // --nosound: none
+}
+
+// mw3launcher starts the game as its own program (docs/launcher.md, The two
+// programs): MECHWARRIOR 3 (--launcher-play) runs MW3_GAME_BIN, here a
+// stand-in that keeps its arguments and writes the ready file, with the
+// install and this start's options; the launcher waits for its first frame,
+// then for its end (and, with --launcher-play, quits then).
+TEST(sdl_program_launcher_starts_mw3_as_its_own_program) {
+  const std::string dir = std::string(MW3_TEST_TMP) + "/launcher_game";
+  std::error_code ec;
+  std::filesystem::remove_all(dir, ec);
   std::filesystem::create_directories(dir + "/wd", ec);
-  const std::string bmp = dir + "/menu.bmp", log = dir + "/play.log";
-  const pid_t pid = spawn_mw3({"--write-dir", dir + "/wd", "--launcher-play", "--window", "1280x960", "--nosound", "--shot", bmp,
-                               "--shot-frame", "40", "--shot-any"}, log);
+  const std::string game = dir + "/mw3";
+  {
+    std::ofstream sh(game);
+    sh << "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"" << dir << "/args.txt\"\n"
+       << "while [ $# -gt 0 ]; do if [ \"$1\" = --ready-file ]; then : > \"$2\"; fi; shift; done\nsleep 1\nexit 0\n";
+  }
+  std::filesystem::permissions(game, std::filesystem::perms::owner_all, ec);
+  setenv("MW3_GAME_BIN", game.c_str(), 1);
+  const std::string log = dir + "/launcher.log";
+  const pid_t pid = spawn_launcher({"--write-dir", dir + "/wd", "--launcher-play", "--window", "640x480", "--nosound"}, log);
+  unsetenv("MW3_GAME_BIN");
   int status = 0;
   EXPECT(pid > 0 && waitpid(pid, &status, 0) == pid && WIFEXITED(status) && WEXITSTATUS(status) == 0);
   std::ifstream f(log);
   const std::string text((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
-  const bool handed = text.find("launcher: its window goes on to the game") != std::string::npos;
-  const bool took = text.find("the game took the launcher's window") != std::string::npos;
-  SDL_Surface* img = SDL_LoadBMP(bmp.c_str());
-  std::printf("launcher play: handed %d, taken %d, the menu's frame %dx%d\n", handed, took, img ? img->w : 0, img ? img->h : 0);
-  EXPECT(handed && took && img && img->w > 0);
-  EXPECT(text.find("the menu's sounds") == std::string::npos);  // --nosound: none
-  if (img) SDL_DestroySurface(img);
+  std::ifstream af(dir + "/args.txt");
+  std::vector<std::string> args;
+  for (std::string l; std::getline(af, l);) args.push_back(l);
+  std::printf("launcher -> game: %zu arguments, first frame %d, exited %d\n", args.size(),
+              text.find("the game's first frame") != std::string::npos, text.find("MechWarrior 3 exited (0)") != std::string::npos);
+  EXPECT(args.size() == 8 && args[0] == MW3_GAME_DIR && args[1] == "--write-dir" && args[2] == dir + "/wd" &&
+         args[3] == "--window" && args[4] == "640x480" && args[5] == "--nosound" && args[6] == "--ready-file");
+  EXPECT(text.find("the game's first frame") != std::string::npos && text.find("(no signal") == std::string::npos);
+  EXPECT(text.find("MechWarrior 3 exited (0)") != std::string::npos);
 }
 
 // The launcher's sounds (lead's launcher list, item 4; docs/launcher.md):
@@ -3123,7 +3174,9 @@ TEST(sdl_program_launcher_plays_the_menus_sounds) {
   std::filesystem::create_directories(dir + "/wd", ec);
   const std::string log = dir + "/sounds.log";
   setenv("MW3_LAUNCHER_MUTE", "1", 1);  // played at no volume (the machine may be streaming)
-  const pid_t pid = spawn_mw3({"--write-dir", dir + "/wd", "--launcher-play", "--window", "640x480", "--frames", "5"}, log);
+  setenv("MW3_LAUNCHER_FRAMES", "5", 1);
+  const pid_t pid = spawn_launcher({"--write-dir", dir + "/wd", "--window", "640x480"}, log);
+  unsetenv("MW3_LAUNCHER_FRAMES");
   unsetenv("MW3_LAUNCHER_MUTE");
   int status = 0;
   EXPECT(pid > 0 && waitpid(pid, &status, 0) == pid && WIFEXITED(status) && WEXITSTATUS(status) == 0);
@@ -3197,7 +3250,7 @@ TEST(sdl_program_launcher_starts_mechwarrior_1989) {
   std::filesystem::permissions(port, std::filesystem::perms::owner_all, ec);
   setenv("MW3_MW1_PORT", port.c_str(), 1);
   const std::string log = dir + "/mw1.log";
-  const pid_t pid = spawn_mw3({"--write-dir", dir + "/wd", "--launcher-mw1", "--window", "640x480", "--nosound"}, log);
+  const pid_t pid = spawn_launcher({"--write-dir", dir + "/wd", "--launcher-mw1", "--window", "640x480", "--nosound"}, log);
   unsetenv("MW3_MW1_PORT");
   int status = 0;
   EXPECT(pid > 0 && waitpid(pid, &status, 0) == pid && WIFEXITED(status) && WEXITSTATUS(status) == 0);

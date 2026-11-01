@@ -65,10 +65,10 @@ struct RunLog::Impl {
   }
 };
 
-bool RunLog::open(const std::string& dir) {
+bool RunLog::open(const std::string& dir, const std::string& name) {
   namespace fs = std::filesystem;
   std::error_code ec;
-  const fs::path log = fs::path(dir) / "mw3.log", old = fs::path(dir) / "mw3.old.log";
+  const fs::path log = fs::path(dir) / (name + ".log"), old = fs::path(dir) / (name + ".old.log");
   if (fs::exists(log, ec)) {
     fs::remove(old, ec);
     fs::rename(log, old, ec);
