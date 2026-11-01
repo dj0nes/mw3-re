@@ -17020,6 +17020,7 @@ TEST(net_chat_panel_c1mp1_headless) {
   EXPECT(seen.sent && seen.own == "<Host  Send message to all> hi there");
   EXPECT(seen.peer == "<Bob  Send message to team> %s%n?[");
   EXPECT(!seen.empty_sent && seen.team_prompt_all);
+  EXPECT(seen.hover_kept);  // the mouse over the panel is not its Enter (the console's +0xd0 is line_entered)
   EXPECT(fade_on && !fade_off);
   std::printf("  respawns with the panel up: Bob's %d (panel %d, sent %d, commands %d); ours: closed %d, commands %d, "
               "again %d, sent %d\n", rs.peer_rebuilt, rs.open_after_peer, rs.sent_after_peer, rs.commands_after_peer,

@@ -29,7 +29,7 @@ ChatPanel::ChatPanel(bool all, Mech* m) : to_all(all ? 1 : 0), mech(m) {
 
 // Mech3.exe 1.2 @ 0x0041e660: the text after the prompt's '>', trimmed; a
 // new line; sent unless empty (and kept, " %s"); the panel closed.
-void ChatPanel::on_enter() {
+void ChatPanel::line_entered() {
   std::string t = line_text();
   const size_t gt = t.find('>');
   t = gt == std::string::npos ? t : t.substr(gt + 1);

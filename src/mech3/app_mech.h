@@ -87,6 +87,7 @@ struct NetChatSeen {
   int32_t sent = 0;            // the peer heard 0x1f, flags 0, our text
   int32_t empty_sent = 0;      // an empty line sent anything
   int32_t team_prompt_all = 0; // CHAT TEAM without team play is to all
+  int32_t hover_kept = 0;      // the mouse's entry (+0x3c) left the panel up, nothing sent
   std::string own, peer;       // the HUD's lines
 };
 bool program_net_chat_check(NetChatSeen* out);

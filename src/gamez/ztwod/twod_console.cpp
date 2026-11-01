@@ -27,7 +27,7 @@ WeatherLayer& console_layer() {
 }
 
 // Mech3.exe 1.2 @ 0x005a4660, 0x005a4670
-void ConsoleLine::on_enter() { owner->on_enter(); }
+void ConsoleLine::on_enter() { owner->line_entered(); }
 void ConsoleLine::on_escape() { owner->on_escape(); }
 
 // Mech3.exe 1.2 @ 0x005a4680, 0x005a4690
@@ -132,7 +132,7 @@ bool Console::key(int32_t ch, int32_t code) {
 }
 
 // Mech3.exe 1.2 @ 0x005a4460
-void Console::on_enter() {
+void Console::line_entered() {
   std::snprintf(kept, sizeof kept, "%s", line_text());
   new_line();
 }

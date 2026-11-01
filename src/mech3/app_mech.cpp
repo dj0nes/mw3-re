@@ -1425,6 +1425,8 @@ bool program_net_chat_check(NetChatSeen* out) {
     out->prompt_all = has_line(p, "CHAT ALL");
     out->commands_off = zin::current_map() && !zin::current_map()->enabled;
     for (const char* k = " hi there "; *k; ++k) p->key(*k, 0);
+    static_cast<ztwod::Object2D*>(p)->on_enter();  // the mouse coming over it (Window::update's +0x3c)
+    out->hover_kept = me->chat == p;
     p->key('\r', 0x1c);
   }
   out->closed = me->chat == nullptr;

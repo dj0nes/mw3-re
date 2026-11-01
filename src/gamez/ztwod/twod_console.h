@@ -50,7 +50,9 @@ class Console : public TextBox {
   virtual bool key(int32_t ch, int32_t code);  // +0xc4  0x005a4390
   virtual void on_code_42b() {}      // +0xc8  0x005ac5c0
   virtual void layout();             // +0xcc  0x005a4330: the box over the lines
-  virtual void on_enter();           // +0xd0  0x005a4460: the line kept, a new one
+  // +0xd0 0x005a4460: the line kept, a new one. Not on_enter: that is the
+  // mouse routing's +0x3c (Window::update), which would send a chat line.
+  virtual void line_entered();
   virtual void on_escape();          // +0xd4  0x005a4490: the prompt alone
   virtual void recall();             // +0xd8  0x005a4550: the line kept, again (DIK_UP)
   const char* line_text() { return line().text; }  // 0x005a22c0

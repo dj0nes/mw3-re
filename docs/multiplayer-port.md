@@ -1185,6 +1185,12 @@ Ours, in three pieces:
   `missions_c1m1_c1m2_then_c2m1_in_one_process_headless` (every c1 def
   freed before c2; `zeff::anim_freed_defs`, ours). Break caught: the
   dword store.
+- **14a's Enter, renamed** (the PC build's warning): the console's +0xd0
+  was `on_enter`, the name of Object2D's +0x3c, the mouse routing's entry
+  (Window::update, 0x005a2bb0), so it overrode it: the pointer coming over
+  the panel would have sent the line and deleted the panel under the
+  routing (the break crashes). Now `line_entered`; the chat test moves the
+  mouse's entry over the open panel (it stays up, nothing sent).
 - **The 1.2 read-me's six** (the lead, after 14c; game/mw3-1.2/readme.txt,
   the multiplayer changes of 1.1 and 1.2), each a test:
   1. 1.1's crash or lost keyboard when a player respawns while another's

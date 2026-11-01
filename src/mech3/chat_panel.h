@@ -20,7 +20,7 @@ struct NetMech;
 class ChatPanel : public ztwod::Console {
  public:
   ChatPanel(bool to_all, Mech* mech);  // 0x0041e5a0
-  void on_enter() override;            // +0xd0  0x0041e660: sent (none when empty), then closed
+  void line_entered() override;        // +0xd0  0x0041e660: sent (none when empty), then closed
   uint8_t to_all;                      // +0x718
   Mech* mech;                          // +0x71c
 };
