@@ -1,5 +1,6 @@
 #pragma once
 #include <cstdint>
+#include <list>
 #include <string>
 #include <vector>
 
@@ -40,11 +41,45 @@ class LobbyList : public FileList {
 };
 
 // The chat's edit bar, CHAT_ENTER_EDIT (vtable 0x005c7a70, 0x27 characters):
-// Enter sends (0x00499880, piece 12).
+// Enter sends, to our team with CHAT_TEAM_CHECKBOX in team play, else to all
+// (0x00499880, piece 12).
 class ChatBar : public ShellEditBar {
  public:
   ChatBar(Engine& e, LobbyScreen* s) : ShellEditBar(e), screen(s) {}
+  void on_return() override;         // +0x90  0x00499880
   LobbyScreen* screen;               // +0x38c
+};
+
+class ChatLog;
+// CHAT_UP and CHAT_DOWN (0x004968d0 vtable 0x005c7ba0, 0x00496910 vtable
+// 0x005c7c30): a press scrolls the log a line.
+class ChatScroll : public ShellButton {
+ public:
+  ChatScroll(Engine& e, ChatLog* l, bool up) : ShellButton(e, -1), log(l), up(up) {}
+  void on_left_up() override;        // +0x30  0x004997c0 (up), 0x00499820 (down)
+  ChatLog* log;                      // +0x158
+  bool up;
+};
+
+// CHAT_REC_LIST (vtable 0x005c6e70): a text box of 14 lines over the chat's
+// last 100 (a list of strings), the window between `top` and `bottom`.
+class ChatLog : public ztwod::TextBox {
+ public:
+  ChatLog(Engine& e, LobbyScreen* s);  // the lobby's constructor's, 0x005a18f0(0xe) and the two buttons
+  void clear_log();                  // 0x00499680: one line of three spaces
+  void add(const char* line);        // 0x004996d0
+  bool at_top() const;               // 0x004997a0
+  bool at_bottom() const;            // 0x00499760
+  void scroll_up();                  // 0x004997c0
+  void scroll_down();                // 0x00499820
+
+  ChatScroll up_btn;                 // +0x4c8  CHAT_UP
+  ChatScroll down_btn;               // +0x624  CHAT_DOWN
+  LobbyScreen* owner;                // +0x780
+  int32_t visible = 0xe;             // +0x784
+  std::list<std::string> history;      // +0x78c, its count +0x790 (at +0x788)
+  int32_t max_lines = 100;           // +0x794
+  std::list<std::string>::iterator top, bottom;  // +0x798, +0x79c
 };
 
 // The screen (vtable 0x005c6aa0), 0x1505c bytes.
@@ -102,6 +137,11 @@ class LobbyScreen : public MenuScreen {
   static void on_kicked(uint32_t from, const uint8_t* msg, size_t size);  // 0x0049a1d0: 7
   static void on_host(uint32_t from, const uint8_t* msg, size_t size);    // 0x0049a200: 0xd
   static void on_rules(uint32_t from, const uint8_t* msg, size_t size);   // 0x00499cf0: 0x20
+  // The chat (piece 12): ours to `team` (0 all) as 0x1f, unguaranteed, and
+  // shown here (0x004998b0); a player's shown, "< name to all >" or "< name
+  // to team >" over the text (0x00499610).
+  void chat_send(uint32_t team);     // 0x004998b0 (0x004999f0 all, 0x00499a00 our team)
+  static void on_chat(uint32_t from, const uint8_t* msg, size_t size);    // 0x00499610: 0x1f
   static void on_start(uint32_t from, const uint8_t* msg, size_t size);   // 0x0049bcb0: 0x1e
   static void on_scores(uint32_t from, const uint8_t* msg, size_t size);  // 0x0049b150: 0x14
 
@@ -127,9 +167,7 @@ class LobbyScreen : public MenuScreen {
   ShellButton new_team_btn;          // +0x139d0  NEW_TEAM_BUTTON (7)
   ShellButton pick_skin_btn;         // +0x13b28  PICK_SKIN_BUTTON (8)
   ShellButton kick2_btn;             // +0x13c80  KICK_PLAYER2_BUTTON (9)
-  ztwod::TextBox chat_log{0xe};      // +0x13dd8  CHAT_REC_LIST (piece 12)
-  ShellButton chat_up;               // +0x142a0  CHAT_UP (piece 12)
-  ShellButton chat_down;             // +0x143fc  CHAT_DOWN
+  ChatLog chat_log;                  // +0x13dd8  CHAT_REC_LIST, its CHAT_UP (+0x142a0) and CHAT_DOWN (+0x143fc)
   FileList scores_list;              // +0x14578  SCORES_LIST
   LobbyList teams_list;              // +0x14778  TP_LIST (0x16)
   LobbyList players_list;            // +0x14978  PLAYERS_LIST (0x17)

@@ -1248,6 +1248,10 @@ From the network code (network-messages.md).
 - **Your start point is your place in the lobby.** The host's START tells
   everyone the players' order in the lobby list, and each mech's starting
   point is chosen by that place.
+- **Lobby chat can be lost.** The lobby sends each chat message without
+  asking for delivery, so on a bad connection a line may never arrive. The
+  chat keeps the last 100 lines; the arrows scroll 14 at a time, and a team
+  message shows "< name to team >" (only the team gets it).
 - **Mobile bases in multiplayer use the map's repair stations.** With
   ALLOW MOBILE BASES on, each multiplayer map's station points (two per
   map) get a copy of the world's station, renamed mfb_station_04 and on,

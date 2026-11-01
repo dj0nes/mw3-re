@@ -1047,6 +1047,30 @@ Ours, in three pieces:
   a station in the world on each point, shown, the points relabelled; off,
   none); breaks caught: the names from 01, not in the world, the flag off.
 
+- **Piece 12** (2026-11-01): the lobby's chat. CHAT_REC_LIST (vtable
+  0x005c6e70, `ChatLog`): a text box of 14 lines over the chat's last 100
+  (a list of strings, the oldest dropped, 0x00495e60), a window between a
+  top and a bottom line; a line added (0x004996d0) shown when the window
+  was at the bottom (it moves with it), a full log at its top scrolled down
+  a line first; CHAT_UP and CHAT_DOWN (0x004997c0, 0x00499820) scroll a
+  line, writing the line come into view at the top or the bottom; the
+  enter's clear (0x00499680) a log of three spaces. CHAT_ENTER_EDIT's Enter
+  (0x00499880) sends to our team with CHAT_TEAM_CHECKBOX in team play,
+  else to all (buttons 3 and 2, 0x00499a00 / 0x004999f0); the send
+  (0x004998b0): the bar's text trimmed (empty: nothing), 0x1f {flags 1 to a
+  team, the text with its 0}, its size the text's length and 0xc,
+  unguaranteed (as the exe), to the team or to all; shown here as the
+  others see it; the bar emptied. A player's (0x00499610): "< %1 to all >"
+  (0xf44) or "< %1 to team >" (0xf43, 0x40 bytes at most), then the text;
+  FIX (A): a message cut short dropped, the text ended within the message.
+  Test: `net_lobby_chat_headless` (the message's bytes, our lines, an empty
+  bar sending nothing, Bob's to the team, a short one and one without its
+  0, 120 lines into 100, the window, UP and DOWN, a line added away from
+  the bottom, the full log's step at its top, team play: to our team only,
+  and to all again); breaks caught: no team flag, a short message taken, no
+  step at the top, a window that does not move, Enter never to the team. A
+  shot of the lobby with two lines sent shows them under their headers.
+
 ## Open
 
 - c3's two 1.2 multiplayer maps for a 1.0 install (patch12.md, What stays

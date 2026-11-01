@@ -4126,6 +4126,93 @@ TEST(net_lobby_start_join_and_teams_headless) {
   mech3::multiplayer_setup().team_play = 0;
 }
 
+// The lobby's chat (piece 12): Enter sends the bar's text trimmed (0x1f,
+// its flags, the text with its 0, the length and 0xc) and shows it here
+// under "< Ann to all >"; a player's to the team shows "< Bob to team >";
+// a message cut short is dropped, a text without its 0 ends in the message;
+// in team play with CHAT_TEAM it goes to our team only. The log keeps 100
+// lines, its window 14; UP and DOWN scroll; a line added away from the
+// bottom leaves the window.
+TEST(net_lobby_chat_headless) {
+  if (!have_game()) return;
+  LobbyRig r("net_chat_write");
+  EXPECT(r.l != nullptr);
+  if (!r.l) return;
+  znet::SessionDesc d;
+  d.name = "Mine", d.max_players = 4, d.user[1] = mech3::kGameVersion;
+  EXPECT(znet::host_session(d, "Ann"));
+  znet::Transport* bob = r.hub.endpoint();
+  EXPECT(bob->join("loopback") && bob->create_player("Bob", "Bob") == 2);
+  znet::poll(-1);
+  r.enter();
+  mech3::ChatLog& log = r.l->chat_log;
+  auto lines = [&] { return std::vector<std::string>(log.history.begin(), log.history.end()); };
+  EXPECT(lines() == std::vector<std::string>{"   "});
+  auto heard = [&] {
+    std::vector<std::vector<uint8_t>> out;
+    znet::Packet pk;
+    while (bob->receive(&pk))
+      if (pk.from == 1 && pk.data.size() >= 4 && pk.data[0] == 0x1f) out.push_back(pk.data);
+    return out;
+  };
+  heard();
+  r.l->chat_edit.set_text("  hello  ");
+  r.l->chat_edit.on_return();
+  std::vector<std::vector<uint8_t>> h = heard();
+  EXPECT(h.size() == 1);
+  if (h.size() == 1)
+    EXPECT(h[0].size() == 5 + 0xc && h[0][2] == 5 + 0xc && h[0][4] == 0 && std::string(reinterpret_cast<const char*>(h[0].data() + 8)) == "hello");
+  EXPECT((lines() == std::vector<std::string>{"   ", "< Ann to all >", "hello"}));
+  EXPECT(std::string(r.l->chat_edit.get_text()) == "");
+  r.l->chat_edit.set_text("   ");
+  r.l->chat_edit.on_return();
+  EXPECT(heard().empty() && lines().size() == 3);
+  // Bob's, to the team; one cut short; one with no 0 in it.
+  std::vector<uint8_t> m(0x10, 0);
+  m[0] = 0x1f, m[2] = 0x10, m[4] = 1;
+  std::memcpy(m.data() + 8, "gg", 3);
+  bob->send(0, m.data(), m.size(), false, nullptr);
+  bob->send(0, m.data(), 8, false, nullptr);
+  std::vector<uint8_t> open(0xc, 'x');
+  open[0] = 0x1f, open[1] = 0, open[2] = 0xc, open[3] = 0, open[4] = 0, open[5] = open[6] = open[7] = 0;
+  bob->send(0, open.data(), open.size(), false, nullptr);
+  znet::poll(-1);
+  const std::vector<std::string> got = lines();
+  EXPECT(got.size() == 7);
+  if (got.size() == 7) EXPECT(got[3] == "< Bob to team >" && got[4] == "gg" && got[5] == "< Bob to all >" && got[6] == "xxxx");
+  // The log: 100 lines, the window on the last 14; up, then a line added away
+  // from the bottom; down to the bottom again.
+  for (int i = 0; i < 120; ++i) log.add(("line " + std::to_string(i)).c_str());
+  EXPECT(log.history.size() == 100 && log.at_bottom() && *log.bottom == "line 119" && *log.top == "line 106");
+  log.scroll_up();
+  EXPECT(*log.top == "line 105" && *log.bottom == "line 118" && !log.at_bottom());
+  log.add("late");
+  EXPECT(*log.bottom == "line 118" && log.history.back() == "late");
+  for (int i = 0; i < 5; ++i) log.down_btn.on_left_up();
+  EXPECT(log.at_bottom() && *log.bottom == "late");
+  for (int i = 0; i < 200; ++i) log.up_btn.on_left_up();
+  EXPECT(log.at_top() && *log.top == "line 21");
+  log.add("top full");  // at the top and full: down a line first
+  EXPECT(*log.top == "line 22" && log.history.front() == "line 22" && log.history.back() == "top full");  // "line 21" dropped
+  // Team play: to our team only.
+  mech3::multiplayer_setup().team_play = 1;
+  r.l->new_team("Red", 2, true);
+  znet::poll(-1);
+  mech3::g_lobby_dirty = 1;
+  r.l->update(0.1f);
+  heard();
+  r.l->chat_team.set_checked(1);
+  r.l->chat_edit.set_text("team only");
+  r.l->chat_edit.on_return();
+  EXPECT(heard().empty() && log.history.back() == "team only" && *std::prev(log.history.end(), 2) == "< Ann to team >");
+  r.l->chat_team.set_checked(0);
+  r.l->chat_edit.set_text("everyone");
+  r.l->chat_edit.on_return();
+  h = heard();
+  EXPECT(h.size() == 1 && h.size() == 1 && h[0][4] == 0);
+  mech3::multiplayer_setup().team_play = 0;
+}
+
 // The host's addresses under the host setup (multiplayer-port.md, piece 9c),
 // from the platform's UPnP as it stands: each state's line, a shareable
 // address copied by a click, none offered behind carrier-grade NAT or

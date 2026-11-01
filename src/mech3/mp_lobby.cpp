@@ -1,6 +1,7 @@
 #include "mech3/mp_lobby.h"
 
 #include <cctype>
+#include <iterator>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -132,7 +133,7 @@ LobbyEntry* LobbyList::chosen() {
 LobbyScreen::LobbyScreen(Engine& e, Handle s)
     : MenuScreen(e, s), chat_edit(e, this), cancel_btn(e, 1), start_btn(e, 0), mechlab_btn(e, 10), lock_btn(e, 0xb),
       worlds(e), kills_list(e, 0xd), time_list(e, 0xe), weight_list(e, 0xf), join_team_btn(e, 4), remove_team_btn(e, 5),
-      kick_btn(e, 6), new_team_btn(e, 7), pick_skin_btn(e, 8), kick2_btn(e, 9), chat_up(e, -1), chat_down(e, -1),
+      kick_btn(e, 6), new_team_btn(e, 7), pick_skin_btn(e, 8), kick2_btn(e, 9), chat_log(e, this),
       scores_list(e, -1), teams_list(e, -1), players_list(e, 0x17), player_name(e, -1), session_name(e, -1),
       internet_line(e), lan_line(e) {
   chat_edit.set_size(0x27);
@@ -185,8 +186,8 @@ LobbyScreen::LobbyScreen(Engine& e, Handle s)
     bind_button(&players_list, "PLAYERS_LIST");
     bind_button(&ready_box, "READY_CHECKBOX");
     bind_primitive(&chat_log, "CHAT_REC_LIST");
-    bind_button(&chat_up, "CHAT_UP");
-    bind_button(&chat_down, "CHAT_DOWN");
+    bind_button(&chat_log.up_btn, "CHAT_UP");
+    bind_button(&chat_log.down_btn, "CHAT_DOWN");
     teams_list.id = 0x16;
   }
   // Ours (piece 9c): the host's two address lines, under CANCEL and LOCK.
@@ -302,7 +303,7 @@ void LobbyScreen::enter() {
   chat_team.set_checked(0);
   teams_list.empty();
   players_list.empty();
-  // 0x00499680: the chat's lines cleared (piece 12).
+  chat_log.clear_log();  // 0x00499680
   chat_edit.set_text("");
   chat_edit.set_focus(0);
   chat_edit.set_focus(1);
@@ -351,9 +352,8 @@ void LobbyScreen::update(float dt) {
   Window::update(dt);
 }
 
-// Mech3.exe 1.2 @ 0x00497410. The chat's (2, 3) come with piece 12; NEW_TEAM
-// (7, 0x0049a2b0) and PICK_SKIN (8, 0x0049a820) open the new team's dialog,
-// piece 13.
+// Mech3.exe 1.2 @ 0x00497410. NEW_TEAM (7, 0x0049a2b0) and PICK_SKIN (8,
+// 0x0049a820) open the new team's dialog, piece 13.
 void LobbyScreen::on_button(int32_t id, int32_t a, int32_t b) {
   (void)a, (void)b;
   Engine& e = engine();
@@ -366,6 +366,12 @@ void LobbyScreen::on_button(int32_t id, int32_t a, int32_t b) {
       if (game) game->clear_lobby();
       return;
     case 0: start(); return;
+    case 2: chat_send(0); return;  // 0x004999f0
+    case 3: {                      // 0x00499a00
+      const LobbyPlayer* me = game ? game->lobby_player(znet::local_id()) : nullptr;
+      chat_send(me ? me->team : 0);
+      return;
+    }
     case 4: join_team(); return;
     case 5: remove_team(); return;
     case 10: mech_lab(); return;
@@ -515,8 +521,7 @@ void LobbyScreen::host_controls() {
   }
 }
 
-// Mech3.exe 1.2 @ 0x00497fbf..0x004980b6 (on), 0x00499a30 (off). The chat's
-// 0x1f (0x00499610) comes with piece 12.
+// Mech3.exe 1.2 @ 0x00497fbf..0x004980b6 (on), 0x00499a30 (off).
 void LobbyScreen::handlers(bool on) {
   static const uint16_t kChange[] = {3, 4, 9, 0xa, 5, 6, 8, 2};
   for (uint16_t t : kChange) on ? (void)znet::on(t, on_change) : (void)znet::off(t, on_change);
@@ -526,12 +531,14 @@ void LobbyScreen::handlers(bool on) {
     znet::on(0x20, on_rules);
     znet::on(0x1e, on_start);
     znet::on(0x14, on_scores);
+    znet::on(0x1f, on_chat);
   } else {
     znet::off(7, on_kicked);
     znet::off(0xd, on_host);
     znet::off(0x20, on_rules);
     znet::off(0x1e, on_start);
     znet::off(0x14, on_scores);
+    znet::off(0x1f, on_chat);
   }
   handlers_on_ = on;
 }
@@ -1083,6 +1090,101 @@ void LobbyScreen::remove_team() {
   if (!en || en->kind() != 2 || static_cast<LobbyTeam*>(en)->count != 0) return;
   znet::destroy_team(en->id);
   teams_list.select_index(0);
+}
+
+// ---- the chat (piece 12) ----
+
+ChatLog::ChatLog(Engine& e, LobbyScreen* s)
+    : ztwod::TextBox(0xe), up_btn(e, this, true), down_btn(e, this, false), owner(s) {
+  top = bottom = history.end();
+}
+
+// Mech3.exe 1.2 @ 0x004997a0
+bool ChatLog::at_top() const { return top == history.begin(); }
+
+// Mech3.exe 1.2 @ 0x00499760
+bool ChatLog::at_bottom() const {
+  return static_cast<int32_t>(history.size()) <= visible || (!history.empty() && bottom == std::prev(history.end()));
+}
+
+// Mech3.exe 1.2 @ 0x00499680: the lines gone but three spaces, shown, the
+// window on it.
+void ChatLog::clear_log() {
+  history.clear();
+  history.push_back("   ");  // 0x00495df0 ([0x005e7c4c])
+  set_text("%s", "   ");
+  top = bottom = history.begin();
+}
+
+// Mech3.exe 1.2 @ 0x004996d0: a full log at its top first scrolled a line
+// (CHAT_DOWN's press); the line kept (the oldest past 100 dropped,
+// 0x00495e60); shown when we were at the bottom, the window with it.
+void ChatLog::add(const char* line) {
+  if (at_top() && static_cast<int32_t>(history.size()) >= 100) down_btn.on_left_up();
+  const bool was = at_bottom();
+  history.push_back(line ? line : "");
+  if (static_cast<int32_t>(history.size()) > max_lines) history.pop_front();
+  if (!was) return;
+  set_text("%s", line ? line : "");
+  ++bottom;
+  if (visible < static_cast<int32_t>(history.size())) ++top;
+}
+
+// Mech3.exe 1.2 @ 0x004997c0: up a line, the one above written at the top.
+void ChatLog::scroll_up() {
+  if (at_top()) return;
+  --top, --bottom;
+  set_text_top("%s", top->c_str());
+}
+
+// Mech3.exe 1.2 @ 0x00499820: down a line, the one below written at the bottom.
+void ChatLog::scroll_down() {
+  if (at_bottom()) return;
+  ++top, ++bottom;
+  set_text("%s", bottom->c_str());
+}
+
+void ChatScroll::on_left_up() { up ? log->scroll_up() : log->scroll_down(); }
+
+// Mech3.exe 1.2 @ 0x00499880
+void ChatBar::on_return() {
+  if (!screen) return;
+  if (multiplayer_team_play() && screen->chat_team.checked) screen->on_button(3, 0, 0);
+  else screen->on_button(2, 0, 0);
+}
+
+// Mech3.exe 1.2 @ 0x004998b0: the bar's text trimmed (none: nothing), as
+// 0x1f {flags (1 to a team), the text with its 0} in its length and 0xc,
+// sent unguaranteed to the team (or all), shown here as it is to the others,
+// the bar emptied.
+void LobbyScreen::chat_send(uint32_t team) {
+  std::string text = chat_edit.get_text() ? chat_edit.get_text() : "";
+  const size_t a = text.find_first_not_of(" \t\r\n");
+  if (a == std::string::npos) return;
+  text = text.substr(a, text.find_last_not_of(" \t\r\n") - a + 1);
+  const uint32_t size = static_cast<uint32_t>(text.size()) + 0xc;
+  std::vector<uint8_t> m(size, 0);
+  m[0] = 0x1f, m[1] = 0;
+  m[2] = static_cast<uint8_t>(size), m[3] = static_cast<uint8_t>(size >> 8);
+  if (team) m[4] |= 1;
+  std::memcpy(m.data() + 8, text.c_str(), text.size() + 1);
+  znet::send(m.data(), size, false, team);
+  on_chat(znet::local_id(), m.data(), m.size());
+  chat_edit.set_text("");
+}
+
+// Mech3.exe 1.2 @ 0x00499610: the sender's line ("< %1 to team >" 0xf43 or
+// "< %1 to all >" 0xf44, 0x40 bytes at most), then the text. FIX (A): a
+// message cut short is dropped and the text ends within it.
+void LobbyScreen::on_chat(uint32_t from, const uint8_t* msg, size_t size) {
+  LobbyScreen* l = g_lobby;
+  if (!l || size < 9) return;
+  const char* who = znet::player_name(from);
+  std::string head = zutl::format_message_f((msg[4] & 1) ? 0xf43 : 0xf44, who ? who : "");
+  if (head.size() > 0x3f) head.resize(0x3f);
+  l->chat_log.add(head.c_str());
+  const char* text = reinterpret_cast<const char*>(msg + 8);
+  l->chat_log.add(std::string(text, strnlen(text, size - 8)).c_str());
 }
 
 // The host's lines (the connection screen's, mp_connect.cpp); none for a

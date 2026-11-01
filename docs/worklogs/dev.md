@@ -2644,4 +2644,6 @@ Assigned after 8b2 merged (fd3f05f). The lead asked for a section stepped at bot
   the mobile bases' stations (0x00490950), then 12.
 - The mobile bases' stations (0x00490950): no null place in the exe (the
   emulator on c1's waynet_mp1 and mp2: all elements points), ported as is.
-- Next: 12 (the chat).
+- 12 done (multiplayer-port.md, 12): the chat log, its scroll, the send
+  and the 0x1f, FIX (A) for a short or open message.
+- Next: 13 (the new team's dialog).
