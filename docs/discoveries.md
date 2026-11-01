@@ -1281,6 +1281,19 @@ From the network code (network-messages.md).
   time each frame took, capped at 1/8 second a frame. The exceptions found so
   far are per-frame, like the lava heat above.
 
+## A hidden game editor
+
+- **MW3 ships the in-game editor from Zipper's previous game.** A debug
+  command that no key is bound to opens "BATTLESPORT GAME EDITOR" (Zipper
+  made Battlesport before MW3): a mouse menu over the running mission with
+  EDIT AI NETS, EDIT VEHICLES, EDIT WEAPONS (which does nothing in MW3) and
+  EXIT GAME EDIT. The AI net editor has its own menu: go to a net, change a
+  net's or a node's parameters, add a vehicle to a node, move or delete a
+  node, save the changes, a tree view. While it is open the camera rides an
+  invisible vehicle, the "stealth" object every mission makes, which drives
+  itself along a path of waypoints like a camera dolly. Nothing in the
+  released game can open it (docs/editor.md).
+
 ## Mission worlds
 
 From the world files (gamez.md).
