@@ -257,3 +257,107 @@ TEST(net_upnp_quit_does_not_wait_on_a_stalled_router) {
   EXPECT(took < std::chrono::milliseconds(sdlfe::PortMapper::quit_ms + 500));
 }
 #endif
+
+// The lead's real-router check (MW3_UPNP_REAL=1 MW3_TEST=net_upnp_real_router;
+// skipped without it): the mapper finds the LAN's router, maps UDP 27930, the
+// mapping is read back from the router itself (GetSpecificPortMappingEntry,
+// a look of our own), then removed and looked for again. It prints the state
+// and the external address's class, never the address. Runs anywhere, no
+// window: over ssh on the PC as well as here.
+#include <chrono>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <string>
+#include <thread>
+
+#include <miniupnpc.h>
+#include <upnpcommands.h>
+#include <upnperrors.h>
+
+#include "check.h"
+#include "frontend/sdl/net_upnp.h"
+
+namespace {
+const char* state_name(sdlfe::UpnpStatus::State s) {
+  switch (s) {
+    case sdlfe::UpnpStatus::kLooking: return "still looking";
+    case sdlfe::UpnpStatus::kNoRouter: return "no UPnP router answered";
+    case sdlfe::UpnpStatus::kReady: return "router found, nothing mapped";
+    case sdlfe::UpnpStatus::kMapped: return "mapped";
+    case sdlfe::UpnpStatus::kRefused: return "the router refused the mapping";
+    case sdlfe::UpnpStatus::kBlocked: return "carrier-grade NAT (100.64/10)";
+    case sdlfe::UpnpStatus::kDoubleNat: return "another router in front (a private external address)";
+  }
+  return "?";
+}
+const char* address_class(const std::string& ip) {
+  unsigned a = 0, b = 0;
+  if (ip.empty() || std::sscanf(ip.c_str(), "%u.%u", &a, &b) != 2) return "none given";
+  if (a == 100 && b >= 64 && b <= 127) return "carrier-grade NAT";
+  if (sdlfe::unreachable_address(ip)) return "private";
+  return "public";
+}
+// Until the mapper has done what it was asked, `ms` at most.
+void wait_idle(const sdlfe::PortMapper& m, int ms) {
+  for (int i = 0; i < ms / 20 && (m.status().state == sdlfe::UpnpStatus::kLooking || !m.idle()); ++i)
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+}
+}  // namespace
+
+TEST(net_upnp_real_router) {
+  const char* on = std::getenv("MW3_UPNP_REAL");
+  if (!on || std::strcmp(on, "1") != 0) return;
+  const uint16_t port = 27930;
+  const std::string route_lan = sdlfe::local_lan_address();  // (Winsock up on Windows)
+  std::printf("  this computer's LAN address: %s\n", route_lan.empty() ? "none" : "found");
+  sdlfe::PortMapper m(port, "", 3000);
+  wait_idle(m, 10000);
+  sdlfe::UpnpStatus s = m.status();
+  std::printf("  found: %s; external address: %s\n", state_name(s.state), address_class(s.public_ip));
+  EXPECT(s.state != sdlfe::UpnpStatus::kLooking && s.state != sdlfe::UpnpStatus::kNoRouter);
+  if (s.state == sdlfe::UpnpStatus::kLooking || s.state == sdlfe::UpnpStatus::kNoRouter) return;
+  // Our own look at the router, to read the mapping back.
+  int err = 0;
+  UPNPUrls urls{};
+  IGDdatas data{};
+  char lan[64] = {}, wan[64] = {};
+  UPNPDev* devs = upnpDiscover(3000, nullptr, nullptr, UPNP_LOCAL_PORT_ANY, 0, 2, &err);
+  const int igd = devs ? UPNP_GetValidIGD(devs, &urls, &data, lan, sizeof lan, wan, sizeof wan) : 0;
+  if (devs) freeUPNPDevlist(devs);
+  EXPECT(igd != 0);
+  if (!igd) return;
+  const std::string p = std::to_string(port);
+  auto look = [&](char* client, char* iport, char* desc) {
+    char enabled[8] = {}, lease[16] = {};
+    return UPNP_GetSpecificPortMappingEntry(urls.controlURL, data.first.servicetype, p.c_str(), "UDP", nullptr, client,
+                                           iport, desc, enabled, lease);
+  };
+  char client[40] = {}, iport[8] = {}, desc[96] = {};
+  const int before = look(client, iport, desc);
+  std::printf("  before: %s\n", before == UPNPCOMMAND_SUCCESS ? "UDP 27930 already mapped (by something else?)" : "UDP 27930 not mapped");
+  if (s.state == sdlfe::UpnpStatus::kBlocked) {
+    std::printf("  carrier-grade NAT: the mapper asks nothing of the router (as designed); done\n");
+    FreeUPNPUrls(&urls);
+    return;
+  }
+  m.map();
+  wait_idle(m, 10000);
+  s = m.status();
+  std::printf("  after map(): %s\n", state_name(s.state));
+  std::memset(client, 0, sizeof client), std::memset(iport, 0, sizeof iport), std::memset(desc, 0, sizeof desc);
+  const int mapped = look(client, iport, desc);
+  const bool ours = mapped == UPNPCOMMAND_SUCCESS && std::string(client) == s.lan_ip && std::string(iport) == p;
+  std::printf("  the router's entry: %s%s%s\n",
+              mapped == UPNPCOMMAND_SUCCESS ? (ours ? "to this computer, port 27930" : "to another address or port")
+                                            : strupnperror(mapped) ? strupnperror(mapped) : "none",
+              mapped == UPNPCOMMAND_SUCCESS ? ", described as " : "", mapped == UPNPCOMMAND_SUCCESS ? desc : "");
+  EXPECT(ours && std::string(desc) == "MechWarrior 3");
+  m.unmap();
+  wait_idle(m, 10000);
+  const int after = look(client, iport, desc);
+  std::printf("  after unmap(): %s; the router's entry %s\n", state_name(m.status().state),
+              after == UPNPCOMMAND_SUCCESS ? "still there" : "gone");
+  EXPECT(after != UPNPCOMMAND_SUCCESS);
+  FreeUPNPUrls(&urls);
+}

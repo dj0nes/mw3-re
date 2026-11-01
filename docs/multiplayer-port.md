@@ -925,6 +925,15 @@ Ours, in three pieces:
   Test: `net_upnp_quit_does_not_wait_on_a_stalled_router` (the fake router
   holds AddPortMapping: the end takes 1.0 s; with a plain join 4.8 s,
   caught).
+- **A real router's check** (the lead's): `MW3_UPNP_REAL=1
+  MW3_TEST=net_upnp_real_router mw3sdltests`, skipped without the
+  variable, no window needed (ssh). The mapper finds the router and maps
+  UDP 27930; the test reads the entry back from the router itself
+  (GetSpecificPortMappingEntry: to this computer, port 27930, "MechWarrior
+  3"), unmaps and looks again (gone). It prints the states and the
+  external address's class (public, private, carrier-grade NAT), never the
+  address. Behind carrier-grade NAT it stops after the look (nothing is
+  mapped there by design).
 
 ## Open
 
