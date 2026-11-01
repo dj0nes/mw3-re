@@ -76,6 +76,21 @@ class FocusBar : public ShellEditBar {
   uint8_t no_focus = 0;              // +0x38c  CONNECT_INFO_EDIT's: set while it searches
 };
 
+// Ours (piece 9c): one of the host's addresses shown under the host setup;
+// a click copies it to the clipboard.
+class CopyLine : public ztwod::Text {
+ public:
+  explicit CopyLine(Engine& e) : e_(e) {}
+  ztwod::Rect* get_rect() override { return &fixed_rect; }
+  void on_left_up() override;
+  void show(const std::string& line, const std::string& to_copy);  // "" hides it
+  std::string copy;                  // what the click copies, "" nothing
+  std::string line;                  // the line last given (a copy's note shows over it until it changes)
+
+ private:
+  Engine& e_;
+};
+
 // The screen (vtable 0x005c6168), 0x13b04 bytes.
 class ConnectScreen : public MenuScreen {
  public:
@@ -95,6 +110,13 @@ class ConnectScreen : public MenuScreen {
   // Ours (Owen): the one connection connected and the LAN searched when the
   // screen opens, no CONNECT or FIND needed.
   void search_lan();
+  // Ours (piece 9c, Owen's "level 1": plain addresses, a copy button, the
+  // forward line): the host's addresses under the host setup, from the
+  // platform's UPnP, refreshed each half second.
+  void show_reach();
+  CopyLine internet_line;            // the public address, or what stands in its way
+  CopyLine lan_line;                 // this computer's on the LAN
+  float reach_timer = 0;
 
   SlideButton join_btn;              // +0x111ec  JOIN (2)
   ConnectionCycle connections;       // +0x11514  CONNECTION_LIST

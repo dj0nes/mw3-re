@@ -116,7 +116,7 @@ void FocusBar::on_return() {
 ConnectScreen::ConnectScreen(Engine& e, Handle s)
     : MenuScreen(e, s), join_btn(e, 2), connections(e), sessions(e, this), cancel_btn(e, 1), host_btn(e, 3),
       answer_btn(e, 4), dial_btn(e, 5), find_btn(e, 6), connect_box(this), player_name(e, this, 1), max_players(e, -1),
-      session_name(e, this, 3), address(e, this, 2), info1(e, -1), info2(e, -1) {
+      session_name(e, this, 3), address(e, this, 2), info1(e, -1), info2(e, -1), internet_line(e), lan_line(e) {
   player_name.editor.set_reject(kReject);
   player_name.set_size(0x10);
   session_name.editor.set_reject(kReject);
@@ -163,6 +163,16 @@ ConnectScreen::ConnectScreen(Engine& e, Handle s)
     bind_button(&info1, "INFO_TEXT1");
     bind_button(&info2, "INFO_TEXT2");
   }
+  // Ours (piece 9c): the host's two address lines, under the host setup.
+  const Handle font = ztwod::host().font_find("ia_small_green");
+  int32_t y = 344;
+  for (CopyLine* l : {&internet_line, &lan_line}) {
+    if (font) l->FontText::set_font(font);
+    l->set_pos(180, y);
+    y += 12;
+    add(l);
+    l->hide();
+  }
   set_flags_all(0);
   constructed_ = false;  // [0x006099d8] is 0 through the first reset: no focus given
   connect(false);
@@ -186,6 +196,10 @@ void ConnectScreen::update(float dt) {
     timer = r == znet::kErrConnecting ? 0.0f : 3.0f;  // [0x005c615c]
     if (r == znet::kOk) sessions.refill(static_cast<int32_t>(count));
     else if (r == znet::kErrNoConnection) connect(false);
+  }
+  if ((reach_timer -= dt) <= 0.0f) {  // ours (piece 9c)
+    show_reach();
+    reach_timer = 0.5f;
   }
   Window::update(dt);
 }
@@ -343,6 +357,7 @@ void ConnectScreen::host() {
   bool made = false;
   if (conn->open(true) && znet::open_host(g) >= 0) made = znet::create_player(name.c_str()) != 0;
   if (made) {
+    e.network_hosting(true);  // ours (piece 9c): the port opened on the router
     connect(false);
     e.multiplayer_page(state, 2, 1);  // 0x0049cb00: the lobby
   }
@@ -410,6 +425,63 @@ void ConnectScreen::search_lan() {
   connections.select(0);
   connect_box.set_checked(connect(true));
   if (conn) find();
+}
+
+// ---- the host's addresses (ours, piece 9c) ----
+
+void CopyLine::show(const std::string& text, const std::string& to_copy) {
+  copy = to_copy;
+  line = text;
+  if (text.empty()) {
+    hide();
+    return;
+  }
+  set_text_plain(text.c_str());
+  measure();
+  fixed_rect = bg_rect;
+  show_for(-1.0f);
+}
+
+void CopyLine::on_left_up() {
+  if (copy.empty()) return;
+  e_.copy_text(copy.c_str());
+  const std::string keep = line;
+  show(copy + " (copied)", copy);
+  line = keep;
+}
+
+// The internet line: the address to give friends when the router opened (or
+// will open, when hosting) the port; else what stands in the way: no router
+// (forward the port), a refusal (forward it), carrier-grade NAT (the lead:
+// say so, and do not offer that address). The LAN line: this computer's.
+void ConnectScreen::show_reach() {
+  const Engine::NetReach r = engine().network_reach();
+  const std::string port = std::to_string(r.port ? r.port : 27930);
+  std::string line, copy;
+  switch (r.state) {
+    case Engine::NetReach::kLooking: line = "Internet: looking for your router..."; break;
+    case Engine::NetReach::kNoRouter: line = "Internet: forward UDP " + port + " on your router to host"; break;
+    case Engine::NetReach::kRefused: line = "Could not open the port: forward UDP " + port + " on your router"; break;
+    case Engine::NetReach::kBlocked:
+      line = "Your internet provider blocks hosting: use a LAN, or a VPN such as Tailscale";
+      break;
+    case Engine::NetReach::kDoubleNat:
+      line = "Another router stands in front of yours: forward UDP " + port + " on it, or use a VPN such as Tailscale";
+      break;
+    case Engine::NetReach::kReady:
+    case Engine::NetReach::kMapped:
+      if (!r.internet.empty()) {
+        line = "Internet: " + r.internet + (r.state == Engine::NetReach::kMapped ? " (port open)" : "") + "  - click to copy";
+        copy = r.internet;
+      } else {
+        line = "Internet: forward UDP " + port + " on your router to host";
+      }
+      break;
+    default: break;
+  }
+  if (line != internet_line.line) internet_line.show(line, copy);
+  const std::string lan = r.lan.empty() ? "" : "LAN: " + r.lan + "  - click to copy";
+  if (lan != lan_line.line) lan_line.show(lan, r.lan);
 }
 
 }  // namespace mech3

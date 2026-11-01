@@ -2612,4 +2612,7 @@ Assigned after 8b2 merged (fd3f05f). The lead asked for a section stepped at bot
   connections, the search over the transport, its answers checked.
 - 9b done: the connection screen (multiplayer-port.md, 9b). The search's
   amplification guards (the lead's review of 9a) went in before it.
-- Next: 9c, internet hosting (UPnP, the addresses, the copy button).
+- 9c done: miniupnpc vendored, the PortMapper, the address lines with
+  copy; a double-router state of its own (a private "public" address),
+  not "your provider blocks hosting".
+- Next: the full suites for the 9a-9c batch, then piece 10.

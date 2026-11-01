@@ -836,6 +836,36 @@ Ours, in three pieces:
   lobby's page). The program's `--net-discovery` / `--net-lan` point the
   LAN's search at loopback in the tests. Left for piece 11: the lobby
   (page 2), its pilot and game (0x00494920's second screen).
+- **Piece 9c** (2026-11-01): internet hosting at Owen's "level 1".
+  miniupnpc 2.2.8 vendored in `third_party/miniupnpc` (BSD-3-Clause,
+  unmodified; the release tarball's sha256 05b929679091b9921b6b6c1f25e39e4c
+  8d1f4d46c8feb55a412aa697aee03a93, every kept file identical to GitHub's
+  miniupnpc_2_2_8 tag but for the CVS $Id lines; its notice in both
+  THIRD-PARTY files, its licence in the Windows package).
+  `frontend/sdl/net_upnp`: a `PortMapper` on a thread of its own (a router
+  may take seconds or never answer) finds the router (SSDP; a description's
+  URL in the tests) as the screens' network comes up, asks its public
+  address, maps the game's UDP port when hosting (the HOST that succeeds:
+  `Engine::network_hosting`) and removes the mapping when the network goes
+  off or the game closes. Its states: looking, no router, ready, mapped,
+  refused, carrier-grade NAT (100.64/10: the provider's; nothing mapped,
+  nobody could reach it) and another router in front (a private "public"
+  address: the port mapped on ours, the outer one left to the player). A
+  transport bound to loopback asks no router (the tests), unless
+  `--net-upnp URL` names one. The connection screen shows two lines under
+  the host setup (ours, `CopyLine`): the address to give friends with
+  "click to copy" (SDL's clipboard), or what stands in its way ("forward
+  UDP 27930 on your router", "Your internet provider blocks hosting: use a
+  LAN, or a VPN such as Tailscale", "Another router stands in front of
+  yours: forward UDP 27930 on it, ..."), and this computer's LAN address
+  (UPnP's, else the route's, `local_lan_address`). Tests: `net_upnp_*`
+  against a fake router on loopback (its description, the SOAP calls: the
+  mapping asked and removed, on unmap and with the mapper, a refusal,
+  carrier-grade NAT with nothing asked, the double router mapped, no router
+  quickly; three breaks caught) and `net_connect_screen_addresses_headless`
+  (each state's line, the copies, HOST's mapping asked). A real router
+  that answers with a private "public" address (a mesh behind the
+  provider's box) gets the double-router line, not the provider's.
 - **The soak's little damage** (the lead's question): the autopilot's, not
   the network's. At a known range the path works:
   `sdl_network_damage_point_blank` holds A 40 m from a still B

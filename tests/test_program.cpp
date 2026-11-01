@@ -3577,6 +3577,91 @@ TEST(net_connect_screen_headless) {
   mech3::options() = mech3::Options{};
 }
 
+// The host's addresses under the host setup (multiplayer-port.md, piece 9c),
+// from the platform's UPnP as it stands: each state's line, a shareable
+// address copied by a click, none offered behind carrier-grade NAT or
+// another router, and HOST asking for the port to be opened.
+TEST(net_connect_screen_addresses_headless) {
+  if (!have_game()) return;
+  SavedMounts keep;
+  zutl::mounts() = zutl::Mounts{};
+  zutl::mount(MW3_GAME_DIR);
+  zutl::set_write_dir(temp_dir("net_reach_write"));
+  mech3::reset_states();
+  reset_process_state();
+  mech3::options() = mech3::Options{};
+  FakeWindow window;
+  FakeAlert alert;
+  FakeClock clock;
+  FakeScreen screen;
+  platform::SilentSoundOutput sound;
+  mech3::MountFiles files;
+  mech3::Platform p;
+  p.window = &window, p.alert = &alert, p.clock = &clock, p.movie_clock = &fast_movie_clock(), p.screen = &screen, p.sound = &sound, p.files = &files;
+  znet::Hub hub;
+  p.network_open = [&hub]() -> znet::Transport* { return hub.endpoint(); };
+  mech3::Engine::NetReach reach;
+  std::vector<std::string> copied;
+  std::vector<int> hosting;
+  p.network_reach = [&reach] { return reach; };
+  p.network_hosting = [&hosting](bool on) { hosting.push_back(on ? 1 : 0); };
+  p.copy_text = [&copied](const char* t) { copied.emplace_back(t); };
+  znet::session() = znet::Session{};
+  {
+    mech3::GameEngine engine(p, "mech3.exe -nofmv");
+    engine.quiet = true;
+    mech3::Mech3App app(&engine);
+    mech3::set_app(&app);
+    EXPECT(app.init_instance());
+    const mech3::Handle st = engine.construct(0x49c900, {});
+    auto* g = dynamic_cast<mech3::GameMenuState*>(engine.menu_state_of(st));
+    auto* c = g ? dynamic_cast<mech3::ConnectScreen*>(engine.screen_of(g->screens[0])) : nullptr;
+    EXPECT(g && c);
+    if (!g || !c) return;
+    engine.network_set(1);
+    c->take_pilot(1, "Ann");
+    auto lines = [&](int32_t state, const char* internet, const char* lan) {
+      reach = mech3::Engine::NetReach{};
+      reach.state = state, reach.internet = internet, reach.lan = lan, reach.port = 27930;
+      c->reach_timer = 0;
+      c->update(0.01f);
+      const char* a = c->internet_line.rendered_text();
+      const char* b = c->lan_line.rendered_text();
+      return std::make_pair(std::string(a ? a : ""), std::string(b ? b : ""));
+    };
+    using R = mech3::Engine::NetReach;
+    auto l = lines(R::kLooking, "", "192.168.1.5:27930");
+    EXPECT(l.first == "Internet: looking for your router..." && l.second == "LAN: 192.168.1.5:27930  - click to copy");
+    l = lines(R::kNoRouter, "", "192.168.1.5:27930");
+    EXPECT(l.first == "Internet: forward UDP 27930 on your router to host" && c->internet_line.copy.empty());
+    l = lines(R::kReady, "203.0.113.7:27930", "192.168.1.5:27930");
+    EXPECT(l.first == "Internet: 203.0.113.7:27930  - click to copy" && c->internet_line.copy == "203.0.113.7:27930");
+    c->internet_line.on_left_up();
+    c->lan_line.on_left_up();
+    EXPECT(copied.size() == 2 && copied[0] == "203.0.113.7:27930" && copied[1] == "192.168.1.5:27930");
+    l = lines(R::kMapped, "203.0.113.7:27930", "192.168.1.5:27930");
+    EXPECT(l.first == "Internet: 203.0.113.7:27930 (port open)  - click to copy");
+    l = lines(R::kRefused, "203.0.113.7:27930", "");
+    EXPECT(l.first == "Could not open the port: forward UDP 27930 on your router" && c->internet_line.copy.empty());
+    l = lines(R::kBlocked, "", "192.168.1.5:27930");
+    EXPECT(l.first == "Your internet provider blocks hosting: use a LAN, or a VPN such as Tailscale" &&
+           c->internet_line.copy.empty());
+    l = lines(R::kDoubleNat, "", "192.168.1.5:27930");
+    EXPECT(l.first == "Another router stands in front of yours: forward UDP 27930 on it, or use a VPN such as Tailscale" &&
+           c->internet_line.copy.empty());
+    c->session_name.set_text("Mine");
+    c->host();
+    EXPECT(hosting.size() == 1 && hosting[0] == 1 && znet::is_host());
+    engine.network_set(0);
+    app.exit_instance();
+    mech3::set_app(nullptr);
+  }
+  znet::session() = znet::Session{};
+  mech3::reset_states();
+  reset_process_state();
+  mech3::options() = mech3::Options{};
+}
+
 // routed type at any length. Each bad one stops at the edge; nothing crashes.
 TEST(net_hostile_peer_c1m1_headless) {
   if (!have_game()) return;

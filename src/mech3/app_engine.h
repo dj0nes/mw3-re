@@ -61,6 +61,11 @@ struct Platform {
   // none: no network (the menus' MULTIPLAYER finds nothing).
   std::function<znet::Transport*()> network_open;
   std::function<void()> network_close;
+  // Internet hosting's (ours, piece 9c): the router's UPnP as the screens
+  // see it, hosting's mapping, the clipboard.
+  std::function<Engine::NetReach()> network_reach;
+  std::function<void(bool hosting)> network_hosting;
+  std::function<void(const char* text)> copy_text;
 };
 
 class ActionGame;
@@ -402,6 +407,13 @@ class GameEngine : public Engine {
   void multiplayer_switch(Handle state) override;  // 0x0049cb20
   void multiplayer_page(Handle state, int32_t page, uint8_t reenter) override;  // 0x0049cb00
   void multiplayer_take_pilot(Handle first, Handle second) override;  // 0x00494920
+  NetReach network_reach() override { return p_.network_reach ? p_.network_reach() : NetReach{}; }
+  void network_hosting(bool on) override {
+    if (p_.network_hosting) p_.network_hosting(on);
+  }
+  void copy_text(const char* text) override {
+    if (p_.copy_text) p_.copy_text(text);
+  }
   void network_leave() override;            // 0x0046d100
   uint32_t activate_running_copy() override { return 1; }
   uint32_t register_window_class() override { return 1; }

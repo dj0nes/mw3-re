@@ -540,6 +540,18 @@ class Engine : public zgame::AppHooks {
   virtual bool file_exists(const char* path);
   virtual void network_set(int32_t on) { unported("0x0047fc40", {on}); }  // the app's network on or off
   virtual void network_leave() { unported("0x0046d100", {}); }  // the network session closed (the quit box's OK)
+  // Internet hosting (ours, multiplayer-port.md piece 9c; the platform's
+  // UPnP): how the internet reaches us, the port mapped while hosting, the
+  // clipboard. None: nothing known, nothing done.
+  struct NetReach {
+    enum State { kLooking, kNoRouter, kReady, kMapped, kRefused, kBlocked, kDoubleNat };  // as sdlfe::UpnpStatus's
+    int32_t state = kNoRouter;
+    std::string lan, internet;  // "ip:port", "" unknown
+    uint16_t port = 0;          // the game's UDP port
+  };
+  virtual NetReach network_reach() { return {}; }
+  virtual void network_hosting(bool on) { (void)on; }
+  virtual void copy_text(const char* text) { (void)text; }
   virtual void multiplayer_switch(Handle state) { unported("0x0049cb20", {state}); }
   // 0x0049cb00 on the Multiplayer State: the page wanted next (1 the
   // connection screen, 2 the lobby, 3 the new team) and whether it starts over.

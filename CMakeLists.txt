@@ -309,6 +309,36 @@ else()
   target_compile_definitions(enet PRIVATE HAS_FCNTL=1 HAS_POLL=1 HAS_GETADDRINFO=1 HAS_GETNAMEINFO=1
                              HAS_INET_PTON=1 HAS_INET_NTOP=1 HAS_MSGHDR_FLAGS=1 HAS_SOCKLEN_T=1)
 endif()
+# miniupnpc 2.2.8 (third_party/miniupnpc, BSD-3-Clause): the host's UDP port
+# opened on the router over UPnP (docs/multiplayer-port.md, piece 9c),
+# unmodified, its warnings not ours; its definitions as its own build sets
+# them, its miniupnpcstrings.h made from its template.
+set(_mw3_project_version "${PROJECT_VERSION}")
+set(PROJECT_VERSION 2.2.8)
+configure_file(third_party/miniupnpc/miniupnpcstrings.h.cmake ${CMAKE_BINARY_DIR}/miniupnpc/miniupnpcstrings.h)
+set(PROJECT_VERSION "${_mw3_project_version}")
+add_library(miniupnpc STATIC
+  third_party/miniupnpc/src/igd_desc_parse.c third_party/miniupnpc/src/miniupnpc.c
+  third_party/miniupnpc/src/minixml.c third_party/miniupnpc/src/minisoap.c third_party/miniupnpc/src/minissdpc.c
+  third_party/miniupnpc/src/miniwget.c third_party/miniupnpc/src/upnpcommands.c third_party/miniupnpc/src/upnpdev.c
+  third_party/miniupnpc/src/upnpreplyparse.c third_party/miniupnpc/src/upnperrors.c
+  third_party/miniupnpc/src/connecthostport.c third_party/miniupnpc/src/portlistingparse.c
+  third_party/miniupnpc/src/receivedata.c third_party/miniupnpc/src/addr_is_reserved.c)
+target_include_directories(miniupnpc PUBLIC third_party/miniupnpc/include
+                           PRIVATE third_party/miniupnpc/src ${CMAKE_BINARY_DIR}/miniupnpc)
+target_compile_definitions(miniupnpc PUBLIC MINIUPNP_STATICLIB)
+target_compile_options(miniupnpc PRIVATE "$<IF:$<C_COMPILER_ID:MSVC>,/w,-w>")
+if(WIN32)
+  target_compile_definitions(miniupnpc PRIVATE _WIN32_WINNT=0x0501 _CRT_SECURE_NO_WARNINGS _WINSOCK_DEPRECATED_NO_WARNINGS)
+  target_link_libraries(miniupnpc PUBLIC ws2_32 iphlpapi)
+else()
+  target_compile_definitions(miniupnpc PRIVATE MINIUPNPC_SET_SOCKET_TIMEOUT MINIUPNPC_GET_SRC_ADDR _BSD_SOURCE _DEFAULT_SOURCE)
+  if(APPLE)
+    target_compile_definitions(miniupnpc PRIVATE _DARWIN_C_SOURCE)
+  else()
+    target_compile_definitions(miniupnpc PRIVATE _XOPEN_SOURCE=600)
+  endif()
+endif()
 # SETUP's archives (docs/setup-sources.md): libarchive with zlib and liblzma.
 # The release's are static, from tools/deps (build_deps.sh, the PC's
 # tools/windows/build_deps_archive.cmd into deps\archive); a development
@@ -527,9 +557,10 @@ if(SDL3_FOUND)
     src/frontend/sdl/sdl_sound.cpp
     src/frontend/sdl/sdl_vfw.cpp
     src/frontend/sdl/net_enet.cpp
+    src/frontend/sdl/net_upnp.cpp
     src/frontend/sdl/sdl_child.cpp
   )
-  target_link_libraries(mw3sdl PUBLIC mw3core SDL3::SDL3 enet)
+  target_link_libraries(mw3sdl PUBLIC mw3core SDL3::SDL3 enet miniupnpc)
   # Windows: the Direct3D 12 shaders (sdl_render3d.hlsl), DXIL by the
   # Windows SDK's dxc, as headers the renderer includes.
   if(WIN32)
@@ -644,6 +675,7 @@ if(SDL3_FOUND)
       tests/main.cpp
       tests/test_sdl_frontend.cpp
       tests/test_net_enet.cpp
+      tests/test_net_upnp.cpp
     )
     target_link_libraries(mw3sdltests PRIVATE mw3text mw3sdl mw3core SDL3::SDL3)
     target_compile_definitions(mw3sdltests PRIVATE MW3_GAME_DIR="${MW3_GAME_DIR}"
