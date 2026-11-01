@@ -9,6 +9,11 @@
 #include <string>
 #include <vector>
 
+// enet.h brings in <windows.h> on Windows: without NOMINMAX its max macro
+// breaks std::max (as net_enet.cpp).
+#if defined(_WIN32) && !defined(NOMINMAX)
+#define NOMINMAX
+#endif
 #include <enet/enet.h>
 
 #include "check.h"
