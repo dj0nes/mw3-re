@@ -956,7 +956,7 @@ void wire_net(bool on) {
   nc.ff_stop = kept.ff_stop, nc.ff_spawn = kept.ff_spawn;
   nc.game_clear = kept.game_clear;  // the pilot's side's
   nc.game = kept.game, nc.game_time = kept.game_time, nc.clock_left = kept.clock_left, nc.clock_on = kept.clock_on;
-  nc.set_clock_left = kept.set_clock_left;
+  nc.set_clock_left = kept.set_clock_left, nc.exit_fade = kept.exit_fade;
   if (!on) return;
   nc.set_position = [](NetMech& m, const float pos[3]) {  // vtable +0x18
     const Vec3 v{pos[0], pos[1], pos[2]};
@@ -978,6 +978,11 @@ void wire_net(bool on) {
     delete m;
   };
   nc.view_outside = [] { program_view_set_camera(1); };  // 0x0040ae70(1)
+  nc.pilot_save = [] {  // 0x00478ce0, the header, vt+0x04, the handle closed (0x004707c0's)
+    program_pilot_file(0);
+    if (program_pilot_file(1)) program_pilot_file(2);
+    program_pilot_file(3);
+  };
   // The sends (0x0046f160): the mech's and its torso node's world positions,
   // the target's player (its contact's vehicle, when a network mech).
   nc.position = [](Mech& m, float out[3]) { return mech_world_position(&m, out); };
@@ -1067,12 +1072,28 @@ void net_set_game_access(const NetGameAccess& a) {
   NetCalls& nc = net_calls();
   nc.game = []() -> NetGameFields* {
     static NetGameFields f;
-    if (!g_game_access.fields || !g_game_access.fields(&f.players, &f.clock_next, &f.end_time, &f.end_state))
+    if (!g_game_access.fields ||
+        !g_game_access.fields(&f.players, &f.clock_next, &f.end_time, &f.end_state, &f.kills, &f.deaths, &f.score_limit))
       return nullptr;
     return &f;
   };
   nc.game_time = a.game_time, nc.clock_left = a.clock_left, nc.clock_on = a.clock_on;
   nc.set_clock_left = a.set_clock_left;
+  nc.exit_fade = a.exit_fade;
+}
+
+bool program_net_game_over() {
+  static znet::Hub* hub = nullptr;  // kept to the end of the process: the session is shut by the end
+  delete hub;
+  hub = new znet::Hub();
+  znet::session() = znet::Session{};
+  znet::initialise(hub->endpoint());
+  if (!znet::host_session(znet::SessionDesc{}, "Host")) return false;
+  net_start();
+  const bool up = net_game().running;
+  net_game_over();
+  znet::shutdown();
+  return up;
 }
 
 bool program_net_mech_check(NetMechSeen* out) {

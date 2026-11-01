@@ -2574,3 +2574,13 @@ Assigned after 8b2 merged (fd3f05f). The lead asked for a section stepped at bot
   log_has, log_replay, station.
 - A crater in the headless c1m1 (the hub test) was not made at any place
   tried, so the crater path is checked by the emulator test only.
+
+## Multiplayer, piece 8: the game's end (2026-10-31)
+
+- The rules check left out with its folds: the folds only feed the next
+  check (protection.md section 4). test_mech_net_send.py's CRC stand-in
+  always passes, so the exe's path matches the port's.
+- "Multi-Exit State" (0x00605fa8): its vtable's +0x0c is the enter
+  (0x00470710): Missions cleanup(1), then Replace(state(2)) — the main menu.
+- In the c1m1 test, Missions::loaded stays set after cleanup (as the exe's
+  +0x5c); the test checks the load event (`done`) instead.

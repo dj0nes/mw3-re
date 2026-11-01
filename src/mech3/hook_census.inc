@@ -33,8 +33,6 @@ SKIP(mech3::pocket_calls, view_pocket, "0x004b5290")  // PocketCalls.view_pocket
 SKIP(mech3::net_calls, rules, "0x0058b380")  // NetCalls.rules
 SKIP(mech3::net_calls, chat, "0x00470490")  // NetCalls.chat
 SKIP(mech3::net_calls, lobby_left, "0x00495b10")  // NetCalls.lobby_left
-SKIP(mech3::net_calls, rules_check, "0x00576c10")  // NetCalls.rules_check
-SKIP(mech3::net_calls, game_over, "0x004707c0")  // NetCalls.game_over
 SKIP(mech3::net_calls, lobby_suicide, "0x00435ac0")  // NetCalls.lobby_suicide
 SKIP(mech3::net_calls, lobby_kill, "0x004359b0")  // NetCalls.lobby_kill
 SKIP(mech3::net_calls, lobby_kills, "0x00435a50")  // NetCalls.lobby_kills
@@ -42,3 +40,4 @@ SKIP(mech3::net_calls, lobby_scores, "0x00470170 lobby list")  // NetCalls.lobby
 SKIP(mech3::net_calls, lobby_set_kills, "0x004359f0")  // NetCalls.lobby_set_kills
 SKIP(mech3::net_calls, lobby_set_deaths, "0x00435b00")  // NetCalls.lobby_set_deaths
 SKIP(mech3::net_calls, hud_scores, "0x00446ad0")  // NetCalls.hud_scores
+SKIP(mech3::net_calls, lobby_deaths, "0x00435b40")  // NetCalls.lobby_deaths

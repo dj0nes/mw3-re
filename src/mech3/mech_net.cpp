@@ -306,7 +306,11 @@ int32_t net_send_event(Mech& m, int32_t kind, intptr_t arg) {
     }
     case 0x10: {  // the ping, to the next player round the list
       const uint32_t id = g_net.ping_counter++;
-      if (znet::is_host() && g_net.ping_counter % 10 == 0 && c.rules_check) c.rules_check();
+      // FIX (trap): the host's every tenth ping checked the locked rules
+      // block's CRC (0x00576c10 on the game's +0x60, its +0x88) and ended
+      // the game (0x004707c0) when they differed, after folding the live
+      // flags +0x8c / +0x8d back into it for the next check: a guard against
+      // a memory editor, left out with its folds (protection.md section 4).
       const uint32_t to = net_next_player();
       NetMech* them = to ? net_mech(to) : nullptr;
       if (!them) return 0;
@@ -424,7 +428,7 @@ void net_mech_tick(Mech& m) {
   }
   const int32_t state = g->end_state ? *g->end_state : 0;
   if (state != 0 && state != 3) net_send_event(m, 0x11, reinterpret_cast<intptr_t>(g));
-  if (state == 3 && g->end_time && game_time() > *g->end_time && c.game_over) c.game_over();
+  if (state == 3 && g->end_time && game_time() > *g->end_time) c.game_over ? c.game_over() : net_game_over();
 }
 
 namespace {
@@ -910,6 +914,24 @@ void net_drop_in(NetMech& m, const uint8_t* msg, size_t size) {
   uint32_t id;
   std::memcpy(&id, msg + 4, 4);
   g_calls.station ? g_calls.station(m, id) : field_bases_station_message(&m, id);  // 0x0045a140
+}
+
+// Mech3.exe 1.2 @ 0x004707c0: the game's end. The local player's kills
+// and deaths in the lobby (0x00435a30 / 0x00435b40, -1 without its slot)
+// added to the game's totals (+0x98, +0x9c), the pilot written (opened,
+// its header, then the record), a fade to the Multi-Exit State (0x00605fa8,
+// which unloads the mission and goes to the main menu), the network end.
+void net_game_over() {
+  const NetCalls& c = g_calls;
+  NetGameFields* g = c.game ? c.game() : nullptr;  // (the exe's unchecked)
+  const uint32_t local = znet::local_id();
+  if (g) {
+    if (g->kills) *g->kills += c.lobby_kills ? c.lobby_kills(local) : -1;
+    if (g->deaths) *g->deaths += c.lobby_deaths ? c.lobby_deaths(local) : -1;
+  }
+  if (c.pilot_save) c.pilot_save();
+  if (c.exit_fade) c.exit_fade();  // 0x0048ef00(next 0x00605fa8, 0, 1, 2, [0x005e7274], 0, 0, 0)
+  net_end();                       // 0x0046d100
 }
 
 // Mech3.exe 1.2 @ 0x00470740 (ECX the message). The reasons: 1 the time,

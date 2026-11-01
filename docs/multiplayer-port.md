@@ -620,6 +620,25 @@ Then the two-process and soak tests over the whole flow, menus included.
   checked in a real mission: a crater (the headless c1m1 made none at the
   places tried, through the host or not).
 
+- **Piece 8** (2026-10-31): the game's end. The host's rules check in the
+  ping (0x0046fbd7..0x0046fc33: the CRC of the rules block +0x60 against
+  +0x88, then the live +0x8c / +0x8d folded in for the next check) is left
+  out, FIX (trap) (protection.md section 4). 0x004707c0
+  (`net_game_over`, from the timer once the end state is 3 and its time
+  passed): the local player's lobby kills and deaths (0x00435a30 /
+  0x00435b40, -1 without a slot) onto the game's totals (+0x98 / +0x9c),
+  the pilot written (its file opened, the header, the record, closed:
+  `program_pilot_file`), the fade (0x0048ef00, 2 s, to black from the front
+  buffer) to the Multi-Exit State (0x00605fa8, vtable 0x005c3680; its enter
+  0x00470710 unloads the mission and replaces itself with the main menu,
+  state 2), and the network end (0x0046d100). The main menu is where the
+  original goes; the lobby (piece 11) is reached from there. Tests:
+  `test_mech_net_end.py` (500 ends identical; a break caught) and
+  `net_game_over_reaches_the_main_menu_c1m1_headless` (in a running c1m1
+  the end fades to the Multi-Exit State and the main menu, the mission
+  cleaned up; a break caught). The soak test of the plan waits for the
+  lobby (pieces 9-11), which starts real games.
+
 ## Open
 
 - The COM object at [0x007307e0] (CLSID 3faf0afe-...): what it is and

@@ -450,7 +450,6 @@ extern "C" int32_t probe_mech_net_send(const int32_t* in, int32_t* out, int32_t 
   c.target_player = [](mech3::Mech&) { return static_cast<uint32_t>(g_in[kTarget]); };
   c.now_ms = [] { return static_cast<uint32_t>(g_in[kNow]); };
   c.hud_message = [](float, int32_t id, const char*) { log({2, id}); };
-  c.rules_check = [] { log({3}); };
   c.game_over = [] { log({4}); };
   c.clock = [](NetMech*, uint32_t, const uint8_t*, size_t) { log({7}); };  // 0x00470740
   g_clock_next = fbits(in[kClockNext]), g_end_time = fbits(in[kEndTime]), g_end_state = in[kEndState];
@@ -972,3 +971,39 @@ extern "C" int32_t probe_mech_net_world(const int32_t* in, int32_t* out, int32_t
   return n;
 }
 extern "C" int32_t probe_mech_net_wd_count() { return wWdCount; }
+
+// The game over (0x004707c0) for test_mech_net_end.py. in: the local id,
+// the game, its kills and deaths, the lobby's kills and deaths of the
+// local player.
+namespace {
+const int32_t* g_end;
+int32_t g_end_kills, g_end_deaths;
+mech3::NetGameFields g_end_fields;
+}  // namespace
+
+extern "C" int32_t probe_mech_net_end(const int32_t* in, int32_t* out, int32_t cap) {
+  std::vector<int32_t> lg;
+  g_log = &lg;
+  g_end = in;
+  mech3::NetCalls& c = mech3::net_calls();
+  c = mech3::NetCalls{};
+  g_end_kills = in[2], g_end_deaths = in[3];
+  g_end_fields = mech3::NetGameFields{};
+  g_end_fields.kills = &g_end_kills, g_end_fields.deaths = &g_end_deaths;
+  c.game = []() -> mech3::NetGameFields* { return g_end[1] ? &g_end_fields : nullptr; };
+  c.lobby_kills = [](uint32_t p) { log({20, static_cast<int32_t>(p)}); return g_end[4]; };
+  c.lobby_deaths = [](uint32_t p) { log({21, static_cast<int32_t>(p)}); return g_end[5]; };
+  c.pilot_save = [] { log({50}); };
+  c.exit_fade = [] { log({56, 1, 0, 1, 2, bits(2.0f), 0, 0, 0}); };
+  znet::session() = znet::Session{};
+  znet::session().local = std::make_unique<znet::Player>();
+  znet::session().local->id = static_cast<uint32_t>(in[0]);
+  mech3::net_game() = mech3::NetGame{};
+  mech3::net_game_over();
+  log({90, g_end_kills, g_end_deaths});
+  znet::session() = znet::Session{};
+  c = mech3::NetCalls{};
+  const int32_t n = static_cast<int32_t>(std::min<size_t>(lg.size(), static_cast<size_t>(cap)));
+  std::copy(lg.begin(), lg.begin() + n, out);
+  return n;
+}

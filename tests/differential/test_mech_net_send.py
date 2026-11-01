@@ -118,8 +118,7 @@ class Exe:
         self.log += [2, c.arg(1)]
         return 0
 
-    def crc(self, c):
-        self.log.append(3)
+    def crc(self, c):  # the host's rules check, left out of the port (FIX (trap)): here it always passes
         return self.emu.u32(self.game + 0x88)
 
     def run(self, v):

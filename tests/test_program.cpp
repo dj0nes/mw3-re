@@ -3400,6 +3400,71 @@ TEST(net_mech_made_from_a_record_c1m1_headless) {
   mech3::options() = mech3::Options{};
 }
 
+// Multiplayer piece 8 in a running mission (c1m1): the network game's end
+// (0x004707c0) fades to the Multi-Exit State, which unloads the mission and
+// goes to the main menu; the network game is over.
+TEST(net_game_over_reaches_the_main_menu_c1m1_headless) {
+  if (!have_game()) return;
+  SavedMounts keep;
+  zutl::mounts() = zutl::Mounts{};
+  zutl::mount(MW3_GAME_DIR);
+  zutl::set_write_dir(temp_dir("net_end_write"));
+  mech3::reset_states();
+  reset_process_state();
+  mech3::missions() = mech3::Missions{};
+  mech3::mech_types_forget();
+  mech3::player_controls_instance() = nullptr;
+  mech3::options() = mech3::Options{};
+  FakeWindow window;
+  FakeAlert alert;
+  FakeClock clock;
+  FakeScreen screen;
+  platform::SilentSoundOutput sound;
+  mech3::MountFiles files;
+  mech3::Platform p;
+  p.window = &window, p.alert = &alert, p.clock = &clock, p.movie_clock = &fast_movie_clock(), p.screen = &screen, p.sound = &sound, p.files = &files;
+  {
+    mech3::GameEngine engine(p, "mech3.exe -nofmv");
+    engine.quiet = true;
+    mech3::Mech3App app(&engine);
+    mech3::set_app(&app);
+    EXPECT(app.init_instance());
+    mech3::GameEngine::Launch l;
+    engine.set_launch(l);
+    app.post_intro_ = &mech3::states().load;
+    int core_frames = 0, after = 0;
+    bool ended = false, exit_seen = false, main_seen = false, up = false;
+    engine.on_present = [&](int) {
+      if (!ended && app.current() == &mech3::states().core && ++core_frames == 5) {
+        up = mech3::program_net_game_over();
+        ended = true;
+      } else if (ended) {
+        ++after;
+        exit_seen |= app.current() == &mech3::states().multi_exit;
+        main_seen |= app.current() == &mech3::states().main;
+      }
+    };
+    CountingPump pump;
+    pump.limit = 900;
+    pump.stop = [&] { return main_seen; };
+    app.run(pump);
+    EXPECT(up);
+    EXPECT(main_seen);                  // the main menu, through the fade and the Multi-Exit State
+    EXPECT(mech3::missions().done == 0);  // the mission cleaned up (0x00491780: its load event gone)
+    (void)exit_seen;
+    mech3::missions().cleanup(false);
+    app.stop_game();
+    app.exit_instance();
+    mech3::set_app(nullptr);
+  }
+  zrdr::close_archives(true);
+  mech3::reset_states();
+  reset_process_state();
+  mech3::missions() = mech3::Missions{};
+  mech3::mech_types_forget();
+  mech3::options() = mech3::Options{};
+}
+
 namespace {
 // Observers on the action lists, around the two ticks (docs/action-lists.md):
 // each records its place and what the ticks have done so far.

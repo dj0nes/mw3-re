@@ -2345,13 +2345,16 @@ void wire_mission_hooks(GameEngine* e) {
     if (MultiplayerGame* g = current_pilot() ? current_pilot()->multiplayer() : nullptr) g->clock_next = g->end_time = 0, g->end_state = 0;
   });
   NetGameAccess acc;
-  acc.fields = [](int32_t* players, float** clock_next, float** end_time, int32_t** end_state) {
+  acc.fields = [](int32_t* players, float** clock_next, float** end_time, int32_t** end_state, int32_t** kills,
+                  int32_t** deaths, int32_t* score_limit) {
     MultiplayerGame* g = current_pilot() ? current_pilot()->multiplayer() : nullptr;  // 0x00479480
     if (!g) return false;
     *players = 0;  // +0x50, the lobby's count (piece 11)
     *clock_next = &g->clock_next, *end_time = &g->end_time, *end_state = &g->end_state;
+    *kills = &g->kills, *deaths = &g->deaths, *score_limit = g->x70;
     return true;
   };
+  acc.exit_fade = [] { fade_replace(&states().multi_exit, 0, 1, 2, kFadeSeconds, 0, 0, 0); };  // 0x0048ef00
   acc.game_time = [] { return missions().time; };        // [0x0060991c]
   acc.clock_left = [] { return missions().clock; };      // [0x00609920]
   acc.clock_on = [] { return missions().clock_down != 0; };  // [0x00609924]

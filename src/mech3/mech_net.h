@@ -98,6 +98,8 @@ struct NetGameFields {
   float* clock_next = nullptr;   // +0x7c  when the host sends the clock (0x11) again
   float* end_time = nullptr;     // +0x80
   int32_t* end_state = nullptr;  // +0x84  0, 1 ending (the clock under 3 s), 3 ended
+  int32_t* kills = nullptr;      // +0x98  the pilot's totals over network games
+  int32_t* deaths = nullptr;     // +0x9c
 };
 
 // The in-game messages' handlers and what the router calls besides, until
@@ -161,8 +163,13 @@ struct NetCalls {
   void (*set_clock_left)(float v) = nullptr;       // [0x00609920] = (0x00470740)
   bool (*clock_on)() = nullptr;                    // [0x00609924]
   int32_t (*send_other)(Mech& m, int32_t kind, intptr_t arg) = nullptr;  // test hook: the kinds a test stands in for
-  void (*rules_check)() = nullptr;                 // the host's every tenth ping (0x00576c10, 0x004707c0; piece 8)
-  void (*game_over)() = nullptr;                   // 0x004707c0
+  void (*game_over)() = nullptr;                   // test hook; unset: net_game_over (0x004707c0)
+  // The game over's: the lobby's deaths (0x00435b40), the pilot written
+  // (0x00478ce0, its header, vt+0x04, closed), the fade to the Multi-Exit
+  // State.
+  int32_t (*lobby_deaths)(uint32_t player) = nullptr;
+  void (*pilot_save)() = nullptr;
+  void (*exit_fade)() = nullptr;
   // The crater's: a node's mech (0x0040ef10), the crater made (0x004ffaa0;
   // the test's), the station's repair (0x0045a140; the test's).
   Mech* (*node_mech)(Handle node) = nullptr;
@@ -293,6 +300,7 @@ void net_effect_in(const uint8_t* msg, size_t size);   // 0x0046ff50: replayed u
 void net_send_drop(uint32_t station);                  // 0x0046ff90: a repair station used (0x1b)
 void net_drop_in(NetMech& m, const uint8_t* msg, size_t size);  // 0x0046ffd0
 void net_clock_in(const uint8_t* msg, size_t size);    // 0x00470740: the clock, and the game's end with its reason
+void net_game_over();  // 0x004707c0
 // 0x004700a0 and 0x00500c60 with 0x004700e0: the host's effects and craters
 // sent again to a player joining.
 void net_host_replay();

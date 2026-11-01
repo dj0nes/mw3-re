@@ -869,6 +869,7 @@ From the weapon code (weapons.md).
 - **In multiplayer the host re-checks the locked rules every 51 seconds**;
   changing them in memory (say, unlimited ammo after the lock) ends the game
   a minute or two later as if the clock ran out.
+  The rebuild leaves this check out.
 - **In a multiplayer mission another player's mech appears with their first
   position update.** Until it does, everything else they send in the mission
   is ignored, including chat. A player who leaves vanishes on the spot (no

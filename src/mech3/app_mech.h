@@ -42,11 +42,13 @@ struct NetLaunchGame {
 void net_set_launch_game(bool (*fn)(NetLaunchGame* out));
 // The network game's fields and the mission's clock for the sends (0x0046ef70).
 struct NetGameAccess {
-  bool (*fields)(int32_t* players, float** clock_next, float** end_time, int32_t** end_state) = nullptr;
+  bool (*fields)(int32_t* players, float** clock_next, float** end_time, int32_t** end_state, int32_t** kills,
+                 int32_t** deaths, int32_t* score_limit) = nullptr;
   float (*game_time)() = nullptr;   // [0x0060991c]
   float (*clock_left)() = nullptr;  // [0x00609920]
   bool (*clock_on)() = nullptr;     // [0x00609924]
   void (*set_clock_left)(float v) = nullptr;  // [0x00609920] =
+  void (*exit_fade)() = nullptr;    // 0x0048ef00 to the Multi-Exit State
 };
 void net_set_game_access(const NetGameAccess& a);
 // Ours, for the tests (multiplayer-port.md piece 5c): in the mission that is
@@ -61,6 +63,9 @@ struct NetMechSeen {
   int32_t respawned = 0;   // dead (inactive), a 0x12 20 m on: made again in place, active, there, still remote
 };
 bool program_net_mech_check(NetMechSeen* out);
+// Ours, for the tests (piece 8): a network game started over the hub in the
+// mission that is up, then its end (0x004707c0). Whether the game was up.
+bool program_net_game_over();
 // The pocket commander's program side (app_pocket.cpp), from wire_mech_build;
 // the marker a handle names, if it is the mission's.
 void wire_pocket(const MechWiring* w);

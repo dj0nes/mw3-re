@@ -17,7 +17,7 @@ nothing now. Each removal is marked `FIX (trap)` in the code and listed in
 | 1 Disc check | not ported; will not be (the startup loop and 0x575d40 are left out, movies come from the imported folder) |
 | 2 Exe self-check | not ported; will not be (InitInstance and 0x47fed0 skip it) |
 | 3 Loadout checksum | removed: `Config::load` calls `validate(false)` (`mech_config.cpp`); the CRC is still written on save. The second compare in 0x4260c0 is not ported yet |
-| 4 Multiplayer rules check | not ported; the compare at 0x46fc08 goes when the network code is |
+| 4 Multiplayer rules check | left out (multiplayer-port.md piece 8, `FIX (trap)` in `net_send_event`'s ping) |
 | CPU-speed divide, line clamp | not ported; FIX (B) notes for when the system-info and software line code are |
 
 ## Summary
