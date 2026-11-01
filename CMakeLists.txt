@@ -225,6 +225,7 @@ add_library(mw3core STATIC
   src/mech3/pilot_menu.cpp
   src/mech3/action_menu.cpp
   src/mech3/mp_connect.cpp
+  src/mech3/mp_lobby.cpp
   src/mech3/briefing.cpp
   src/mech3/debriefing.cpp
   src/mech3/salvage_screen.cpp

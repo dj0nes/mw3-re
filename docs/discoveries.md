@@ -1206,6 +1206,26 @@ From the network code (network-messages.md).
   mech, measured on the ground's plane (height does not count), then nudged
   by your slot in the lobby. With respawn off you stay down and the view
   switches to camera 4 to watch the rest of the game.
+- **The lobby's world list has a hidden first entry, "UNAVAILABLE".** The
+  arrows step over it, and a host whose saved world is missing gets
+  Beachhead.
+- **Add-on multiplayer worlds are found by file name.** Besides the eight
+  shipped worlds, the lobby lists every `readermp3.zbd` and up (numbered
+  over 2) in each campaign folder, named by the world's own info file; the
+  1.2 patch's two new maps on the c3 world come in this way. Each
+  player tells the others which of these it has, and a player without the
+  chosen one gets `**` after its name.
+- **The lobby marks the host with `++`** after its name.
+- **Teams are their colours.** In team play the game tells sides apart by
+  the team's skin (Gunmetal, Sunfire, Desert...), not by the team itself,
+  and without teams every player starts in Gunmetal.
+- **Kill limits double with teams.** The score list offers 1, 5, 10, 20
+  and 40 kills, or 2, 10, 20, 40 and 80 in team play.
+- **A score is kills minus suicides, never below zero,** and a team's is
+  the sum of its players'. Before the first kill the score list keeps the
+  lobby's order.
+- **You cannot kick yourself.** The game says so: "You can't kick yourself
+  out of the game! Pick on somebody else."
 
 ## Graphics
 

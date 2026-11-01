@@ -91,6 +91,11 @@ class CopyLine : public ztwod::Text {
   Engine& e_;
 };
 
+// Ours (piece 9c): the internet line's text for the platform's UPnP state,
+// and the address a click copies ("" none); the lobby shows them too.
+std::string reach_line(const Engine::NetReach& r);
+std::string reach_copy(const Engine::NetReach& r);
+
 // The screen (vtable 0x005c6168), 0x13b04 bytes.
 class ConnectScreen : public MenuScreen {
  public:

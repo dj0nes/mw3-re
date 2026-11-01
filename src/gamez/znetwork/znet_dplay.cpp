@@ -31,14 +31,17 @@ const char* player_name(uint32_t id) {
   return p ? p->short_name.c_str() : nullptr;
 }
 
-// Mech3.exe 1.2 @ 0x005898b0: the host check against [0x00730760].
-void each_player(void (*fn)(bool host, const char* name, void* ctx), void* ctx) {
-  for (auto& p : lists().players) fn(session().host_id == p->id, p->short_name.c_str(), ctx);
+// Mech3.exe 1.2 @ 0x005898b0: the host check against [0x00730760]; the count
+// ([0x007307b0]).
+int32_t each_player(EachFn fn, void* ctx) {
+  for (auto& p : lists().players) fn(p->id, p->team, session().host_id == p->id, p->short_name.c_str(), ctx);
+  return static_cast<int32_t>(lists().players.size());
 }
 
-// Mech3.exe 1.2 @ 0x00589910: (0, the record, whose name is first); the count.
-int32_t each_team(void (*fn)(bool host, const char* name, void* ctx), void* ctx) {
-  for (auto& t : lists().teams) fn(false, t->name.c_str(), ctx);
+// Mech3.exe 1.2 @ 0x00589910: (its id, 0, 0, the record, whose name is
+// first); the count.
+int32_t each_team(EachFn fn, void* ctx) {
+  for (auto& t : lists().teams) fn(t->id, 0, false, t->name.c_str(), ctx);
   return static_cast<int32_t>(lists().teams.size());
 }
 

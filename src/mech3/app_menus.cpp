@@ -41,6 +41,7 @@
 #include "mech3/pilot.h"
 #include "mech3/pilot_menu.h"
 #include "mech3/mp_connect.h"
+#include "mech3/mp_lobby.h"
 
 namespace mech3 {
 
@@ -382,6 +383,8 @@ Handle GameEngine::construct(uint32_t ctor, std::initializer_list<Arg> args) {
     }
     case 0x493260:  // the Multiplayer State's first screen, new(0x13b04): the connection
       return screen(0x13b04, [](GameEngine& e, Handle s) -> MenuScreen* { return new ConnectScreen(e, s); });
+    case 0x495f90:  // its second, new(0x1505c): the lobby
+      return screen(0x1505c, [](GameEngine& e, Handle s) -> MenuScreen* { return new LobbyScreen(e, s); });
     case 0x488bc0:  // the Action State's screen, new(0x17730)
       return screen(0x17730, [](GameEngine& e, Handle s) -> MenuScreen* { return new ActionScreen(e, s); });
     case 0x48a6c0:
@@ -1272,7 +1275,8 @@ void GameEngine::multiplayer_switch(Handle state) {
       if (auto* c = dynamic_cast<ConnectScreen*>(screen_of(g->screens[0]))) c->forget_kind();
   } else if (g->want == 2) {
     g->screen_ = g->screens[1];
-    if (g->x19) unported("0x00497720", {g->screens[1]});
+    if (g->x19)
+      if (auto* l = dynamic_cast<LobbyScreen*>(screen_of(g->screens[1]))) l->enter();
   } else if (g->want == 3) {
     g->screen_ = g->screens[2];
     if (g->x19) unported("0x0049c2c0", {g->screens[1]});
@@ -1290,13 +1294,13 @@ void GameEngine::multiplayer_page(Handle state, int32_t page, uint8_t reenter) {
   g->x19 = reenter;
 }
 
-// Mech3.exe 1.2 @ 0x00494920 on the connection screen with the pilot; the
-// lobby's pilot and game (+0x15058, +0x116ec) come with the lobby.
+// Mech3.exe 1.2 @ 0x0049cc30's: 0x00494920 on the connection screen with the
+// pilot; the lobby's pilot and its current game (+0x15058, +0x116ec; 0x00479480).
 void GameEngine::multiplayer_take_pilot(Handle first, Handle second) {
   Pilot* p = current_pilot();
   if (auto* c = dynamic_cast<ConnectScreen*>(screen_of(first))) c->take_pilot(p ? handle_of(p) : 0, p ? p->name : nullptr);
   else Engine::multiplayer_take_pilot(first, second);
-  if (second) unported("lobby.take_pilot", {second});
+  if (auto* l = dynamic_cast<LobbyScreen*>(screen_of(second))) l->take_pilot(p ? handle_of(p) : 0, p ? p->multiplayer() : nullptr);
 }
 
 }  // namespace mech3

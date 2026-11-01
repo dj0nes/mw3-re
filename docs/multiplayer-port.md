@@ -24,7 +24,7 @@ The objects (found from the exe, not assumed):
 |---|---|---|
 | [0x00730724] | IDirectPlay4A | CoCreateInstance(CLSID_DirectPlay d1eb6d20-8923-11d0-9d97-00a0c90a43cb, IID_IDirectPlay4A 0ab1c531-4745-11d1-a7a1-0000f803abfc), 0x00589540 and 0x0058a5f0 |
 | [0x00730728] | IDirectPlayLobby3A | DPLAYX ordinal 4 (DirectPlayLobbyCreateA, the only DPLAYX import, thunk 0x005ac650), 0x005899d3 / 0x00589f1e |
-| [0x007307e0] | an unidentified COM object, CLSID 3faf0afe-b48b-11d2-8a51-00c04f8ef4e9 (IID ...afd) | 0x00589c20 from 0x00589d00, used by the lobby screen (0x00498550); released at once when its set-up fails. **Open**: identify it before porting the lobby screen (not DirectPlay's own) |
+| [0x007307e0] | a game service's score report, CLSID 3faf0afe-b48b-11d2-8a51-00c04f8ef4e9 (IID ...afd; Microsoft's range, from late 1998: most likely the MSN Gaming Zone's) | 0x00589c20 from 0x00589d00, only with a lobby's launch ([0x00608e24]): the lobby's scores (0x00498550) give it each player's score and team and 2 a win, 8 a shared win, 4 a loss, 0x100 gone (0x00589df0), then send (0x00589e30). Not ported (FIX (A), piece 11a): the service is gone |
 
 The IDirectPlay4A methods called (vtable slots seen in the code; `+off`):
 
@@ -878,12 +878,53 @@ Ours, in three pieces:
   34 m below its target), or circling. A break (no shots replayed) leaves
   B whole and fails.
 
+- **Piece 11a** (2026-11-01): the lobby's frame (`mech3/mp_lobby`,
+  MULTIPLAYER_HOST_DIALOG; the engine's `construct(0x495f90)`, entered by
+  the page switch, given the pilot and its multiplayer game by 0x0049cc30).
+  Its records are the multiplayer game's (pilot.h): a player's
+  (0x00499030, vtable 0x005c7cc0: id, team, host, name, state 1 mech lab /
+  3 ready, skin, its place in the count, kills, suicides, a score line) and
+  a team's (0x00499280: name, players, skin, owner), made again from the
+  network's walks (0x005898b0 / 0x00589910, which hand the callback the
+  id and team as the exe's ECX / EDX) at each refresh; the lookups
+  0x00495b10..0x00495d20 and the game's 0x00435910..0x00435b40 (a side in
+  play is a player's place in the count, or in team play its team's
+  skin), the rescore 0x004361e0 and the scores' lines 0x00435b60. A
+  player's data, the lobby's kind 1: {1, skin, state, n, the add-on worlds
+  it has}; enter (0x00497720) makes ours (outside team play every player
+  starts with skin 1, 0x0049bd10 answering 0 there) and lists the worlds:
+  UNAVAILABLE, the shipped eight (value number << 8 | folder) and every
+  folder's `readermp*.zbd` numbered over 2 named by its mpinfo.zrd's
+  db_name (c3's mp3 and mp4 in 1.2). The rules' lists and boxes set from
+  the game; the handlers (2..6, 8..0xa the refresh, 7 kicked, 0xd a new
+  host); the session's fourth word 1 again (open) through a new
+  `set_game_info` (0x00586f20; the transport's `set_session_desc`, ENet's
+  frame kDesc from the host). TP_LIST and PLAYERS_LIST (0x00498710): the
+  host's "++", "**" for one without the chosen add-on world, "In MechLab",
+  "Ready!", the skin's name, our mech's; SCORES_LIST (0x00498550) with
+  the game service's report dropped (FIX (A), above); READY, MECHLAB,
+  START, NEW_TEAM as things stand (0x004993f0), the host's rules controls
+  (0x00498260), the lists' choices (0x0049a3a0, 0x0049a6a0), KICK and
+  KICK2 (not ourselves, 0x2c1), being kicked (0x2c3, then CANCEL), CANCEL
+  (the handlers off, back, the network off, the records gone). Ours: the
+  host's two address lines (piece 9c's) at the screen's foot. Left for
+  11b: the rules' changes and their message 0x20 (0x00499b10, 0x00499cf0),
+  LOCK_OPTIONS (0x0049aca0) and the locked game refused at the door; 11c:
+  START (0x0049b790, 0x1e), READY (0x0049a970), MECHLAB (0x0049b500), the
+  teams' buttons (4, 5, 7) and PICK_SKIN, the scores' 0x14 (0x0049b150);
+  12 the chat. Test: `net_lobby_screen_headless` (the host and one joiner
+  on the hub: the worlds and our data, the lists' lines, the scores'
+  columns and order, the session's word at the joiner, the kicks, being
+  kicked); breaks caught: the host's mark, a world's value, the add-on
+  check, the step over UNAVAILABLE, the scores' order, the players'
+  places, the self-kick guard.
+
 ## Open
 
-- The COM object at [0x007307e0] (CLSID 3faf0afe-...): what it is and
-  whether the lobby screen needs it.
-- The names of dialog.zrd's three MULTIPLAYER dialogs and which screen
-  uses each (read with the lobby screen's port).
+- c3's two 1.2 multiplayer maps for a 1.0 install (patch12.md, What stays
+  out): the lobby lists them when the files are there.
+- The score report's service at [0x007307e0]: the Zone is the likely one
+  (section 1's table); not needed (piece 11a).
 - network-messages.md's open items: the caller of 0x21, 0x18's +4 value,
   the 0xf flag bits, whether the lobby handlers stay registered in a
   mission, the name of the setting at [0x00608e28].

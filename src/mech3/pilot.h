@@ -267,6 +267,56 @@ class ActionGame : public Game {
   uint8_t side[10] = {};             // +0x170  each slot's: 1 an ally
 };
 
+// [0x00608e2c]: the game is team play (the connection screen's, mp_connect.h).
+bool multiplayer_team_play();
+
+// The lobby's records (docs/multiplayer-port.md, piece 11), kept by the
+// multiplayer game and made again from the network's players and teams at
+// each refresh (0x00498710). A score line (0x10 bytes): its text for
+// SCORES_LIST and the order it sorts by.
+struct ScoreLine {
+  std::string text;                  // +0x00
+  int32_t score = 0;                 // +0x04  kills less suicides, not under 0 (0x004361e0)
+  uint32_t key = 0;                  // +0x08  the lines' order, largest first (0x00435b60)
+  int32_t kind = 0;                  // +0x0c  1 a player's, 2 a team's
+};
+
+// A player or a team of the lobby's lists (vtable 0x005c7cc4); the lists'
+// items point at them. vt+0 tells which.
+struct LobbyEntry {
+  virtual ~LobbyEntry() = default;
+  virtual int32_t kind() const = 0;  // vt+0x00  1 a player (0x00499270), 2 a team (0x004993e0)
+  uint32_t id = 0;                   // +0x04
+};
+
+// A player (0x00499030, vtable 0x005c7cc0), 0x30 bytes: its network record
+// and data (the lobby's kind 1: skin and state, multiplayer-port.md 11).
+struct LobbyPlayer : LobbyEntry {
+  int32_t kind() const override { return 1; }
+  uint32_t team = 0;                 // +0x08  0 none
+  uint8_t host = 0;                  // +0x0c
+  std::string name;                  // +0x10
+  int32_t state = 2;                 // +0x14  1 in the mech lab, 3 ready (its data's; 2 without)
+  uint8_t left = 0;                  // +0x18  gone from the game (0x00495b10's users)
+  int32_t skin = 1;                  // +0x1c  1..8 (its data's)
+  int32_t order = 0;                 // +0x20  its place in the lobby's count ([0x005e7920])
+  int32_t kills = 0;                 // +0x24
+  int32_t deaths = 0;                // +0x28  its suicides
+  ScoreLine* score = nullptr;        // +0x2c  the game's
+};
+
+// A team (0x00499280, vtable 0x005c7cc8), 0x20 bytes; its data (8 bytes) the
+// owner and the skin.
+struct LobbyTeam : LobbyEntry {
+  int32_t kind() const override { return 2; }
+  std::string name;                  // +0x08
+  int32_t count = 0;                 // +0x0c  its players, counted by the lists (0x00498710)
+  int32_t skin = 0;                  // +0x10  its data's second word
+  int32_t kills = 0;                 // +0x14  its players' (0x004361e0)
+  uint32_t owner = 0;                // +0x18  the first to join it; its data's first word
+  ScoreLine* score = nullptr;        // +0x1c  the game's
+};
+
 // Multiplayer (0x004353a0, vtable 0x005becf8), 0xb0 bytes.
 class MultiplayerGame : public Game {
  public:
@@ -275,18 +325,49 @@ class MultiplayerGame : public Game {
   void save() override;              // vt+0x18  0x00435690
   void load() override;              // vt+0x1c  0x004357d0
   int32_t type() const override { return kMultiplayer; }  // 0x0041ec30
+  GameSlot* slot_at(int32_t i) { return i == 0 ? &slot : nullptr; }  // vt+0x34  0x00437800
+  int32_t world() const { return x94 << 8 | x90; }  // vt+0x4c (0x00437940) << 8 | vt+0x54 (0x00437910)
 
-  int32_t x70 = 0;                   // +0x70  never set by the constructor (saved)
-  float x74 = 10.0f;                 // +0x74
-  int32_t x78 = 90;                  // +0x78
+  // The lobby's records by player or team id (0x00495b10..0x00495d20 on
+  // +0x48 and +0x54), and their lists emptied (0x00495a50, 0x00495c60,
+  // 0x00495d70 on +0x38).
+  LobbyPlayer* lobby_player(uint32_t id);       // 0x00495b10: null none
+  uint32_t lobby_team_id(uint32_t player);      // 0x00495b60: its team, 0 none
+  int32_t lobby_skin(uint32_t player);          // 0x00495bb0: 0 none
+  bool in_team(uint32_t player, uint32_t team);  // 0x00495c00
+  LobbyTeam* lobby_team(uint32_t id);           // 0x00495d20: null none
+  void clear_lobby();                           // the three, as the lists' refresh does
+  // The network game's lookups and scores (0x00435910..0x00435b40, 0x004361e0,
+  // 0x00435b60). A player's side in play: its place in the lobby's count,
+  // or in team play its team's skin (a team is its colour); 0 none.
+  uint32_t net_team(uint32_t player);           // 0x00435910
+  int32_t net_skin(uint32_t player);            // 0x00435960: its own skin, or its team's in team play
+  int32_t add_kills(uint32_t player, int32_t n);   // 0x004359b0: -1 no such player
+  int32_t set_kills(uint32_t player, int32_t n);   // 0x004359f0
+  int32_t kills_of(uint32_t player);               // 0x00435a30
+  int32_t score_of(uint32_t player);               // 0x00435a50: its team's in team play
+  int32_t add_deaths(uint32_t player, int32_t n);  // 0x00435ac0
+  int32_t set_deaths(uint32_t player, int32_t n);  // 0x00435b00
+  int32_t deaths_of(uint32_t player);              // 0x00435b40
+  void rescore();                                  // 0x004361e0
+  void score_texts(int32_t name_width, int32_t number_width);  // 0x00435b60: the lines, sorted
+
+  // +0x38..+0x5c: the lobby's (pointers in the exe's lists, owned here).
+  std::vector<std::unique_ptr<ScoreLine>> score_lines;      // +0x3c (its allocator +0x38)
+  std::list<std::unique_ptr<LobbyPlayer>> lobby_players;    // +0x4c, its count +0x50 (at +0x48)
+  std::list<std::unique_ptr<LobbyTeam>> lobby_teams;        // +0x58, its count +0x5c (at +0x54)
+  int32_t x70 = 0;                   // +0x70  KILLS_LIST's: the score to win (never set by the constructor; saved)
+  float x74 = 10.0f;                 // +0x74  TIME_LIST's: minutes
+  int32_t x78 = 90;                  // +0x78  WEIGHT_LIST's: tons
   // The network game's clock and end (0x0046ef70); the start clears them.
   float clock_next = 0;              // +0x7c  when the host sends the clock (0x11) again
   float end_time = 0;                // +0x80  (not set by the constructor)
   int32_t end_state = 0;             // +0x84  0, 1 ending, 3 ended
   uint8_t b8c = 1, b8d = 0, b8e = 0, b8f = 1;  // +0x8c..+0x8f
-  int32_t x90 = 0, x94 = 1;          // +0x90, +0x94
+  int32_t x90 = 0, x94 = 1;          // +0x90, +0x94  DATABASE_LIST's world: its folder (0 c1) and number
   int32_t kills = 0, deaths = 0;     // +0x98, +0x9c  the pilot screen's line (0x27e)
-  uint8_t ba8 = 0;                   // +0xa8
+  int32_t best = 0, best_count = 0;  // +0xa0, +0xa4  the best score and how many have it (0x00435b60)
+  uint8_t ba8 = 0;                   // +0xa8  MOBILE_CHECKBOX's
 };
 
 // Training (0x00436e30, vtable 0x005beda8), 0x8c bytes.

@@ -2615,4 +2615,14 @@ Assigned after 8b2 merged (fd3f05f). The lead asked for a section stepped at bot
 - 9c done: miniupnpc vendored, the PortMapper, the address lines with
   copy; a double-router state of its own (a private "public" address),
   not "your provider blocks hosting".
-- Next: the full suites for the 9a-9c batch, then piece 10.
+- Piece 10 folded into 9b (the lead). 11 in three sittings: 11a the frame,
+  the records, the lists, kicks; 11b the rules and LOCK; 11c START, READY,
+  the mech lab, the teams' buttons, the scores' 0x14.
+- 11a done (multiplayer-port.md, 11a): the lobby screen, the multiplayer
+  game's lobby records and scores, zNetwork's walks with ids and team,
+  `set_game_info` / `refresh_session` and ENet's kDesc. Found: the world
+  list's hidden UNAVAILABLE, the add-on worlds by file name and the "**"
+  mark, teams as colours in play, the Zone's score report (dropped, FIX
+  (A)). The address lines sit under CANCEL and LOCK (a shot of the host's
+  lobby).
+- Next: 11b.
