@@ -2603,4 +2603,9 @@ Assigned after 8b2 merged (fd3f05f). The lead asked for a section stepped at bot
   hook census in a network game (multiplayer-port.md, piece 8d). Found
   while porting: the rebuilt mech's weapons asked the HUD of a freed
   manager (the exe's view is on the stealth object meanwhile).
-- Next: the 30-minute soak again, then piece 9.
+- The 30-minute soak with the respawn: passes (tracking p95 3.8-4.1 m over
+  ~9700 samples each, memory down, scores alike: 1:12/5 2:6/7 3:10/4 4:10/5).
+- The lead's damage question: sdl_network_damage_point_blank (A held 40 m
+  from a still B): the path works, the soak's low damage is the autopilot's
+  aim and the ground (multiplayer-port.md, 8d).
+- Next: piece 9.

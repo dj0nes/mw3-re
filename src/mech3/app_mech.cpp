@@ -1227,6 +1227,28 @@ bool program_pilot_alive(float* health, float pos[3]) {
   return m->active && m->anim_state != 10;
 }
 
+bool program_net_hold_near(float metres) {
+  Mech* me = launched_mech();
+  if (!me || !me->active || me->anim_state == 10) return false;
+  float p[3], q[3], best = 1e30f, at[3] = {};
+  mech_world_position(me, p);
+  for (NetMech* m : net_game().mechs) {
+    if (m->state.flags >> 1 & 1) continue;
+    mech_world_position(m, q);
+    const float d = std::hypot(q[0] - p[0], q[2] - p[2]);
+    if (d < best) best = d, std::memcpy(at, q, sizeof at);
+  }
+  if (best > 1e29f) return false;
+  static float dir[2] = {0, 0};  // the side it stays on, from the first hold
+  if (dir[0] == 0 && dir[1] == 0) {
+    const float d = best > 0.01f ? best : 1.0f;
+    dir[0] = (p[0] - at[0]) / d, dir[1] = (p[2] - at[2]) / d;
+  }
+  const float to[3] = {at[0] + dir[0] * metres, at[1], at[2] + dir[1] * metres};
+  me->set_place(to, std::atan2(to[0] - at[0], to[2] - at[2]));  // facing it: forward is -z
+  return true;
+}
+
 bool program_net_staged_kill() {
   Mech* me = launched_mech();
   if (!me || !me->active || me->anim_state == 10) return false;
@@ -1256,7 +1278,8 @@ std::string program_net_soak_line() {
   s = buf;
   for (NetMech* m : net_game().mechs) {
     mech_world_position(m, p);
-    std::snprintf(buf, sizeof buf, "; sees %u %.2f %.2f %.2f %d", m->owner, p[0], p[1], p[2], (m->state.flags >> 1 & 1) ? 0 : 1);
+    std::snprintf(buf, sizeof buf, "; sees %u %.2f %.2f %.2f %d health %.3f", m->owner, p[0], p[1], p[2],
+                  (m->state.flags >> 1 & 1) ? 0 : 1, mech_health(m));
     s += buf;
   }
   return s;

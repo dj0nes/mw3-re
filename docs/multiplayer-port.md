@@ -711,6 +711,17 @@ Then the two-process and soak tests over the whole flow, menus included.
   entries wrong: [0x0060c0c8] (the quicksand veto) and [0x0072fcac] (the
   shot gate) are read, null-checked, and never written by Mech3.exe, now
   "never set:".
+- **The soak's little damage** (the lead's question): the autopilot's, not
+  the network's. At a known range the path works:
+  `sdl_network_damage_point_blank` holds A 40 m from a still B
+  (`--net-ahead 40`, `--net-staged 0`) firing 2 s in 7 for a minute; A's
+  own shots hit B's network mech there (46 hits in a two-minute trial, no
+  damage: its vt+0x164), B's machine replays them (0x004b08c0) and takes
+  the same 46 hits, 36.8 damage, health 0.611; A's view of B comes back
+  through the states' damaged parts (0.612). The autopilots seldom have a
+  clear line: far apart, behind the ground (a stalled one 330 m off and
+  34 m below its target), or circling. A break (no shots replayed) leaves
+  B whole and fails.
 
 ## Open
 

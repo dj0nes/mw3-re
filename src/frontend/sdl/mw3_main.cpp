@@ -187,6 +187,8 @@ struct Args {
   // second, the scores at the game's end, and a quit at the menu after it.
   int net_wait = 0, net_minutes = 0;
   long long net_drive = -1;
+  bool net_staged = true;  // --net-staged 0: the drive stages no kills
+  float net_ahead = 0;     // --net-ahead M: the pilot held M m from the nearest remote mech, facing it
   bool net_soak = false;
   bool shot_any = false;
 };
@@ -241,6 +243,8 @@ bool parse(int argc, char** argv, Args& a) {
     else if (s == "--net-minutes" && next(1)) a.net_minutes = std::atoi(argv[++i]);
     else if (s == "--net-drive" && next(1)) a.net_drive = std::strtoll(argv[++i], nullptr, 10);
     else if (s == "--net-soak") a.net_soak = true;
+    else if (s == "--net-staged" && next(1)) a.net_staged = std::atoi(argv[++i]) != 0;
+    else if (s == "--net-ahead" && next(1)) a.net_ahead = std::strtof(argv[++i], nullptr);
     else if (s == "--net-say" && next(1)) {
       const std::string v = argv[++i];
       const size_t atpos = v.rfind('@');
@@ -909,9 +913,11 @@ int run(const Args& a, platform::VideoForWindows* vfw) {
         // --net-drive: a kill staged on the pilot every two minutes, from a
         // minute in, staggered by the seed (the scores' traffic, the respawn).
         static int s_kills = 0;
-        if (a.net_drive >= 0 && net_core && !net_over && app.current() == &mech3::states().core &&
+        if (a.net_drive >= 0 && a.net_staged && net_core && !net_over && app.current() == &mech3::states().core &&
             SDL_GetTicks() / 1000.0 - s_drive_from >= 60.0 + 29.0 * (a.net_drive % 4) + 120.0 * s_kills)
           if (mech3::program_net_staged_kill()) std::printf("mw3: soak staged kill %d\n", ++s_kills);
+        if (a.net_ahead > 0 && net_core && !net_over && app.current() == &mech3::states().core)
+          mech3::program_net_hold_near(a.net_ahead);
         if (a.net_soak && net_core && !net_over) {
           const uint64_t now = SDL_GetTicks();
           if (app.current() == &mech3::states().core && now >= net_line_at) {
