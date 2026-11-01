@@ -227,7 +227,6 @@ const std::map<std::string, const char*>& known_keys() {
       {"0x00576d90", "own: the back buffer's size, zvid's Surface (lock_3d); here only the targets' arguments"},
       {"0x00576da0", "own: the back buffer's height, the same (lock_3d)"},
       {"0x00576dc0", "own: the back buffer's pitch, the same"},
-      {"0x00493260", "deferred: multiplayer (its first screen, made by the Multiplayer State's constructor)"},
       {"0x00495f90", "deferred: multiplayer (its second screen)"},
       {"0x0049bd80", "deferred: multiplayer (its third screen)"},
       {"0x0041ab90", "deferred: multiplayer (the chat panel at mech +0x378, made by commands 0x76 / 0x77)"},
@@ -417,6 +416,7 @@ void GameEngine::pump_events() {
 }
 
 uint32_t GameEngine::message_box(int32_t a, int32_t caption, int32_t text, int32_t arg) {
+  if (on_message_box) return on_message_box(a, caption, text);
   char buf[16];
   std::snprintf(buf, sizeof buf, "%d", arg);
   return game_message_box(a, caption, zutl::format_message(text, buf));
