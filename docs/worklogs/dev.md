@@ -2626,4 +2626,10 @@ Assigned after 8b2 merged (fd3f05f). The lead asked for a section stepped at bot
   (A)). The address lines sit under CANCEL and LOCK (a shot of the host's
   lobby).
 - The lead's 9c item: the port mapper's quit bounded to 1 s (multiplayer-port.md).
-- Next: 11b.
+- The lead's real-router check: `net_upnp_real_router` behind MW3_UPNP_REAL=1
+  (the lead ran it on the Mac: passes, double router).
+- 11b done (multiplayer-port.md, 11b): the rules out and in, LOCK_OPTIONS,
+  the lock's mech; FIX (A) for the rules message, the locked door. Found:
+  STOCK on resets every loadout to the first stock one on the lock (a
+  candidate, fixes.md).
+- Next: 11c.

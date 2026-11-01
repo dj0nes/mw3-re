@@ -1226,6 +1226,20 @@ From the network code (network-messages.md).
   lobby's order.
 - **You cannot kick yourself.** The game says so: "You can't kick yourself
   out of the game! Pick on somebody else."
+- **Locking the options fits your mech to the weight limit.** When the host
+  locks the options, every player whose mech is over the WEIGHT LIMIT (or
+  who has none) gets the heaviest mech within it, with its first stock
+  loadout, and the mech lab then offers only mechs within the limit.
+- **"Use stock 'Mechs" resets everyone's loadout on the lock** to the
+  mech's first stock loadout, even a player who chose another stock one:
+  the game compares the player's copy of the loadout with the stock list's
+  own and never finds it.
+- **The host is warned about an endless game.** Locking with no kill limit
+  and no time limit asks first: "No time limit. No score limit. Game has
+  no logical conclusion."
+- **The lock waits for everyone to have the map.** With an add-on world
+  chosen, the host cannot lock while a player lacks it; the game names
+  them.
 
 ## Graphics
 

@@ -424,6 +424,10 @@ uint32_t GameEngine::message_box(int32_t a, int32_t caption, int32_t text, int32
 // 0x004ac150 with three strings (the controls screen's reassignment questions).
 uint32_t GameEngine::message_box3(int32_t a, int32_t caption, int32_t text, const char* s1, const char* s2,
                                   const char* s3) {
+  if (on_message_box) {
+    last_box_text = zutl::format_message(text, {s1, s2, s3});
+    return on_message_box(a, caption, text);
+  }
   return game_message_box(a, caption, zutl::format_message(text, {s1, s2, s3}));
 }
 

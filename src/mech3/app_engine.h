@@ -438,6 +438,7 @@ class GameEngine : public Engine {
   // Ours, for the tests: answers message_box's boxes in their place (the box's
   // own loop runs up to 100,000 frames).
   std::function<uint32_t(int32_t style, int32_t caption, int32_t text)> on_message_box;
+  std::string last_box_text;  // the test hook's: message_box3's text as formatted
   uint32_t game_message_box(int32_t style, int32_t caption, const std::string& text);  // 0x004ac150
   void pump_events();                // FIX (A): the window's events, inside the box's loop
   ztwod::MessageBox* message_box_open() const { return box_; }  // the box being answered, or null

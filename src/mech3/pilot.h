@@ -356,6 +356,15 @@ class MultiplayerGame : public Game {
   std::vector<std::unique_ptr<ScoreLine>> score_lines;      // +0x3c (its allocator +0x38)
   std::list<std::unique_ptr<LobbyPlayer>> lobby_players;    // +0x4c, its count +0x50 (at +0x48)
   std::list<std::unique_ptr<LobbyTeam>> lobby_teams;        // +0x58, its count +0x5c (at +0x54)
+  // +0x60: the rules as locked (0x0049aca0 the host's, 0x00499cf0 a
+  // joiner's), with a random word, and their CRC-32 (+0x88): once for the
+  // host's 51 s check, dropped as FIX (trap); kept, read by nothing.
+  struct Rules {
+    uint32_t flags = 0;              // +0x60  the 0x20 message's (1 respawn .. 0x20 locked)
+    int16_t world = 0, kills = 0, time = 0, weight = 0;  // +0x64..+0x6a  the lists' values
+    int32_t seed = 0;                // +0x6c  rand()
+  } rules;
+  uint32_t rules_crc = 0;            // +0x88
   int32_t x70 = 0;                   // +0x70  KILLS_LIST's: the score to win (never set by the constructor; saved)
   float x74 = 10.0f;                 // +0x74  TIME_LIST's: minutes
   int32_t x78 = 90;                  // +0x78  WEIGHT_LIST's: tons

@@ -4,16 +4,19 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <ctime>
 
 #include "gamez/znetwork/znet_dplay.h"
 #include "gamez/znetwork/znet_session.h"
 #include "gamez/zreader/zreader.h"
 #include "gamez/zutil/zutl_msgdll.h"
+#include "gamez/zutil/zutl_zar.h"
 #include "mech3/pilot.h"
 
 namespace mech3 {
 
 int32_t mech_name_message(int32_t mech);  // mech3/mech_names.h (its Engine clashes with app_hooks.h's)
+float max_mass(int32_t mech);              // the same
 
 uint8_t g_lobby_dirty = 0;  // [0x006099cc]
 uint8_t g_lobby_back = 0;   // [0x006099c8]
@@ -333,7 +336,7 @@ void LobbyScreen::update(float dt) {
     g_lobby_back = 0;
   }
   if (g_lobby_dirty) {
-    // 0x00499b10: the host's rules to everyone (piece 11b).
+    send_rules();
     refresh_lists();
     refresh_buttons();
     g_lobby_dirty = 0;
@@ -346,9 +349,8 @@ void LobbyScreen::update(float dt) {
   Window::update(dt);
 }
 
-// Mech3.exe 1.2 @ 0x00497410. The rules' (0xb..0x14), the chat's (2, 3),
-// START's (0), the teams' (4, 5, 7, 8), MECHLAB's (10) and READY's (0x15)
-// come with pieces 11b, 11c and 12.
+// Mech3.exe 1.2 @ 0x00497410. The chat's (2, 3), START's (0), the teams'
+// (4, 5, 7, 8), MECHLAB's (10) and READY's (0x15) come with pieces 11c and 12.
 void LobbyScreen::on_button(int32_t id, int32_t a, int32_t b) {
   (void)a, (void)b;
   Engine& e = engine();
@@ -359,6 +361,18 @@ void LobbyScreen::on_button(int32_t id, int32_t a, int32_t b) {
       e.network_set(0);
       g_lobby_dirty = 0;
       if (game) game->clear_lobby();
+      return;
+    case 0xb: lock(); return;
+    case 0xc: world_changed(); return;
+    case 0xd:
+    case 0xe:
+    case 0xf:
+    case 0x10:
+    case 0x11:
+    case 0x12:
+    case 0x13:
+    case 0x14:  // a rule changed: sent with the next refresh
+      g_lobby_dirty = 1;
       return;
     case 6: kick(teams_list); return;
     case 9: kick(players_list); return;
@@ -494,17 +508,19 @@ void LobbyScreen::host_controls() {
 }
 
 // Mech3.exe 1.2 @ 0x00497fbf..0x004980b6 (on), 0x00499a30 (off). The chat's
-// 0x1f (0x00499610), the rules' 0x20 (0x00499cf0), the start's 0x1e
-// (0x0049bcb0) and the scores' 0x14 (0x0049b150) come with 11b, 11c, 12.
+// 0x1f (0x00499610), the start's 0x1e (0x0049bcb0) and the scores' 0x14
+// (0x0049b150) come with 11c and 12.
 void LobbyScreen::handlers(bool on) {
   static const uint16_t kChange[] = {3, 4, 9, 0xa, 5, 6, 8, 2};
   for (uint16_t t : kChange) on ? (void)znet::on(t, on_change) : (void)znet::off(t, on_change);
   if (on) {
     znet::on(7, on_kicked);
     znet::on(0xd, on_host);
+    znet::on(0x20, on_rules);
   } else {
     znet::off(7, on_kicked);
     znet::off(0xd, on_host);
+    znet::off(0x20, on_rules);
   }
   handlers_on_ = on;
 }
@@ -597,6 +613,196 @@ bool LobbyScreen::has_world(uint32_t player, int32_t world) {
   for (uint32_t k = 0; k < d[3] && 4 + k < d.size(); ++k)
     if (static_cast<int32_t>(d[4 + k]) == world) return true;
   return false;
+}
+
+// ---- the rules (piece 11b) ----
+
+namespace {
+uint32_t box_flags(const LobbyScreen& l) {
+  return (l.regen_box.checked ? 1u : 0u) | (l.mobile_box.checked ? 2u : 0u) | (l.stock_box.checked ? 4u : 0u) |
+         (l.ammo_box.checked ? 8u : 0u) | (l.select_box.checked ? 0x10u : 0u) | (l.locked ? 0x20u : 0u);
+}
+bool no_mobile(int32_t world) { return (world & 0xff) == 4 && (world >> 8) > 2; }
+}  // namespace
+
+// Mech3.exe 1.2 @ 0x00499b10: the host's, to every player, guaranteed (the
+// screen's vt+0x10 before it is empty here).
+void LobbyScreen::send_rules() {
+  if (!znet::is_host()) return;
+  uint8_t m[0x10] = {0x20, 0, 0x10, 0};
+  const uint32_t flags = box_flags(*this);
+  const int16_t v[4] = {static_cast<int16_t>(worlds.selected_value()), static_cast<int16_t>(kills_list.selected_value()),
+                        static_cast<int16_t>(time_list.selected_value()), static_cast<int16_t>(weight_list.selected_value())};
+  std::memcpy(m + 4, &flags, 4);
+  std::memcpy(m + 8, v, 8);
+  znet::send(m, sizeof m, true, 0);
+}
+
+// The game's rules block from the lists and the boxes (0x0049aca0's host
+// branch, 0x00499cf0's), a random word, then its CRC-32 (0x00576c10, from
+// 0). The lock seeds the generator with the time first.
+void LobbyScreen::keep_rules(bool seeded) {
+  if (!game) return;
+  MultiplayerGame::Rules& r = game->rules;
+  r = MultiplayerGame::Rules{};
+  game->rules_crc = 0;
+  r.world = static_cast<int16_t>(worlds.selected_value());
+  r.kills = static_cast<int16_t>(kills_list.selected_value());
+  r.time = static_cast<int16_t>(time_list.selected_value());
+  r.weight = static_cast<int16_t>(weight_list.selected_value());
+  r.flags = box_flags(*this);
+  if (seeded) std::srand(static_cast<unsigned>(std::time(nullptr)));
+  r.seed = std::rand();
+  uint8_t b[0x10];
+  std::memcpy(b, &r.flags, 4);
+  std::memcpy(b + 4, &r.world, 2), std::memcpy(b + 6, &r.kills, 2), std::memcpy(b + 8, &r.time, 2);
+  std::memcpy(b + 10, &r.weight, 2), std::memcpy(b + 12, &r.seed, 4);
+  game->rules_crc = zutl_zar::crc32(0, b, sizeof b);
+}
+
+// Mech3.exe 1.2 @ 0x00499cf0: the host's rules shown: a world not in our
+// list is UNAVAILABLE; a value the lists lack leaves theirs; the boxes set
+// and not ours to change; the block kept (with the lock as it was); then
+// the lock as sent, and on its first lock the players again and our mech
+// fitted to the rules (bits past the six are never read). FIX (A): only
+// from the host, and whole (the exe took any sender's, and read what the
+// message lacked).
+void LobbyScreen::on_rules(uint32_t from, const uint8_t* msg, size_t size) {
+  LobbyScreen* l = g_lobby;
+  if (!l || !l->game || size < 0x10 || from != znet::session().host_id || znet::is_host()) return;
+  uint32_t flags;
+  uint16_t v[4];
+  std::memcpy(&flags, msg + 4, 4);
+  std::memcpy(v, msg + 8, 8);
+  if (l->worlds.select_value(v[0]) == -1) l->worlds.select(0);
+  l->kills_list.select_value(v[1]);
+  l->time_list.select_value(v[2]);
+  l->weight_list.select_value(v[3]);
+  int32_t bit = 1;
+  for (InvertCheck* c : {&l->regen_box, &l->mobile_box, &l->stock_box, &l->ammo_box, &l->select_box}) {
+    c->set_checked((flags & bit) ? 1 : 0);
+    bit <<= 1;
+  }
+  for (InvertCheck* c : {&l->regen_box, &l->mobile_box, &l->stock_box, &l->ammo_box, &l->select_box}) set_enabled(*c, 0);
+  l->keep_rules(false);
+  const uint8_t was = l->locked;
+  l->locked = (flags >> 5) & 1;
+  g_lobby_dirty = 1;
+  if (!was && l->locked) {
+    znet::enum_players();
+    if (multiplayer_team_play()) {
+      znet::enum_teams();
+      znet::enum_team_players();
+    }
+    l->lock_mech();
+  }
+}
+
+// Mech3.exe 1.2 @ 0x00497410 case 0xc: a world without MOBILE (an add-on of
+// folder 4) clears and disables it.
+void LobbyScreen::world_changed() {
+  const bool ok = !no_mobile(worlds.selected_value());
+  if (!ok) mobile_box.set_checked(0);
+  set_enabled(mobile_box, ok ? 1 : 0);
+  g_lobby_dirty = 1;
+}
+
+// Mech3.exe 1.2 @ 0x0049aca0: not while a player lacks the chosen add-on
+// world (0xfe0 with their names); asked first when there is neither a score
+// nor a time limit (0xfbd), then whether to lock (0x2c4). Locked: the
+// players again, the game shown as locked to the search (its fourth word
+// 3), the host's controls off, the rules sent, our mech fitted, the block
+// kept.
+void LobbyScreen::lock() {
+  Engine& e = engine();
+  cursor_obj.erase();
+  const int32_t w = worlds.selected_value();
+  if ((w >> 8) > 2 && game) {
+    std::string names;
+    int32_t n = 0;
+    for (auto& p : game->lobby_players)
+      if (p->id != znet::local_id() && !has_world(p->id, w)) names += p->name + " ", ++n;
+    if (n > 0) {
+      e.message_box3(0, 0x1e3, 0xfe0, names.c_str(), nullptr, nullptr);
+      return;
+    }
+  }
+  if (kills_list.selected_value() == 100 && time_list.selected_value() == 100 && e.message_box(1, 0x1e3, 0xfbd) != 1)
+    return;
+  if (e.message_box(1, 0x1e3, 0x2c4) != 1) return;
+  znet::enum_players();
+  if (multiplayer_team_play()) {
+    znet::enum_teams();
+    znet::enum_team_players();
+  }
+  znet::GameInfo info;
+  if (znet::is_host() && znet::game_info(-1, &info)) {
+    info.user[3] = 3;
+    znet::set_game_info(info);
+  }
+  locked = 1;
+  host_controls();
+  send_rules();
+  g_lobby_dirty = 1;
+  lock_mech();
+  if (!game) return;
+  game->rules = MultiplayerGame::Rules{};
+  game->rules_crc = 0;
+  if (znet::is_host()) keep_rules(true);
+}
+
+// Mech3.exe 1.2 @ 0x0049b360 (0x0049b1c0, 0x0049b2d0): the store's mechs
+// out, then each within WEIGHT_LIST's tons in (marked); a slot mech over
+// the limit (or none) becomes the heaviest within it with its first stock
+// loadout; one within keeps its loadout, given the first stock one when it
+// has none, or with STOCK on when it is not one of the mech's stock
+// loadouts. The slot's loadout is its own copy, never one of the list's,
+// so with STOCK on it always becomes the first (multiplayer-port.md 11b).
+void LobbyScreen::lock_mech() {
+  if (!game) return;
+  Engine& e = engine();
+  const float tons = static_cast<float>(weight_list.selected_value());
+  const bool stock = stock_box.checked != 0;
+  Store& st = game->store;
+  for (auto it = st.items.begin(); it != st.items.end();) {
+    if ((*it)->kind() == 0) {
+      delete *it;
+      it = st.items.erase(it);
+    } else {
+      ++it;
+    }
+  }
+  int32_t best = -1;
+  float best_mass = 0;
+  for (int32_t m = 0; m < 0x13; ++m) {
+    if (m == 7) continue;  // 0x00426080, and the check again
+    const float mass = max_mass(m);
+    if (tons < mass) continue;
+    if (best == -1 || best_mass < mass) best = m, best_mass = mass;
+    if (BaseItem* b = st.add_mech(m)) b->b10 = 1;
+  }
+  GameSlot& slot = game->slot;
+  const auto first = [&](int32_t mech) -> const Config* {
+    const ConfigList* l = mech >= 0 ? e.mech_loadouts(mech) : nullptr;
+    return l && !l->configs.empty() ? l->configs[0] : nullptr;
+  };
+  if (slot.mech == -1 || max_mass(slot.mech) > tons) {
+    slot.mech = best;
+    slot.set_config(first(best));
+    return;
+  }
+  if (!slot.config) {
+    slot.set_config(first(slot.mech));
+    return;
+  }
+  if (!stock) return;
+  const ConfigList* l = e.mech_loadouts(slot.mech);
+  int32_t at = -1;  // 0x00425b70
+  if (l)
+    for (size_t i = 0; i < l->configs.size(); ++i)
+      if (l->configs[i] == slot.config) at = static_cast<int32_t>(i);
+  if (l && at >= 0 && at <= l->count - 1) return;
+  slot.set_config(first(slot.mech));
 }
 
 // The host's lines (the connection screen's, mp_connect.cpp); none for a

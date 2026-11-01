@@ -65,6 +65,16 @@ class LobbyScreen : public MenuScreen {
   void kick(LobbyList& from);        // 0x0049a150 (TP_LIST), 0x0049a7a0 (PLAYERS_LIST)
   void team_chosen();                // 0x0049a3a0: TP_LIST's choice
   void player_chosen();              // 0x0049a6a0: PLAYERS_LIST's
+  // The rules (piece 11b): the host's to everyone (0x00499b10, message 0x20:
+  // the flags 1 respawn, 2 mobile bases, 4 stock mechs, 8 unlimited ammo,
+  // 0x10 first person, 0x20 locked, then the four lists' values as int16);
+  // LOCK_OPTIONS (0x0049aca0); the lists' values and the boxes into the
+  // game's rules block (inline twice in the exe); the lock's mech (0x0049b360).
+  void send_rules();                 // 0x00499b10
+  void lock();                       // 0x0049aca0
+  void keep_rules(bool seeded);      // the game's +0x60 block, its CRC at +0x88
+  void lock_mech();                  // 0x0049b360
+  void world_changed();              // 0x00497410 case 0xc
   int32_t free_skin(int32_t skin, int32_t except);  // 0x0049bd10: the team with that skin, 0 none
   bool has_world(uint32_t player, int32_t world);   // 0x0049ab30: an add-on world in its data
   // Ours (piece 9c, the lead's plan for piece 11): the host's addresses, as
@@ -75,6 +85,7 @@ class LobbyScreen : public MenuScreen {
   static void on_change(uint32_t from, const uint8_t* msg, size_t size);  // 0x00499600: 2..6, 8..0xa
   static void on_kicked(uint32_t from, const uint8_t* msg, size_t size);  // 0x0049a1d0: 7
   static void on_host(uint32_t from, const uint8_t* msg, size_t size);    // 0x0049a200: 0xd
+  static void on_rules(uint32_t from, const uint8_t* msg, size_t size);   // 0x00499cf0: 0x20
 
   InvertCheck chat_team;             // +0x111f0  CHAT_TEAM_CHECKBOX
   ChatBar chat_edit;                 // +0x1135c  CHAT_ENTER_EDIT

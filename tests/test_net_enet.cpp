@@ -131,6 +131,31 @@ TEST(net_enet_three_machines_join_talk_and_part) {
 // has its player, so the second's welcome lists no first. The host's answer
 // to its player (kId) lists the players made since: it links to the first
 // and hears of it, the first hears of it, and they talk directly.
+// The host's session description (pieces 11a, 11b): its change reaches the
+// players (DPSYS_SETSESSIONDESC) and is the host's alone; a locked game (its
+// fourth word 3) turns a joiner away at the door.
+TEST(net_enet_session_desc_and_the_locked_door) {
+  Machine a;
+  NetOptions o = loopback();
+  o.while_waiting = [&] { a.t->service(1), a.drain(); };
+  Machine b(o), c(o);
+  znet::SessionDesc d;
+  d.name = "Door", d.max_players = 8;
+  EXPECT(a.t->host(d) && a.t->create_player("Ann", "Ann") == 1);
+  EXPECT(b.t->join(at(*a.t)) && b.t->create_player("Bob", "Bob") == 2);
+  d.user[3] = 1;
+  EXPECT(a.t->set_session_desc(d) && !b.t->set_session_desc(d));
+  EXPECT(pump({&a, &b}, [&] { return b.has_event(znet::kSysSetSessionDesc, 0); }));
+  EXPECT(b.t->session_desc().user[3] == 1 && b.t->session_desc().name == "Door");
+  d.user[3] = 3;
+  EXPECT(a.t->set_session_desc(d));
+  EXPECT(pump({&a, &b}, [&] { return b.t->session_desc().user[3] == 3; }));
+  EXPECT(!c.t->join(at(*a.t)));  // locked
+  d.user[3] = 1;
+  EXPECT(a.t->set_session_desc(d));
+  EXPECT(c.t->join(at(*a.t)) && c.t->create_player("Cy", "Cy") == 3);
+}
+
 TEST(net_enet_two_joining_at_once_meet) {
   Machine a;
   NetOptions o = loopback();

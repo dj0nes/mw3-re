@@ -403,6 +403,8 @@ change.
 | zNetwork's DirectPlay 4 (IDirectPlay4A, IDirectPlayLobby3A; multiplayer-port.md) | Sessions, players, teams, data and every message through DirectPlay's TCP/IP, IPX, modem and serial providers | (A) DirectPlay is gone from macOS and Linux and a legacy feature on Windows 11 | A transport of ours over ENet under zNetwork's entry points (`net_enet`): UDP, reliable and unreliable channels, a full mesh, LAN discovery and a direct address; IPX, modem, serial and the lobby launch dropped. The game side and its messages unchanged; Mech3.exe cannot join (multiplayer-port.md section 2) |
 | The connection screen's providers, 0x00493260 / 0x004949f0 / 0x004957c0 (multiplayer-port.md piece 9b) | CONNECTION_LIST lists DirectPlay's providers (TCP/IP, IPX, modem, serial), the modem's ANSWER, DIAL and CALL with them, TCP/IP checked for Winsock 2 (0x00575e30) | (A) only our transport exists | One provider, TCP/IP's kind 2 over ENet; ANSWER, DIAL and CALL hidden; the Winsock check moot (`net_connect_screen_headless`) |
 | The lobby's world list, 0x00497720 (multiplayer-port.md piece 11a) | Each add-on world's mpinfo.zrd read (0x00556740) for its name and never freed | (bug) a small leak each time the lobby opens | Freed after the name is taken; not a play change |
+| The lobby's rules message 0x20, 0x00499cf0 (multiplayer-port.md piece 11b) | Taken from any player, read 16 bytes whatever its size, its flags as they came | (A) a peer's packet is untrusted over the internet: any player could set the rules or lock the game, and a short message was read past its end | Only the host's, whole (16 bytes); the world and the limits go through the lists' own lookups (a world we lack is UNAVAILABLE, a limit the lists lack leaves ours). Not a play change; `net_lobby_rules_join_headless` |
+| A locked game's door (ours, piece 11b; the exe's connection screen 0x00495410) | Locking marks the game (its fourth word 3); only the connection screen's JOIN greys for it, DirectPlay still lets a player in | (A) over the internet anyone can try to join | The host's transport turns a joiner away while the game is locked (`net_enet_session_desc_and_the_locked_door`) |
 | The lobby's scores, 0x00498550 (multiplayer-port.md piece 11a) | With a lobby's launch ([0x00608e24]) each player's score, team and win, shared win, loss or left went to a game service's score report (the COM object [0x007307e0], 0x00589d00..0x00589e30; most likely the MSN Gaming Zone's) | (A) the service is gone, and so is the lobby launch | Not reported; the scores' list unchanged (`net_lobby_screen_headless`) |
 | FIND GAME without a connection, 0x004957c0 (piece 9b) | Reads the connection's kind with no check | (bug) a press before CONNECT reads through null | Nothing happens. Not a play change |
 
@@ -755,3 +757,10 @@ These look like bugs, but fixing them is a guess at intent that changes balance:
   give up only on items that weigh nothing (or unlimited ones), so in a
   normal campaign the cut reaches the limit anyway. Options: keep it (the original as played), or make the
   fallback work (more is lost only in the rare case it is reached).
+- The lock's stock loadout (found 2026-11-01, multiplayer-port.md piece
+  11b): with USE STOCK 'MECHS on, locking the options (0x0049b360) keeps a
+  player's stock loadout only if it is one of the mech's stock loadouts, by
+  pointer; the player's loadout is always its own copy, so every player is
+  put back on the mech's first stock loadout, even one who chose another
+  stock one. Options: keep it (as played), or compare the loadouts by name
+  (a player keeps a chosen stock loadout).

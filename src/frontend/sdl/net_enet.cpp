@@ -567,7 +567,9 @@ void EnetTransport::Impl::on_frame(ENetPeer* from, uint8_t channel, const uint8_
     }
     case kHello: {  // a joiner, at the host
       if (!hosting) return;
-      if (r.u32() != kProtocol || players.size() >= desc.max_players) {
+      // Ours (piece 11b): a locked game (its fourth word 3) is shut at the
+      // door; the exe's connection screen only greyed JOIN for it.
+      if (r.u32() != kProtocol || players.size() >= desc.max_players || desc.user[3] == 3) {
         Writer w;
         w.u8(kRefused);
         put(from, 0, w.b);

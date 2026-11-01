@@ -109,6 +109,7 @@
 #include "mech3/pilot.h"
 #include "mech3/mp_connect.h"
 #include "mech3/mp_lobby.h"
+#include "gamez/zutil/zutl_zar.h"
 #include "gamez/znetwork/znet_session.h"
 #include "mech3/briefing.h"
 #include "gamez/zutil/zfix.h"
@@ -3707,6 +3708,245 @@ TEST(net_lobby_screen_headless) {
   mech3::reset_states();
   reset_process_state();
   mech3::options() = mech3::Options{};
+}
+
+namespace mech3 {
+float max_mass(int32_t mech);  // mech3/mech_names.h (its Engine clashes with app_hooks.h's)
+}
+
+namespace {
+// The lobby's rules tests (piece 11b): the engine, the Multiplayer State's
+// lobby, a hub, its boxes' answers and the messages they showed.
+struct LobbyRig {
+  SavedMounts keep;
+  FakeWindow window;
+  FakeAlert alert;
+  FakeClock clock;
+  FakeScreen screen;
+  platform::SilentSoundOutput sound;
+  mech3::MountFiles files;
+  mech3::Platform p;
+  znet::Hub hub;
+  std::unique_ptr<mech3::GameEngine> engine;
+  std::unique_ptr<mech3::Mech3App> app;
+  mech3::LobbyScreen* l = nullptr;
+  std::vector<int32_t> boxes;
+  uint32_t answer = 1;
+  mech3::MultiplayerGame game{nullptr};
+  explicit LobbyRig(const char* write) {
+    zutl::mounts() = zutl::Mounts{};
+    zutl::mount(MW3_GAME_DIR);
+    zutl::set_write_dir(temp_dir(write));
+    mech3::reset_states();
+    reset_process_state();
+    mech3::options() = mech3::Options{};
+    p.window = &window, p.alert = &alert, p.clock = &clock, p.movie_clock = &fast_movie_clock(), p.screen = &screen,
+    p.sound = &sound, p.files = &files;
+    p.network_open = [this]() -> znet::Transport* { return hub.endpoint(); };
+    znet::session() = znet::Session{};
+    engine = std::make_unique<mech3::GameEngine>(p, "mech3.exe -nofmv");
+    engine->quiet = true;
+    app = std::make_unique<mech3::Mech3App>(engine.get());
+    mech3::set_app(app.get());
+    app->init_instance();
+    engine->on_message_box = [this](int32_t, int32_t, int32_t text) {
+      boxes.push_back(text);
+      return answer;
+    };
+    const mech3::Handle st = engine->construct(0x49c900, {});
+    auto* g = dynamic_cast<mech3::GameMenuState*>(engine->menu_state_of(st));
+    l = g ? dynamic_cast<mech3::LobbyScreen*>(engine->screen_of(g->screens[1])) : nullptr;
+    engine->network_set(1);
+  }
+  ~LobbyRig() {
+    engine->network_set(0);
+    app->exit_instance();
+    mech3::set_app(nullptr);
+    app.reset();
+    engine.reset();
+    znet::session() = znet::Session{};
+    mech3::reset_states();
+    reset_process_state();
+    mech3::options() = mech3::Options{};
+  }
+  void enter() {
+    mech3::multiplayer_setup().team_play = 0;
+    l->take_pilot(1, &game);
+    l->enter();
+    znet::poll(-1);
+    l->update(0.1f);
+  }
+};
+// The rules messages (0x20) a hub endpoint has heard, oldest first.
+std::vector<std::vector<uint8_t>> rules_heard(znet::Transport* t) {
+  std::vector<std::vector<uint8_t>> out;
+  znet::Packet pk;
+  while (t->receive(&pk))
+    if (pk.from && pk.data.size() >= 4 && pk.data[0] == 0x20) out.push_back(pk.data);
+  return out;
+}
+uint32_t word_at(const std::vector<uint8_t>& m, size_t at) {
+  uint32_t v = 0;
+  std::memcpy(&v, m.data() + at, 4);
+  return v;
+}
+int16_t half_at(const std::vector<uint8_t>& m, size_t at) {
+  int16_t v = 0;
+  std::memcpy(&v, m.data() + at, 2);
+  return v;
+}
+uint32_t rules_crc_of(const mech3::MultiplayerGame::Rules& r) {
+  uint8_t b[0x10];
+  std::memcpy(b, &r.flags, 4);
+  std::memcpy(b + 4, &r.world, 2), std::memcpy(b + 6, &r.kills, 2), std::memcpy(b + 8, &r.time, 2);
+  std::memcpy(b + 10, &r.weight, 2), std::memcpy(b + 12, &r.seed, 4);
+  return zutl_zar::crc32(0, b, sizeof b);
+}
+// The heaviest mech within `tons` (not 7), -1 none.
+int32_t heaviest_within(float tons) {
+  int32_t best = -1;
+  for (int32_t m = 0; m < 0x13; ++m)
+    if (m != 7 && mech3::max_mass(m) <= tons && (best == -1 || mech3::max_mass(best) < mech3::max_mass(m))) best = m;
+  return best;
+}
+}  // namespace
+
+// The host's rules (piece 11b): sent with each refresh (0x20: the flags and
+// the lists' values), a change asked again; LOCK_OPTIONS refused while a
+// player lacks the add-on world (0xfe0 with the names), asked twice with
+// neither limit, a "no" leaving it open; locked: the search's word 3 (at the
+// joiner too), the host's controls off, the lock in the rules, the block and
+// its CRC, our mech the heaviest within 50 tons (of several) with the store
+// cut to them.
+TEST(net_lobby_rules_host_headless) {
+  if (!have_game()) return;
+  LobbyRig r("net_rules_host_write");
+  EXPECT(r.l != nullptr);
+  if (!r.l) return;
+  znet::SessionDesc d;
+  d.name = "Mine", d.max_players = 4, d.user[1] = mech3::kGameVersion;
+  EXPECT(znet::host_session(d, "Ann"));
+  znet::Transport* bob = r.hub.endpoint();
+  EXPECT(bob->join("loopback") && bob->create_player("Bob", "Bob") == 2);
+  const uint32_t bob_data[5] = {1, 3, 3, 1, 0x302};
+  bob->set_data(false, 2, bob_data, sizeof bob_data);
+  znet::poll(-1);
+  r.enter();
+  std::vector<std::vector<uint8_t>> heard = rules_heard(bob);
+  EXPECT(!heard.empty());
+  if (!heard.empty()) {
+    const std::vector<uint8_t>& m = heard.back();
+    EXPECT(m.size() == 0x10 && m[2] == 0x10 && word_at(m, 4) == 5);  // respawn, stock
+    EXPECT(half_at(m, 8) == 0x100 && half_at(m, 10) == 5 && half_at(m, 12) == 10 && half_at(m, 14) == 90);
+  }
+  r.l->weight_list.select_value(50);
+  r.l->on_button(0xf, 0, 0);
+  r.l->update(0.1f);
+  heard = rules_heard(bob);
+  EXPECT(heard.size() == 1 && half_at(heard[0], 14) == 50);
+  // The add-on world Bob lacks: no lock.
+  r.l->worlds.select_value(0x402);
+  r.l->on_button(0xb, 0, 0);
+  EXPECT(r.boxes.size() == 1 && r.boxes[0] == 0xfe0 && r.engine->last_box_text.find("Bob") != std::string::npos);
+  EXPECT(!r.l->locked);
+  // Neither limit: asked first; "no" to the lock leaves it open.
+  r.l->worlds.select_value(0x302);
+  r.l->kills_list.select_value(100);
+  r.l->time_list.select_value(100);
+  r.boxes.clear();
+  r.answer = 2;
+  r.l->on_button(0xb, 0, 0);
+  EXPECT(r.boxes.size() == 1 && r.boxes[0] == 0xfbd && !r.l->locked);
+  r.answer = 1;
+  r.boxes.clear();
+  r.game.slot.mech = -1;
+  for (int32_t m = 0; m < 0x13; ++m)
+    if (mech3::max_mass(m) > 50) r.game.slot.mech = m;
+  EXPECT(r.game.slot.mech >= 0);
+  rules_heard(bob);
+  r.l->on_button(0xb, 0, 0);
+  EXPECT(r.boxes.size() == 2 && r.boxes[0] == 0xfbd && r.boxes[1] == 0x2c4 && r.l->locked == 1);
+  EXPECT(znet::session().desc.user[3] == 3 && bob->session_desc().user[3] == 3);
+  EXPECT(r.l->regen_box.enabled == 0 && r.l->lock_btn.enabled == 0 && r.l->worlds.prev.enabled == 0);
+  heard = rules_heard(bob);
+  EXPECT(!heard.empty() && (word_at(heard.back(), 4) & 0x20) && half_at(heard.back(), 8) == 0x302);
+  const mech3::MultiplayerGame::Rules& b = r.game.rules;
+  EXPECT(b.world == 0x302 && b.kills == 100 && b.time == 100 && b.weight == 50 && b.flags == (5 | 0x20));
+  EXPECT(r.game.rules_crc == rules_crc_of(b) && r.game.rules_crc != 0);
+  EXPECT(r.game.slot.mech == heaviest_within(50) && r.game.slot.mech >= 0);
+  int32_t mechs = 0;
+  bool over = false;
+  for (const mech3::ConfigItem* it : r.game.store.items)
+    if (it->kind() == 0) ++mechs, over = over || mech3::max_mass(it->id()) > 50;
+  EXPECT(mechs >= 2 && !over);  // more than one fits: the heaviest is a choice
+  std::printf("  locked at 50 tons: mech %d, %d mechs in the store\n", r.game.slot.mech, mechs);
+}
+
+// A joiner's rules (piece 11b): the host's 0x20 shown and the boxes not
+// ours; a world we lack UNAVAILABLE; the lock taken (our mech fitted, the
+// block and CRC kept); a rules message from another player or cut short
+// ignored (FIX (A)), and unknown flag bits dropped.
+TEST(net_lobby_rules_join_headless) {
+  if (!have_game()) return;
+  LobbyRig r("net_rules_join_write");
+  EXPECT(r.l != nullptr);
+  if (!r.l) return;
+  znet::Transport* bob = r.hub.endpoint();
+  znet::SessionDesc d;
+  d.name = "Bob's", d.max_players = 4, d.user[1] = mech3::kGameVersion;
+  EXPECT(bob->host(d) && bob->create_player("Bob", "Bob") == 1);
+  EXPECT(znet::join_session("loopback", "Ann") && znet::local_id() == 2);
+  znet::Transport* cat = r.hub.endpoint();
+  EXPECT(cat->join("loopback") && cat->create_player("Cat", "Cat") == 3);
+  const uint8_t host_msg[4] = {0x0d, 0, 4, 0};
+  bob->send(0, host_msg, 4, true, nullptr);
+  znet::poll(-1);
+  r.enter();
+  EXPECT(znet::session().host_id == 1 && !znet::is_host());
+  auto rules = [](uint32_t flags, int16_t w, int16_t k, int16_t t, int16_t wt) {
+    std::vector<uint8_t> m(0x10, 0);
+    m[0] = 0x20, m[2] = 0x10;
+    std::memcpy(m.data() + 4, &flags, 4);
+    const int16_t v[4] = {w, k, t, wt};
+    std::memcpy(m.data() + 8, v, 8);
+    return m;
+  };
+  // From Cat (not the host): ignored. Cut short: ignored.
+  std::vector<uint8_t> m = rules(0x3f, 0x203, 10, 20, 50);
+  cat->send(0, m.data(), m.size(), true, nullptr);
+  bob->send(0, m.data(), 12, true, nullptr);
+  znet::poll(-1);
+  EXPECT(r.l->worlds.selected_value() == 0x100 && !r.l->locked && r.l->kills_list.selected_value() == 5);
+  EXPECT(r.l->regen_box.enabled == 0);  // a joiner's from the start (0x00498260)
+  // The host's, with bits we do not know: shown, the boxes disabled.
+  m = rules(0xffc0 | 1 | 8, 0x203, 10, 20, 50);
+  bob->send(0, m.data(), m.size(), true, nullptr);
+  znet::poll(-1);
+  EXPECT(r.l->worlds.selected_value() == 0x203 && r.l->kills_list.selected_value() == 10 &&
+         r.l->time_list.selected_value() == 20 && r.l->weight_list.selected_value() == 50);
+  EXPECT(r.l->regen_box.checked == 1 && r.l->ammo_box.checked == 1 && r.l->stock_box.checked == 0);
+  EXPECT(r.l->regen_box.enabled == 0 && r.l->select_box.enabled == 0 && !r.l->locked);
+  EXPECT(r.game.rules.flags == (1 | 8) && r.game.rules.world == 0x203 && r.game.rules_crc == rules_crc_of(r.game.rules));
+  // A world we do not have: UNAVAILABLE; values the lists lack: theirs kept.
+  m = rules(1, 0x777, 33, 7, 3);
+  bob->send(0, m.data(), m.size(), true, nullptr);
+  znet::poll(-1);
+  EXPECT(r.l->worlds.index == 0 && r.l->kills_list.selected_value() == 10 && r.l->weight_list.selected_value() == 50);
+  // The lock with STOCK: our mech within 40 tons keeps its place, but its
+  // second stock loadout becomes the first (the slot's copy is never one of
+  // the list's, 0x00425b70).
+  const int32_t fits = heaviest_within(40);
+  const mech3::ConfigList* stock = fits >= 0 ? r.engine->mech_loadouts(fits) : nullptr;
+  EXPECT(stock && stock->configs.size() >= 2);
+  if (!stock || stock->configs.size() < 2) return;
+  r.game.slot.mech = fits;
+  r.game.slot.set_config(stock->configs[1]);
+  m = rules(1 | 4 | 0x20, 0x100, 5, 10, 40);
+  bob->send(0, m.data(), m.size(), true, nullptr);
+  znet::poll(-1);
+  EXPECT(r.l->locked == 1 && r.game.slot.mech == fits && r.game.slot.config && stock->configs[0]->name &&
+         std::string(r.game.slot.config->name) == stock->configs[0]->name);
+  EXPECT((r.game.rules.flags & 0x20) == 0 && r.game.rules.weight == 40);  // the block keeps the lock as it was
 }
 
 // The host's addresses under the host setup (multiplayer-port.md, piece 9c),

@@ -584,3 +584,5 @@ Known quirks the rebuild deliberately keeps:
 - The multiplayer host no longer re-checks its locked game rules every 51 seconds (a guard against memory editing that ended the game).
 - The multiplayer lobby no longer sends the scores to an online game service (the MSN Gaming Zone's score reporting, long gone).
 - The multiplayer lobby shows the host its internet and LAN addresses, with a click to copy, as the connection screen does.
+- The multiplayer lobby takes game settings only from the host, and checks them before use.
+- A locked multiplayer game turns away players who try to join it, instead of only greying out its Join button.

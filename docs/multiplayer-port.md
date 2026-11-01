@@ -935,6 +935,39 @@ Ours, in three pieces:
   address. Behind carrier-grade NAT it stops after the look (nothing is
   mapped there by design).
 
+- **Piece 11b** (2026-11-01): the rules. The host's 0x20 with each
+  refresh (0x00499b10: the flags 1 respawn, 2 mobile bases, 4 stock mechs,
+  8 unlimited ammo, 0x10 first person, 0x20 locked, then the world, kills,
+  minutes and tons as int16; guaranteed, to all); a joiner's (0x00499cf0):
+  the lists set by value (a world we lack is UNAVAILABLE), the boxes set
+  and disabled, the game's rules block (+0x60: the flags, the four
+  values, a rand() word) and its CRC-32 at +0x88 (0x00576c10 from 0) kept
+  as the exe does, read by nothing (the host's check stays dropped, FIX
+  (trap), piece 8); the lock taken as sent, and on the first lock the
+  players again and our mech fitted. FIX (A): only the host's, and whole. The rules' buttons (0xc: a world without MOBILE clears and
+  disables it; 0xd..0x14 the refresh). LOCK_OPTIONS (0x0049aca0): not while
+  a player lacks the chosen add-on world (0xfe0 with their names); asked
+  first with neither a score nor a time limit (0xfbd), then 0x2c4; locked:
+  the players again, the session's fourth word 3, the host's controls off,
+  the rules sent, the mech fitted, the block kept (seeded with the time).
+  The mech fitted (0x0049b360): the store's mechs out, each within the
+  tons in (marked), a slot mech over the limit becomes the heaviest within
+  it with its first stock loadout; with STOCK on a loadout not one of the
+  mech's stock ones becomes the first, and the slot's is always a copy, so
+  always (a candidate, fixes.md). Ours: a locked game turns a joiner away
+  at the door (ENet's kHello). The test hook sees message_box3 too
+  (`last_box_text`). Tests: `net_lobby_rules_host_headless` (the messages
+  and their fields, a change sent, the add-on refusal with the names, the
+  endless-game question and a "no", the lock: word 3 at the joiner, the
+  controls off, the block and its CRC, the heaviest of several mechs within 50 tons,
+  the store cut), `net_lobby_rules_join_headless` (another player's and a
+  short message ignored, unknown bits without effect, a world we lack, limits the
+  lists lack, the lock with STOCK putting the second stock loadout back to
+  the first) and `net_enet_session_desc_and_the_locked_door`. Breaks
+  caught: any sender, no add-on check, the lightest mech (once several
+  fit: at 30 tons only one does), the stock bit, no lock question, the
+  open door.
+
 ## Open
 
 - c3's two 1.2 multiplayer maps for a 1.0 install (patch12.md, What stays
