@@ -4,6 +4,7 @@
 #include "mech3/mech.h"
 #include "mech3/mech_collide.h"
 #include "mech3/mech_move.h"
+#include "mech3/mech_net.h"
 #include "mech3/mech_parts.h"
 #include "mech3/weapon.h"
 
@@ -19,6 +20,8 @@ ForceFeedback* g_force = nullptr;
 void program_force_feedback(ForceFeedback* f) {
   g_force = f;
   world().force_feedback = weapon_world().force_feedback = f != nullptr;
+  net_calls().ff_stop = [] { if (g_force) g_force->stop_all(); };  // the network end's 0x00433530
+  net_calls().ff_spawn = [] { if (g_force) g_force->spring(true); };  // the network launch's 0x004338a0(1)
   if (!f) return;
   damage_calls().ff = [](uint32_t fn, int arg) {  // the death's (0x00433530, 0x00433900, 0x004338d0), the fall's
     if (!g_force) return;

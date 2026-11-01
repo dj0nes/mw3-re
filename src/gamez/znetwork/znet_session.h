@@ -61,10 +61,18 @@ enum SystemKind : uint32_t {
 class Transport {
  public:
   virtual ~Transport() = default;
-  // Make a session (the local player its first, and host) or join one by
-  // its address; the local player's id, 0 when it failed.
-  virtual uint32_t host(const SessionDesc& desc) = 0;
-  virtual uint32_t join(const std::string& address) = 0;
+  // Open a session: make one (its first player the host) or join one by its
+  // address (DirectPlay's Open, DPOPEN_CREATE or DPOPEN_JOIN).
+  virtual bool host(const SessionDesc& desc) = 0;
+  virtual bool join(const std::string& address) = 0;
+  // The local player in the opened session (CreatePlayer, its DPNAME); its
+  // id, 0 when it failed. The others hear of it (DPSYS_CREATEPLAYERORGROUP).
+  virtual uint32_t create_player(const std::string& short_name, const std::string& long_name) {
+    (void)short_name, (void)long_name;
+    return 0;
+  }
+  // The joined session's description (the host's).
+  virtual SessionDesc session_desc() const { return {}; }
   virtual void close() = 0;
   // A message from the local player; guaranteed ones arrive, in order. The
   // send's id (for the send-done event) in *id, 0 when it has none.
@@ -73,10 +81,6 @@ class Transport {
   virtual bool receive(Packet* out) = 0;
   // Whether sends may be asynchronous (DPCAPS's, [0x00730765]).
   virtual bool async_sends() const { return true; }
-  // The local player's names, before host or join (CreatePlayer's DPNAME).
-  virtual void set_name(const std::string& short_name, const std::string& long_name) {
-    (void)short_name, (void)long_name;
-  }
   // Whether a player is the session's host (GetPlayerCaps' DPCAPS_ISHOST).
   virtual bool is_host(uint32_t id) const { (void)id; return false; }
 
@@ -144,10 +148,15 @@ Session& session();
 
 // Ours: zNetwork up on a transport (the exe's 0x00589540 made DirectPlay).
 void initialise(Transport* t);
-// Ours, the session's start: host, or join an address (0x00586f60,
-// 0x00586fb0 with Open; the local player made, the host recorded).
-bool host_session(const SessionDesc& desc);
-bool join_session(const std::string& address);
+// The session's start: host (0x00586f60) or join an address (0x00586fb0, by
+// the game list's index in the exe), then the local player made
+// (create_player, 0x005886c0). Ours: both steps in one.
+bool host_session(const SessionDesc& desc, const char* name);
+bool join_session(const std::string& address, const char* name);
+// 0x005886c0: the local player, its record (the name or "noname" both its
+// names) after the players, teams and members are enumerated; the host's
+// caps make it the host (0xd sent). Its id, 0 when it failed.
+uint32_t create_player(const char* name);
 
 bool active();          // 0x00586ce0: up, with a session or a lobby's
 uint32_t local_id();    // 0x00586d10: the local player's id, 0 without one

@@ -272,6 +272,19 @@ void euler_to_quat(float x, float y, float z, float q[4]) {
   q[3] = a * sc - d * cc;
 }
 
+// Mech3.exe 1.2 @ 0x00525280 (ECX q): euler_to_quat with z = 0, the first
+// angle `a` (about y) and the second `b` (about x): (cb ca, sb ca, cb sa,
+// -(sb sa)).
+void quat_two_angles(float a, float b, float q[4]) {
+  const float ha = a * 0.5f, hb = b * 0.5f;
+  const auto sa = static_cast<float>(std::sin(double{ha})), ca = static_cast<float>(std::cos(double{ha}));
+  const auto sb = static_cast<float>(std::sin(double{hb})), cb = static_cast<float>(std::cos(double{hb}));
+  q[0] = cb * ca;
+  q[1] = sb * ca;
+  q[2] = cb * sa;
+  q[3] = -(sb * sa);
+}
+
 // Mech3.exe 1.2 @ 0x00525740. ECX quaternion (w, x, y, z), EDX the 3x3.
 void quat_matrix(const float q[4], float r[9]) {
   const float w = q[0], x = q[1], y = q[2], z = q[3];

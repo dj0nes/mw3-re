@@ -387,6 +387,9 @@ class GameEngine : public Engine {
     const char* n = znet::player_name(id);
     return n ? n : "";
   }
+  // The mission's network start and end (piece 5).
+  void multiplayer_launch_prep() override;  // 0x0046ceb0
+  void network_leave() override;            // 0x0046d100
   uint32_t activate_running_copy() override { return 1; }
   uint32_t register_window_class() override { return 1; }
   void unregister_window_class() override {}

@@ -1,14 +1,23 @@
 // zNetwork's session over the in-process hub (docs/multiplayer-port.md,
 // piece 1): hosting and joining, the checks, sends to all and to one, the
 // system events, the shutdown.
+#include <cstdio>
 #include <cstring>
+#include <string>
 #include <vector>
 
 #include "check.h"
 #include "gamez/znetwork/znet_dplay.h"
 #include "gamez/znetwork/znet_session.h"
+#include "mech3/mech_net.h"
 
 namespace {
+// The next event a transport gives that is not a send done.
+bool next_event(znet::Transport* t, znet::Packet* p) {
+  while (t->receive(p))
+    if (!(p->from == 0 && p->sys.kind == znet::kSysSendComplete)) return true;
+  return false;
+}
 uint32_t word(const std::vector<uint8_t>& d, size_t at) {
   uint32_t v = 0;
   if (d.size() >= at + 4) std::memcpy(&v, d.data() + at, 4);
@@ -35,18 +44,17 @@ TEST(znet_session_host_join_send_and_leave) {
   EXPECT(znet::session().initialised && !znet::active());  // up, no session yet
   znet::SessionDesc desc;
   desc.name = "test";
-  EXPECT(znet::host_session(desc));
+  EXPECT(znet::host_session(desc, "Host"));
   EXPECT(znet::active() && znet::local_id() == 1 && znet::is_host());
-  EXPECT(!znet::host_session(desc));  // one session at a time
+  EXPECT(!znet::host_session(desc, "Host"));  // one session at a time
   // A second machine joins through its own transport (the hub, not zNetwork:
   // one process holds one zNetwork).
-  EXPECT(b->join("loopback") == 2);
+  EXPECT(b->join("loopback") && b->create_player("Bob", "Bob") == 2);
   znet::Packet p;
-  EXPECT(a->receive(&p) && p.from == 0 && word(p.data, 0) == znet::kSysCreatePlayerOrGroup && word(p.data, 4) == 2);
+  EXPECT(next_event(a, &p) && p.from == 0 && word(p.data, 0) == znet::kSysCreatePlayerOrGroup && word(p.data, 4) == 2);
   EXPECT(!a->receive(&p));
-  // The joiner hears of the host, already there.
-  EXPECT(b->receive(&p) && p.from == 0 && p.sys.kind == znet::kSysCreatePlayerOrGroup && p.sys.id == 1 &&
-         p.sys.player_type == 1);
+  // The joiner hears nothing of those already there: it enumerates them (0x005886c0).
+  EXPECT(!b->receive(&p));
   // To all from the host (async: its send's id, and the send-done event).
   const uint8_t m[8] = {0x14, 0, 8, 0, 9, 9, 9, 9};
   const uint32_t id = znet::send(m, 8, true, 0);
@@ -71,11 +79,11 @@ TEST(znet_session_join_needs_a_host) {
   znet::Hub hub;
   znet::session() = znet::Session{};
   znet::initialise(hub.endpoint());
-  EXPECT(!znet::join_session("loopback") && !znet::active());  // nobody hosts yet
+  EXPECT(!znet::join_session("loopback", "Me") && !znet::active());  // nobody hosts yet
   znet::Transport* h = hub.endpoint();
   znet::SessionDesc d;
-  EXPECT(h->host(d) == 1);
-  EXPECT(znet::join_session("loopback") && znet::active() && znet::local_id() == 2 && !znet::is_host());
+  EXPECT(h->host(d) && h->create_player("Host", "Host") == 1);
+  EXPECT(znet::join_session("loopback", "Me") && znet::active() && znet::local_id() == 2 && !znet::is_host());
   znet::shutdown();
 }
 
@@ -122,10 +130,10 @@ TEST(znet_poll_over_the_hub) {
   znet::session() = znet::Session{};
   znet::initialise(hub.endpoint());
   znet::SessionDesc d;
-  EXPECT(znet::host_session(d));
-  EXPECT(znet::poll(-1) == 0);  // nothing waiting
+  EXPECT(znet::host_session(d, "Host"));
+  EXPECT(znet::poll(-1) == 1);  // our 0xd's send done (the host says so on making its player)
   znet::Transport* b = hub.endpoint();
-  EXPECT(b->join("loopback") == 2);
+  EXPECT(b->join("loopback") && b->create_player("B", "B") == 2);
   znet::session().system_message = [](const znet::Packet&) { ++g_sys; };
   znet::on(0x1f, &h_keep);
   const uint8_t chat[12] = {0x1f, 0, 12, 0, 0, 0, 0, 0, 'h', 'i', 0, 0};
@@ -154,16 +162,16 @@ TEST(znet_players_as_the_host) {
   znet::session() = znet::Session{};
   znet::clear_lists();
   znet::Transport* mine = hub.endpoint();
-  mine->set_name("Host", "The host");
   znet::initialise(mine);
   znet::SessionDesc d;
-  EXPECT(znet::host_session(d) && znet::is_host());
+  EXPECT(znet::host_session(d, "Host") && znet::is_host());
+  EXPECT(znet::player(1) && znet::player(1)->short_name == "Host" && znet::player(1)->is_host);  // our own record
   for (uint16_t t = 3; t <= 7; ++t) znet::on(t, &h_types);
   znet::Transport* b = hub.endpoint();
-  b->set_name("Bob", "Bob the pilot");
-  EXPECT(b->join("loopback") == 2);
+  EXPECT(b->join("loopback") && b->create_player("Bob", "Bob the pilot") == 2);
   g_types.clear();
-  EXPECT(znet::poll(-1) == 2);  // Bob's arrival, then our 0xd's send done (the sends are async)
+  // Our first 0xd's send done, Bob's arrival, our second 0xd's (the sends are async).
+  EXPECT(znet::poll(-1) == 3);
   // A record for Bob, his names, not the host; types 3 then 4.
   const znet::PlayerRecord* r = znet::player(2);
   EXPECT(r && r->short_name == "Bob" && r->long_name == "Bob the pilot" && !r->is_host && r->team == 0);
@@ -179,22 +187,20 @@ TEST(znet_players_as_the_host) {
   b->close();
   g_types.clear();
   znet::poll(-1);
-  EXPECT((g_types == std::vector<int>{6}) && !znet::player(2) && znet::lists().players.empty());
+  EXPECT((g_types == std::vector<int>{6}) && !znet::player(2) && znet::lists().players.size() == 1);
   znet::shutdown();
 }
 
 TEST(znet_players_as_a_joiner) {
   znet::Hub hub;
   znet::Transport* h = hub.endpoint();
-  h->set_name("Host", "The host");
   znet::SessionDesc d;
-  EXPECT(h->host(d) == 1);
+  EXPECT(h->host(d) && h->create_player("Host", "The host") == 1);
   znet::session() = znet::Session{};
   znet::clear_lists();
   znet::Transport* mine = hub.endpoint();
-  mine->set_name("Me", "Myself");
   znet::initialise(mine);
-  EXPECT(znet::join_session("loopback") && znet::local_id() == 2 && !znet::is_host());
+  EXPECT(znet::join_session("loopback", "Me") && znet::local_id() == 2 && !znet::is_host());
   znet::poll(-1);
   // The host's record (its caps say host), the host id still unknown.
   const znet::PlayerRecord* r = znet::player(1);
@@ -220,15 +226,13 @@ TEST(znet_players_as_a_joiner) {
 TEST(znet_teams_data_and_a_kick) {
   znet::Hub hub;
   znet::Transport* h = hub.endpoint();
-  h->set_name("Host", "The host");
   znet::SessionDesc d;
-  EXPECT(h->host(d) == 1);
+  EXPECT(h->host(d) && h->create_player("Host", "The host") == 1);
   znet::session() = znet::Session{};
   znet::clear_lists();
   znet::Transport* mine = hub.endpoint();
-  mine->set_name("Me", "Myself");
   znet::initialise(mine);
-  EXPECT(znet::join_session("loopback"));
+  EXPECT(znet::join_session("loopback", "Me"));
   for (uint16_t t = 2; t <= 0xc; ++t) znet::on(t, &h_types);
   znet::poll(-1);
   // Our own record, as the session's opening enumerates (0x005886c0, piece 4).
@@ -273,4 +277,62 @@ TEST(znet_teams_data_and_a_kick) {
   znet::poll(-1);
   EXPECT((g_types == std::vector<int>{7}));
   znet::shutdown();
+}
+
+// Piece 5a: the mission's network side over the hub. A joiner's first
+// state makes its mech (a stand-in for 0x0046d450) and is applied; the
+// other messages reach it; its leaving takes the mech away.
+namespace {
+int g_states, g_craters, g_freed;
+std::string g_left_name;
+float g_first_x;
+}  // namespace
+
+TEST(net_mission_over_the_hub) {
+  znet::Hub hub;
+  znet::session() = znet::Session{};
+  znet::initialise(hub.endpoint());
+  EXPECT(znet::host_session(znet::SessionDesc{}, "Host"));
+  znet::Transport* b = hub.endpoint();
+  EXPECT(b->join("loopback") && b->create_player("B", "B") == 2);
+  mech3::NetCalls& c = mech3::net_calls();
+  const mech3::NetCalls kept = c;
+  c = mech3::NetCalls{};
+  c.create = [](mech3::NetMech*, uint32_t from, const uint8_t*, size_t) {
+    auto* m = new mech3::NetMech();
+    m->owner = from;
+    mech3::net_game().mechs.push_back(m);
+  };
+  c.set_position = [](mech3::NetMech&, const float p[3]) { g_first_x = p[0]; };
+  c.state = [](mech3::NetMech* m, uint32_t from, const uint8_t*, size_t) { g_states += m && m->owner == from; };
+  c.crater = [](mech3::NetMech* m, uint32_t, const uint8_t*, size_t) { g_craters += m == nullptr; };
+  c.hud_message = [](float, int32_t id, const char* name) { if (id == 0x26a && name) g_left_name = name; };
+  c.free = [](mech3::NetMech* m) {
+    mech3::net_game().mechs.remove(m);
+    delete m;
+    ++g_freed;
+  };
+  c.now_ms = [] { return 1234u; };
+  g_states = g_craters = g_freed = 0;
+  const size_t before = znet::session().handlers.size();  // zNetwork's own (0xd)
+  mech3::net_start();
+  EXPECT(mech3::net_game().running && znet::session().handlers.size() == before + 18);
+  uint8_t state[16] = {0x0f, 0, 16, 0};
+  const float x = 42.5f;
+  std::memcpy(state + 4, &x, 4);
+  const uint8_t crater[4] = {0x19, 0, 4, 0}, unused[4] = {0x15, 0, 4, 0}, ping[4] = {0x10, 0, 4, 0};
+  EXPECT(b->send(1, ping, 4, true, nullptr));  // no mech for 2 yet: dropped
+  EXPECT(b->send(1, state, 16, true, nullptr) && b->send(1, state, 16, true, nullptr));
+  EXPECT(b->send(1, unused, 4, true, nullptr) && b->send(1, crater, 4, true, nullptr));
+  znet::poll(-1);
+  EXPECT(mech3::net_game().mechs.size() == 1 && mech3::net_mech(2) && mech3::net_mech(2)->heard == 1234);
+  EXPECT(g_first_x == 42.5f && g_states == 2 && g_craters == 1);
+  b->close();  // 2 leaves: its mech goes, its name on the HUD
+  znet::poll(-1);
+  EXPECT(mech3::net_game().mechs.empty() && g_freed == 1 && g_left_name == "B");
+  mech3::net_end();
+  EXPECT(!mech3::net_game().running && znet::session().handlers.size() == before);
+  mech3::net_end();  // a second time: nothing
+  znet::shutdown();
+  c = kept;
 }

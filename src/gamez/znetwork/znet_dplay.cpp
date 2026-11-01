@@ -296,6 +296,33 @@ bool set_team_data(uint32_t id, const void* data, uint32_t size) {
   return id && tp() && tp()->set_data(true, id, data, size);
 }
 
+// Mech3.exe 1.2 @ 0x005886c0. A failed CreatePlayer is reported (the exe
+// then kept a null local player).
+uint32_t create_player(const char* name) {
+  Session& s = session();
+  if (!tp()) return 0;
+  const std::string n = name ? name : "noname";
+  enum_players();       // 0x005885c0
+  enum_teams();         // 0x00588200
+  enum_team_players();  // 0x00588300
+  const uint32_t id = tp()->create_player(clipped(n, 0x50), clipped(n, 0x50));
+  if (!id) {
+    network_error(zutl::localize("MSG_DPERR_GENERIC"));
+    return 0;
+  }
+  s.local = std::make_unique<Player>();
+  s.local->id = id;
+  poll(-1);  // 0x00588930
+  PlayerRecord* r = player(id);
+  if (!r) r = add_record(id, n, n);  // our record at the list's end
+  if (tp()->is_host(id)) {  // 0x00589870(0): DPCAPS_ISHOST
+    s.host_id = id;
+    r->is_host = s.local->is_host = 1;
+    say_host();
+  }
+  return id;
+}
+
 void wire_players() {
   session().system_message = &system_message;
   on(0x0d, &on_host);

@@ -811,6 +811,8 @@ void radar_light(Mech& m) {
 }
 }  // namespace
 
+void program_radar_light(void* mech) { if (mech) radar_light(*static_cast<Mech*>(mech)); }
+
 void wire_hud() {
   set_hud_hooks(&g_hooks);
   // The mech's, the weapons' and the damage's calls on the HUD (playtest #6:

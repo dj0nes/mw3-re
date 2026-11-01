@@ -106,19 +106,33 @@ Fixed part, 60 bytes:
 | Off | What |
 |---|---|
 | +4 | position, 3 floats (0x5a85e0) |
-| +0x10 | velocity x, y, z as int16; the receiver multiplies by 1/127 (0.00787402) |
-| +0x18 | heading, float, `atan2` of the mech's facing vector |
-| +0x1c, +0x20 | two dwords from 0x525f80 (likely torso twist and pitch) |
-| +0x24, +0x25 | two signed bytes, x 1/127 on receipt (likely throttle and turn) |
-| +0x28, +0x2c | two dwords (0x525a50/0x5259c0, likely aim direction) |
-| +0x30 | float, a distance (likely to the aim point) |
-| +0x34 | target DPID |
-| +0x38 | flag word: bit 0, bit 1 (not local), bits 2-6 mech state (+0x578), bits 7-10, bit 11, bits 12-18 fire-event count, bits 19-22 damage-record count, bit 23, bit 24 (shutdown override, vtable +0xa0), bits 25-27, 30, 31 |
+| +0x10 | velocity x, y, z (+0x30) x 127, ftol to int16 (no clamp: above 258 m/s it wraps); the receiver multiplies by 1/127 (0.00787402) |
+| +0x18 | heading, float: atan2(q.y, q.w) of the mech's yaw quaternion (+0x48), so half the yaw |
+| +0x1c, +0x20 | the torso's turn (its quaternion +0x118 through 0x525f80): the first two angles |
+| +0x24, +0x25 | signed bytes: the controls' throttle target (IControls vt+0x2c, +0x44) and turn (vt+0x24, +0x14), x 127 clamped to -127..127 |
+| +0x26, +0x27 | not written (0 in the static buffer) |
+| +0x28, +0x2c | the aim: the turn (quat_between (0, 0, -1) to the unit direction, then its log 0x5259c0) from the torso node's world position to the weapons' aim point (manager +0xc); its first two components |
+| +0x30 | float, the distance to that aim point |
+| +0x34 | the target's player (the target contact's mech, its +0x6fc; 0 without a target) |
+| +0x38 | flag word, below |
 
-Then one byte per fire event (bits 0-3 weapon, 4-5 mode, bit 6 "at target";
-the receiver fires that weapon on the replica, 0x4b08c0), then one dword per
-damaged section: section 1-8, then three bytes of 0-255 health (x 1/255,
-0x5e56ec) for that section's values.
+The flags: bit 0 the collision query crossed something (+0xfc == 0), bit 1
+inactive (+0x08 off), bits 2-6 the motion state (+0x578), bits 7-10 the
+first queued action (+0x480's front), bit 11 limping (+0x5ac not 0; -1,
+none, sets it too), bits 12-18 the shot count, bits 19-22 the damaged-part
+count, bit 23 passive radar (+0xbc bit 2), bit 24 powered down or powering
+down (vt+0xa0, 0x41cc10), bit 25 MASC on (+0x574), bit 26 the AMS on (its
+first byte), bit 27 NARCed (+0x570 > 0), bit 30 jumping (the controls' jump,
+vt+0x38, not 0), bit 31 crouched (+0x586). Bits 28 and 29 are never written.
+
+Then one byte per shot since the last state (bits 0-3 the weapon's slot,
+4-5 the manager's trigger state, bit 6 a locked target; the receiver fires
+that weapon on the replica, 0x4b08c0), then one dword per damaged part: the
+part id (1-8), then three bytes of 0-255 (1 is 255, 0 is 0, else ceil(f x
+255)): the internal structure (vt+0x48) and the armour (vt+0x44) of the
+part's section (7 and 8 are the torso's sections 1 and 2), and the armour
+of section + 3 (the rear). The count covers bits 0 and 9 of +0x680 too,
+which are never written: their words are sent as zeros.
 
 Every 26th state packet sets all eight section bits (0x46efc4, `+0x680 =
 0x1fe`), so the full damage state is resent about every 4-13 s in case

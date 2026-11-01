@@ -233,7 +233,7 @@ void Mech::release() {
     node = nullptr;
   }
   release_shadow();  // the bases' 0x004d58a0
-  x6d0.clear(), x678.clear(), actions.clear();
+  x6d0.clear(), net_shots.clear(), actions.clear();
 }
 
 // Mech3.exe 1.2 @ 0x004aeb00 (veh_basic.cpp's neighbour): the vehicle over
@@ -319,7 +319,7 @@ void mech_construct(Mech& m, MechData* data, MechControls* ctl, Config* cfg, con
   m.impulse = kZero, m.push = kZero;
   m.collides = true;
   m.heat_sinks.tech = 3, m.heat_sinks.count = 0, m.heat_sinks.doubles = false;
-  h.on_new(0xc, &m.x678);
+  h.on_new(0xc, &m.net_shots);
   m.pilot = data;
   m.x68c = nullptr;
   m.frame_dt = 0;
@@ -340,7 +340,7 @@ void mech_construct(Mech& m, MechData* data, MechControls* ctl, Config* cfg, con
   m.ams = nullptr;
   m.detail = static_cast<uint32_t>(-2);  // 0x0041e9e0
   m.model_node = m.lod_node = nullptr;
-  m.x690 = m.x680 = 0;
+  m.x690 = m.net_damaged = 0;
   m.alive_time = 0;
   m.anim_index = 2;
   for (MechAnim*& a : m.anims) a = nullptr;

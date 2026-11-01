@@ -1615,6 +1615,19 @@ int probe_config_blob(const char* name, const uint8_t* blob, int n, uint8_t* out
   return finish(b, out, cap);
 }
 
+// Config::unpacked (0x004259c0) on another player's packed loadout, then
+// its weight and Validate (test_config_unpack.py).
+int probe_config_unpack(const uint32_t* p, int words, uint8_t* out, int cap) {
+  mech3::Config* c = mech3::Config::unpacked(p, static_cast<size_t>(words));
+  std::vector<uint8_t> b;
+  put_config(b, c);
+  const auto w = static_cast<float>(c->weight(-1));
+  put_bytes(b, &w, 4);
+  b.push_back(c->validate(false));
+  delete c;
+  return finish(b, out, cap);
+}
+
 // Config(-1, name) + Load, then Config::copy_of as the slot copy makes it,
 // over stand-in dfns whose firepoints' parts test_mechsave.py's fake_parts gives.
 int probe_config_copy(const char* name, const uint8_t* blob, int n, uint8_t* out, int cap) {

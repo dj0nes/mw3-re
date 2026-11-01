@@ -22,30 +22,18 @@ void initialise(Transport* t) {
   if (t) wire_players();  // 0x00586bfc's registration of 0xd, the translation
 }
 
-namespace {
-bool start(uint32_t id) {
+bool host_session(const SessionDesc& desc, const char* name) {
   Session& s = session();
-  if (!id) return false;
-  s.local = std::make_unique<Player>();
-  s.local->id = id;
-  s.open = true;
-  return true;
-}
-}  // namespace
-
-bool host_session(const SessionDesc& desc) {
-  Session& s = session();
-  if (!s.initialised || s.open) return false;
-  const uint32_t id = s.transport->host(desc);
-  if (!start(id)) return false;
-  s.host_id = id;  // the host's own 0xd (0x0058886c) says so to the others
-  return true;
+  if (!s.initialised || s.open || !s.transport->host(desc)) return false;
+  s.open = true, s.desc = desc;
+  return create_player(name) != 0;
 }
 
-bool join_session(const std::string& address) {
+bool join_session(const std::string& address, const char* name) {
   Session& s = session();
-  if (!s.initialised || s.open) return false;
-  return start(s.transport->join(address));  // the host's 0xd names the host
+  if (!s.initialised || s.open || !s.transport->join(address)) return false;
+  s.open = true, s.desc = s.transport->session_desc();  // 0x00587580's copy of the joined one
+  return create_player(name) != 0;
 }
 
 // Mech3.exe 1.2 @ 0x00586ce0
@@ -183,6 +171,7 @@ struct Hub::Impl {
   };
   std::vector<std::unique_ptr<End>> ends;
   std::vector<Group> groups;
+  SessionDesc desc;
   uint32_t next_id = 1, next_msg = 1, host_id = 0, next_group = 1000;
   bool hosted = false;
   void system(End* to, const SystemEvent& e);
@@ -200,6 +189,7 @@ struct Hub::Impl::End : Transport {
   uint32_t id = 0;
   std::string short_name, long_name;
   std::vector<uint8_t> data;  // the player's replicated data
+  bool opened = false;
   std::deque<Packet> inbox;
   uint32_t create_group(const std::string& name) override {
     if (!id) return 0;
@@ -255,12 +245,12 @@ struct Hub::Impl::End : Transport {
     out->clear();
     for (auto& o : hub->ends)
       if (o->id) out->push_back(Member{o->id, o->short_name, o->long_name});
-    return id != 0;
+    return opened;  // after Open, before CreatePlayer too (0x005886c0)
   }
   bool groups(std::vector<Member>* out) override {
     out->clear();
     for (const Group& g : hub->groups) out->push_back(Member{g.id, g.name, g.name});
-    return id != 0;
+    return opened;
   }
   bool group_players(uint32_t gid, std::vector<uint32_t>* out) override {
     out->clear();
@@ -300,28 +290,28 @@ struct Hub::Impl::End : Transport {
     std::memcpy(d, from->data(), from->size());
     return true;
   }
-  void set_name(const std::string& s, const std::string& l) override { short_name = s, long_name = l; }
   bool is_host(uint32_t who) const override { return who && who == hub->host_id; }
-  uint32_t host(const SessionDesc&) override {
-    if (hub->hosted || id) return 0;
-    hub->hosted = true;
-    return hub->host_id = id = hub->next_id++;
+  SessionDesc session_desc() const override { return hub->desc; }
+  bool host(const SessionDesc& d) override {
+    if (hub->hosted || opened) return false;
+    hub->hosted = opened = true;
+    hub->desc = d;
+    return true;
   }
-  uint32_t join(const std::string&) override {
-    if (!hub->hosted || id) return 0;
+  bool join(const std::string&) override {
+    if (!hub->hosted || opened) return false;
+    return opened = true;
+  }
+  // The first player made is the host; the others hear of a new one (it
+  // learns of them by enumerating, 0x005886c0).
+  uint32_t create_player(const std::string& s, const std::string& l) override {
+    if (!opened || id) return 0;
+    short_name = s, long_name = l;
     id = hub->next_id++;
+    if (!hub->host_id) hub->host_id = id;
     SystemEvent e;
-    e.kind = kSysCreatePlayerOrGroup, e.player_type = 1, e.id = id, e.short_name = short_name, e.long_name = long_name;
-    for (auto& o : hub->ends)
-      if (o.get() != this && o->id) hub->system(o.get(), e);
-    // The joiner hears of everyone already there, as DirectPlay's join does.
-    for (auto& o : hub->ends)
-      if (o.get() != this && o->id) {
-        SystemEvent k;
-        k.kind = kSysCreatePlayerOrGroup, k.player_type = 1, k.id = o->id, k.short_name = o->short_name,
-        k.long_name = o->long_name;
-        hub->system(this, k);
-      }
+    e.kind = kSysCreatePlayerOrGroup, e.player_type = 1, e.id = id, e.short_name = s, e.long_name = l;
+    hub->to_all(e, this);
     return id;
   }
   void close() override {
@@ -329,6 +319,7 @@ struct Hub::Impl::End : Transport {
     SystemEvent e;
     e.kind = kSysDestroyPlayerOrGroup, e.player_type = 1, e.id = id;
     id = 0;
+    opened = false;
     inbox.clear();
     for (auto& o : hub->ends)
       if (o->id) hub->system(o.get(), e);

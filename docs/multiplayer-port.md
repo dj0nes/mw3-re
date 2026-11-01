@@ -242,6 +242,20 @@ functions (about 4,050 lines of pseudocode), the game's network code at
 10. The game list and host screen (EnumSessions' list, join, create a game
     with its name and limit): its controls from dialog.zrd's MULTIPLAYER
     dialogs. (2)
+    Owen's decisions for 9-10 (2026-10-31, through the lead):
+    - The original's screens stay. The connection screen keeps its layout
+      and offers games on the LAN (found automatically, click to join),
+      Join by address (host:port) and Host a game; no IPX, modem or serial.
+    - Internet play at "level 1", with no server of ours: UPnP port mapping
+      when hosting (miniupnpc, BSD, vendored as ENet is, its licence in
+      THIRD-PARTY), removed on close and falling back quietly when the
+      router says no; the host's screen shows its address (the public one
+      from UPnP's external IP when known, and the LAN one) with a copy
+      button; a clear line when the port could not be opened ("forward UDP
+      27930 on your router").
+    - Room on the connection screen for a later "Browse internet games" (a
+      master server or punch-through, after v1.0).
+    - Tests: UPnP against a fake IGD responder on loopback.
 11. The lobby screen 0x00495f90: players and teams (0x1e slots, 0x00588200
     lists), the host's settings (0x20: the check boxes such as
     AMMO_CHECKBOX, the four lists, DATABASE_LIST's mission), ready and
@@ -346,6 +360,197 @@ Then the two-process and soak tests over the whole flow, menus included.
   every DirectPlay call and argument, answer, error message and list
   identical; two breaks caught), `znet_teams_data_and_a_kick` (a break
   caught).
+
+- **Piece 4** (2026-10-31): the transport. ENet 1.3.18 vendored in
+  `third_party/enet` (MIT, unmodified; its release tarball's sha256 noted, and
+  every kept file identical to GitHub's v1.3.18 tag; ENet signs nothing), its
+  notice in both THIRD-PARTY files. `frontend/sdl/net_enet`: `EnetTransport`
+  (one ENet host per machine, listening and connecting; channel 0 reliable
+  for guaranteed messages and ours, 1 unreliable; frames written by offset,
+  little-endian). A joiner connects to the host (HELLO; WELCOME brings the
+  session's description, its players with the addresses the host sees, the
+  teams and the data), asks for its player (CREATE; the host gives the id
+  and tells the others, PLAYER), then links to each other player (MESH); a
+  link that comes before the host's word of its player is held until it.
+  Teams and data go from whoever changes them to everyone (team ids
+  0x10000 x the maker's id + n: no host round trip); team chat to the team's
+  members; a kick (KICK) makes the player leave; the host's link lost, the
+  lowest id left is the host (DPSYS_HOST). The send done (0xe) is at once:
+  ENet queues without waiting. The loss and lag shim (`NetOptions` loss and
+  delay, MW3_NET_LOSS / MW3_NET_DELAY): unreliable messages dropped, all
+  held. LAN discovery: `DiscoveryAnswer` on UDP 27931 answers "MW3R?" with
+  the session (name, players, limit, game port); `browse` asks the LAN's
+  broadcast or given addresses. The game port 27930 (a host's default; a
+  joiner's the system's). DirectPlay's Open and CreatePlayer apart in the
+  transport, and the local player made as 0x005886c0 does
+  (`znet::create_player`: enumerated first, CreatePlayer, our record at the
+  list's end, the host's caps make it host and send 0xd); the joiner learns
+  of those already there by the enumeration, not by events. `mw3 --host` /
+  `--join HOST[:PORT]` (with `--net-name`, `--net-port`, `--net-bind`,
+  `--net-say TEXT@N`) start a session before the game and log its events
+  (ours, until the lobby screens). Tests: `test_znet_create.py` (0x005886c0
+  over 40 cases identical; a break caught), `net_enet_three_machines_join_talk_and_part`
+  and `net_enet_lan_discovery_and_the_shim` (mw3sdltests: three machines on
+  127.0.0.1 with system-chosen ports, the mesh, teams, data, team chat, a
+  kick, the host's leaving, discovery, the shim; a break caught),
+  `sdl_two_processes_host_and_join` (two mw3 processes: the join, the chat
+  line, the host passing on; a break caught). mingw compiles the transport
+  and ENet for Windows. Not yet run on Windows itself, nor across two
+  machines.
+
+- Piece 5 was split: **5a** the start, the end, the router and a player
+  leaving; **5b** the network mech (0x0046d450 with the player data read
+  0x0046d820, the constructor 0x0046e280 and its controls).
+- **Piece 5a** (2026-10-31): `mech3/mech_net` (original file unknown,
+  between mech_reader.cpp and mech_salvage.cpp). The start 0x0046ceb0
+  (once: the missing players' list emptied; 0xf-0x1b, 0x1f, 0x21 and 0x14 to
+  the router 0x0046d880, 6 to 0x0046d3b0, 1 to 0x004d72a0 (returns 0), 0xe
+  to 0x004709d0; zDecal's crater veto 0x0046fd30; the flag [0x00605fb4],
+  the weapons' copy too; the anim log's network hook 0x0046feb0 with tag
+  0xc, `zeff::log_set_net` = 0x0050d1d0; the network game's +0x7c, +0x80,
+  +0x84 cleared; the dead reckoning's gains [0x005e55f0] = -6.5 and
+  [0x005e55ec] = -0.3, the data's -3.5 before). The end 0x0046d100 undoes
+  it: the handlers off, the veto and flag cleared, the pilot's mech's
+  0x0041e580, each remote mech forgotten by the sensors, taken off the
+  list and deleted, the local player's data set empty, the anim hook off,
+  the force feedback stopped, the configs freed, the missing players' list emptied.
+  The router: 0x19 straight to 0x0046fde0; the rest only from a player
+  with a mech on the list [0x00605f84] (looked up by +0x6fc), each type to
+  its handler (the mech as ECX for most; 0x00470740, 0x0046eba0 the
+  message only; 0x0046ffd0, 0x004705b0 the mech on the stack too;
+  0x00470490 the sender); 0x15 is registered but dropped; a first 0xf from
+  a player without one calls 0x0046d450 and, once the mech is there, puts
+  it at the state's position (vt+0x18), stamps timeGetTime at +0x73c,
+  routes the message again and dead-reckons it a frame (vt+0x158). A
+  player leaving (6): the HUD's 0x26a with their name for 4 s, the sensors'
+  forget, the mech's delete (its destructor 0x0046e3c0 takes it off the
+  remote and the dead mechs' lists), and the lobby slot's +0x18 set (the
+  game's list at +0x48, 0x00495b10). The handlers of pieces 5b-7 and the
+  lobby are `NetCalls` hooks until then; the crater veto and the anim hook
+  are unset until piece 7 (craters stay local meanwhile). Wired: the
+  briefing's launch and the quit box (`multiplayer_launch_prep`,
+  `network_leave`). Tests: `test_mech_net.py` (400 scripts of starts, ends,
+  messages and players leaving against the exe, the list carried along;
+  two breaks caught) and `net_mission_over_the_hub` (mw3tests).
+
+- Piece 5b was split again: **5b** the records (the local player's at the
+  launch, another's read and unpacked), **5c** the network mech made from
+  them (0x0046d450, the constructor 0x0046e280, its controls).
+- **Piece 5b** (2026-10-31): the launch 0x0046da80 (`net_launch_player`,
+  LaunchHooks::multiplayer): the state sends' globals [0x00605f9c..a4] and
+  the mech's acknowledgement (+0x668 = 1, +0x66c = 0) cleared; the record
+  (0x0046dd90's buffer: 2, the slot's skin, the mech's roster, then the
+  packed loadout of the game's slot 0, Config::packed) set as the local
+  player's data; the team masks from the lobby's team (0x00435910); the
+  game's unlimited ammo (+0x8d, 0x004b0220) and outside view (+0x8e,
+  0x0040ae70(1)); the scores (0x004361e0, a hook); then aiv.zrd's
+  "remote_<slot>" (the lobby slot's +0x20), moved 10 m by the slot
+  (0x0046e0a0: slots 2-4 +x, 1 and 5 none, the rest -x; 0-2 +z, 3 and 7
+  none, the rest -z), the mech placed there (vt+0xdc) and the force
+  feedback's spring started (0x004338a0). The mech's definition is loaded
+  first and unused (0x004846a0). The record's read 0x0046d820
+  (`net_read_record`, under 8 bytes none). `Config::unpacked` = 0x004259c0
+  (named "remote config", made by the player; the engine clamped to the
+  table; the armour tons come back doubled, then an armour item sets them
+  again; FIX (bug): no items read past the record), with the ammo and
+  weapon adders 0x00472210 (onto the like item unless over a ton) and
+  0x00472330. The lobby's team and slot are hooks until piece 11. Tests:
+  `test_config_unpack.py` (744 packed loadouts, every dfn's built-ins
+  changed, identical with their weight and Validate; a break caught; a
+  stock loadout unpacked is valid exactly when it was),
+  `test_mech_net_launch.py` (600 launches identical; a break caught).
+
+- **Piece 5c** (2026-10-31): the network mech. 0x0046d450
+  (`net_mech_create`, the router's default for a first 0xf): the sender's
+  record read (0x0046d820); a record of kind 2 gives the roster (+8), the
+  skin (+4) and the packed loadout (+0xc); the definition (0x004846a0), the
+  team (0x00435910), the loadout unpacked and checked (Validate without the
+  checksum): a valid one is named "<player>'s Config" and kept on the list
+  [0x00605f74], a failed one is freed and the player's id put on the
+  missing list [0x00605f94] (a list of ids, written and never read). With a
+  definition, a loadout and a roster: the controls (`NetControls`: the
+  base's smoothing, owned by the mech, vt+0x18 0x004d7210), the type's data
+  (0x00430d10), the mech (0x0046e280, `net_mech_new`: the mech's own build
+  0x004149f0, the label object at +0x76c (0x005a00c0, GDI text: a hook),
+  vtable 0x005c3508 (`Mech::remote`: its vt+0x5c answers yes), the owner
+  +0x6fc, not colliding (+0x5b0), on the list, in the world, its torso in
+  mode 2 (0x00466190 gives 2 for any network mech whatever it is asked),
+  powered up, +0x740 the quaternion (1, 0, 0, 0)); its team masks, its
+  skin (0x00414390, none past the definition's), its sensor range set again
+  (0x004d6d20), +0x6f8 = 0; the host replays the anims and craters to it
+  (0x004700a0, 0x00500c60 with 0x004700e0: a hook until piece 7). Its
+  delete (the app's): off the lists, the label, the mech's own release,
+  off the program's registry. FIX (bug): a record too short for a
+  loadout's head gives none, one under 12 bytes reads zeros past its end,
+  and the controls are deleted when the type's data fails. Tests:
+  `test_mech_net_create.py` (800 creations identical; a break caught),
+  `net_mech_made_from_a_record_c1m1_headless` (mw3tests: in c1m1 a second
+  player over the hub joins with the pilot's mech, its mech is built, put
+  at its first state's place, not colliding, in the world, torso mode 2;
+  its leaving deletes it; a break caught).
+  Open: the network controls' pilot tick is _purecall in the exe, and the
+  mech's death calls it through vt+0xa8 (0x004aed50); whether a remote
+  mech ever dies that way is piece 7's (the port's tick does nothing).
+
+- Piece 6 split: **6a** the sending side, **6b** the receiving side (the
+  state applied with dead reckoning 0x0046e4d0 / 0x0046ed70, the fire
+  events 0x004b08c0, the pings' answer 0x00470a00, the send done 0x004709d0).
+- **Piece 6a** (2026-10-31): the mech's vt+0x168 0x0046f160
+  (`net_send_event`): the state 0xf (`net_state_message`, its layout in
+  network-messages.md; the send's id back, the shots' records and damage
+  bits cleared after), the ping 0x10 to the next player round the list
+  (0x00470ab0, `net_next_player`; the host's every tenth ping checks the
+  rules, piece 8's), a part's damage bit 0x15, a shot record 0x16 (the
+  Weapon's slot, the manager's trigger state, the locked target's player);
+  0x11-0x13, 0x17, 0x21 piece 7's (`NetCalls::send_other`). The local
+  mechs' vt+0x158 0x0046ef70 (`net_mech_tick`): the state at the rate of
+  0x00470b40 (`net_send_period`, [0x00608e28] the lobby's setting, the
+  lobby's player count) with every part's damage each 26th, a ping every
+  5.1 s, the one-minute warning (0xf0b) and the last second, the game's
+  end state at 3 s left, the host's clock (0x11) every 5 s and each frame
+  while ending, the game over once ended. Mech fields named: +0x678
+  `net_shots`, +0x680 `net_damaged`; the network mech's ping fields
+  (+0x6d8..+0x6f8, +0x6f8 the latency); MultiplayerGame +0x7c / +0x80 /
+  +0x84 `clock_next` / `end_time` / `end_state` (floats and a state).
+  `zmth::quat_log` = 0x005259c0. Wired: DamageCalls/WeaponCalls
+  `net_event`, the update's and the dead list's `net_update` (a network
+  mech's goes to piece 6b's reckoning). FIX (A): a shot's or state's
+  target that is not a network mech gives 0 (the exe reads +0x6fc past a
+  plain mech). Tests: `test_mech_net_send.py` (3000 sends and timer runs
+  identical, the state's computed floats within float rounding; a break
+  caught), and in `net_mech_made_from_a_record_c1m1_headless` the pilot's
+  real state reaching the other player with its place. Not yet: the
+  lobby's player count (0 until piece 11: the rate is then 0.5 s).
+
+- **Piece 6b** (2026-10-31): the receive side. 0x0046e4d0
+  (`net_state_apply`, the router's default for 0xf): the fixed part kept
+  (+0x700, `NetStateIn`); unless the state says inactive, the velocity
+  (x 1/127, +0x760), the throttle and turn through IControls (vt+0x20,
+  +0x28), the torso's turn (0x00525280 `zmth::quat_two_angles`, 0x004646f0),
+  the aim (quat_exp of its turn, carried on from the last by (latency +
+  gap) / gap, a latency in seconds over a gap in milliseconds; rotated onto
+  (0, 0, -range) from the torso node: the weapons' aim, 0x004b0bc0), the
+  heading quaternion (+0x750), the passive radar (vt+0xb8's light) and the
+  target (the pilot, a network mech by player 0x00470c20, or none:
+  0x004a7b40); then the shots replayed (0x004b08c0, the target a player id)
+  and the damaged parts set (vt+0x3c, vt+0x40 x 1/255; the parts read only
+  when the message holds more than the shots); the power, AMS, MASC, NARC,
+  crouch, jump and the motion state's changes (from 0: the limp's end;
+  from 1-9 to 0 its start; 12 / 13 the actions 6 / 5; from 10 the respawn,
+  piece 7's). 0x0046ed70 (`net_reckon`, a network mech's vt+0x158): to the
+  state's place and heading at once when its flag bit 0 says so, else
+  blended (fast_exp at -6.5) with the place carried on at the velocity,
+  damped at -0.3, and the heading slerped; set (vt+0x18), the matrix, the
+  entity moved. 0x00470a00 (`net_ping_in`): the latency, (round trip -
+  their delay - (our acked time - theirs)) x 0.0005. 0x004709d0
+  (`net_send_done`): the pilot's state acknowledged. A network mech's own
+  vt+0x168 is 0x0046ef50 (0): the sender answers nothing for it. Wired:
+  the target's pick, the radar's light, the shots' target players
+  (WeaponCalls::net_target). FIX (bug): a state under 0x3c bytes is
+  dropped, and the payload is read only as far as the message goes. Tests:
+  `test_mech_net_apply.py` (3000 applies, reckonings, pings and sends done
+  identical, floats within rounding; a break caught), and the c1m1 test's
+  second state followed (a break caught).
 
 ## Open
 

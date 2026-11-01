@@ -255,9 +255,6 @@ const std::map<std::string, const char*>& known_keys() {
       {"0x00535ed0", "no effect: the threshold is read only by the software draw 0x0053e050"},
       {"0x004f8f60", "no effect: zSave registration with flag 0; the port's classes_reset registers none either"},
       {"0x00537520", "no effect: Releases the used textures' system surfaces; the port's record is one Render3D handle"},
-      {"0x0046ef70", "no effect: a mech's network update (vt+0x158) tests the network game (0x00479480) first; a census stand-in"},
-      {"0x0046f160", "no effect: a mech's network message (vt+0x168) returns at once without [0x00605fb4] (network game running); a census stand-in"},
-      {"WeaponCalls.net_event", "no effect: a weapon's network message (vt+0x168, 0x0046f160) returns at once without [0x00605fb4]; a census stand-in"},
       {"0x00519e50", "no effect: zFont's bitmap fonts, loaded but never drawn or measured in 1.2 (only TextBase's own vtable reaches its draw, and no object keeps it; its centring needs +0x238, which nothing sets; twod.md section 4)"},
       {"0x00526510", "own: zModel's start, the port's struct initialisers; what differs is unread or set first (module-starts.md)"},
       {"0x005578f0", "own: zRender's start, the same (module-starts.md)"},
@@ -879,6 +876,9 @@ void GameEngine::render_reset() {
 }
 void GameEngine::message_panel_init(Handle, Handle) { mech3::message_panel_create(); }
 void GameEngine::message_panel_free() { mech3::message_panel_destroy(); }
+// The mission's network start and end (mech_net.cpp, multiplayer-port.md piece 5).
+void GameEngine::multiplayer_launch_prep() { net_start(); }
+void GameEngine::network_leave() { net_end(); }
 void GameEngine::video_begin_3d() { zvid::lock_3d(); }
 void GameEngine::video_end_3d() { zvid::unlock_3d(); }
 void GameEngine::video_begin_scene() { zvid::scene_begin(); }

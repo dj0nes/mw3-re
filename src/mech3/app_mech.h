@@ -28,6 +28,37 @@ struct MechWiring {
   void (*forget_object)(void* e, const void* p) = nullptr;  // an object freed: its handle forgotten (FIX (A))
 };
 void wire_mech_build(const MechWiring* w);  // null: the hooks' defaults again
+void net_start();  // 0x0046ceb0 (mech_net.cpp): the mission's network start
+void net_end();    // 0x0046d100: its end
+void net_set_game_clear(void (*fn)());  // the start's clear of the network game's +0x7c..+0x84
+// The network game's part in the launch (0x0046da80): its slot 0's loadout
+// and skin, its unlimited ammo (+0x8d) and outside view (+0x8e).
+struct Config;
+struct NetLaunchGame {
+  Config* loadout = nullptr;
+  int32_t skin = 0;
+  bool unlimited_ammo = false, outside_view = false;
+};
+void net_set_launch_game(bool (*fn)(NetLaunchGame* out));
+// The network game's fields and the mission's clock for the sends (0x0046ef70).
+struct NetGameAccess {
+  bool (*fields)(int32_t* players, float** clock_next, float** end_time, int32_t** end_state) = nullptr;
+  float (*game_time)() = nullptr;   // [0x0060991c]
+  float (*clock_left)() = nullptr;  // [0x00609920]
+  bool (*clock_on)() = nullptr;     // [0x00609924]
+};
+void net_set_game_access(const NetGameAccess& a);
+// Ours, for the tests (multiplayer-port.md piece 5c): in the mission that is
+// up, a network game over the in-process hub; another player joins with the
+// pilot's own mech type and loadout, sends its first state 30 m east of the
+// pilot, then leaves; then the end. What was seen of its mech.
+struct NetMechSeen {
+  int32_t made = 0, remote = 0, collides = 1, torso_mode = -1, in_world = 0, configs = 0, config_named = 0;
+  int32_t moved = 0, after_leave = -1, handlers_after = -1;
+  int32_t state_sent = 0;  // the pilot's state (0xf) reached the other player, at the pilot's place
+  int32_t followed = 0;    // a second state 10 m on (to be taken at once, flag bit 0) and a frame: the mech there
+};
+bool program_net_mech_check(NetMechSeen* out);
 // The pocket commander's program side (app_pocket.cpp), from wire_mech_build;
 // the marker a handle names, if it is the mission's.
 void wire_pocket(const MechWiring* w);

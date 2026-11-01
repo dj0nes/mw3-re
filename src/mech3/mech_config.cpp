@@ -29,6 +29,8 @@ void rd(std::FILE* f, void* p, size_t n) { std::fread(p, 1, n, f); }
 // WriteFile; the exe's counts are what WriteFile reports.
 uint32_t wr(std::FILE* f, const void* p, size_t n) { return static_cast<uint32_t>(std::fwrite(p, 1, n, f)); }
 
+constexpr int32_t kEngineLimit = 79;  // [0x005e3304], the engine table's last
+
 EquipmentItem* new_equipment(int32_t n, int32_t kind, int32_t tech) {
   auto* e = new EquipmentItem;
   e->count = n, e->equipment = kind, e->tech = tech;
@@ -584,6 +586,80 @@ std::vector<uint32_t> Config::packed() const {
   }
   p[0] |= (n * 0xc + 0x34) & 0xffff;
   return p;
+}
+
+// Mech3.exe 1.2 @ 0x004259c0 (ECX the packed form), the network's: a
+// loadout named "remote config" from another player's packed one. The armour
+// tons come back doubled (the packer already gave half tons); an armour item
+// sets them again as it is added. FIX (bug): no items are read past `words`
+// (the exe reads as many as the size word says).
+Config* Config::unpacked(const uint32_t* p, size_t words) {
+  const uint32_t n = ((p[0] & 0xffff) - 0x34) / 0xc;
+  auto* c = new Config(static_cast<int32_t>(p[0] >> 16), "remote config");
+  c->player_made = 1;
+  const uint32_t w = p[1];
+  c->endo_steel = (w >> 1) & 1;
+  c->engine = std::clamp(static_cast<int32_t>((w >> 2) & 0x7f), 0, kEngineLimit);
+  c->xl = (w >> 9) & 1;
+  const float half_tons = static_cast<float>((w >> 11) & 0x7ffff);
+  c->armor_tons = half_tons + half_tons;
+  c->ferro = (w >> 10) & 1;
+  c->armor_tech = c->ferro ? static_cast<int32_t>(w >> 30) : kAnyTech;
+  for (int i = 0; i < 11; ++i) c->armor[i] = static_cast<int32_t>(p[2 + i]);
+  const size_t fit = words > 13 ? (words - 13) / 3 : 0;
+  const size_t count = static_cast<int32_t>(n) > 0 ? std::min<size_t>(n, fit) : 0;
+  for (size_t k = 0; k < count; ++k) {
+    const uint32_t* q = p + 13 + 3 * k;
+    const int32_t id = static_cast<int32_t>((q[0] >> 3) & 0xffff);
+    const int32_t tech = static_cast<int32_t>((q[0] >> 19) & 3), num = static_cast<int32_t>(q[0] >> 21);
+    ConfigItem* item = nullptr;
+    switch (q[0] & 7) {
+      case 1:  // a weapon: its group and firepoint as they are
+        item = c->add_weapon(id, tech);
+        item->group = static_cast<int32_t>(q[1]);
+        item->part = static_cast<int32_t>(q[2]);
+        continue;
+      case 2: item = c->add_ammo(id, num); break;
+      case 3: item = c->add_equipment(id, tech, num); break;
+      default: continue;
+    }
+    item->group = static_cast<int32_t>(q[1]);
+    item->set_part(static_cast<int32_t>(q[2]));
+  }
+  return c;
+}
+
+// Mech3.exe 1.2 @ 0x00472210 (vt+0x08): n more rounds of a weapon's ammo,
+// onto the item like it unless that would weigh over a ton.
+AmmoItem* Config::add_ammo(int32_t weapon, int32_t n) {
+  AmmoItem probe;
+  probe.count = 1, probe.weapon = weapon;
+  auto* found = static_cast<AmmoItem*>(find_like(&probe));
+  const double per = ammo_weight(weapon);
+  if (found) {
+    const int32_t total = found->count + n;
+    if (static_cast<double>(total) * per > 1.0) {  // [0x005c36d8]
+      found = nullptr;
+    } else {
+      found->count = total < 0 ? 0 : total;
+    }
+  }
+  if (!found) {
+    found = new AmmoItem;
+    found->count = n, found->weapon = weapon;
+    items.push_back(found);
+  }
+  modified = 1;
+  return found;
+}
+
+// Mech3.exe 1.2 @ 0x00472330 (vt+0x10): one weapon of that tech, at the end.
+WeaponItem* Config::add_weapon(int32_t weapon, int32_t tech) {
+  auto* w = new WeaponItem;
+  w->count = 1, w->weapon = weapon, w->tech = tech;
+  items.push_back(w);
+  modified = 1;
+  return w;
 }
 
 // Mech3.exe 1.2 @ 0x004255b0. CRC-32 (0x00576c10) of the name, the packed form

@@ -149,7 +149,9 @@ A few:
 
 ## Building from source
 
-See [docs/building.md](docs/building.md).
+See [docs/building.md](docs/building.md). How the code is organised (the
+shared engine, MechWarrior 3, Pirate's Moon and the launcher):
+[docs/games-layout.md](docs/games-layout.md).
 
 ## Credits and licence
 

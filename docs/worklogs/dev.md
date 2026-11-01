@@ -2456,3 +2456,95 @@ Assigned after 8b2 merged (fd3f05f). The lead asked for a section stepped at bot
   enumeration's answer read as [0x7307c0] after them. A prefix gives the
   teams members so the removal break shows. create_team on failure: no
   record (0x5883fb), fixed after the first version kept one.
+
+## Multiplayer, piece 4: the ENet transport (2026-10-31)
+
+- ENet 1.3.18 vendored (both downloads in the scratchpad's enet-dl; release
+  tarball 2a8a0c53..., GitHub tag archive 28603c89..., every kept file the
+  same). CMake: an `enet` library, unix.c's HAS_* macros, ws2_32 / winmm on
+  Windows; mw3sdl links it.
+- 0x5886c0 read: the record, the three enumerations, CreatePlayer(+0x18),
+  the caps, a poll, the record appended, host -> 0xd. The transport's
+  host/join now only open; create_player makes the player. The hub follows
+  (no events of existing players to a joiner: it enumerates).
+- net_enet: frames (kGame .. kRefused); the WELCOME roster's addresses as
+  the host sees them; the joiner's links to the others, held when a MESH
+  beats the host's PLAYER (a race the first version had). Blocking waits
+  (join, create_player) run NetOptions::while_waiting each round: the
+  in-process tests pump the host there.
+- mw3 --host/--join; the network log lines; the two-process test reads the
+  host's port from its log. Its ending is timing (who leaves first), so it
+  checks either side's view; the joiner's "the host N" line can show 0
+  (the 0xd can come after), so its "is the host" line is checked.
+
+## Multiplayer, piece 5a: the mission's network start, end and router (2026-10-31)
+
+- Piece 5 split: 5a here, 5b the network mech (0x46d450, 0x46d820,
+  0x46e280). `mech3/mech_net`: NetMech (owner +0x6fc, heard +0x73c), NetGame
+  (the flag, the remote mechs, configs, missing names, the reckoning gains),
+  NetCalls (the handlers of pieces 5b-7 and what the router calls).
+- Read from the disassembly: the router's jump table (0x15 dropped), which
+  handlers get the mech in ECX, on the stack, or only the message; the first
+  0xf's path (create, look up again, vt+0x18 with msg+4, timeGetTime at
+  +0x73c, the router again, vt+0x158 with [0x72c52c]). The network mech's
+  destructor 0x46e3c0 takes it off 0x605f84 and the dead list 0x605510.
+- The app's files see Handle as uint32_t: mech_net.h stays out of them;
+  net_start/net_end and net_set_game_clear are declared in app_mech.h, the
+  wiring is app_mech.cpp's wire_net. ztimer::ticks_ms added for timeGetTime;
+  zeff::log_set_net is 0x50d1d0.
+- test_mech_net.py: the probe's game clear logs after the handlers (the
+  exe's stub sees it then); the exe's slot byte is logged only when
+  0x495b10 was asked.
+- The hooks' lifetime (settled in 5b): wire_mission_hooks runs in the
+  GameEngine's constructor and its null in the destructor, so wire_net's
+  calls are live from start-up to exit, at the briefing and the quit box
+  alike. The census stand-ins go in at a mission's start, for the fields
+  still null.
+
+## Multiplayer, piece 5b: the records (2026-10-31)
+
+- 5b split again: 5b the records, 5c the network mech. 0x46da80 (the
+  launch) is LaunchHooks::multiplayer; the app's side (app_mission.cpp,
+  pilot.h) hands slot 0's loadout and the game's +0x8d/+0x8e through
+  net_set_launch_game; net_launch_player takes the packed form (the probe
+  hands any).
+- 0x4259c0: Ghidra's float line is right, the exe doubles the half tons
+  (fild, fadd st0); the armour item's add_equipment sets the tons again,
+  so stock loadouts unpack as valid as they were (checked over all 62).
+- Config vt+0x08 (ammo, 0x472210) and vt+0x10 (weapon, 0x472330) ported for it.
+
+## Multiplayer, piece 5c: the network mech (2026-10-31)
+
+- 0x46d450's missing list holds the player's id (0x45b800 copies *param_3,
+  the [esp+0x18] slot that holds the sender): fixed from piece 5a's
+  strings. Written, never read.
+- NetCalls.create left out of the hook census: its null means the port's
+  net_mech_create (a census stand-in there made nothing).
+- Torso::set_mode now honours vt+0x5c (Mech::remote): 2 for network mechs.
+- The app frees a network mech as mech_free does (registry, handle) through
+  NetCalls.free; mission_controls_free deletes controls whose release()
+  says so (the network's).
+
+## Multiplayer, piece 6a: the sends (2026-10-31)
+
+- 0x46f160's asm read for the 0xf layout (network-messages.md now has every
+  field and flag bit). The controls' getters go through the IControls thunks
+  (vtordisp 0): vt+0x2c the throttle target (+0x44), vt+0x24 the turn
+  (+0x14), vt+0x38 the jump (+0x20).
+- 0x46ef70 read from the asm (Ghidra had the resend counter off by one and
+  lost the rate's ECX: the game's +0x50, the lobby's count).
+- test_mech_net_send.py: the CRT asin and copysign stand-ins (test_matrix's)
+  for 0x525f80; ceil (test_mechsave's); the kinds of pieces 7/8 are caught
+  where their case starts and sent to the epilogue. The host's ping reads
+  the game unchecked: only sent from the timer, which has one.
+
+## Multiplayer, piece 6b: the receive side (2026-10-31)
+
+- 0x46e4d0 and 0x46ed70 read from the asm: the respawn's call has the mech
+  in ECX and the static 0x12 message on the stack; the aim extrapolation
+  sets the quaternion's z (its 4th word) to 0; the reckoning's blend is
+  0x51e380 (p = (1-k) recv + k p).
+- The apply's mech calls, the weapons' aim and fire are test hooks
+  (NetCalls::mech_call, aim, fire); the probe's parts log their setters.
+- test_mech_net_apply.py: the aim points (the torso's place plus a rotated
+  range, ~1000 m terms) are compared to those terms' rounding.

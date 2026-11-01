@@ -96,14 +96,17 @@ for later. Anything only the software path showed comes to the GPU path.
   bytes and structure, then by call graph), port only what changed, and run
   the existing differential tests against the PM exe too (`original.py`
   takes the exe: `MW3_EXE=pm` or `Original(exe='pm')`). mech3ax reads PM
-  formats, as a cross-check. Both games in one program (Owen): a small
-  launcher (our addition, not original code) picks MW3 or Pirate's Moon,
-  then that game's own startup runs; shared code once, the functions the
-  diff shows differ kept in both versions and chosen by the selected game,
-  each game's data mounted and its saves in its own write dir. Keep the port
-  open to it meanwhile: game data through the asset mounts, no MW3-only
-  constants where the exe reads data, game-specific choices made at run
-  time rather than compiled in.
+  formats, as a cross-check. Two games, two programs, one package (Owen,
+  2026-10-31, replacing "both games in one program"; docs/games-layout.md):
+  `mw3` and `mw3pm` are separate executables over one shared engine, plus
+  a launcher program (ours) that starts whichever the player picks; each
+  game also starts directly, without the launcher. One repo: `src/gamez/`
+  shared, `src/mech3/` MW3 only, `src/pm/` PM only (PM's own and its
+  changed versions, `// Pirate's Moon 1.0 @ 0x...`); separate CMake
+  targets and test executables, so either game builds and ships alone. One
+  download per platform holds all three. MW3 is tagged `v1.0` ("done")
+  before any PM code reaches `main`; until then PM work stays on the
+  `mac5/pm` branch. Each game mounts its own data and keeps its own saves.
 - Pirate's Moon 1.0 is extracted for reading alongside MW3 (not ported):
   `game/pm/` (the install, `Mech3.exe` sha256 57cd2ee7...) and
   `game/pm-disc/` (the image; track 2 is CD audio). First findings and the

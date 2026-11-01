@@ -3344,6 +3344,61 @@ TEST(mech_build_launches_the_player_c1m1_headless) {
   mech3::options() = mech3::Options{};
 }
 
+// Multiplayer piece 5c in a real mission (c1m1, launched as the build test
+// does): another player over the in-process hub joins with the pilot's own
+// mech and loadout; its first state makes its network mech, built as any
+// mech is, put where the state says, not colliding, in the world, its torso
+// in mode 2; its leaving deletes it, and the end takes the handlers off.
+TEST(net_mech_made_from_a_record_c1m1_headless) {
+  if (!have_game()) return;
+  SavedMounts keep;
+  zutl::mounts() = zutl::Mounts{};
+  zutl::mount(MW3_GAME_DIR);
+  zutl::set_write_dir(temp_dir("net_mech_write"));
+  mech3::reset_states();
+  reset_process_state();
+  mech3::missions() = mech3::Missions{};
+  mech3::mech_types_forget();
+  mech3::options() = mech3::Options{};
+  FakeWindow window;
+  FakeAlert alert;
+  FakeClock clock;
+  FakeScreen screen;
+  platform::SilentSoundOutput sound;
+  mech3::MountFiles files;
+  mech3::Platform p;
+  p.window = &window, p.alert = &alert, p.clock = &clock, p.movie_clock = &fast_movie_clock(), p.screen = &screen, p.sound = &sound, p.files = &files;
+  {
+    mech3::GameEngine engine(p, "mech3.exe -nofmv");
+    engine.quiet = true;
+    mech3::Mech3App app(&engine);
+    mech3::set_app(&app);
+    EXPECT(app.init_instance());
+    mech3::GameEngine::Launch l;
+    engine.set_launch(l);
+    engine.missions_start(0x6098d0);
+    EXPECT(!mech3::missions().failed);
+    mech3::NetMechSeen seen;
+    EXPECT(mech3::program_net_mech_check(&seen));
+    EXPECT(seen.made == 1 && seen.remote == 1 && seen.collides == 0 && seen.torso_mode == 2 && seen.in_world == 1);
+    EXPECT(seen.moved == 1);  // at the state's position
+    EXPECT(seen.state_sent == 1);  // the pilot's own state (piece 6a) arrives with its place
+    EXPECT(seen.followed == 1);    // a second state, applied and reckoned (piece 6b)
+    EXPECT(seen.configs == 1 && seen.config_named == 1);  // "Bob's Config", valid
+    EXPECT(seen.after_leave == 0 && seen.handlers_after == 0);
+    mech3::missions().cleanup(false);
+    app.stop_game();
+    app.exit_instance();
+    mech3::set_app(nullptr);
+  }
+  zrdr::close_archives(true);
+  mech3::reset_states();
+  reset_process_state();
+  mech3::missions() = mech3::Missions{};
+  mech3::mech_types_forget();
+  mech3::options() = mech3::Options{};
+}
+
 namespace {
 // Observers on the action lists, around the two ticks (docs/action-lists.md):
 // each records its place and what the ticks have done so far.
@@ -5712,6 +5767,132 @@ TEST(mission_c1m1_player_destroys_an_srm_turret_headless) {
               health, died_group);
   EXPECT(on_at > 0);
   EXPECT(!(health > 0.0f) && died_group >= 0);
+  zrdr::close_archives(true);
+  mech3::reset_states();
+  reset_process_state();
+  mech3::options() = mech3::Options{};
+}
+
+// Community report (docs/community-issues.md, item 3): a crash on an alpha
+// strike. The Mad Cat 40 m from tur_srm04, the reticle on it as in the test
+// above, alpha strikes (CMD_ALPHASTRIKE, keypad Enter: every weapon held
+// 0.2 s, 0x004b0a70) every 30 frames for 20 strikes: the turret takes the
+// hits, the heat climbs past the shutdown and the mech powers down while the
+// strikes go on; at critical heat it dies, and the lost mission fades to the
+// debriefing.
+TEST(mission_c1m1_alpha_strikes_into_a_shutdown_headless) {
+  if (!have_game()) return;
+  SavedMounts keep;
+  zutl::mounts() = zutl::Mounts{};
+  zutl::mount(MW3_GAME_DIR);
+  zutl::set_write_dir(temp_dir("mission_alpha_write"));
+  mech3::reset_states();
+  reset_process_state();
+  mech3::missions() = mech3::Missions{};
+  mech3::mech_types_forget();
+  mech3::options() = mech3::Options{};
+  struct Keys : platform::Input {
+    std::vector<platform::KeyEvent> queue;
+    uint32_t t = 0;
+    void key(uint32_t dik, bool down) { queue.push_back({dik, down ? 0x80u : 0u, ++t, t}); }
+    bool open(Device d) override { return d == kKeyboard; }
+    void close(Device) override {}
+    int32_t acquire(Device) override { return 0; }
+    int32_t unacquire(Device) override { return 0; }
+    int32_t keyboard_data(platform::KeyEvent* out, uint32_t* count) override {
+      const uint32_t n = std::min<uint32_t>(*count, static_cast<uint32_t>(queue.size()));
+      std::copy(queue.begin(), queue.begin() + n, out);
+      queue.erase(queue.begin(), queue.begin() + n);
+      *count = n;
+      return 0;
+    }
+    int32_t mouse_state(platform::MouseState*) override { return kNotAcquired; }
+    int32_t joystick_state(platform::JoyState*) override { return kNotAcquired; }
+  } keys;
+  FakeWindow window;
+  FakeAlert alert;
+  FakeClock clock;
+  FakeScreen screen;
+  platform::SilentSoundOutput sound;
+  mech3::MountFiles files;
+  mech3::Platform p;
+  p.window = &window, p.alert = &alert, p.clock = &clock, p.movie_clock = &fast_movie_clock(), p.screen = &screen, p.sound = &sound, p.files = &files;
+  p.input = &keys;
+  int frames = 0, strikes = 0, down_at = -1, after = 0;
+  float health0 = -1, health = -1, peak = 0, armor = -1;
+  std::string left_to;
+  {
+    mech3::GameEngine engine(p, "mech3.exe -nofmv");
+    engine.quiet = true;
+    mech3::Mech3App app(&engine);
+    mech3::set_app(&app);
+    EXPECT(app.init_instance());
+    mech3::GameEngine::Launch l;  // c1m1, the Mad Cat
+    engine.set_launch(l);
+    app.post_intro_ = &mech3::states().load;
+    void* player = nullptr;
+    mech3::tur::Turret* t = nullptr;
+    zcls::Node* centroid = nullptr;
+    bool pitching = false;
+    const uint32_t alpha = zin::key1_of(0x39) & 0xff;  // CMD_ALPHASTRIKE
+    engine.on_present = [&](int) {
+      if (app.current() != &mech3::states().core) return;
+      ++frames;
+      if (frames == 3) {
+        player = engine.object_of(engine.field32(engine.pilot(), 0x14));
+        for (mech3::tur::Turret* x : mech3::tur::turret_list())
+          if (std::strcmp(static_cast<zcls::Node*>(engine.object_of(x->node))->name(), "tur_srm04") == 0) t = x;
+        if (!t) return;
+        centroid = zcls::node_find_in_tree(static_cast<zcls::Node*>(engine.object_of(t->node)), "centroid");
+        const float x = t->pos[0] + 40.0f, z = t->pos[2];
+        const float at[3] = {x, ground_under(x, t->pos[1] + 50.0f, z), z};
+        mech3::move_mech(player, at, 1.5707964f);  // facing -x
+      }
+      if (!player || !t) return;
+      if (frames >= 20 && frames < 60) {
+        int32_t ret[2];
+        float pt[3], c[3];
+        bool hit = false;
+        mech3::program_hud_aim(ret, pt, &hit);
+        mech3::node_world_cached(centroid, c);
+        const float dx = pt[0] - c[0], dy = pt[1] - c[1], dz = pt[2] - c[2];
+        const bool on = hit && dx * dx + dy * dy + dz * dz < 36.0f;
+        const uint32_t pd = zin::key1_of(5) & 0xff;  // CMD_PITCH_DN
+        if (!on && !pitching && pt[1] > c[1]) keys.key(pd, true), pitching = true;
+        else if ((on || pt[1] <= c[1]) && pitching) keys.key(pd, false), pitching = false;
+      }
+      if (frames == 60) health0 = t->health;
+      if (frames >= 60 && strikes < 20 && (frames - 60) % 30 == 0) keys.key(alpha, true), ++strikes;
+      else if (frames >= 60 && (frames - 60) % 30 == 2) keys.key(alpha, false);
+      mech3::LaunchedMech d;
+      if (mech3::describe_mech(player, &d)) {
+        peak = std::max(peak, d.heat);
+        armor = d.armor;
+        if (down_at < 0 && d.powering_down) down_at = frames;
+      }
+      health = t->health;
+      if (strikes >= 20) ++after;
+    };
+    CountingPump pump;
+    pump.stop = [&] { return after >= 300 || app.current() == &mech3::states().end_win; };
+    pump.limit = 1000000;
+    app.run(pump);
+    const mech3::States& st = mech3::states();
+    left_to = app.current() == &st.core ? "core" : app.current() == &st.end_win ? "the debriefing" : app.current() == &st.fade ? "the fade"
+            : app.current() == &st.pause ? "the pause" : "another state";
+    mech3::missions().cleanup(false);
+    app.stop_game();
+    app.exit_instance();
+    mech3::set_app(nullptr);
+  }
+  std::printf("  %d alpha strikes: tur_srm04 %.3f -> %.3f, heat peak %.2f, power-down asked at frame %d, %d frames after; "
+              "armor left %.2f, then %s\n", strikes, health0, health, peak, down_at, after, armor, left_to.c_str());
+  // Held at critical heat the mech dies (heat.md, state 4: the torso
+  // destroyed), the mission is lost and fades to the debriefing; else it
+  // runs on. Either way, no crash.
+  EXPECT(strikes == 20 && (after >= 300 || left_to == "the debriefing"));
+  EXPECT(health0 > 0.0f && !(health >= health0));  // the strikes hit
+  EXPECT(peak > 1.0f && down_at > 60);  // overheated and shut down
   zrdr::close_archives(true);
   mech3::reset_states();
   reset_process_state();
@@ -14316,8 +14497,7 @@ TEST(known_unported_keys_name_their_reason) {
                         "0x005a7e10", "0x005a7f90", "0x00576c50", "0x00535ed0", "0x004f8f60", "0x00537520",
                         "0x00519e50", "0x00526510", "0x005578f0", "0x00557b30", "0x00575f70", "0x00576c60",
                         "0x00516f00", "0x00526780", "0x00557b10", "0x005646d0", "0x00493260",
-                        "0x00495f90", "0x0049bd80", "0x0046ef70",
-                        "0x0046f160", "WeaponCalls.net_event"}) {
+                        "0x00495f90", "0x0049bd80"}) {
     const char* why = mech3::GameEngine::known_unported(k);
     EXPECT(why != nullptr);
     if (!why) continue;
@@ -14326,7 +14506,7 @@ TEST(known_unported_keys_name_their_reason) {
            w.size() > 20);
     ++n;
   }
-  EXPECT(n == 49);  // 0x00586ce0, 0x00586c20 and 0x00588930 ported (multiplayer-port.md pieces 1, 2)
+  EXPECT(n == 46);  // 0x00586ce0, 0x00586c20, 0x00588930, 0x0046ef70, 0x0046f160 ported (multiplayer-port.md pieces 1, 2, 6a)
   for (const char* gap : {"0x00579ea0", "0x004f9fa0", "0x004fa0b0", "0x00479be0", "0x0051a300",
                           "[[0x0060861c]+0x14]", "0x004f3430", "0x005799f0", "0x0051d0c0",
                           "0x00556210", "game.vt", "0x00414000", "0x0047abe0", "0x004f8f50",
