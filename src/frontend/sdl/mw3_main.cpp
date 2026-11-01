@@ -188,6 +188,7 @@ struct Args {
   int net_wait = 0, net_minutes = 0;
   int net_seconds = 0;  // --net-seconds: a network game the menus start lasts this long (each one)
   int net_kill_at = 0;  // --net-kill-at S: a kill staged on the pilot S seconds (of 30 frames) into each such game
+  int blur[2] = {0, 0};  // --blur-ingame N:MS (ours, W45): inactive at game frame N, a focus back MS ms later
   bool fire_probe = false;  // --fire-probe (ours, W40): each menu game frame, the trigger and the reloads, timed
   int net_walk[2] = {0, 0};  // --net-walk A,B: the throttle held up from A to B seconds (of 30 frames) into each
   long long net_drive = -1;
@@ -256,6 +257,7 @@ bool parse(int argc, char** argv, Args& a) {
     else if (s == "--net-seconds" && next(1)) a.net_seconds = std::atoi(argv[++i]);
     else if (s == "--net-kill-at" && next(1)) a.net_kill_at = std::atoi(argv[++i]);
     else if (s == "--fire-probe") a.fire_probe = true;
+    else if (s == "--blur-ingame" && next(1)) std::sscanf(argv[++i], "%d:%d", &a.blur[0], &a.blur[1]);
     else if (s == "--net-walk" && next(1)) std::sscanf(argv[++i], "%d,%d", &a.net_walk[0], &a.net_walk[1]);
     else if (s == "--net-drive" && next(1)) a.net_drive = std::strtoll(argv[++i], nullptr, 10);
     else if (s == "--net-soak") a.net_soak = true;
@@ -1312,6 +1314,20 @@ int run(const Args& a, platform::VideoForWindows* vfw) {
             SDL_PushEvent(&ev);
           }
         }
+        // --blur-ingame: the app deactivated as a lost focus does (without
+        // --frames' stays_active), and an SDL timer's focus event back, which
+        // must arrive whether frames run or not.
+        if (a.blur[1] > 0 && s_menu_in_game && menu_frames - s_menu_game_from == a.blur[0]) {
+          std::printf("mw3: blur at wall %lld\n", static_cast<long long>(std::chrono::duration_cast<std::chrono::milliseconds>(
+                                                         std::chrono::system_clock::now().time_since_epoch()).count()));
+          app.on_window_activate(0);
+          SDL_AddTimer(static_cast<Uint32>(a.blur[1]), [](void*, SDL_TimerID, Uint32) -> Uint32 {
+            SDL_Event ev{};
+            ev.type = SDL_EVENT_WINDOW_FOCUS_GAINED;
+            SDL_PushEvent(&ev);
+            return 0;
+          }, nullptr);
+        }
         if (a.fire_probe && s_menu_in_game && app.current() == &mech3::states().core) {
           int32_t trig = 0;
           float reload = 0;
@@ -1327,7 +1343,9 @@ int run(const Args& a, platform::VideoForWindows* vfw) {
         if (a.net_soak && menu_net && app.current() == &mech3::states().core &&
             static_cast<uint64_t>(menu_frames) >= s_menu_net_line_at) {
           s_menu_net_line_at = static_cast<uint64_t>(menu_frames) + 15;  // half a second of game time
-          std::printf("mw3: soak menus clock %.1f rss %zu %s\n", mech3::missions().clock, sdlfe::resident_kb(),
+          const long long wall = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                     std::chrono::system_clock::now().time_since_epoch()).count();
+          std::printf("mw3: soak menus clock %.1f rss %zu wall %lld %s\n", mech3::missions().clock, sdlfe::resident_kb(), wall,
                       mech3::program_net_soak_line().c_str());
         }
         // --click-players: the first frame each player count was reached.

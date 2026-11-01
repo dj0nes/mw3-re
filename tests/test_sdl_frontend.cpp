@@ -2882,6 +2882,119 @@ TEST(sdl_two_processes_a_walk_seen_from_the_other) {
 #endif
 
 #if !defined(_WIN32)  // posix_spawn, waitpid
+// Playtest W45: a network game runs on while its window is inactive (FIX (A);
+// the original waits, frozen, and the others fight a statue). B walks and is
+// deactivated for 3 s (--blur-ingame, ours: as a lost focus, the focus back
+// by a timer); B's frames go on and A sees B walk through it.
+TEST(sdl_two_processes_an_inactive_window_plays_on) {
+  const std::string install = MW3_GAME_DIR;
+  std::error_code ec;
+  if (!std::filesystem::exists(install + "/zbd/mechlib.zbd", ec)) return;
+  const std::string dir = std::string(MW3_TEST_TMP) + "/sdl_net_blur";
+  std::filesystem::remove_all(dir, ec);
+  std::filesystem::create_directories(dir + "/a", ec);
+  std::filesystem::create_directories(dir + "/b", ec);
+  auto spawn = [&](std::vector<std::string> args, const std::string& log) {
+    std::vector<std::string> v = {MW3_BIN};
+    v.insert(v.end(), args.begin(), args.end());
+    std::vector<char*> argv;
+    for (std::string& x : v) argv.push_back(x.data());
+    argv.push_back(nullptr);
+    posix_spawn_file_actions_t fa;
+    posix_spawn_file_actions_init(&fa);
+    posix_spawn_file_actions_addopen(&fa, 1, log.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    posix_spawn_file_actions_adddup2(&fa, 1, 2);
+    pid_t pid = 0;
+    if (posix_spawn(&pid, argv[0], &fa, nullptr, argv.data(), environ) != 0) pid = -1;
+    posix_spawn_file_actions_destroy(&fa);
+    return pid;
+  };
+  auto read = [](const std::string& path) {
+    std::string text;
+    if (std::FILE* f = std::fopen(path.c_str(), "r")) {
+      char buf[4096];
+      for (size_t n; (n = std::fread(buf, 1, sizeof buf, f)) > 0;) text.append(buf, n);
+      std::fclose(f);
+    }
+    return text;
+  };
+  const int base = 42000 + static_cast<int>(getpid() % 2000) * 3;
+  const std::string game = std::to_string(base), lan = std::to_string(base + 1);
+  auto menus = [](std::vector<std::string> v, std::initializer_list<const char*> name) {
+    std::vector<std::string> m = {"--click-at", "132,285@40"};
+    int at = 70;
+    for (const char* k : name) m.insert(m.end(), {"--tap", std::string(k) + "@" + std::to_string(at)}), at += 4;
+    m.insert(m.end(), {"--click-at", "470,320@100"});
+    v.insert(v.end(), m.begin(), m.end());
+    return v;
+  };
+  const std::vector<std::string> common = {"--install", install, "--no-launcher", "--hidden", "--nosound", "--net-bind",
+                                           "127.0.0.1", "--frame-ms", "33", "--net-soak", "--net-seconds", "60"};
+  std::vector<std::string> va = menus({"--write-dir", dir + "/a", "--net-port", game, "--net-discovery", lan,
+                                       "--click-at", "421,406@180", "--click-players", "183,430@60/2",
+                                       "--click-players", "246,290@100/2", "--click-players", "515,446@140/2",
+                                       "--click-players", "585,418@600/2", "--frames", "2400"},
+                                      {"0x14", "0x12", "0x1f", "0x14"});
+  va.insert(va.end(), common.begin(), common.end());
+  std::vector<std::string> vb = menus({"--write-dir", dir + "/b", "--net-port", "0", "--net-lan", "127.0.0.1:" + lan,
+                                       "--click-at", "100,143@420", "--click-at", "240,406@450",
+                                       "--click-players", "515,446@300/2", "--net-walk", "3,60",
+                                       "--blur-ingame", "200:3000", "--frames", "2400"},
+                                      {"0x30", "0x12", "0x1f", "0x14"});
+  vb.insert(vb.end(), common.begin(), common.end());
+  const pid_t a = spawn(va, dir + "/a.log");
+  for (int i = 0; i < 400 && read(dir + "/a.log").find("multiplayer page 2") == std::string::npos; ++i)
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+  const pid_t b = spawn(vb, dir + "/b.log");
+  int st = 0;
+  if (b > 0) waitpid(b, &st, 0);
+  if (a > 0) waitpid(a, &st, 0);
+  // B inactive for 3 s from the wall time it logs: its own lines go on (its
+  // frames run), and A sees B walk on through it.
+  const std::string la = read(dir + "/a.log"), lb = read(dir + "/b.log");
+  long long blur = -1;
+  if (const size_t p = lb.find("mw3: blur at wall "); p != std::string::npos) blur = std::atoll(lb.c_str() + p + 18);
+  auto lines = [](const std::string& t, auto&& each) {
+    for (size_t at = 0; (at = t.find("mw3: soak menus clock", at)) != std::string::npos;) {
+      const size_t end = t.find('\n', at);
+      const std::string line = t.substr(at, end - at);
+      at = end;
+      long long wall = 0, heard = -1;
+      float z = 0;
+      if (const size_t w = line.find(" wall "); w != std::string::npos) wall = std::atoll(line.c_str() + w + 6);
+      if (const size_t h = line.find(" heard "); h != std::string::npos) heard = std::atoll(line.c_str() + h + 7);
+      if (const size_t q = line.find("; sees "); q != std::string::npos) {
+        unsigned id;
+        float x, y;
+        std::sscanf(line.c_str() + q, "; sees %u %f %f %f", &id, &x, &y, &z);
+      }
+      each(wall, z, heard);
+    }
+  };
+  int b_during = 0;
+  lines(lb, [&](long long w, float, long long) { b_during += blur > 0 && w >= blur + 300 && w <= blur + 2700; });
+  // A's dead reckoning carries B on either way: what A last heard from B
+  // (ms) is what shows the states coming.
+  // A's clock is the stepped one (--frame-ms, faster than the wall's), so the
+  // ages are against the same span before the blur.
+  float first = 0, last = 0;
+  long long oldest = -1, before = -1;
+  bool seen = false;
+  lines(la, [&](long long w, float z, long long heard) {
+    if (blur > 0 && w >= blur - 2700 && w <= blur - 300) before = std::max(before, heard);
+    if (blur <= 0 || w < blur + 300 || w > blur + 2700) return;
+    if (!seen) first = z, seen = true;
+    last = z;
+    oldest = std::max(oldest, heard);
+  });
+  std::printf("  B inactive at %lld: its lines meanwhile %d; A saw B move %.1f m, B's last state at most %lld ms old (%lld before)\n",
+              blur, b_during, std::fabs(last - first), oldest, before);
+  EXPECT(blur > 0 && b_during >= 3);
+  EXPECT(seen && std::fabs(last - first) > 5.0f && before >= 0 && oldest >= 0 && oldest <= 3 * before + 300);
+}
+#endif
+
+#if !defined(_WIN32)  // posix_spawn, waitpid
 // The whole menu path twice over (piece 14c, the lead's check): A hosts, B
 // joins; each game lasts 20 s (--net-seconds, ours), A is held 50 m from B
 // and wrecked 8 s in (B's kill); its end goes through the Multi-Exit State

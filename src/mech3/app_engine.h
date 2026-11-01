@@ -427,6 +427,7 @@ class GameEngine : public Engine {
   uint32_t message_box_text(uint32_t hwnd, const char* text, const char* caption, uint32_t type) override;
   uint32_t focus_window() override { return hwnd_; }
   void lock_system_keys(uint32_t) override {}
+  bool run_while_inactive() override;  // ours (W45): a network game runs on while inactive
   void sleep(uint32_t ms) override;
   void remove_debug_menu(uint32_t) override {}
   void attach_debug_menu(uint32_t) override {}

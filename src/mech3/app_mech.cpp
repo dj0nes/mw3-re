@@ -1343,10 +1343,11 @@ std::string program_net_soak_line() {
   }
   for (NetMech* m : net_game().mechs) {
     mech_world_position(m, p);
-    std::snprintf(buf, sizeof buf, "; sees %u %.2f %.2f %.2f %d health %.3f gait %d arms %.4f %.4f %.4f %.4f", m->owner,
+    const uint32_t now = net_calls().now_ms ? net_calls().now_ms() : ztimer::ticks_ms();
+    std::snprintf(buf, sizeof buf, "; sees %u %.2f %.2f %.2f %d health %.3f gait %d arms %.4f %.4f %.4f %.4f heard %u", m->owner,
                   p[0], p[1], p[2], (m->state.flags >> 1 & 1) ? 0 : 1, mech_health(m), m->anim_index,
                   m->arms[0] ? m->arms[0]->aim_pitch : 0.0f, m->arms[0] ? m->arms[0]->aim_yaw : 0.0f,
-                  m->arms[1] ? m->arms[1]->aim_pitch : 0.0f, m->arms[1] ? m->arms[1]->aim_yaw : 0.0f);
+                  m->arms[1] ? m->arms[1]->aim_pitch : 0.0f, m->arms[1] ? m->arms[1]->aim_yaw : 0.0f, now - m->heard);
     s += buf;
   }
   return s;

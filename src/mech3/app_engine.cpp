@@ -1033,3 +1033,8 @@ void GameEngine::effects_set_level(int32_t v) { zeff::anim_set_level(v); }  // 0
 void GameEngine::shadows_reset() { shade_apply(); }  // 0x004e6900: the option as set
 
 }  // namespace mech3
+
+namespace mech3 {
+// W45: a network game in play runs on while the window is inactive (FIX (A)).
+bool GameEngine::run_while_inactive() { return program_net_running(); }
+}  // namespace mech3
