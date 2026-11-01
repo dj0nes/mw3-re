@@ -615,8 +615,14 @@ void net_ping_in(NetMech& m, const uint8_t* msg, size_t size) {
   std::memcpy(w, msg, std::min<size_t>(size, sizeof w));
   if (m.ping_id == w[2]) {
     const uint32_t now = c.now_ms ? c.now_ms() : ztimer::ticks_ms();
-    const double l = (static_cast<double>(now - m.ping_sent - w[4]) - static_cast<double>(g_net.acked_time - w[3])) *
-                     0.0005;  // [0x005c3408]
+    // FIX (bug): the round trip less their delay read as signed, as the clamp
+    // below means it; the exe loads it unsigned (fild of a zero-topped qword),
+    // so a peer's delay past our round trip (a stall, their clock's rate, a
+    // bad packet) made 2^32 ms, and their mech's arms flailed (the aim's
+    // extrapolation by it) until the next ping (fixes.md).
+    const uint32_t trip = now - m.ping_sent - w[4];
+    const double t = zfix::options().bugs ? static_cast<double>(static_cast<int32_t>(trip)) : static_cast<double>(trip);
+    const double l = (t - static_cast<double>(g_net.acked_time - w[3])) * 0.0005;  // [0x005c3408]
     m.latency = l <= 0.0 ? 0.0f : static_cast<float>(l);
   } else {
     m.latency = 0;

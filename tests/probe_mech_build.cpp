@@ -331,7 +331,7 @@ void mech_image(Img& o, const m3::Mech& m) {
   o.fs(0x340, c.matrix, 12);
   o.u(0x370, c.x370);
   for (int k = 0; k < 4; ++k) o.b8(0x374 + k, m.blocked[k]);
-  o.u(0x378, m.x378), o.p(0x37c, m.controls);
+  o.p(0x378, m.chat), o.p(0x37c, m.controls);
   o.list(0x380, &m.parts);
   o.p(0x38c, m.legs[0]), o.p(0x390, m.legs[1]), o.p(0x394, m.arms[0]), o.p(0x398, m.arms[1]);
   o.p(0x39c, m.torso), o.p(0x3a0, m.hip), o.p(0x3a4, m.head), o.p(0x3a8, m.jet_node);

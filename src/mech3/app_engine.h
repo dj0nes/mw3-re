@@ -82,6 +82,7 @@ void wire_fmv(GameEngine* e);            // zFMV's host (app_fmv.cpp)
 // (0x004050d0) and lines (0x00405120); none open, nothing (app_menus.cpp).
 void program_briefing_progress(float f);
 void program_briefing_line(const char* s);
+void program_mech_chat_draw(void* mech);  // app_mech.h: 0x0041ab90's chat panel
 uint32_t program_slot_count();  // the chosen pilot's campaign's slot count (0x00435180), 0 without one
 
 class GameEngine : public Engine {
@@ -384,6 +385,7 @@ class GameEngine : public Engine {
   static const char* known_unported(const std::string& key);
   void print_unported_summary() const;
   bool quiet = false;  // no log lines (tests)
+  int lobby_entries() const { return lobby_entries_; }  // ours: the lobby's page entered this many times
 
   // The memory of modules not ported: what is poked reads back.
   uint32_t peek32(uint32_t addr) override;
@@ -408,6 +410,7 @@ class GameEngine : public Engine {
   void multiplayer_page(Handle state, int32_t page, uint8_t reenter) override;  // 0x0049cb00
   void multiplayer_take_pilot(Handle first, Handle second) override;  // 0x00494920
   void multiplayer_resume(Handle screen) override;  // 0x0049b660
+  void mech_draw_cockpit(Handle mech) override { program_mech_chat_draw(object_of(mech)); }  // 0x0041ab90
   NetReach network_reach() override { return p_.network_reach ? p_.network_reach() : NetReach{}; }
   void network_hosting(bool on) override {
     if (p_.network_hosting) p_.network_hosting(on);
@@ -645,6 +648,7 @@ class GameEngine : public Engine {
   void screen_size(int32_t w, int32_t h, int32_t frame_w, int32_t frame_h);
   Platform p_;
   bool network_on_ = false;  // the app's +0x1bd (0x0047fc40)
+  int lobby_entries_ = 0;    // ours: the lobby's entries (multiplayer_switch), for the tests
   std::string command_line_;
   bool video_opened_ = false;
   std::map<std::string, uint32_t> counts_;

@@ -500,6 +500,12 @@ bool SdlZinHost::keyboard_state(uint8_t* st) {
   if (m & SDL_KMOD_ALT) st[0x12] = 0x80;
   if (m & SDL_KMOD_CAPS) st[0x14] = 1;
   if (m & SDL_KMOD_NUM) st[0x90] = 1;
+#if defined(__APPLE__)
+  // FIX (A): a Mac has no Num Lock and its keypad always types digits; SDL
+  // reports the lock off, which made the keypad the cursor keys in a text
+  // field (key_char's NumLock-off codes): no IP address from the keypad.
+  st[0x90] = 1;
+#endif
   return true;
 }
 int32_t SdlZinHost::to_ascii(uint32_t, uint32_t scan, const uint8_t* st, uint16_t* out) {

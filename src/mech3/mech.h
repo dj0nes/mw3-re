@@ -126,7 +126,7 @@ struct Mech : Vehicle {
   Vec3 part_aim{};           // +0x0ec  the target's chosen part's world point (0x0041d6f0)
   int32_t xf8 = -1;          // +0x0f8  the target's chosen part (0x0041d810), -1 none
   Collider collider;         // +0x0fc..+0x373 (mech_collide.h)
-  uint32_t x378 = 0;         // +0x378
+  class ChatPanel* chat = nullptr;  // +0x378  the network game's chat panel (mech3/chat_panel), none
   MechControls* controls = nullptr;  // +0x37c  (docs/controls.md)
   bool blocked[4] = {};      // +0x374  collider (+0xfc) resolved: vehicle, mech/bump, ceiling, wall/touch
   std::list<MechPart*> parts;  // +0x384, count +0x388

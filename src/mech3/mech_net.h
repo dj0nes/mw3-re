@@ -130,6 +130,8 @@ struct NetCalls {
   uint32_t (*now_ms)() = nullptr;                  // 0x00575d30, timeGetTime; unset: ztimer's clock
   void (*hud_message)(float seconds, int32_t id, const char* name) = nullptr;  // 0x0040fe70
   void (*hud_message2)(float seconds, int32_t id, const char* a, const char* b) = nullptr;  // the same with two
+  void (*hud_line)(float seconds, const char* text) = nullptr;  // 0x0040fe20: a line as it is (never a format)
+  uint32_t (*lobby_team_id)(uint32_t player) = nullptr;  // 0x00495b60 on the network game's +0x48: its team, 0 none
   void (*forget)(NetMech& m) = nullptr;            // 0x004aa6b0, the sensors' (ai::entities_forget)
   void (*free)(NetMech* m) = nullptr;              // vt+0 (1), 0x0046e3a0; unset: net_mech_delete
   void (*lobby_left)(uint32_t player) = nullptr;   // 0x00495b10 on the game's +0x48: the slot's +0x18 = 1

@@ -595,6 +595,21 @@ the left edge and stretched at column 100 by half the extra width (the
 table's `to_middle`), so the line from the edge still reaches the box. The
 salvage screen (0x47d3b0) is one block on the debriefing's board, shaded as
 it. Training and multiplayer open on the pilot screen in their modes.
+The multiplayer screens (piece 14, 2026-11-01): the connection screen
+(0x493260: NET NAME, SESSIONS, CANCEL and JOIN left; CONNECT, HOST SETUP
+and HOST right; LINES1, the boxes' 610x345 lines, stretched at column 300,
+which only the two links cross; the address lines with SESSIONS), the
+lobby (0x495f90: GAME SETUP left, SCORES and CHAT in the middle, PLAYER
+SETUP right; along the bottom CANCEL and LOCK OPTIONS left, MECHLAB in the
+middle, I AM READY and START right) and the new team's dialog (0x49bd80,
+one centred block; its backdrop, a grab of the canvas as it enters, stays
+at 0 as the controls' popups'). The lobby's lines (one 640x480 overlay)
+take a stretch at two columns (`at2`: the part between to the middle
+group, the part past it to the right; the right column stretched first),
+202 and 412, just inside the middle column's two dividers: that column's
+shade and lines widen, the outer two keep the screen's edges. The
+briefing in its multiplayer mode is the briefing's one block; there is no
+multiplayer debriefing (the lobby's scores after a game).
 `--click-at` in the menus is a canvas pixel now (the menus' origin is 0).
 
 Test: `menus_wide_spread_by_their_groups_headless`, with a saved

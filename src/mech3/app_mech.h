@@ -79,6 +79,65 @@ bool program_net_hostile_check(NetHostileSeen* out);
 // Ours, for the tests (piece 8): a network game started over the hub in the
 // mission that is up, then its end (0x004707c0). Whether the game was up.
 bool program_net_game_over();
+// Ours, for the tests (piece 14): the chat panel on the pilot's mech in the
+// network game that is up over the hub: CHAT ALL typed and sent, a peer's
+// line, an empty one, CHAT TEAM outside team play; what was seen.
+struct NetChatSeen {
+  int32_t opened = 0, prompt_all = 0, commands_off = 0, closed = 0, commands_back = 0;
+  int32_t sent = 0;            // the peer heard 0x1f, flags 0, our text
+  int32_t empty_sent = 0;      // an empty line sent anything
+  int32_t team_prompt_all = 0; // CHAT TEAM without team play is to all
+  int32_t hover_kept = 0;      // the mouse's entry (+0x3c) left the panel up, nothing sent
+  std::string own, peer;       // the HUD's lines
+};
+bool program_net_chat_check(NetChatSeen* out);
+// The 1.1 read-me's "crashes or loses keyboard control when one player
+// respawns while another has the chat window open" (14c's checks): with our
+// panel open Bob's mech is made again (0x12), then ours is (the respawn's
+// remake); after each the keys type and the commands come back.
+struct NetChatRespawnSeen {
+  int32_t peer_rebuilt = 0;       // Bob's mech made again while our panel was up
+  int32_t open_after_peer = 0;    // the panel still up, our text sent after it
+  int32_t sent_after_peer = 0;
+  int32_t commands_after_peer = 0;  // the game's commands back at its close
+  int32_t own_closed = 0;         // our mech's remake closed the open panel
+  int32_t commands_after_own = 0; // and gave the commands back
+  int32_t reopened = 0, sent_after_own = 0;  // a new panel on the new mech sends
+};
+bool program_net_chat_respawn_check(NetChatRespawnSeen* out);
+// The pilot's chat panel for the tests: opened (CHAT_ALL), its line after
+// the prompt, closed. False / "" without a mech or a panel.
+// The 1.2 read-me's "weapon groupings are saved after a player dies and
+// respawns": a weapon moved to another group, the pilot respawned by the
+// network game's respawn (the dead list's, 0x0046dde0), its group after.
+struct NetGroupsSeen {
+  int32_t moved_from = -1, moved_to = -1, after = -1;  // weapon 0's group
+  int32_t other_before = -1, other_after = -1;         // weapon 1's, left alone
+  int32_t respawned = 0;
+};
+bool program_net_groups_check(NetGroupsSeen* out);
+// The 1.2 read-me's "arms no longer flail" and "no longer run in place on
+// other players' screens": Bob's mech from his 0xf states, a frame at a
+// time (call each Core frame from 0): standing (frames 1..60, his place,
+// no throttle, his aim held), walking at 10 m/s (61..150, throttle 0.6),
+// standing again (151..240). Each phase after its settling frames (40, 15,
+// 70): frames at stand (slot 2) and at any other gait, his arms' largest
+// aim change, how far he moved. First his ping answer with a delay past
+// our round trip (the latency's FIX (bug): 0, not 2^32 ms).
+struct NetPoseSeen {
+  struct Phase {
+    int32_t frames = 0, stand = 0, walking = 0;  // frames at stand, at any other gait
+    float aim_spread = 0;    // the largest change of an arm's aim pitch or yaw from the phase's first
+    float aim_jump = 0;      // and from one frame to the next (a flail's jerk)
+    float moved = 0;         // from the phase's first place
+  } phase[3];
+  float latency = -1;  // his after a ping answer with his delay past our round trip
+  bool ready = false;
+};
+bool program_net_pose_step(int32_t frame, NetPoseSeen* out);
+bool program_chat_open();
+std::string program_chat_line();
+void program_chat_close();
 // Ours, for the soak test until the lobby (piece 11): each player its own
 // team, its start by id among the session's players, and the kills and
 // deaths kept here as the lobby would; the pilot driven by a pattern (the
@@ -100,8 +159,11 @@ struct NetLobbyAccess {
   void (*set_kills)(uint32_t player, uint32_t n) = nullptr;   // 0x004359f0
   void (*set_deaths)(uint32_t player, uint32_t n) = nullptr;  // 0x00435b00
   void (*rescore)() = nullptr;                       // 0x004361e0
+  uint32_t (*team_id)(uint32_t player) = nullptr;    // 0x00495b60: its team, 0 none
 };
 void program_net_lobby(const NetLobbyAccess& a);
+// 0x0041ab90 on the pilot's mech: its chat panel drawn (mech3/chat_panel).
+void program_mech_chat_draw(void* mech);
 // The tests' look at what the network game asks (NetCalls' team_of, start_of
 // and score; 0 when unset).
 uint32_t program_net_team_of(uint32_t player);
@@ -121,6 +183,13 @@ bool program_net_hold_near(float metres);
 // The pilot's mech made again as `roster` in place (0x004783c0; the
 // respawn's, and the exe's mech change).
 void program_pilot_set_mech(int32_t roster);
+bool program_net_wreck_fades();  // the dead list's net_fade: ALLOW RESPAWN's (the tests)
+// The mission's loss in a network game (0x0048f9e0): a mech's +0x578 (its
+// animation state, 10 down; -1 not a mech), its part by id (0x0041d510),
+// and the part's vt+0x3c (set_internal).
+int32_t program_mech_anim_state(const void* mech);
+void* program_mech_part(void* mech, int32_t id);
+void program_part_set_internal(void* part, float v, int32_t section);
 bool program_net_running();  // a network game is up (net_start ran, net_end not yet)
 void program_objectives_again();  // app_mission.cpp: Missions::objectives_again (0x00491050)
 void program_options_apply();     // app_mission.cpp: every option set again (0x0040cb30)
