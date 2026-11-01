@@ -1125,6 +1125,7 @@ bool program_hud_report(HudReport* r) {
   if (const LanceDisplay* d = g_hooks.nav_of(h->mfd.nav)) {
     r->mfd_armor_most = d->most;
     r->mfd_armor_w = d->right - d->left;
+    for (int i = 0; i < 11; ++i) r->mfd_bar_full[i] = d->bars[i].full_h, r->mfd_bar_height[i] = d->bars[i].height;
   }
   r->bracketed = !(h->weapons.poly.flags & ztwod::kHidden);
   r->lock = h->reticle.lock;

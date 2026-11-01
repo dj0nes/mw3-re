@@ -5287,6 +5287,7 @@ struct RepairRun {
   mech3::MechWear worn, after[2];
   int done = 0;
   mech3::MechWear rest[2];  // at the rest after each (c3m1's Clanners fire on him meanwhile)
+  mech3::HudReport hud_worn, hud_rest[2];  // the MFD's armour bars (mode 3) then (W35)
 };
 RepairRun c3m1_repair_run(bool bugs) {
   RepairRun out;
@@ -5328,7 +5329,8 @@ RepairRun c3m1_repair_run(bool bugs) {
       for (int32_t tech = 0; tech <= 2; ++tech) game.store.add_equipment(kind, tech, 1)->count = 40;
     mech3::Pilot* was_pilot = mech3::current_pilot();
     mech3::current_pilot() = &pilot;
-    int frames = 0, phase = 0, at = 0, last_front = -2;
+    int frames = 0, phase = 0, at = 0, last_front = -2, hold = 0, hold2 = 0;
+    bool down2 = false;
     float point[3] = {};
     auto put = [&](void* m, float x, float z) {
       const float a[3] = {x, ground_under(x, point[1] + 100.0f, z), z};
@@ -5351,7 +5353,9 @@ RepairRun c3m1_repair_run(bool bugs) {
         out.bases = mech3::program_bases_alive();
         mech3::program_mech_wear_down(player, 0.5f, 0.5f);
         out.worn = mech3::program_mech_wear(player);
+        mech3::program_hud_mfd_mode(3);  // the armour bars (the game's saved mode may differ)
       }
+      if (frames == 6) mech3::program_hud_report(&out.hud_worn);
       if (!out.bases) return;
       const bool rest = d.front == 0 || d.front == 7;
       switch (phase) {
@@ -5363,10 +5367,11 @@ RepairRun c3m1_repair_run(bool bugs) {
           }
           if (frames > 7 && d.front == 2) put(player, point[0], point[2]), mech3::mech_power(player, 1), phase = 1;
           break;
-        case 1:  // the first repair done
-          if (out.repairs == 1 && rest) {
+        case 1:  // the first repair done; the HUD's data a few frames on (it is off while powered down)
+          if (out.repairs == 1 && rest && !hold) hold = frames, mech3::mech_power(player, 0);  // powered up: the HUD back on
+          if (hold && frames == hold + 10) {
             out.rest[0] = mech3::program_mech_wear(player), out.done = 1;
-            mech3::mech_power(player, 0);
+            mech3::program_hud_report(&out.hud_rest[0]);
             put(player, point[0] + 40.0f, point[2]);  // off the point
             mech3::program_mech_wear_down(player, 0.5f, 0.5f);
             phase = 2, at = frames;
@@ -5375,15 +5380,20 @@ RepairRun c3m1_repair_run(bool bugs) {
         case 2:  // the second: parked (back on the point, powered down), else a new call
           if (frames == at + 60) {
             if (d.front == 7) {
-              put(player, point[0], point[2]), mech3::mech_power(player, 1);
+              put(player, point[0], point[2]), mech3::mech_power(player, 1), down2 = true;
             } else {
               put(player, point[0], point[2]);
               mech3::program_mcb_command(player);
             }
           }
           if (frames == at + 61 && d.front != 7) mech3::program_mcb_command(player);
-          if (frames > at + 61 && d.front == 2) put(player, point[0], point[2]), mech3::mech_power(player, 1);
-          if (out.repairs == 2 && rest) out.rest[1] = mech3::program_mech_wear(player), out.done = 2, phase = 9;
+          if (frames > at + 61 && d.front == 2) {
+            put(player, point[0], point[2]);
+            if (!down2) mech3::mech_power(player, 1), down2 = true;  // once, as the power key does
+          }
+          if (out.repairs == 2 && rest && !hold2) hold2 = frames, mech3::mech_power(player, 0);
+          if (hold2 && frames == hold2 + 10)
+            out.rest[1] = mech3::program_mech_wear(player), mech3::program_hud_report(&out.hud_rest[1]), out.done = 2, phase = 9;
           break;
         default: break;
       }
@@ -5423,6 +5433,25 @@ TEST(mission_c3m1_field_bases_repair_the_player_twice_headless) {
     // real waits (W34) a shot lands there after the second (0.99 / 0.87).
     EXPECT(r.bases && r.done >= 1 && r.after[0].internal == 1.0f && r.after[0].armor == 1.0f);
     if (bugs) EXPECT(r.done == 2 && r.after[1].internal == 1.0f && r.after[1].armor == 1.0f);
+    // W35 (Owen): the MFD's armour bars (mode 3) follow the repair once the
+    // player powers up (the HUD is off while powered down, as the exe).
+    auto bars = [](const char* when, const mech3::HudReport& h) {
+      std::printf("    %s bars (full/whole):", when);
+      for (int i = 0; i < 11; ++i) std::printf(" %d/%d", h.mfd_bar_full[i], h.mfd_bar_height[i]);
+      std::printf("\n");
+    };
+    bars("worn", r.hud_worn);
+    for (int k = 0; k < r.done; ++k) bars(k ? "rest 2" : "rest 1", r.hud_rest[k]);
+    int worn_short = 0;
+    for (int i = 0; i < 11; ++i) worn_short += r.hud_worn.mfd_bar_full[i] < r.hud_worn.mfd_bar_height[i];
+    EXPECT(worn_short > 0);
+    int worn_sum = 0;
+    for (int i = 0; i < 11; ++i) worn_sum += r.hud_worn.mfd_bar_full[i];
+    for (int k = 0; k < r.done; ++k) {
+      int sum = 0;
+      for (int i = 0; i < 11; ++i) sum += r.hud_rest[k].mfd_bar_full[i];
+      EXPECT(sum > worn_sum + worn_sum / 2);  // about full, less any hit since the repair
+    }
   }
 }
 // W32 (Owen, c3m1): the Clan HQ Q-targeted, its radar triangle out of place.
