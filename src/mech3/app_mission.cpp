@@ -561,7 +561,7 @@ struct WiredPlayerHooks : PlayerHooks {
   void vehicle_place(Handle v, const ai::AivRecord* rec) override {
     if (!vehicles.count(v)) return PlayerHooks::vehicle_place(v, rec);
     const float pos[3] = {rec->get<float>(0x08), rec->get<float>(0x0c), rec->get<float>(0x10)};
-    program_vehicle_place(e->object_of(v), pos, rec_yaw(rec));
+    program_vehicle_place(e->object_of(v), pos, rec_heading(rec));
   }
   void vehicle_setup(Handle v, Handle common, const char* name, int32_t kind) override {
     if (!vehicles.count(v)) return PlayerHooks::vehicle_setup(v, common, name, kind);

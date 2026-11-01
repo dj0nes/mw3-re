@@ -1281,6 +1281,14 @@ From the network code (network-messages.md).
   time each frame took, capped at 1/8 second a frame. The exceptions found so
   far are per-frame, like the lava heat above.
 
+- **Some vehicles' starting directions are written down and then ignored.**
+  The mission files give a few vehicles a heading (c1m1's two APCs face 110
+  degrees, c1m2's Bulldogs and APCs, c1m3's and c3m6's field bases, c3m6's
+  Strikers, the training mission's tank and APC turned round), but the game
+  sets the heading and then at once replaces it with the direction the
+  vehicle's model already has, so they all start facing the way the model
+  points.
+
 ## A hidden game editor
 
 - **MW3 ships the in-game editor from Zipper's previous game.** A debug

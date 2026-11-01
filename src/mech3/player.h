@@ -183,6 +183,9 @@ class PlayerHooks : public zgame::Unported {
   // The handle a record goes by in the calls above (its address in the exe).
   virtual Handle rec_handle(const ai::AivRecord* rec);
   static uint32_t rec_yaw(const ai::AivRecord* rec);
+  // The heading as the float its bits are (0x004a3630's argument, the
+  // dword pushed as it is; a conversion of the integer made it a huge angle).
+  static float rec_heading(const ai::AivRecord* rec);
 };
 
 // player.cpp's globals.

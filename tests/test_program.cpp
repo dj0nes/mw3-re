@@ -14914,6 +14914,22 @@ TEST(playtest_hud_images_the_data_lacks) {
 // Mission-plan item 11: each known key says what it is (the program's own,
 // deferred by a decision, or without effect) and why; the gaps found while
 // checking (items 12-15) are not among them.
+// A vehicle's placement heading from its aiv record (app_mission.cpp's
+// vehicle_place, 0x004a3630): the record's dword as the float it is, as the
+// exe pushes it. c1m1's apc_01 has 1.919862 (110 degrees); converting the
+// integer gave 1069547520-odd radians. (The controls' setup, 0x004ac8a0,
+// then takes the node's rotation, in the exe too: vehicles.md.)
+TEST(vehicle_heading_from_its_record_is_the_float) {
+  mech3::ai::AivRecord rec;
+  const float h = 1.919862f;
+  uint32_t bits;
+  std::memcpy(&bits, &h, 4);
+  rec.put_raw(0x14, bits);
+  EXPECT(mech3::PlayerHooks::rec_heading(&rec) == h);
+  rec.put_raw(0x14, 0);
+  EXPECT(mech3::PlayerHooks::rec_heading(&rec) == 0.0f);
+}
+
 TEST(known_unported_keys_name_their_reason) {
   int n = 0;
   for (const char* k : {"0x005561a0", "0x005561e0", "0x00516f50", "[0x0072f3f0]",

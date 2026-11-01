@@ -97,6 +97,21 @@ their definitions are aiTurrets.zrd: The turrets).
 - About 40 functions in the vtable (most under 30 lines; 0x4d6de0 142 and
   0x4a2ef0 144 are AiTarget / AI), roughly 2,000 lines of pseudocode.
 
+### The heading from the record (2026-11-01)
+
+The mission start places each vehicle (0x0049f8a0 -> vt+0xdc, 0x4a3630)
+with its aiv.zrd record's heading, the dword at +0x14 pushed as it is (a
+float in radians). The port converted those bits as an integer (1.919862
+became about 1.07e9 radians) until 2026-11-01 (`PlayerHooks::rec_heading`,
+`vehicle_heading_from_its_record_is_the_float`). It made no difference in
+play, in the exe either: the setup that follows (0x49ec00 -> the controls'
+vt+0x0c 0x4acbc0 -> vt+0x10 0x4ac8a0) reads the node's own rotation into
+the same angles (+0x330), so a vehicle faces its node, not its record.
+Records with a heading: c1m1 apc_01, apc_02 (110 degrees); c1m2 bulldog_01..04,
+apc_01, apc_02; c1m3 mobilehq_01..03; c3m6 striker_01..05, mobilehq_01..03;
+t1m4 apc_01, bulldog_01 (180); every other mission's are 0. None of them
+faces it.
+
 ## The vehicles' controls base (0x4ac750, ported in step 2a1)
 
 The AI's vehicle controls (0x4e71c0 over 0x4e7090) and the vehicle's own
