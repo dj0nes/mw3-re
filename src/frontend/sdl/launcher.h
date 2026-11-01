@@ -24,6 +24,9 @@ struct LauncherOptions {
   // For checking (--launcher-shot FILE [--launcher-screen main|setup|work]):
   // the screen drawn once into FILE (a BMP of the 640x480 canvas), no window shown.
   std::string shot, screen = "main";
+  // A plain mw3 start that found no install (docs/games-layout.md): the SETUP
+  // screen alone, straight on into the game once there is one.
+  bool setup_only = false;
   bool play = false;  // --launcher-play: MECHWARRIOR 3 pressed once the window is up (checks)
   bool play_mw1 = false;  // --launcher-mw1: MECHWARRIOR (1989) pressed once, then quit when it returns (checks)
 };

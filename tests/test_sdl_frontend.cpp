@@ -2674,6 +2674,58 @@ TEST(sdl_program_launcher_screens) {
   }
 }
 
+// A plain mw3 start (docs/games-layout.md): straight into the game when an
+// install is found, no launcher; with none, the SETUP screen alone, and once
+// POINT TO YOUR GAME's pick is installed, on into the game (MW3_START_ONLY
+// stops each where it would go on; MW3_LAUNCHER_PICK stands for the dialog);
+// --launcher shows the launcher's main screen.
+TEST(sdl_program_plain_start_goes_straight_in_or_to_setup) {
+  const std::string dir = std::string(MW3_TEST_TMP) + "/plain_start";
+  std::error_code ec;
+  std::filesystem::remove_all(dir, ec);
+  for (const char* d : {"/wd", "/wd2", "/wd3", "/wd4", "/disc"}) std::filesystem::create_directories(dir + d, ec);
+  auto run = [&](const std::vector<std::string>& args, const std::string& log) {
+    const pid_t pid = spawn_mw3(args, log);
+    int status = 0;
+    const bool ok = pid > 0 && waitpid(pid, &status, 0) == pid && WIFEXITED(status) && WEXITSTATUS(status) == 0;
+    std::ifstream f(log);
+    return ok ? std::string((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>()) : std::string("(failed)");
+  };
+  setenv("MW3_START_ONLY", "1", 1);
+  setenv("MW3_LAUNCHER_FRAMES", "20", 1);
+  // An install found: straight in.
+  const std::string a = run({"--write-dir", dir + "/wd", "--window", "640x480", "--nosound"}, dir + "/a.log");
+  EXPECT(a.find("mw3: start only: install ") != std::string::npos && a.find("(none yet)") == std::string::npos &&
+         a.find("launcher:") == std::string::npos);
+  // --launcher: its main screen (quit after 20 frames).
+  const std::string b = run({"--launcher", "--write-dir", dir + "/wd2", "--window", "640x480", "--nosound"}, dir + "/b.log");
+  EXPECT(b.find("launcher: Found MechWarrior 3") != std::string::npos && b.find("start only") == std::string::npos);
+  // None: the SETUP screen alone (QUIT after 20 frames: no game).
+  setenv("MW3_FIND_INSTALL", "1", 1);
+  const std::string c = run({"--write-dir", dir + "/wd3", "--window", "640x480", "--nosound"}, dir + "/c.log");
+  EXPECT(c.find("no install found: the SETUP screen") != std::string::npos && c.find("start only") == std::string::npos);
+  // None, and a disc's files picked: looked at, installed, on into the game.
+  const std::string patch = std::string(MW3_GAME_DIR) + "/../patch-1.2/MechWarrior-3_Patch_Win_EN_Patch-12-US";
+  if (std::filesystem::exists(patch + "/data1.cab")) {
+    std::filesystem::copy_file(patch + "/data1.hdr", dir + "/disc/DATA1.HDR", ec);
+    std::filesystem::copy_file(patch + "/data1.cab", dir + "/disc/DATA1.CAB", ec);
+    setenv("MW3_LAUNCHER_FRAMES", "1800", 1);  // about 30 s: a launcher that never goes on quits and fails, not hangs
+    setenv("MW3_LAUNCHER_PICK", (dir + "/disc").c_str(), 1);
+    const std::string d = run({"--write-dir", dir + "/wd4", "--window", "640x480", "--nosound"}, dir + "/d.log");
+    unsetenv("MW3_LAUNCHER_PICK");
+    std::printf("plain start, picked: %s\n", d.substr(d.find("is installed in") == std::string::npos ? 0 : d.find("is installed in"), 120).c_str());
+    EXPECT(d.find("no install found: the SETUP screen") != std::string::npos && d.find("is installed in") != std::string::npos &&
+           d.find("mw3: start only: install " + dir + "/wd4/install") != std::string::npos &&
+           std::filesystem::exists(dir + "/wd4/install/mw3-install.txt"));
+    std::ifstream cfg(dir + "/wd4/mw3.cfg");
+    const std::string text((std::istreambuf_iterator<char>(cfg)), std::istreambuf_iterator<char>());
+    EXPECT(text.find("install=" + dir + "/wd4/install") != std::string::npos);
+  }
+  unsetenv("MW3_FIND_INSTALL");
+  unsetenv("MW3_LAUNCHER_FRAMES");
+  unsetenv("MW3_START_ONLY");
+}
+
 // One window from the launcher into the game (lead's launcher list, item
 // 2): PLAY (--launcher-play presses MECHWARRIOR 3 at once) hands the
 // launcher's window over, its renderer freed, and the game claims it for

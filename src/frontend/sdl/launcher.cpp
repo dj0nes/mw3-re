@@ -22,6 +22,7 @@
 #include "mech3/menu_ripple.h"
 #include "gamez/zrender/zrndr_tint.h"
 #include "mech3/game_setup.h"
+#include "mech3/source_map.h"
 
 namespace sdlfe {
 
@@ -291,8 +292,8 @@ struct Button {
 
 enum Id {
   kMw3 = 1, kPm, kSetup, kQuit, kMw1,
-  kFind = 10, kInstall, kPatch, kMusic, kBack,
-  kGo = 20, kChooseFile, kCancel, kNotesOk,
+  kPoint = 10, kFolder, kSearch, kPatch, kMusic, kBack,
+  kGo = 20, kCancel, kNotesOk,
 };
 
 struct Install {
@@ -308,6 +309,7 @@ struct Work {
   mech3::setup::Result result;
   std::atomic<bool> cancel{false}, done{false};
   std::string title;
+  enum Kind { kOther, kLook, kInstallIt } kind = kOther;  // the look into a picked source, its install
   ~Work() {
     cancel = true;
     if (th.joinable()) th.join();
@@ -367,6 +369,9 @@ class Launcher {
   void ask_folder(int what);
   void picked(int what, const std::string& path);
   void finish_work();
+  void look_at(const std::string& path);
+  void search();
+  void use_install(const std::string& dir, const std::string& version, const std::string& summary);
   void present();
 
   LauncherOptions o_;
@@ -402,7 +407,8 @@ class Launcher {
   bool asking_ = false;
   std::string confirm_text_, pending_source_;
   int confirm_go_ = 0;
-  bool after_install_music_ = false;
+  std::shared_ptr<mech3::source::Found> found_;  // the last look's (look_at)
+  bool auto_go_ = false;  // MW3_LAUNCHER_PICK (checks): its look's INSTALL pressed too
   LauncherChoice choice_;
   bool done_ = false;
   Sounds sounds_;
@@ -531,17 +537,18 @@ void Launcher::layout() {
       // The patch only for data of an unknown version: 1.0's and a mix load
       // as 1.2 anyway (mech3/patch12.h, docs/patch12.md).
       const bool patchable = install_.ok && install_.version == "unknown";
-      int y = 152;
-      add(kFind, {130, y, 380, 44}, "FIND MY INSTALLED MECHWARRIOR 3"), y += 52;
-      add(kInstall, {130, y, 380, 44}, "INSTALL FROM MY DISC OR DISC IMAGE"), y += 52;
-      if (patchable) add(kPatch, {130, y, 380, 44}, "APPLY THE 1.2 PATCH"), y += 52;
-      add(kMusic, {130, y, 380, 44}, "ADD THE MUSIC FROM MY DISC IMAGE");
-      add(kBack, {250, 372, 140, 34}, "BACK");
+      int y = 170;
+      add(kPoint, {130, y, 380, 52}, "POINT TO YOUR GAME", "The disc, a disc image, a download (.zip .7z .rar) or Mech3.exe");
+      y += 58;
+      add(kFolder, {130, y, 186, 36}, "A FOLDER INSTEAD");
+      add(kSearch, {324, y, 186, 36}, "SEARCH AGAIN"), y += 46;
+      if (patchable) add(kPatch, {130, y, 380, 40}, "APPLY THE 1.2 PATCH"), y += 46;
+      add(kMusic, {130, y, 380, 40}, "ADD THE MUSIC FROM MY DISC IMAGE");
+      add(kBack, {250, 384, 140, 34}, o_.setup_only ? "QUIT" : "BACK");
       break;
     }
     case kConfirm:
       if (confirm_go_) add(kGo, {170, 300, 140, 40}, "INSTALL");
-      if (confirm_go_ == 2) add(kChooseFile, {130, 250, 380, 40}, "CHOOSE A .ISO OR .CUE FILE INSTEAD");
       add(kBack, {330, 300, 140, 40}, "BACK");
       break;
     case kWorking:
@@ -642,12 +649,14 @@ void Launcher::draw(float dt) {
       text_.draw(canvas_, "Unofficial fan rebuild. MechWarrior is a trademark of Microsoft.", 12, kDim, 16, H - 24, -1);
       break;
     case kSetupScreen: {
-      SDL_Rect box{110, 108, 420, 32};
+      SDL_Rect box{90, 104, 460, 58};
       SDL_FillSurfaceRect(canvas_, &box, SDL_MapSurfaceRGB(canvas_, 16, 18, 22));
       const std::string s = !status_.empty() ? status_
                             : install_.ok   ? install_.summary
-                                            : "No MechWarrior 3 install was found on this computer.";
-      text_.draw(canvas_, s, 13, kWhite, W / 2, 124);
+                                            : "No MechWarrior 3 was found on this computer. Point to your game: the disc, a "
+                                              "disc image, or the file you downloaded.";
+      const SDL_Color c = status_.empty() || status_good_ ? kWhite : SDL_Color{240, 190, 180, 255};
+      text_.draw_wrapped(canvas_, s, 13, c, W / 2, 112, 440);
       text_.draw(canvas_, "Your MechWarrior 3 files are only read, never changed.", 12, kDim, 16, H - 24, -1);
       break;
     }
@@ -745,30 +754,9 @@ void Launcher::picked(int what, const std::string& path) {
     run_mw1();
     return;
   }
-  if (what == kFind) {
-    const std::string dir = fs::is_regular_file(path) ? fs::path(path).parent_path().string() : path;
-    const Result r = check_install(dir, o_.write_dir);
-    if (r.ok) {
-      install_ = {true, r.install_dir.empty() ? dir : r.install_dir, r.version, r.summary};
-      save_install(o_.write_dir, install_.dir);
-      status_ = r.summary, status_good_ = true, screen_ = kMain;
-    } else {
-      status_ = r.summary.empty() ? "That folder is not a MechWarrior 3 install." : r.summary, status_good_ = false;
-    }
-  } else if (what == kInstall || what == kChooseFile) {
-    const Result r = probe_source(path);
-    confirm_text_ = r.summary;
-    for (const std::string& w : r.warnings) confirm_text_ += "\n" + w;
-    pending_source_ = path;
-    confirm_go_ = r.ok && r.install_dir.empty() ? 1 : 0;
-    if (r.ok && !r.install_dir.empty()) {  // an installed copy, not a disc: use it
-      install_ = {true, r.install_dir, r.version, r.summary};
-      save_install(o_.write_dir, install_.dir);
-      status_ = r.summary, status_good_ = true, screen_ = kMain;
-      layout();
-      return;
-    }
-    screen_ = kConfirm;
+  if (what == kPoint) {
+    look_at(path);
+    return;
   } else if (what == kPatch) {
     work_ = std::make_unique<Work>();
     const std::string wd = o_.write_dir;
@@ -783,6 +771,63 @@ void Launcher::picked(int what, const std::string& path) {
   layout();
 }
 
+// A found install used: saved to mw3.cfg; a plain mw3 start (setup_only)
+// goes straight on into the game, the launcher back to its main screen.
+void Launcher::use_install(const std::string& dir, const std::string& version, const std::string& summary) {
+  install_ = {true, dir, version, summary};
+  save_install(o_.write_dir, dir);
+  status_ = summary, status_good_ = true;
+  if (o_.setup_only) {
+    choice_ = {LauncherChoice::kPlay, dir};
+    done_ = true;
+    return;
+  }
+  screen_ = kMain;
+  layout();
+}
+
+// What the player pointed at, looked into on the worker (an archive's look
+// can take seconds: the MW3 disc's installer header is 209 MB into its image).
+void Launcher::look_at(const std::string& path) {
+  pending_source_ = path;
+  found_ = std::make_shared<mech3::source::Found>();
+  work_ = std::make_unique<Work>();
+  work_->kind = Work::kLook;
+  auto found = found_;
+  const std::string name = fs::path(path).filename().string();
+  work_->start("LOOKING AT YOUR GAME", [path, found, name](const mech3::setup::ProgressFn& f) {
+    *found = mech3::source::map_source(path, [&](double at, const std::string& entry) {
+      return f(mech3::setup::Progress{"Looking into " + (name.empty() ? path : name), at, entry});
+    });
+    mech3::setup::Result r;
+    r.ok = found->game == mech3::source::Found::kMw3, r.cancelled = found->cancelled;
+    r.summary = found->summary, r.detail = found->detail;
+    return r;
+  });
+  screen_ = kWorking;
+  layout();
+}
+
+// The automatic search: an installed copy (mw3.cfg's, the installer's
+// places), else a disc in a drive (looked into as if picked).
+void Launcher::search() {
+  find_install();
+  if (install_.ok) {
+    use_install(install_.dir, install_.version, install_.summary);
+    return;
+  }
+  const std::vector<mech3::setup::DiscSource> discs = mech3::setup::find_discs();
+  if (!discs.empty()) {
+    look_at(discs.front().path);
+    return;
+  }
+  status_ = "No MechWarrior 3 was found on this computer, nor a disc in a drive. Point to your game: the disc, a disc "
+            "image, or the file you downloaded.";
+  status_good_ = false;
+  screen_ = kSetupScreen;
+  layout();
+}
+
 void Launcher::finish_work() {
   mech3::setup::Result r;
   {
@@ -790,21 +835,46 @@ void Launcher::finish_work() {
     r = work_->result;
   }
   if (work_->th.joinable()) work_->th.join();
-  std::printf("mw3: launcher: %s%s%s\n", r.summary.c_str(), r.detail.empty() ? "" : " | ", r.detail.c_str());
-  status_ = r.summary, status_good_ = r.ok;
-  if (r.ok && !r.install_dir.empty()) {
-    save_install(o_.write_dir, r.install_dir);
-    after_install_music_ = r.music_tracks == 0 && fs::path(pending_source_).extension() == ".iso";
-  }
-  find_install();
+  const Work::Kind kind = work_->kind;
   work_.reset();
+  std::printf("mw3: launcher: %s%s%s\n", r.summary.c_str(), r.detail.empty() ? "" : " | ", r.detail.c_str());
+  if (kind == Work::kLook) {
+    const mech3::source::Found& f = *found_;
+    if (f.cancelled || !r.ok) {
+      status_ = r.summary, status_good_ = f.cancelled;
+      screen_ = kSetupScreen;
+    } else if (f.kind == mech3::source::Found::kInstall && f.on_disk) {  // used where it is
+      const mech3::setup::Result c = mech3::setup::check_install(f.path, o_.write_dir);
+      if (c.ok) return use_install(c.install_dir.empty() ? f.path : c.install_dir, c.version, c.summary);
+      status_ = c.summary, status_good_ = false, screen_ = kSetupScreen;
+    } else {
+      const std::string out = (fs::path(o_.write_dir) / "install").make_preferred().string();
+      confirm_text_ = f.summary + "\n\nIt will be installed into " + out + ". Your own files are only read.";
+      confirm_go_ = 1;
+      screen_ = kConfirm;
+      if (auto_go_) {
+        auto_go_ = false;
+        activate(kGo);
+        return;
+      }
+    }
+    layout();
+    return;
+  }
+  status_ = r.summary, status_good_ = r.ok;
+  for (const std::string& w : r.warnings) status_ += " " + w;
+  if (r.ok && !r.install_dir.empty()) save_install(o_.write_dir, r.install_dir);
+  find_install();
+  if (kind == Work::kInstallIt && r.ok && install_.ok) return use_install(install_.dir, install_.version, status_);
   screen_ = install_.ok && r.ok ? kMain : kSetupScreen;
   layout();
 }
 
 void Launcher::activate(int id) {
   sounds_.play(Sounds::kSelect);
-  static const SDL_DialogFileFilter kDisc[] = {{"Disc images (.iso, .cue)", "iso;cue"}, {"All files", "*"}};
+  static const SDL_DialogFileFilter kGame[] = {
+      {"Your game: a disc image, a download or Mech3.exe", "iso;cue;bin;img;zip;7z;rar;tar;gz;tgz;xz;exe"},
+      {"All files", "*"}};
   static const SDL_DialogFileFilter kCue[] = {{"Cue sheets (.cue)", "cue"}, {"All files", "*"}};
   static const SDL_DialogFileFilter kZip[] = {{"The 1.2 patch (.zip, .exe)", "zip;exe"}, {"All files", "*"}};
   switch (id) {
@@ -827,40 +897,34 @@ void Launcher::activate(int id) {
       }
       break;
     case kBack:
-      screen_ = screen_ == kConfirm ? kSetupScreen : kMain, layout();
+      if (o_.setup_only && screen_ == kSetupScreen) done_ = true;  // a plain start's QUIT
+      else screen_ = screen_ == kConfirm ? kSetupScreen : kMain, layout();
       break;
     case kNotesOk:
       screen_ = kMain, layout();
       break;
-    case kFind:
-      find_install();
-      if (install_.ok) {
-        save_install(o_.write_dir, install_.dir);
-        status_ = install_.summary, status_good_ = true, screen_ = kMain, layout();
-      } else {
-        ask_folder(kFind);
+    case kPoint:  // the search first while there is no game, then the picker
+      if (!install_.ok) {
+        find_install();
+        if (install_.ok) {
+          use_install(install_.dir, install_.version, install_.summary);
+          break;
+        }
       }
+      ask_file(kPoint, kGame, 2);
       break;
-    case kInstall: {
-      const std::vector<mech3::setup::DiscSource> discs = mech3::setup::find_discs();
-      if (!discs.empty()) {
-        picked(kInstall, discs.front().path);
-        if (screen_ == kConfirm) confirm_go_ = confirm_go_ ? 2 : 0, layout();
-      } else {
-        ask_file(kInstall, kDisc, 2);
-      }
-      break;
-    }
-    case kChooseFile: ask_file(kChooseFile, kDisc, 2); break;
+    case kFolder: ask_folder(kPoint); break;
+    case kSearch: search(); break;
     case kPatch: ask_file(kPatch, kZip, 2); break;
     case kMusic: ask_file(kMusic, kCue, 2); break;
     case kGo: {
       work_ = std::make_unique<Work>();
-      const std::string src = pending_source_;
-      const std::string out = (fs::path(o_.write_dir) / "install").string();
-      const std::string music = (fs::path(o_.write_dir) / "music").string();
-      work_->start("INSTALLING MECHWARRIOR 3",
-                   [src, out, music](const mech3::setup::ProgressFn& f) { return mech3::setup::install_from_disc(src, out, "", music, f); });
+      work_->kind = Work::kInstallIt;
+      const auto found = found_;
+      const std::string wd = o_.write_dir, out = (fs::path(wd) / "install").string(), music = (fs::path(wd) / "music").string();
+      work_->start("INSTALLING MECHWARRIOR 3", [found, out, music, wd](const mech3::setup::ProgressFn& f) {
+        return mech3::setup::install_from_source(*found, out, "", music, wd, f);
+      });
       screen_ = kWorking, layout();
       break;
     }
@@ -919,7 +983,7 @@ LauncherChoice Launcher::run() {
     work_.reset();
     return {};
   }
-  if (!install_.ok) screen_ = kSetupScreen;
+  if (!install_.ok || o_.setup_only) screen_ = kSetupScreen;
   else if (first_start) screen_ = kNotes;
   layout();
   // Not high pixel density: the game takes this window (one window into the
@@ -940,6 +1004,8 @@ LauncherChoice Launcher::run() {
   SDL_SetTextureScaleMode(tex_, SDL_SCALEMODE_LINEAR);
   Uint64 last = SDL_GetTicks();
   if (o_.play) activate(kMw3);
+  // Checks: a pick as if made in POINT TO YOUR GAME's dialog, INSTALL pressed.
+  if (const char* pick = SDL_getenv("MW3_LAUNCHER_PICK"); pick && screen_ == kSetupScreen) auto_go_ = true, look_at(pick);
   if (o_.play_mw1) activate(kMw1), done_ = !asking_;
   while (!done_) {
     SDL_Event e;
