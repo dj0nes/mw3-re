@@ -1595,14 +1595,43 @@ list; with the player walked up to tur_srm08 it is sensed, picks, targets
 the player and fires; killed outright (vt+0x70) it shuts down and the
 player's kills of buildings go 0 to 1 (200 points).
 
-## The stealth object and BASIC mode (2026-10-23; back burner)
+## The stealth object and BASIC mode (2026-10-23; ported 2026-11-01, editor S1)
 
 The mission load makes it in every mission ("Creating Stealth", 0x4a4de0,
 [0x609a2c], vehicle.zrd's `stealth`: no model, sounds or weapons, health
 10000, `mode` basic, rates 40 / 65, turns 2.5 / 3.5); the unload deletes
-it (0x490480). It is on zEntity's list, sorted last; the sensors clear its
-state and +0x09 each frame, so the entity walk never runs it. Its frame
-runs from the player's tick only while the view is on it.
+it (0x490480, its destructor 0x4a4fc0). It is appended to zEntity's list
+(0x5a8820 is a push_back; the unload takes it out and puts it back, so it
+ends last); its +0x09 is 0, which the entity walk (0x5a8850) checks before
+each entity's frame, so the walk never runs it. Its frame runs from the
+player's tick only while the view is on it.
+
+Ported (mech3/veh_stealth, editor.md S1): the object, its overlay (a zTwoD
+layer with the image "ret_off" and a readout of its movement mode, drawn
+while the view is on it) and its own controls (0x4a51b0, below). In the
+program (app_vehicle.cpp, app_mission.cpp, app_mech.cpp), three places
+assumed nothing outlives a mission's vehicles and were made to keep it as
+the original does:
+- it is made by the world's load, before the mission's vehicles, so the
+  mission start's forget (`program_vehicles_forget`) keeps it among the
+  program's vehicles (the sensors ask it the vehicle slots, vt+0x2c and
+  others, as the original's do);
+- the world node vehicles are added to (`world_hooks().world`) was set by
+  the world parameters' read, after the world's load: the stealth's node
+  went into no world (or, after a cleanup without the unload, a freed one).
+  It is set now where the world object is made (0x0047f2b0, [0x00608c84]+4),
+  as the original's is;
+- the debug start emptied zEntity's list before each mission; the cleanup
+  (0x00491780) keeps the stealth out of what it frees and puts it back, so
+  the start keeps it too (a restart on the same world keeps the world and
+  its stealth).
+The entity walk asks its +0x09 before anything else, and the unload's
+delete knows it. Its load
+costs nothing measurable: c1m1 "Ready To Launch" 391 to 414 ms before, 392
+to 394 ms after (three runs each, the final build). The vehicle.zrd `stealth` entry has no
+model, so its setup reports, as the original does, "Cannot find support
+points for stealth!", "Cannot find collision points for stealth!" and "No
+destroy animation for (stealth) or (stealth)".
 
 The view goes onto it in two places: the debug key setup 0x40e430 (its own
 key map, keys 0x39 and 0x439; the view attached, vt+0x108), the handler of
@@ -1611,7 +1640,18 @@ command 0x9a in 0x40dba0's switch, which nothing in the release registers
 the mech swap); and the mech swap 0x4783c0 (the mech lab's resume(4) in
 0x481170 with another mech, the multiplayer respawn 0x46dde0), which parks
 the view on it while the mech is rebuilt and returns it in the same call.
-So in the release it is only a placeholder for the camera.
+
+**Its controls** (0x4a51b0 over the base 0x4ac750, 0xa1c bytes; vtables
+0x5c86b0, IControls 0x5c85f8): the base's but for vt+0x1c (0x4d72a0: never
+destroyed), vt+0x20 (0x4a5270: 1) and the frame (IControls vt+0x0c,
+0x4a5ae0 -> 0x4a5280): the player's own movement commands (0x51d300:
+THROTTLE_UP/DN 0x18/0x19, TURN_LEFT/RIGHT 2/3, PITCH_UP/DN 4/5,
+CENTER_TORSO 6) and the mouse (0x51ba60), each clamped to -1..1 and
+smoothed (0x4abcf0(x, 0.5, 1)) into the throttle and turn (IControls +0x20,
++0x28) and two more axes (+0x9c0, +0x9bc). So the stealth is a camera flown
+with the original's own keys while the view is on it (editor.md S3). An
+earlier reading here (and in editor.md) took the basic vehicle's own
+controls for its: those are below.
 
 **BASIC** (0x4a1d90, its ground 0x4a1f00), the stealth object's movement:
 by camera mode, a car's steering (0x4a20d0: the turn into the heading
@@ -1620,14 +1660,24 @@ by camera mode, a car's steering (0x4a20d0: the turn into the heading
 reversing); the speed step 0x4a2b10; the move on the horizontal plane;
 then the four platform points' ground (0x4a2190), the highest taken plus
 an offset (+0x88 of the motion block, likely `mode_alt`), pitch and roll 0:
-a level sled glued above the ground. Not a fly camera (an earlier guess
-here): its controls are a small AI that drives it along the editor's paths,
-and the view goes onto it when debug command 0x9a opens Zipper's Battlesport
-game editor (docs/editor.md).
+a level sled glued above the ground (editor.md S2).
 
-Not ported yet: Owen (2026-10-31) wants the editor and the stealth exactly
-as the original had them, behind `--debug-camera`; the map and the sittings
-are docs/editor.md.
+## The basic vehicle's own controls (open; deferred 2026-11-01)
+
+A vehicle made without AI controls makes its own (0x4ac860(0xa70), then
+0x4ae270; vtables 0x5c8c50, IControls 0x5c8b98): settings from the
+vehicle's zrd (0x4ae3c0, 0x4ae6b0) and a frame (0x4ae850, through
+0x4aea10) that runs a path follower, 0x401050's switch on +0xa14: mode 0
+follows the waypoints at +0xa0c (0x401100, 0x401940; 0x401400, 0x401500),
+modes 1..3 (0x401680, 0x401c30, 0x401e30) other approaches, mode 4 stops.
+Not ported: no shipped mission makes such a vehicle. Checked 2026-11-01 by
+a log line (`mw3: vehicle NAME (TYPE) has no AI controls`, at
+vehicle_create and field_base_create, kept so a community mission that
+does would show) over the campaign by its objectives (all 20 missions),
+t1m1..t1m4, every Instant Action map (c1..c4 ia1..ia3, t1ia1) and every
+multiplayer map (c1mp1..2, c2mp1..2, c3mp1..4, c4mp1..2, t1mp1, hosted
+alone): 48 missions, none. The line's break check (its condition
+inverted) names c1m1's four vehicles.
 
 ## Why 2.1 waits for the AI (2026-10-21)
 

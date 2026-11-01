@@ -206,6 +206,7 @@ add_library(mw3core STATIC
   src/mech3/mech_waynet.cpp
   src/mech3/veh_controls.cpp
   src/mech3/veh_move.cpp
+  src/mech3/veh_stealth.cpp
   src/mech3/mech_anim.cpp
   src/mech3/mech_net.cpp
   src/mech3/mech_reader.cpp
@@ -468,6 +469,7 @@ add_library(mw3probe SHARED
   tests/probe_mech_build.cpp
   tests/probe_veh_basic.cpp
   tests/probe_veh_fieldbase.cpp
+  tests/probe_veh_stealth.cpp
   tests/probe_veh_dock.cpp
   tests/probe_veh_waynet.cpp
   tests/probe_mech_repair.cpp

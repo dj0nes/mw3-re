@@ -1290,9 +1290,16 @@ From the network code (network-messages.md).
   EXIT GAME EDIT. The AI net editor has its own menu: go to a net, change a
   net's or a node's parameters, add a vehicle to a node, move or delete a
   node, save the changes, a tree view. While it is open the camera rides an
-  invisible vehicle, the "stealth" object every mission makes, which drives
-  itself along a path of waypoints like a camera dolly. Nothing in the
-  released game can open it (docs/editor.md).
+  invisible vehicle, the "stealth" object every mission makes, and you fly
+  it with the game's own movement keys: throttle, turn and pitch, plus the
+  mouse. It hovers at a fixed height over the ground like a sled, and a
+  small readout names its movement mode. Nothing in the released game can
+  open it (docs/editor.md).
+- **Every mission builds that invisible camera vehicle anyway.** The
+  loading screen's "Creating Stealth" step makes it in every mission, campaign,
+  Instant Action and multiplayer alike, even though nothing in the release
+  ever looks through it. It has no model, so the game logs that it cannot
+  find its support points, collision points or destroy animation each time.
 
 ## Mission worlds
 

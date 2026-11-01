@@ -431,9 +431,11 @@ apart. Everything else is a real gap and stays listed.
 - `--frame-times N` (ours, for measuring; performance.md): from the N-th
   frame shown, each frame's wall time (present to present), summed up at
   the end: mean, median, p95, p99, max.
-- `--mission ia<N>[w<W>]` (ours, for measuring): Instant Action map N in
-  wave mode from wave W, four Champions with the player, as the Action
-  screen would set it (the AI survey's start).
+- `--mission [<world>]ia<N>[w<W>]` (ours, for measuring): Instant Action
+  map N in wave mode from wave W, four Champions with the player, as the
+  Action screen would set it (the AI survey's start); on c1 without a
+  world, else on it (`c3ia2`: c3's readeria2; 2026-11-01, for the editor S1
+  sweep, vehicles.md).
 - `--seed N` (ours): every srand the game does from the time of day
   (0x00501ab0, 0x00508fc0, 0x0049aca0) takes N instead
   (`crt::rand_fixed_seed`). With `--frame-ms` a run repeats line for line:

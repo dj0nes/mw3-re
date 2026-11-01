@@ -10,9 +10,9 @@
 #include "mech3/message_panel.h"
 #include "gamez/zimage/zimg_texture.h"
 #include "mech3/app_mech.h"
+#include "mech3/app_vehicle.h"
 #include "mech3/app_turret.h"
 #include "mech3/turret.h"
-#include "mech3/app_vehicle.h"
 
 #include <cmath>
 #include <cstdio>
@@ -1770,6 +1770,10 @@ void update_entities(float dt) {
     Mech* m = entity_mech(h);
     if (!m) {  // another entity's vt+0x34
       if (program_pocket_marker(h)) return;  // the command marker's (0x004d7f80's: nothing to do)
+      if (void* s = g_w.object_of(g_w.engine, h); s && s == program_stealth()) {
+        if (program_vehicle_sensed(s)) program_vehicle_frame(s, dt);  // +0x09, which the stealth keeps 0
+        return;
+      }
       if (void* v = g_w.object_of(g_w.engine, h); is_program_vehicle(v)) return program_vehicle_frame(v, dt);
       if (tur::Turret* t = program_turret_by_handle(h)) {  // 0x004a6be0 while the sensors keep it up (+0x09)
         if (t->sensed) program_turret_frame(t);

@@ -103,6 +103,9 @@ class VehBasicHooks : public zgame::Unported {
   virtual void controls_set_owner(Handle c, BasicVehicle& v) { unported("ctl.ictl.vt+0x8", {low(c), ref(&v)}); }
   virtual void controls_delete(Handle c) { unported("ctl.ictl.vt+0x0", {low(c), 1}); }
   virtual void cameras_once() { vehicle_cameras_make(); }  // 0x004ace00
+  // Ours: a vehicle made with no AI controls, so it would make its own
+  // (0x004ae270, not ported: vehicles.md, The basic vehicle's own controls).
+  virtual void no_ai_controls(const char* type, const char* name) { (void)type, (void)name; }
   // 0x0040adf0 on the view ([0x005f4c8c]): the view onto the vehicle in `mode`.
   virtual void view_attach(BasicVehicle& v, CameraMode* mode) {
     unported("0x0040adf0", {ref(&v), static_cast<uint32_t>(reinterpret_cast<uintptr_t>(mode))});

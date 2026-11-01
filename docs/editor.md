@@ -85,31 +85,42 @@ dir, never into the install (FIX (A), agreed 2026-10-31).
 ## The stealth object
 
 Made at every mission load ("Creating Stealth", **0x004a4de0**, [0x00609a2c],
-vtable 0x005c8460; vehicle.zrd's `stealth`: no model, sounds or weapons,
-health 10000, `mode` basic, rates 40 / 65, turns 2.5 / 3.5), with a
-0x108-byte part (0x004a55c0, "ret_off") and its name (0x005a84c0); deleted
-by the unload (0x00490480). It is on zEntity's list, sorted last; the
-sensors clear its state each frame, so the entity walk never runs it. Its
-frame runs from the player's tick while the view is on it.
+vtable 0x005c8460, 0x104 bytes; vehicle.zrd's `stealth`: no model, sounds
+or weapons, health 10000, `mode` basic, rates 40 / 65, turns 2.5 / 3.5);
+renamed "stealth" by the mission load (0x005a84c0); deleted by the unload
+(0x00490480, its destructor 0x004a4fc0). Its +0x09 is 0, so the entity walk
+never runs it; its frame runs from the player's tick while the view is on
+it. Ported in S1 (mech3/veh_stealth; vehicles.md, The stealth object):
 
-**Its controls** (0x004ae270 over the base 0x004ac750, vtable 0x005c8c50,
-IControls 0x005c8b98; 0x004ac860 is only the zeroed allocation) are the
-basic vehicle's, a small AI, not input: their settings read from the
-vehicle's zrd (0x004ae3c0, 0x004ae6b0), their frame **0x004ae850** (the
-IControls vt+0x0c) calls **0x00401050** with the player's mech, a switch on
-+0xa14:
+- **0x004a4de0**: the basic vehicle's constructor (0x004ac530) over its
+  controls, the HUD markers (0x004ac3d0), a new node named "Stealth" in the
+  world, the entity's node and list, the origin, the node out of the
+  segment queries (0x004eb6d0) and flag 8 off (0x004eb620), the controls'
+  motion mode (BASIC) and state zeroed, the overlay, +0x09 cleared;
+  vehicle.zrd's `stealth` (its common_mode through 0x0049ec00, its motion
+  block through 0x0049ec90), the points (0x0049f660); placed where aiv.zrd's
+  `stealth` record says when the mission has one (0x004e0680, 0x004a3630).
+- **The overlay** (0x004a55c0, 0x108 bytes, vtable 0x005c86e8): a zTwoD
+  layer, active from the start, holding the image "ret_off" (0x004a5850:
+  centred at the origin, shown for good); its frame (0x004a56b0) draws a
+  readout of the movement mode (BASIC, TRACK, HOVER, AMPHIB, SUB) through
+  [0x005fc848]; turning it off calls 0x0040fb50(0). The readout and that
+  call come with the view, S4.
 
-| Mode | Functions | What it does |
-|---|---|---|
-| 0 | 0x00401100, 0x00401940 (0x00401400, 0x00401500) | follows a path: the waypoints at +0xa0c, the index +0xa10; throttle and turn (IControls vt+0x20, +0x28) toward the current point, the next one within 10 m |
-| 1 | 0x00401680 | another path or approach behaviour (to trace) |
-| 2 | 0x00401c30 | the same |
-| 3 | 0x00401e30 | the same |
-| 4 | inline | stop, then back to 0 when +0x760 clears |
-
-Helpers 0x00401ab0, 0x00401bf0, 0x00401f50, 0x004020d0 (ported),
-0x004abcf0. So the stealth is a camera dolly that drives itself along the
-editor's paths.
+**Its controls** (0x004a51b0 over the base 0x004ac750, 0xa1c bytes;
+vtables 0x005c86b0, IControls 0x005c85f8; corrected 2026-11-01: an earlier
+reading here took the basic vehicle's own controls, 0x004ae270, for them)
+are the base's but for vt+0x1c (0x004d72a0: never destroyed), vt+0x20
+(0x004a5270: 1) and the frame, IControls vt+0x0c (0x004a5ae0 ->
+**0x004a5280**): each frame the player's own movement commands (0x0051d300:
+THROTTLE_UP/DN 0x18/0x19, TURN_LEFT/RIGHT 2/3, PITCH_UP/DN 4/5,
+CENTER_TORSO 6) and the mouse (0x0051ba60), clamped to -1..1, smoothed by
+0x004abcf0(x, 0.5, 1) into the throttle and turn (IControls +0x20, +0x28)
+and two more axes (+0x9c0, +0x9bc). So the stealth is a camera flown with
+the original's own keys while the view is on it. The basic vehicle's own
+controls (0x004ae270, 0x004ae850, the path modes 0..4 of 0x00401050) are a
+driverless vehicle's, not the stealth's; no shipped mission makes one, so
+they wait (vehicles.md, The basic vehicle's own controls).
 
 **BASIC** (0x004a1d90, its ground 0x004a1f00), the stealth's movement
 mode: the steering (0x004a20d0: the turn into the heading +0x330, wrapped
@@ -126,20 +137,21 @@ pseudocode) for the vehicle editor.
 
 **For v1.0: S1 to S4**, the stealth object and the view on it.
 
-1. **S1** The stealth vehicle 0x004a4de0 with 0x004a55c0, 0x005a84c0, its
-   controls 0x004ae270, 0x004ae3c0, 0x004ae6b0, 0x004ae850 (its mode switch
-   0x00401050 a stub until S3); made at every mission load, as the
-   original's "Creating Stealth" does, deleted at the unload. Tests:
+1. **S1** The stealth vehicle 0x004a4de0 with 0x004a55c0, 0x004a5850,
+   0x005a84c0, its controls 0x004a51b0 (their frame 0x004a5280 a stub until
+   S3), the destructor 0x004a4fc0; made at every mission load, as the
+   original's "Creating Stealth" does, deleted at the unload. Done
+   2026-11-01: test_veh_stealth.py. Tests:
    construct and read against the original; the program makes it in c1m1;
    the full suites and the campaign runs as the proof that play does not
    change, with the mission load time before and after.
 2. **S2** BASIC: 0x004a1d90, 0x004a1f00, 0x004a20d0, 0x004a2000,
    0x004a2190; differential tests on random states and the real worlds'
    ground.
-3. **S3** The controls' modes 0..4 (0x00401050, 0x00401100, 0x00401940,
-   0x00401400, 0x00401500, 0x00401680, 0x00401c30, 0x00401e30) and their
-   helpers (0x00401ab0, 0x00401bf0, 0x00401f50, 0x004abcf0); differential
-   tests.
+3. **S3** The stealth's controls' frame 0x004a5280 (the player's
+   movement commands and the mouse) and 0x004abcf0; differential tests.
+   (The basic vehicle's own controls and their path modes, which an
+   earlier reading took for the stealth's, wait: vehicles.md.)
 4. **S4** The entry 0x0040e430 and the exit 0x0040e7f0 for the camera: its
    command map (0x9b, 0x9c), the camera on the stealth and the camera
    mode's save and restore (0x0040f880, 0x0040f890, 0x0040f8b0); the key
