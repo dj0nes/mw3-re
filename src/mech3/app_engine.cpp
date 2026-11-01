@@ -194,6 +194,7 @@ GameEngine::GameEngine(const Platform& p, std::string command_line)
   vp.sync = [](void* c) { static_cast<GameEngine*>(c)->sync_view(); };
   wire_view(&vp);
   patch12::install();  // 1.0's data read as 1.2's (docs/patch12.md)
+  patch12::provide_files();  // and 1.2's added maps beside it, in the write dir
 }
 
 GameEngine::~GameEngine() {

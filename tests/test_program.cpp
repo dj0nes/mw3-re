@@ -17,6 +17,7 @@
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
 #include <functional>
 #if defined(__APPLE__)
 #include <mach/mach.h>
@@ -84,6 +85,7 @@
 #include "mech3/zainet_region.h"
 #include "mech3/cockpit_sound.h"
 #include "mech3/app_sensors.h"
+#include "mech3/patch12.h"
 #include "mech3/app_states.h"
 #include "mech3/lab_screen.h"
 #include "mech3/lab_view.h"
@@ -284,6 +286,41 @@ TEST(data_version_names_the_install) {
   zutl::mounts() = zutl::Mounts{};
   const mech3::DataVersion none = mech3::detect_data_version();
   EXPECT(none.name == "incomplete" && none.missing == 16 && none.of_10 == 12);
+}
+
+// c3's two 1.2 multiplayer maps (Owen, 2026-11-01; patch12.md): a 1.0 install
+// lacks them, so the layer writes 1.2's files into the write dir, byte for
+// byte, where the lobby's scan finds them; never into the install, never over
+// a copy found anywhere, and nothing for a 1.2 install.
+TEST(patch12_adds_c3s_multiplayer_maps_to_a_10_install) {
+  const std::string v10 = std::string(MW3_SOURCE_DIR) + "/game/mw3-1.0", v12 = std::string(MW3_SOURCE_DIR) + "/game/mw3-1.2";
+  if (!std::filesystem::exists(v10 + "/zbd/c3/reader.zbd") || !std::filesystem::exists(v12 + "/zbd/c3/readermp3.zbd")) return;
+  SavedMounts keep;
+  auto run = [](const std::string& install, const std::string& write) {
+    zutl::mounts() = zutl::Mounts{};
+    zutl::mount(install);
+    if (!write.empty()) zutl::set_write_dir(write);
+    mech3::patch12::forget_files();
+    return mech3::patch12::provide_files();
+  };
+  const std::string wd = temp_dir("patch12_mp_maps");
+  const int first = run(v10, wd);
+  const std::vector<std::string> listed = zutl::list("zbd\\c3\\readermp*.zbd");
+  int same = 0;
+  for (const char* n : {"readermp3.zbd", "readermp4.zbd"}) {
+    std::ifstream a(wd + "/zbd/c3/" + n, std::ios::binary), b(v12 + "/zbd/c3/" + n, std::ios::binary);
+    const std::string x((std::istreambuf_iterator<char>(a)), {}), y((std::istreambuf_iterator<char>(b)), {});
+    same += !x.empty() && x == y;
+  }
+  const int again = run(v10, wd);
+  const int on_12 = run(v12, temp_dir("patch12_mp_maps_12"));
+  const int no_write = run(v10, "");
+  std::printf("  1.0: %d written, %d byte-identical, %zu listed; again %d; on 1.2 %d; no write dir %d\n", first, same,
+              listed.size(), again, on_12, no_write);
+  EXPECT(first == 2 && same == 2 && listed.size() >= 4);  // readermp1, 2 (1.0's own), 3, 4
+  EXPECT(again == 0 && on_12 == 0 && no_write == 0);
+  EXPECT(!std::filesystem::exists(v10 + "/zbd/c3/readermp3.zbd"));  // the install untouched
+  mech3::patch12::forget_files();
 }
 
 // The official 1.2 patch read without running it (ours; assets.md, The 1.2

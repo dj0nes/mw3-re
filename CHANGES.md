@@ -528,8 +528,9 @@ These change how the game talks to the computer, not how it plays.
   regions 1.0 left out of Op 4b Mission 5 (taken from your own Mission 6
   and 4 files, as 1.2 did), the other new AI paths, and 1.2's fixes to Op
   3's world (the dome's gaps, the helipads' stray wall, the terrain holes).
-  Only Op 3's two new multiplayer maps are left out until multiplayer is
-  ported. Your files are not changed, and data that is neither 1.0's nor
+  Op 3's two new multiplayer maps, which 1.2 added as files of their own,
+  are copied into your settings folder on the first start, so a 1.0 player
+  has every 1.2 map too. Your files are not changed, and data that is neither 1.0's nor
   1.2's (a mod) is left as it is. Details in `docs/patch12.md`.
 - A 1.0 install can be brought to 1.2 with the official patch file you
   already have (`--patch`, its ZIP or folder): the rebuild reads the patch
