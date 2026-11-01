@@ -38,7 +38,20 @@ SDL_Process* start_child(const char* const* args) {
   return SDL_CreateProcess(args, true);
 }
 
-bool log_to_file(const std::string& write_dir) {
+namespace {
+std::string g_ready_file;
+bool g_ready = false;
+}  // namespace
+void set_ready_file(const std::string& path) { g_ready_file = path, g_ready = false; }
+void mark_ready() {
+  if (g_ready || g_ready_file.empty()) return;
+  g_ready = true;
+  if (std::FILE* f = std::fopen(g_ready_file.c_str(), "wb")) std::fclose(f);
+  std::printf("mw3: first frame shown %llu ms after the start (the launcher told)\n",
+              static_cast<unsigned long long>(SDL_GetTicks()));
+}
+
+bool log_to_file(const std::string& write_dir, const std::string& name) {
 #if defined(_WIN32)
   if (GetConsoleWindow() || write_dir.empty()) return false;
   auto wide = [](const std::string& u8) {
@@ -47,7 +60,7 @@ bool log_to_file(const std::string& write_dir) {
     if (!w.empty()) w.pop_back();
     return w;
   };
-  const std::wstring log = wide(write_dir + "/mw3.log"), old = wide(write_dir + "/mw3.old.log");
+  const std::wstring log = wide(write_dir + "/" + name + ".log"), old = wide(write_dir + "/" + name + ".old.log");
   MoveFileExW(log.c_str(), old.c_str(), MOVEFILE_REPLACE_EXISTING);
   if (!_wfreopen(log.c_str(), L"w", stdout)) return false;
   _dup2(_fileno(stdout), 2);  // stderr into the same file, in order
@@ -55,7 +68,7 @@ bool log_to_file(const std::string& write_dir) {
   std::setvbuf(stderr, nullptr, _IONBF, 0);
   return true;
 #else
-  (void)write_dir;
+  (void)write_dir, (void)name;
   return false;
 #endif
 }

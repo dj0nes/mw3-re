@@ -1,5 +1,6 @@
 #include <string>
 #include "frontend/sdl/sdl_render3d.h"
+#include "frontend/sdl/sdl_child.h"
 
 #include <algorithm>
 #include <cstddef>
@@ -534,6 +535,7 @@ void SdlRender3D::present() {
     bi.filter = SDL_GPU_FILTER_LINEAR;
     SDL_BlitGPUTexture(cmd, &bi);
     SDL_SubmitGPUCommandBuffer(cmd);
+    mark_ready();  // a frame on the screen: the launcher may hide (sdl_child.h)
     return;
   }
   // No swapchain image (a hidden window, or none to be had): nothing paces

@@ -84,8 +84,11 @@ there it goes straight on into it:
 If something is wrong (not enough space, a damaged download, a file that
 is not MechWarrior 3) it says so in plain words and changes nothing.
 
-- **The launcher**: `mw3 --launcher` opens the rebuild's own front screen
-  (the games, and SETUP with the same buttons).
+- **The launcher**, "MechWarrior 3 Rebuild" (the main shortcut, the Mac
+  app, the AppImage), is the rebuild's own front screen: the games, and
+  SETUP with the same buttons. It starts the game and steps aside while it
+  runs. The game also has its own Start-menu entry on Windows, and `mw3`
+  starts it directly anywhere.
 - On the first start it also tells you anything worth knowing about your
   copy (no music yet, or game files of an unknown version).
 - **The movies** play from your own copy. Where they cannot be played
