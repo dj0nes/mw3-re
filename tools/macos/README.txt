@@ -13,7 +13,7 @@ as a disc image (.iso, or .cue with its .bin files) or a download of one
 Installing
 ----------
 It runs on macOS 12 (Monterey) or later, on Apple silicon and Intel Macs.
-Drag "MechWarrior 3 Rebuild" into Applications and start it.
+Drag "MechWarrior 3" into Applications and start it.
 
 The first time, macOS says it cannot check the app for malicious software
 (it is a free fan project, not registered with Apple). Open it once this way:

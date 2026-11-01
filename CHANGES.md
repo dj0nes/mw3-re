@@ -590,3 +590,5 @@ Known quirks the rebuild deliberately keeps:
 - The multiplayer lobby's chat reads each message only as far as it goes.
 - A locked multiplayer game turns away players who try to join it, instead of only greying out its Join button.
 - With bug fixes on, locking a multiplayer game with "Use stock 'Mechs" keeps the stock loadout a player chose instead of resetting it to the mech's first.
+- The launcher closes once MechWarrior 3 is on screen, instead of waiting hidden for the game to end; if the game fails to start it stays and says so.
+- The launcher is installed as "MechWarrior 3" (the Windows Start menu and desktop, the Mac's "MechWarrior 3.app", the Linux desktop entry); the game alone is "MechWarrior 3 (no launcher)" in the Windows Start menu.

@@ -3280,38 +3280,82 @@ TEST(sdl_program_launcher_window_goes_on_to_the_game) {
 
 // mw3launcher starts the game as its own program (docs/launcher.md, The two
 // programs): MECHWARRIOR 3 (--launcher-play) runs MW3_GAME_BIN, here a
-// stand-in that keeps its arguments and writes the ready file, with the
-// install and this start's options; the launcher waits for its first frame,
-// then for its end (and, with --launcher-play, quits then).
-TEST(sdl_program_launcher_starts_mw3_as_its_own_program) {
-  const std::string dir = std::string(MW3_TEST_TMP) + "/launcher_game";
+// stand-in with the install and this start's options, as `script` says
+// (it keeps its arguments; READY writes the ready file, DONE its end's
+// mark, which it also writes when it reaches the script's end). The launcher ends at
+// the game's first frame and leaves it running (Owen, 2026-11-01); a game
+// that ends first or is slow leaves it up. Hidden, without sound.
+namespace {
+struct LauncherRun {
+  std::string log;
+  std::vector<std::string> args;
+  bool exited = false;      // the launcher's process ended, with 0
+  bool game_alive = false;  // the stand-in had not finished when it did
+  bool game_finished = false;  // and finished on its own after
+};
+LauncherRun run_launcher_with(const std::string& name, const std::string& script, const char* ready_ms = nullptr) {
+  LauncherRun out;
+  const std::string dir = std::string(MW3_TEST_TMP) + "/" + name;
   std::error_code ec;
   std::filesystem::remove_all(dir, ec);
   std::filesystem::create_directories(dir + "/wd", ec);
-  const std::string game = dir + "/mw3";
+  const std::string game = dir + "/mw3", done = dir + "/done";
   {
     std::ofstream sh(game);
-    sh << "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"" << dir << "/args.txt\"\n"
-       << "while [ $# -gt 0 ]; do if [ \"$1\" = --ready-file ]; then : > \"$2\"; fi; shift; done\nsleep 1\nexit 0\n";
+    std::string body = script;
+    for (size_t at; (at = body.find("READY")) != std::string::npos;)
+      body.replace(at, 5, "while [ $# -gt 0 ]; do if [ \"$1\" = --ready-file ]; then : > \"$2\"; fi; shift; done");
+    for (size_t at; (at = body.find("DONE")) != std::string::npos;) body.replace(at, 4, ": > \"" + done + "\"");
+    sh << "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"" << dir << "/args.txt\"\n" << body << "\n: > \"" << done << "\"\n";
   }
   std::filesystem::permissions(game, std::filesystem::perms::owner_all, ec);
   setenv("MW3_GAME_BIN", game.c_str(), 1);
-  const std::string log = dir + "/launcher.log";
-  const pid_t pid = spawn_launcher({"--write-dir", dir + "/wd", "--launcher-play", "--window", "640x480", "--nosound"}, log);
+  if (ready_ms) setenv("MW3_LAUNCHER_READY_MS", ready_ms, 1);
+  const pid_t pid = spawn_launcher({"--write-dir", dir + "/wd", "--launcher-play", "--window", "640x480", "--nosound", "--hidden"},
+                                   dir + "/launcher.log");
+  unsetenv("MW3_LAUNCHER_READY_MS");
   unsetenv("MW3_GAME_BIN");
   int status = 0;
-  EXPECT(pid > 0 && waitpid(pid, &status, 0) == pid && WIFEXITED(status) && WEXITSTATUS(status) == 0);
-  std::ifstream f(log);
-  const std::string text((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+  out.exited = pid > 0 && waitpid(pid, &status, 0) == pid && WIFEXITED(status) && WEXITSTATUS(status) == 0;
+  out.game_alive = !std::filesystem::exists(done, ec);
+  for (int i = 0; i < 100 && !std::filesystem::exists(done, ec); ++i) std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  out.game_finished = std::filesystem::exists(done, ec);
+  std::ifstream f(dir + "/launcher.log");
+  out.log.assign((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
   std::ifstream af(dir + "/args.txt");
-  std::vector<std::string> args;
-  for (std::string l; std::getline(af, l);) args.push_back(l);
-  std::printf("launcher -> game: %zu arguments, first frame %d, exited %d\n", args.size(),
-              text.find("the game's first frame") != std::string::npos, text.find("MechWarrior 3 exited (0)") != std::string::npos);
-  EXPECT(args.size() == 8 && args[0] == MW3_GAME_DIR && args[1] == "--write-dir" && args[2] == dir + "/wd" &&
-         args[3] == "--window" && args[4] == "640x480" && args[5] == "--nosound" && args[6] == "--ready-file");
-  EXPECT(text.find("the game's first frame") != std::string::npos && text.find("(no signal") == std::string::npos);
-  EXPECT(text.find("MechWarrior 3 exited (0)") != std::string::npos);
+  for (std::string l; std::getline(af, l);) out.args.push_back(l);
+  return out;
+}
+bool has(const std::string& text, const char* what) { return text.find(what) != std::string::npos; }
+}  // namespace
+
+TEST(sdl_program_launcher_starts_mw3_as_its_own_program) {
+  // The first frame at once, then 3 s of play: the launcher has gone by then.
+  const LauncherRun r = run_launcher_with("launcher_game", "READY\nsleep 3");
+  std::printf("launcher -> game: %zu arguments; the launcher ended %d with the game still running %d, the game ended later %d\n",
+              r.args.size(), r.exited, r.game_alive, r.game_finished);
+  const std::string dir = std::string(MW3_TEST_TMP) + "/launcher_game";
+  EXPECT(r.args.size() == 9 && r.args[0] == MW3_GAME_DIR && r.args[1] == "--write-dir" && r.args[2] == dir + "/wd" &&
+         r.args[3] == "--window" && r.args[4] == "640x480" && r.args[5] == "--nosound" && r.args[6] == "--hidden" &&
+         r.args[7] == "--ready-file");
+  EXPECT(r.exited && r.game_alive && r.game_finished);
+  EXPECT(has(r.log, "the game's first frame") && has(r.log, "the launcher closes") && !has(r.log, "MechWarrior 3 exited"));
+}
+
+TEST(sdl_program_launcher_stays_when_the_game_fails_or_is_slow) {
+  // An error before any frame: the launcher up with its status line, until
+  // the game's end (and, with --launcher-play, quits then).
+  const LauncherRun bad = run_launcher_with("launcher_game_bad", "sleep 1\nDONE\nexit 3");
+  std::printf("a failed start: the launcher saw the exit %d, stayed %d\n", has(bad.log, "MechWarrior 3 exited (3)"),
+              !has(bad.log, "the launcher closes"));
+  EXPECT(bad.exited && has(bad.log, "MechWarrior 3 exited (3)") && !has(bad.log, "the game's first frame"));
+  // No frame within the wait (0.5 s here, 20 s in play): said, still up;
+  // the frame after it closes the launcher all the same.
+  const LauncherRun slow = run_launcher_with("launcher_game_slow", "sleep 2\nREADY\nsleep 2", "500");
+  std::printf("a slow start: said %d, then closed at the first frame %d with the game running %d\n",
+              has(slow.log, "no first frame from the game after"), has(slow.log, "the launcher closes"), slow.game_alive);
+  EXPECT(slow.exited && slow.game_alive);
+  EXPECT(has(slow.log, "no first frame from the game after") && has(slow.log, "the launcher closes"));
 }
 
 // The launcher's sounds (lead's launcher list, item 4; docs/launcher.md):
@@ -3330,7 +3374,7 @@ TEST(sdl_program_launcher_plays_the_menus_sounds) {
   const std::string log = dir + "/sounds.log";
   setenv("MW3_LAUNCHER_MUTE", "1", 1);  // played at no volume (the machine may be streaming)
   setenv("MW3_LAUNCHER_FRAMES", "5", 1);
-  const pid_t pid = spawn_launcher({"--write-dir", dir + "/wd", "--window", "640x480"}, log);
+  const pid_t pid = spawn_launcher({"--write-dir", dir + "/wd", "--window", "640x480", "--hidden"}, log);
   unsetenv("MW3_LAUNCHER_FRAMES");
   unsetenv("MW3_LAUNCHER_MUTE");
   int status = 0;
@@ -3405,7 +3449,7 @@ TEST(sdl_program_launcher_starts_mechwarrior_1989) {
   std::filesystem::permissions(port, std::filesystem::perms::owner_all, ec);
   setenv("MW3_MW1_PORT", port.c_str(), 1);
   const std::string log = dir + "/mw1.log";
-  const pid_t pid = spawn_launcher({"--write-dir", dir + "/wd", "--launcher-mw1", "--window", "640x480", "--nosound"}, log);
+  const pid_t pid = spawn_launcher({"--write-dir", dir + "/wd", "--launcher-mw1", "--window", "640x480", "--nosound", "--hidden"}, log);
   unsetenv("MW3_MW1_PORT");
   int status = 0;
   EXPECT(pid > 0 && waitpid(pid, &status, 0) == pid && WIFEXITED(status) && WEXITSTATUS(status) == 0);

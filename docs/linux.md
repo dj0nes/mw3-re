@@ -93,7 +93,9 @@ GitHub releases (continuous). In the AppDir:
 - `usr/share/doc/mw3/`: README.txt, THIRD-PARTY.txt, LICENSE.txt, the SDL
   libraries' licence files;
 - the desktop entry and icon (tools/linux: `mw3.desktop`, `mw3.png`, our
-  emblem at 256).
+  emblem at 256). The entry's Name is "MechWarrior 3" (the launcher
+  installed under the game's name, Owen 2026-11-01); the AppImage's file
+  keeps MW3-Rebuild-... (release.md).
 
 Vulkan, X11, Wayland and the audio servers stay the system's: SDL loads them
 at run time, and linuxdeploy's exclude list keeps them out. `APPIMAGE_EXTRACT_AND_RUN=1`
