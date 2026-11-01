@@ -918,6 +918,13 @@ Ours, in three pieces:
   kicked); breaks caught: the host's mark, a world's value, the add-on
   check, the step over UNAVAILABLE, the scores' order, the players'
   places, the self-kick guard.
+- **9c's quit** (the lead's review, 2026-11-01): the port mapper's end
+  waits at most a second for its worker (a router still discovering, or
+  stalling a SOAP call), then leaves it to finish on its own (it holds its
+  state); removing the mapping stays best effort and the window closes.
+  Test: `net_upnp_quit_does_not_wait_on_a_stalled_router` (the fake router
+  holds AddPortMapping: the end takes 1.0 s; with a plain join 4.8 s,
+  caught).
 
 ## Open
 

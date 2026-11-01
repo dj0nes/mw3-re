@@ -2625,4 +2625,5 @@ Assigned after 8b2 merged (fd3f05f). The lead asked for a section stepped at bot
   mark, teams as colours in play, the Zone's score report (dropped, FIX
   (A)). The address lines sit under CANCEL and LOCK (a shot of the host's
   lobby).
+- The lead's 9c item: the port mapper's quit bounded to 1 s (multiplayer-port.md).
 - Next: 11b.

@@ -26,6 +26,7 @@ namespace {
 struct FakeRouter {
   std::string external = "203.0.113.7";
   bool refuse = false;
+  std::atomic<bool> stall{false};  // SOAP calls held unanswered until stopped
   int listener = -1;
   uint16_t port = 0;
   std::atomic<bool> stop{false};
@@ -84,6 +85,11 @@ struct FakeRouter {
           need = h + 4 + (cl == std::string::npos || cl > h ? 0 : std::strtoul(req.c_str() + cl + 15, nullptr, 10));
         }
         if (need != std::string::npos && req.size() >= need) break;
+      }
+      if (stall && req.find("SOAPAction") != std::string::npos) {
+        while (!stop) std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        close(c);
+        continue;
       }
       std::string status = "200 OK", body;
       const std::string soap_head =
@@ -227,5 +233,27 @@ TEST(net_upnp_falls_back_quietly) {
     EXPECT(m.status().state == sdlfe::UpnpStatus::kNoRouter);
     EXPECT(std::chrono::steady_clock::now() - t0 < std::chrono::seconds(5));
   }
+}
+// A router that stalls a SOAP call (the lead's review of 9c): quitting the
+// game does not wait on it; the mapper's end is bounded to about a second,
+// and the worker left behind finishes once the router lets go.
+TEST(net_upnp_quit_does_not_wait_on_a_stalled_router) {
+  FakeRouter r;
+  std::chrono::steady_clock::duration took{};
+  {
+    auto m = std::make_unique<sdlfe::PortMapper>(27930, r.url());
+    settle(*m);
+    EXPECT(m->status().state == sdlfe::UpnpStatus::kReady);
+    r.stall = true;
+    m->map();  // AddPortMapping, held unanswered
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    EXPECT(!m->idle());
+    const auto t0 = std::chrono::steady_clock::now();
+    m.reset();
+    took = std::chrono::steady_clock::now() - t0;
+  }
+  std::printf("  the mapper's end took %lld ms\n",
+              static_cast<long long>(std::chrono::duration_cast<std::chrono::milliseconds>(took).count()));
+  EXPECT(took < std::chrono::milliseconds(sdlfe::PortMapper::quit_ms + 500));
 }
 #endif
