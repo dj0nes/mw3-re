@@ -1020,6 +1020,18 @@ Ours, in three pieces:
   the chat (12), the new team's dialog (13), the briefing and debriefing
   (14), two processes through the lobby into a game.
 
+- **Two processes through the lobby into a game** (the lead, after 11c):
+  `sdl_two_processes_from_the_lobby_into_a_game`. A hosts from the menus,
+  B finds and joins it; once both are in (`--click-players`, ours: a
+  click N frames after the session first holds P players, so the two
+  processes keep their order whatever their speed: a lock before B's
+  arrival would now shut B out) A locks, says OK and readies, B readies, A
+  starts. Both load c1 and reach play; `--net-soak` now also prints its
+  line for a game the menus started ("soak menus"), and each machine sees
+  the other's mech where the other puts itself (16 lines each, within
+  2 m). The start places match the debug start's on c1mp1. Found while
+  making it: nothing new between the lobby and the game.
+
 ## Open
 
 - c3's two 1.2 multiplayer maps for a 1.0 install (patch12.md, What stays

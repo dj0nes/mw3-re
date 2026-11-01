@@ -2633,6 +2633,114 @@ TEST(sdl_two_processes_host_and_join_from_the_screens) {
 #endif
 
 #if !defined(_WIN32)  // posix_spawn, waitpid
+// Two mw3 from the menus through the lobby into one game (the lead's check
+// after piece 11c): A hosts, B finds and joins it; once both are in the
+// lobby (--click-players: counted from the second player's arrival) A locks
+// and readies, B readies, A starts. Both load the lobby's world (c1) and
+// reach play; each sees the other's mech where the other says it is.
+TEST(sdl_two_processes_from_the_lobby_into_a_game) {
+  const std::string install = MW3_GAME_DIR;
+  std::error_code ec;
+  if (!std::filesystem::exists(install + "/zbd/mechlib.zbd", ec)) return;
+  const std::string dir = std::string(MW3_TEST_TMP) + "/sdl_net_lobby_game";
+  std::filesystem::remove_all(dir, ec);
+  std::filesystem::create_directories(dir + "/a", ec);
+  std::filesystem::create_directories(dir + "/b", ec);
+  auto spawn = [&](std::vector<std::string> args, const std::string& log) {
+    std::vector<std::string> v = {MW3_BIN};
+    v.insert(v.end(), args.begin(), args.end());
+    std::vector<char*> argv;
+    for (std::string& x : v) argv.push_back(x.data());
+    argv.push_back(nullptr);
+    posix_spawn_file_actions_t fa;
+    posix_spawn_file_actions_init(&fa);
+    posix_spawn_file_actions_addopen(&fa, 1, log.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    posix_spawn_file_actions_adddup2(&fa, 1, 2);
+    pid_t pid = 0;
+    if (posix_spawn(&pid, argv[0], &fa, nullptr, argv.data(), environ) != 0) pid = -1;
+    posix_spawn_file_actions_destroy(&fa);
+    return pid;
+  };
+  auto read = [](const std::string& path) {
+    std::string text;
+    if (std::FILE* f = std::fopen(path.c_str(), "r")) {
+      char buf[4096];
+      for (size_t n; (n = std::fread(buf, 1, sizeof buf, f)) > 0;) text.append(buf, n);
+      std::fclose(f);
+    }
+    return text;
+  };
+  const int base = 34000 + static_cast<int>(getpid() % 2000) * 3;
+  const std::string game = std::to_string(base), lan = std::to_string(base + 1);
+  auto menus = [](std::vector<std::string> v, std::initializer_list<const char*> name) {
+    std::vector<std::string> m = {"--click-at", "132,285@40"};
+    int at = 70;
+    for (const char* k : name) m.insert(m.end(), {"--tap", std::string(k) + "@" + std::to_string(at)}), at += 4;
+    m.insert(m.end(), {"--click-at", "470,320@100"});
+    v.insert(v.end(), m.begin(), m.end());
+    return v;
+  };
+  const std::vector<std::string> common = {"--install", install, "--no-launcher", "--hidden", "--nosound", "--net-bind",
+                                           "127.0.0.1", "--frame-ms", "33", "--net-soak"};
+  // A: HOST; with B in: LOCK OPTIONS, its OK, I AM READY, then START.
+  std::vector<std::string> va = menus({"--write-dir", dir + "/a", "--net-port", game, "--net-discovery", lan,
+                                       "--click-at", "421,406@180", "--click-players", "183,430@60/2",
+                                       "--click-players", "246,290@100/2", "--click-players", "515,446@140/2",
+                                       "--click-players", "585,418@600/2", "--frames", "2600"},
+                                      {"0x14", "0x12", "0x1f", "0x14"});
+  va.insert(va.end(), common.begin(), common.end());
+  // B: the game found, JOIN; in the lobby I AM READY (after A's lock).
+  std::vector<std::string> vb = menus({"--write-dir", dir + "/b", "--net-port", "0", "--net-lan", "127.0.0.1:" + lan,
+                                       "--click-at", "100,143@420", "--click-at", "240,406@450",
+                                       "--click-players", "515,446@300/2", "--frames", "2400"},
+                                      {"0x30", "0x12", "0x1f", "0x14"});
+  vb.insert(vb.end(), common.begin(), common.end());
+  const pid_t a = spawn(va, dir + "/a.log");
+  for (int i = 0; i < 400 && read(dir + "/a.log").find("multiplayer page 2") == std::string::npos; ++i)
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+  const pid_t b = spawn(vb, dir + "/b.log");
+  int st = 0;
+  if (b > 0) waitpid(b, &st, 0);
+  if (a > 0) waitpid(a, &st, 0);
+  const std::string la = read(dir + "/a.log"), lb = read(dir + "/b.log");
+  auto has = [](const std::string& t, const char* w) { return t.find(w) != std::string::npos; };
+  // Each "soak menus" line: our own place, then each one we see.
+  struct Seen {
+    int lines = 0, saw = 0;
+    float me[3] = {}, them[3] = {};
+  };
+  auto scan = [](const std::string& t, uint32_t other) {
+    Seen s;
+    size_t at = 0;
+    while ((at = t.find("mw3: soak menus", at)) != std::string::npos) {
+      const size_t end = t.find('\n', at);
+      const std::string line = t.substr(at, end - at);
+      at = end;
+      ++s.lines;
+      const size_t me = line.find(" me ");
+      unsigned id = 0;
+      if (me != std::string::npos) std::sscanf(line.c_str() + me, " me %u %f %f %f", &id, &s.me[0], &s.me[1], &s.me[2]);
+      const std::string key = "; sees " + std::to_string(other) + " ";
+      const size_t sees = line.find(key);
+      if (sees != std::string::npos) {
+        ++s.saw;
+        std::sscanf(line.c_str() + sees + key.size(), "%f %f %f", &s.them[0], &s.them[1], &s.them[2]);
+      }
+    }
+    return s;
+  };
+  const Seen sa = scan(la, 2), sb = scan(lb, 1);
+  std::printf("  A: %d lines in play, B seen in %d; B: %d lines, A seen in %d\n", sa.lines, sa.saw, sb.lines, sb.saw);
+  EXPECT(has(la, "multiplayer page 2") && has(lb, "multiplayer page 2"));
+  EXPECT(has(la, "Loading [ c1 ]") && has(lb, "Loading [ c1 ]") && has(la, "Ready To Launch") && has(lb, "Ready To Launch"));
+  EXPECT(sa.lines > 3 && sb.lines > 3 && sa.saw > 3 && sb.saw > 3);
+  // Standing still, each one's own place is where the other sees it.
+  EXPECT(std::fabs(sa.them[0] - sb.me[0]) < 2.0f && std::fabs(sa.them[2] - sb.me[2]) < 2.0f);
+  EXPECT(std::fabs(sb.them[0] - sa.me[0]) < 2.0f && std::fabs(sb.them[2] - sa.me[2]) < 2.0f);
+}
+#endif
+
+#if !defined(_WIN32)  // posix_spawn, waitpid
 // The lobby's whole way to a game (multiplayer-port.md, piece 11c), one mw3
 // hosting alone through the menus: MULTIPLAYER, a pilot, HOST; in the
 // lobby LOCK OPTIONS and its OK, I AM READY, START; the Load state loads the
