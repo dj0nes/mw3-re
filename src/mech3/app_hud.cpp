@@ -342,7 +342,7 @@ struct ProgramHudHooks : HudHooks {
     zcls::Node* w = world_hooks().world;
     if (!w) return out->count = 0, 1;
     // The player's mech left out of the query (0x004eb6d0 on its node).
-    Mech* m = static_cast<Mech*>(program_view_target());
+    Mech* m = program_view_mech();
     zcls::Node* own = m ? static_cast<zcls::Node*>(m->node) : nullptr;
     if (own) zcls::node_set_intersect(own, 0);
     const int32_t res = zcls::segment_list(w, a, b, &r);
@@ -758,11 +758,11 @@ ProgramHudHooks g_hooks;
 }  // namespace
 
 void program_hud_zoom_show() {
-  Mech* t = static_cast<Mech*>(program_view_target());
+  Mech* t = program_view_mech();
   if (Hud* h = t && t->pilot ? pilot_hud(*t->pilot) : nullptr) h->reticle.zoom.toggle_lock();  // keypad 0
 }
 void program_hud_mfd_mode(int m) {
-  Mech* t = static_cast<Mech*>(program_view_target());
+  Mech* t = program_view_mech();
   if (Hud* h = t && t->pilot ? pilot_hud(*t->pilot) : nullptr) h->mfd.set_mode(m);
 }
 void program_set_torso_internal(void* mech, float v) {
@@ -970,7 +970,7 @@ void unwire_hud() {
 
 void* program_hud_node_object(void* node) { return hud_hooks().node_object(node); }
 void program_hud_update(float dt) {
-  if (Mech* m = static_cast<Mech*>(program_view_target())) hud_handoff(*m, dt);
+  if (Mech* m = program_view_mech()) hud_handoff(*m, dt);
 }
 
 void program_hud_force_over(bool on) { g_hooks.force_over = on; }
@@ -1023,7 +1023,7 @@ int program_hud_pick_at(const float at[3], void** node, float* distance, float* 
 // Mech3.exe 1.2 @ 0x0040f8d0's HUD part: the view target's HUD's data update
 // (the message panel's slide before it is not ported).
 void program_hud_data(float dt) {
-  Mech* m = static_cast<Mech*>(program_view_target());
+  Mech* m = program_view_mech();
   if (Hud* h = m && m->pilot ? pilot_hud(*m->pilot) : nullptr) h->data_update(dt);
 }
 
@@ -1053,7 +1053,7 @@ void program_count_sounds(int id, int* count) {
 }
 
 bool program_hud_report(HudReport* r) {
-  Mech* m = static_cast<Mech*>(program_view_target());
+  Mech* m = program_view_mech();
   Hud* h = m && m->pilot ? pilot_hud(*m->pilot) : nullptr;
   auto* wm = m ? static_cast<WeaponManager*>(m->ammo) : nullptr;
   if (!h || !wm) return false;
@@ -1200,7 +1200,7 @@ void program_hud_target_set(void* mech) {
 }
 
 int program_hud_lock_on(void* mech, bool* target_set) {
-  Mech* m = static_cast<Mech*>(program_view_target());
+  Mech* m = program_view_mech();
   auto* wm = m ? static_cast<WeaponManager*>(m->ammo) : nullptr;
   *target_set = false;
   if (!wm) return -1;
@@ -1222,7 +1222,7 @@ int program_hud_lock_on(void* mech, bool* target_set) {
 }
 
 bool program_hud_target(void* mech, int mode) {
-  Mech* m = static_cast<Mech*>(program_view_target());
+  Mech* m = program_view_mech();
   Hud* h = m && m->pilot ? pilot_hud(*m->pilot) : nullptr;
   if (!h) return false;
   for (ai::Contact* c : m->contacts)
@@ -1239,7 +1239,7 @@ bool program_hud_target(void* mech, int mode) {
 // Tests only: TARGET on the player's contact on `want` (a turret or a
 // targets.zrd object), in `mode`.
 bool program_hud_target_other(const void* want, int mode) {
-  Mech* m = static_cast<Mech*>(program_view_target());
+  Mech* m = program_view_mech();
   Hud* h = m && m->pilot ? pilot_hud(*m->pilot) : nullptr;
   if (!h) return false;
   for (ai::Contact* c : m->contacts)
@@ -1255,12 +1255,12 @@ bool program_hud_target_other(const void* want, int mode) {
 
 // Mech3.exe 1.2 @ 0x0041cd90: the view target's HUD, its Direct3D pass.
 void program_hud_draw3d(float dt) {
-  Mech* m = static_cast<Mech*>(program_view_target());
+  Mech* m = program_view_mech();
   if (Hud* h = m && m->pilot ? pilot_hud(*m->pilot) : nullptr) h->draw3d(dt);
 }
 
 bool program_hud_objectives(HudObjectivesReport* r) {
-  Mech* t = static_cast<Mech*>(program_view_target());
+  Mech* t = program_view_mech();
   Hud* h = t && t->pilot ? pilot_hud(*t->pilot) : nullptr;
   if (!h) return false;
   HudObjectives& o = h->objectives;
@@ -1275,11 +1275,11 @@ bool program_hud_objectives(HudObjectivesReport* r) {
   return true;
 }
 void program_hud_map_toggle() {
-  Mech* t = static_cast<Mech*>(program_view_target());
+  Mech* t = program_view_mech();
   if (Hud* h = t && t->pilot ? pilot_hud(*t->pilot) : nullptr) h->radar.toggle_map();
 }
 void program_hud_objectives_toggle() {
-  Mech* t = static_cast<Mech*>(program_view_target());
+  Mech* t = program_view_mech();
   Hud* h = t && t->pilot ? pilot_hud(*t->pilot) : nullptr;
   if (!h) return;
   if (h->objectives.flags & ztwod::kHidden) h->objectives.show_for(-1.0f);
@@ -1294,7 +1294,7 @@ void program_hud_objectives_fill(void* hud) {
 }
 
 bool program_hud_aim(int32_t reticle[2], float point[3], bool* hit) {
-  Mech* m = static_cast<Mech*>(program_view_target());
+  Mech* m = program_view_mech();
   Hud* h = m && m->pilot ? pilot_hud(*m->pilot) : nullptr;
   if (!h) return false;
   reticle[0] = h->reticle.get_x();
@@ -1305,7 +1305,7 @@ bool program_hud_aim(int32_t reticle[2], float point[3], bool* hit) {
 }
 
 bool program_hud_look(float x, float y) {
-  Mech* m = static_cast<Mech*>(program_view_target());
+  Mech* m = program_view_mech();
   auto* c = m ? dynamic_cast<PlayerControls*>(m->controls) : nullptr;
   if (!c) return false;
   c->look_x = x;

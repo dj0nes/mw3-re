@@ -37,6 +37,7 @@
 #include "mech3/veh_controls.h"
 #include "mech3/veh_move.h"
 #include "mech3/veh_stealth.h"
+#include "mech3/game_editor.h"
 #include "mech3/zrdraiv.h"
 #include "gamez/zreader/zreader.h"
 #include "mech3/weapon.h"
@@ -61,6 +62,9 @@ struct WiredVehicles : VehBasicHooks {
     return g_w.unported ? g_w.unported(g_w.engine, key, args) : 0;
   }
   int32_t view_camera_id() override { return program_view_camera_id(); }  // [0x005f4c8c]+0x58 +0x04
+  void view_attach(BasicVehicle& v, CameraMode* mode) override {  // 0x0040adf0 on [0x005f4c8c]
+    program_view_attach_vehicle(v, static_cast<void*>(&v), mode);
+  }
   void no_ai_controls(const char* type, const char* name) override {
     std::printf("mw3: vehicle %s (%s) has no AI controls: its own (0x004ae270) are not ported\n", name ? name : "?",
                 type ? type : "?");
@@ -350,8 +354,31 @@ struct WiredStealth : StealthHooks {
     return true;
   }
   void aiv_close() override { delete aiv, aiv = nullptr; }  // 0x004e04f0
+  // The overlay's readout (0x004a56b0) and its off (0x0040fb50(0)) write and
+  // clear the debug lines ([0x005fc848]), never shown in the release (hud.md
+  // section 20): nothing here.
+  void readout(StealthLayer&) override {}
+  void layer_off() override {}
+  // The pick's point is read only by the editors after v1.0 (S5 on).
+  void reticle_pick(ztwod::Image&) override {}
 };
 WiredStealth g_stealth_hooks;
+
+// The game editor's views (game_editor.h): onto the stealth object
+// ([0x00609a2c] vt+0x108, 0x004acd90); ours, at its exit, back onto the
+// pilot's mech (its vt+0x108, 0x0041ce30).
+struct WiredEditor : EditorHooks {
+  uint32_t unported(const char* key, std::initializer_list<zgame::Arg> args) override {
+    return g_w.unported ? g_w.unported(g_w.engine, key, args) : 0;
+  }
+  void view_on_stealth() override {
+    if (g_stealth) vehicle_view_attach(*g_stealth);
+  }
+  void view_on_pilot() override {
+    if (void* m = mech_mission_player()) program_view_attach(*static_cast<Mech*>(m));
+  }
+};
+WiredEditor g_editor_hooks;
 }  // namespace
 
 void* program_stealth_controls() { return static_cast<VehicleControls*>(new StealthControls); }  // 0x004ac860(0xa1c), 0x004a51b0(1)
@@ -366,6 +393,7 @@ void wire_vehicles(const MechWiring* w) {
     g_w = MechWiring{};
     set_veh_basic_hooks(nullptr);
     set_stealth_hooks(nullptr);
+    set_editor_hooks(nullptr);
     set_veh_controls_hooks(nullptr);
     set_field_base_hooks(nullptr);
     set_field_cut_hooks(nullptr);
@@ -376,6 +404,7 @@ void wire_vehicles(const MechWiring* w) {
   g_w = *w;
   set_veh_basic_hooks(&g_hooks);
   set_stealth_hooks(&g_stealth_hooks);
+  set_editor_hooks(&g_editor_hooks);
   set_veh_controls_hooks(&g_controls);
   set_field_base_hooks(&g_field_bases);
   set_field_cut_hooks(&g_field_cut);
@@ -728,6 +757,16 @@ const char* program_vehicle_name(void* v) {
 void* program_vehicle_target(void* v) { return static_cast<ai::AiTarget*>(&bv(v)); }
 void program_vehicle_hit_an_ally(void* v, void* victim) {
   if (auto* c = dynamic_cast<ai::AiVehicleControls*>(bv(v).controls)) c->hit_an_ally(victim);
+}
+// The stealth object's frame from the player's tick while the view is on it
+// (0x004a1160: vt+0x34, 0x004a5050, called straight, not through the entity
+// walk's +0x09 test).
+void program_stealth_frame(float dt) {
+  if (g_stealth) stealth_frame(*g_stealth, dt);
+}
+// Mech3.exe 1.2 @ 0x004a50d0 (the stealth's vt+0x104): its overlay off.
+void program_vehicle_view_detached(Vehicle& v) {
+  if (g_stealth && &v == static_cast<Vehicle*>(g_stealth) && g_stealth->layer) g_stealth->layer->set_active(0);
 }
 void program_vehicle_frame(void* v, float dt) {
   if (!bv(v).x09) return;

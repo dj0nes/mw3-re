@@ -10,6 +10,8 @@
 namespace mech3 {
 
 struct Mech;
+struct Vehicle;
+class CameraMode;
 class PlayerView;
 
 // What the glue asks of the engine (GameEngine, which cannot share a file
@@ -23,7 +25,8 @@ struct ViewProgram {
 void wire_view(const ViewProgram* p);       // null: unwired, the view dropped
 int32_t program_view_mode_id();             // the view's camera id, -1 without one
 bool program_view_look(int32_t* look);      // its camera's +0x40 (0, 1 the side views); false without one
-void* program_view_target();                // its target mech
+void* program_view_target();                // its target: a mech, or the stealth object (program_stealth())
+Mech* program_view_mech();                  // its target as a mech: null while the view is on the stealth
 const uint8_t* program_view_camera_zones();
 // For the tests: the view's mode id (-1 none) and the cockpit camera's +0x64
 // (fixed: no mech rotation, set through a fall, 0x00421d50).
@@ -35,6 +38,9 @@ PlayerView* program_view();
 void program_view_make(void* camera_node);  // 0x0040aca0
 void program_view_free();                   // the view deleted (the mission unload's operator delete)
 void program_view_attach(Mech& m);          // the mech's 0x0041ce30
+// 0x0040adf0 onto a vehicle that is not a mech (the stealth's vt+0x108,
+// 0x004acd90): `handle` how the program names it.
+void program_view_attach_vehicle(Vehicle& v, void* handle, CameraMode* mode);
 void program_view_detach();                 // 0x0040adf0(view, 0, 0): no target, no mode
 void program_view_set_camera(int32_t id);   // 0x0040ae70
 int32_t program_view_camera_id();           // the view's +0x58 +0x04, -1 without one

@@ -26,7 +26,9 @@
 #include "mech3/mech_parts.h"
 #include "mech3/mech_reader.h"
 #include "mech3/player_view.h"
+#include "mech3/app_vehicle.h"
 #include "mech3/veh_basic.h"
+#include "mech3/veh_basic_object.h"
 
 namespace mech3 {
 
@@ -34,6 +36,10 @@ namespace {
 ViewProgram g_p;
 bool g_wired = false;
 std::unique_ptr<PlayerView> g_view;
+// The view's target as the program names it, and as a mech (null while the
+// view is on the stealth object, the game editor's: editor.md S4).
+void* g_target = nullptr;
+Mech* g_target_mech = nullptr;
 
 zcls::Node* zn(void* p) { return static_cast<zcls::Node*>(p); }
 
@@ -112,7 +118,7 @@ struct ProgramViewHooks : ViewHooks {
   // [0x0074a328], the view's target's zones (zEntity's 0x005a80d0: its +0x64,
   // its node's zone byte through 0x005a80c0 -> 0x004eb810) and the
   // animations' (0x00502d70). docs/view.md section 1.
-  void camera_zone(Node3 cam, int32_t index, Mech* target) override {
+  void camera_zone(Node3 cam, int32_t index, Vehicle* target) override {
     if (index < 0 || index >= ground.count) return;
     zcls::Node* c = zn(cam);
     zcls::camera_set_zone(c, reinterpret_cast<const uint8_t*>(&ground.hit[index].zone[0]));
@@ -140,18 +146,26 @@ struct ProgramViewHooks : ViewHooks {
   void world_segments(float* segs, int32_t points, zcls::SegmentHits* out) override {
     if (Node3 w = world_node()) zcls::segment_query(zn(w), segs, points, out);  // 0x004efcd0
   }
-  const float* entity_position(Mech& t) override {
+  const float* entity_position(Vehicle& t) override {
     static float p[3];
     zcls::node_world_position(zn(t.node), p);
     return p;
   }
-  CameraMode* mech_camera(Mech& t, int32_t id) override {
+  CameraMode* mech_camera(Mech& t, int32_t id) {
     auto* list = t.pilot ? static_cast<CameraList*>(t.pilot->cameras) : nullptr;
     return list ? list->find(id) : nullptr;
   }
+  // A mech's vt+0x10c, else the stealth's (0x004acde0: the vehicles' list).
+  CameraMode* target_camera(Vehicle& t, int32_t id) override {
+    if (&t == g_target_mech) return mech_camera(*g_target_mech, id);
+    return vehicle_camera(id);
+  }
+  // A mech's vt+0x100 and vt+0x104 do nothing here (the HUD's set-up is
+  // program_view_attach's); the stealth's vt+0x100 is empty (0x005ac5c0),
+  // its vt+0x104 (0x004a50d0) turns its overlay off.
+  void target_attached(Vehicle&) override {}
+  void target_detached(Vehicle& t) override { program_vehicle_view_detached(t); }
   uint32_t mech_dead(Mech& t) override { return t.anim_state == 10 ? 1u : 0u; }
-  void mech_attached(Mech&) override {}
-  void mech_detached(Mech&) override {}
   const float* torso_aim(Mech& t) override {
     static float q[4] = {1, 0, 0, 0};
     if (t.torso) t.torso->shake_q(q);
@@ -193,12 +207,12 @@ struct ProgramViewHooks : ViewHooks {
   uint32_t option_5f4d44() override { return static_cast<uint32_t>(program_mouse_mode()); }
   uint8_t head_bob() override { return 1; }       // [0x005e2448]
   float head_bob_scale() override { return 0.15f; }  // [0x005e244c]
-  Mech* player_target() override { return g_view ? g_view->target : nullptr; }
+  Vehicle* player_target() override { return g_view ? g_view->target : nullptr; }
   // 0x00430aa0 on the view's mech (its HUD; a token, only handed back) and
   // the HUD's weapon list laid out again (0x00446240 on +0x6520).
   uint32_t mech_screen(Mech& t) override { return program_pilot_hud(t.pilot) ? 1 : 0; }
   void screen_look(uint32_t screen) override {
-    Mech* t = player_target();
+    Mech* t = program_view_mech();
     if (screen && t) program_hud_weapons_layout(program_pilot_hud(t->pilot));
   }
   uint32_t pilot_game() override { return 0; }
@@ -238,7 +252,7 @@ void wire_view(const ViewProgram* p) {
   // The controls' view state (0x00426780) asks the view and the mech's cameras.
   ControlsCalls& k = controls_calls();
   k.mech_camera = p ? +[](Mech& m, int32_t id) -> CameraMode* { return g_hooks.mech_camera(m, id); } : nullptr;
-  k.view_target = p ? +[]() -> Mech* { return g_view ? g_view->target : nullptr; } : nullptr;
+  k.view_target = p ? +[]() -> Mech* { return program_view_mech(); } : nullptr;
   k.view_mode = p ? +[]() -> CameraMode* { return g_view ? g_view->mode : nullptr; } : nullptr;
   // [0x005f4c8c] +0x58 +0x40: the view's camera's look (0 and 1 the side views).
   k.camera_view = p ? +[]() -> int { return g_view && g_view->mode ? g_view->mode->look_ : 0; } : nullptr;
@@ -254,7 +268,8 @@ bool program_view_look(int32_t* look) {
   *look = g_view->mode->look_;
   return true;
 }
-void* program_view_target() { return g_view ? g_view->target : nullptr; }
+void* program_view_target() { return g_view && g_view->target ? g_target : nullptr; }
+Mech* program_view_mech() { return g_view && g_view->target ? g_target_mech : nullptr; }
 int32_t program_view_mode(bool* fixed) {
   *fixed = false;
   if (!g_view || !g_view->mode) return -1;
@@ -268,9 +283,10 @@ const uint8_t* program_view_camera_zones() {
 }
 
 bool program_view_positions(float camera[3], float torso[3]) {
-  if (!g_view || !g_view->target || !g_view->target->torso) return false;
+  Mech* m = program_view_mech();
+  if (!m || !m->torso) return false;
   zcls::node_world_position(zn(g_view->camera), camera);
-  zcls::node_world_position(zn(g_view->target->torso->node), torso);
+  zcls::node_world_position(zn(m->torso->node), torso);
   return true;
 }
 
@@ -286,20 +302,31 @@ void program_view_make(void* camera) {
   sync();
 }
 
-void program_view_free() { g_view.reset(); }
+void program_view_free() {
+  g_view.reset();
+  g_target = nullptr, g_target_mech = nullptr;
+}
 
 // Mech3.exe 1.2 @ 0x0041ce30: the view onto the mech in its data's current
 // camera, then the HUD's set-up for it (0x00430aa0, 0x0043bb80).
 void program_view_attach(Mech& m) {
   if (!g_view) return;
   auto* list = m.pilot ? static_cast<CameraList*>(m.pilot->cameras) : nullptr;
+  g_target = &m, g_target_mech = &m;
   g_view->attach(&m, list ? list->find(list->current) : nullptr);
   if (Hud* h = m.pilot ? pilot_hud(*m.pilot) : nullptr) h->setup(&m);
+  sync();
+}
+void program_view_attach_vehicle(Vehicle& v, void* handle, CameraMode* mode) {
+  if (!g_view) return;
+  g_target = handle, g_target_mech = nullptr;
+  g_view->attach(&v, mode);
   sync();
 }
 void program_view_detach() {
   if (!g_view) return;
   g_view->attach(nullptr, nullptr);
+  g_target = nullptr, g_target_mech = nullptr;
   sync();
 }
 // The look keys and FREELOOK's: the view's mode vt+0x10 (0 left, 1 right,

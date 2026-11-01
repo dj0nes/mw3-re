@@ -679,6 +679,10 @@ struct WiredPlayerHooks : PlayerHooks {
     if (m && is_launched_mech(m)) update_mech(m, dt);
     else PlayerHooks::vehicle_update(v, dt);
   }
+  void stealth_update(Handle s, float dt) override {  // vt+0x34 while the view is on it
+    if (s && e->object_of(s) == program_stealth()) program_stealth_frame(dt);
+    else PlayerHooks::stealth_update(s, dt);
+  }
   void entities_update(float dt) override { update_entities(dt); }  // 0x004a1140
   // 0x004d52b0 / 0x004d5300: every znet object's vt+0x2c / vt+0x30 (vt+0x28
   // is itself, 0x004d2a70). Only the waynets' begin (0x00479a50) changes the
@@ -2339,7 +2343,9 @@ void wire_mission_hooks(GameEngine* e) {
       e ? +[]() -> void* { return g_mission_engine->object_of(missions().stations); } : nullptr,
       e ? +[](void* w) { missions().stations = w ? g_mission_engine->handle_of(w) : 0; } : nullptr);
   AppKeyCalls& keys = app_key_calls();
+  const bool debug_camera = keys.debug_camera;  // the program's flag, set before
   keys = AppKeyCalls{};
+  keys.debug_camera = debug_camera;
   if (e) {
     keys.cycle_camera = [] {  // 0x0040aed0 on [0x005f4c8c]
       if (PlayerView* v = program_view()) v->cycle_camera();
