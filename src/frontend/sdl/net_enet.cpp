@@ -105,6 +105,18 @@ constexpr char kAsk[] = "MW3R?";
 constexpr char kAnswer[] = "MW3R!";
 constexpr size_t kNameMax = 63;    // DirectPlay's session names; longer answers are cut
 constexpr uint32_t kPlayersMax = 64;
+// A host answers probes from anywhere on its game port: so that it cannot
+// be a reflector for amplified traffic, a probe is padded to kAskSize (no
+// answer is larger: 102 bytes at most) and shorter ones are dropped, and
+// each source address gets at most kAnswersPerSecond answers.
+constexpr size_t kAskSize = 128;
+constexpr int kAnswersPerSecond = 4;
+const uint8_t* ask_frame() {
+  static uint8_t f[kAskSize] = {'M', 'W', '3', 'R', '?'};
+  return f;
+}
+bool is_probe(const uint8_t* d, size_t n) { return n >= 5 && std::memcmp(d, kAsk, 5) == 0; }
+bool probe_ok(size_t n) { return n >= kAskSize; }
 
 std::vector<uint8_t> answer_frame(const znet::SessionDesc& desc, uint32_t players, uint16_t game_port) {
   Writer w;
@@ -137,6 +149,24 @@ bool parse_answer(const uint8_t* d, size_t n, const ENetAddress& from, znet::Fou
 }
 
 }  // namespace
+
+// Each source address's answers in the last second (the host's probes).
+struct AnswerLimit {
+  struct Window {
+    uint32_t start = 0;
+    int count = 0;
+  };
+  std::map<uint32_t, Window> by_host;
+  bool allow(const ENetAddress& from) {
+    const uint32_t now = now_ms();
+    if (by_host.size() > 256)  // forget the quiet ones
+      for (auto it = by_host.begin(); it != by_host.end();)
+        it = static_cast<int32_t>(now - it->second.start) >= 1000 ? by_host.erase(it) : std::next(it);
+    Window& w = by_host[from.host];
+    if (w.count == 0 || static_cast<int32_t>(now - w.start) >= 1000) w.start = now, w.count = 0;
+    return ++w.count <= kAnswersPerSecond;
+  }
+};
 
 struct EnetTransport::Impl {
   struct Player {
@@ -177,6 +207,7 @@ struct EnetTransport::Impl {
   std::string search_for;
   uint32_t search_sent = 0;
   std::vector<znet::FoundGame> found;
+  AnswerLimit limit;
 
   std::vector<uint8_t> answer() const {
     uint32_t n = 0;
@@ -255,11 +286,11 @@ EnetTransport::EnetTransport(NetOptions o) : impl_(std::make_unique<Impl>()) {
   if (!impl_->host) return;
   // A search's probe to our game port: answered here, before ENet reads it.
   impl_->host->intercept = [](ENetHost* h, ENetEvent*) -> int {
-    if (h->receivedDataLength < 5 || std::memcmp(h->receivedData, kAsk, 5) != 0) return 0;
+    if (!is_probe(h->receivedData, h->receivedDataLength)) return 0;
     Impl* m = nullptr;
     for (auto& [host, impl] : intercepts())
       if (host == h) m = impl;
-    if (m && m->hosting) {
+    if (m && m->hosting && probe_ok(h->receivedDataLength) && m->limit.allow(h->receivedAddress)) {
       const std::vector<uint8_t> f = m->answer();
       ENetBuffer out{};
       out.data = const_cast<uint8_t*>(f.data()), out.dataLength = f.size();
@@ -387,7 +418,8 @@ void EnetTransport::Impl::drain(ENetSocket s, bool answer_probes, bool keep_answ
     ENetAddress from{};
     const int n = enet_socket_receive(s, &from, &b, 1);
     if (n <= 0) return;
-    if (answer_probes && n >= 5 && std::memcmp(buf, kAsk, 5) == 0) {
+    if (is_probe(buf, static_cast<size_t>(n))) {
+      if (!answer_probes || !probe_ok(static_cast<size_t>(n)) || !limit.allow(from)) continue;
       const std::vector<uint8_t> f = answer();
       ENetBuffer out{};
       out.data = const_cast<uint8_t*>(f.data()), out.dataLength = f.size();
@@ -427,7 +459,7 @@ int32_t EnetTransport::find_sessions(const std::string& address, std::vector<zne
       return znet::kErrNoConnection;  // not an address
     }
     ENetBuffer ask{};
-    ask.data = const_cast<char*>(kAsk), ask.dataLength = 5;
+    ask.data = const_cast<uint8_t*>(ask_frame()), ask.dataLength = kAskSize;
     enet_socket_send(m.search, &to, &ask, 1);
     m.search_sent = now_ms() | 1;
   }
@@ -892,6 +924,7 @@ DiscoveryAnswer::DiscoveryAnswer(uint16_t port, const std::string& bind) {
   enet_socket_get_address(s, &a);
   socket_ = static_cast<intptr_t>(s);
   port_ = a.port;
+  limit_ = std::make_shared<AnswerLimit>();
 }
 
 DiscoveryAnswer::~DiscoveryAnswer() {
@@ -901,13 +934,13 @@ DiscoveryAnswer::~DiscoveryAnswer() {
 void DiscoveryAnswer::poll(const znet::SessionDesc& desc, uint32_t players, uint16_t game_port) {
   if (socket_ < 0) return;
   for (;;) {
-    uint8_t buf[64];
+    uint8_t buf[256];
     ENetBuffer b{};
     b.data = buf, b.dataLength = sizeof buf;
     ENetAddress from{};
     const int n = enet_socket_receive(static_cast<ENetSocket>(socket_), &from, &b, 1);
     if (n <= 0) return;
-    if (n < 5 || std::memcmp(buf, kAsk, 5) != 0) continue;
+    if (!is_probe(buf, static_cast<size_t>(n)) || !probe_ok(static_cast<size_t>(n)) || !limit_->allow(from)) continue;
     const std::vector<uint8_t> f = answer_frame(desc, players, game_port);
     ENetBuffer out{};
     out.data = const_cast<uint8_t*>(f.data()), out.dataLength = f.size();
@@ -924,7 +957,7 @@ std::vector<FoundSession> browse(uint32_t ms, uint16_t port, const std::vector<s
   enet_socket_set_option(s, ENET_SOCKOPT_NONBLOCK, 1);
   enet_socket_set_option(s, ENET_SOCKOPT_BROADCAST, 1);
   ENetBuffer ask{};
-  ask.data = const_cast<char*>(kAsk), ask.dataLength = 5;
+  ask.data = const_cast<uint8_t*>(ask_frame()), ask.dataLength = kAskSize;
   if (direct.empty()) {
     ENetAddress all{};
     all.host = ENET_HOST_BROADCAST, all.port = port;

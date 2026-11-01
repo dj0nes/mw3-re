@@ -794,7 +794,12 @@ Ours, in three pieces:
   probe to loopback in the test: a socket bound there hears no broadcast;
   a real broadcast on this Mac's LAN answered from 192.168.68.79),
   `net_enet_search_drops_broken_answers` (six broken answers and a good
-  one; a break caught), `net_enet_znet_finds_and_joins_a_game`.
+  one; a break caught), `net_enet_znet_finds_and_joins_a_game`. Not a
+  reflector (the lead's review): a probe is padded to 128 bytes, at least
+  any answer (102 at most), shorter ones get none; each source address gets
+  four answers a second (`net_enet_probes_are_padded_and_limited`: short
+  probes on both ports unanswered, a burst of 20 answered 4 times, the next
+  second again; each guard's break caught).
 - **The soak's little damage** (the lead's question): the autopilot's, not
   the network's. At a known range the path works:
   `sdl_network_damage_point_blank` holds A 40 m from a still B

@@ -266,7 +266,7 @@ TEST(net_enet_search_drops_broken_answers) {
   const std::string where = "127.0.0.1:" + std::to_string(a.port);
   for (int i = 0; i < 200; ++i) {
     b.t->find_sessions(where, &got);
-    uint8_t buf[64];
+    uint8_t buf[256];
     ENetBuffer in{};
     in.data = buf, in.dataLength = sizeof buf;
     ENetAddress from{};
@@ -320,4 +320,58 @@ TEST(net_enet_znet_finds_and_joins_a_game) {
   znet::GameInfo now;
   EXPECT(znet::game_info(-1, &now) && now.name == "Zgame");
   znet::shutdown();
+}
+
+// The host answers probes from anywhere, so it must not amplify (the lead's
+// review of 9a): a probe shorter than 128 bytes gets no answer, on the game
+// port or the LAN's; a full one does, no larger than it; a burst from one
+// address gets four answers a second, then the next second more.
+TEST(net_enet_probes_are_padded_and_limited) {
+  Machine a;
+  znet::SessionDesc d;
+  d.name = std::string(80, 'N');  // the longest name an answer carries
+  EXPECT(a.t->host(d) && a.t->create_player("Ann", "Ann") == 1);
+  EXPECT(enet_initialize() == 0);
+  const ENetSocket s = enet_socket_create(ENET_SOCKET_TYPE_DATAGRAM);
+  enet_socket_set_option(s, ENET_SOCKOPT_NONBLOCK, 1);
+  ENetAddress game{}, lan{};
+  enet_address_set_host(&game, "127.0.0.1"), enet_address_set_host(&lan, "127.0.0.1");
+  game.port = a.t->port(), lan.port = a.t->discovery_port();
+  auto probe = [&](const ENetAddress& to, size_t size) {
+    std::vector<uint8_t> f(size, 0);
+    std::memcpy(f.data(), "MW3R?", 5);
+    ENetBuffer b{};
+    b.data = f.data(), b.dataLength = f.size();
+    enet_socket_send(s, &to, &b, 1);
+  };
+  auto answers = [&](int ms, size_t* largest) {
+    int n = 0;
+    for (int i = 0; i < ms; ++i) {
+      a.t->service(1);
+      uint8_t buf[512];
+      ENetBuffer b{};
+      b.data = buf, b.dataLength = sizeof buf;
+      ENetAddress from{};
+      int k;
+      while ((k = enet_socket_receive(s, &from, &b, 1)) > 0) {
+        ++n;
+        if (largest) *largest = std::max(*largest, static_cast<size_t>(k));
+      }
+    }
+    return n;
+  };
+  probe(game, 5), probe(lan, 5), probe(game, 127), probe(lan, 127);
+  EXPECT(answers(150, nullptr) == 0);  // short probes: nothing
+  size_t largest = 0;
+  probe(game, 128), probe(lan, 128);
+  EXPECT(answers(150, &largest) == 2 && largest <= 128);
+  std::this_thread::sleep_for(std::chrono::milliseconds(1100));
+  for (int i = 0; i < 20; ++i) probe(game, 128);
+  const int burst = answers(200, nullptr);
+  std::printf("  a burst of 20 probes: %d answers\n", burst);
+  EXPECT(burst == 4);
+  std::this_thread::sleep_for(std::chrono::milliseconds(1100));
+  probe(game, 128);
+  EXPECT(answers(150, nullptr) == 1);  // the next second: answered again
+  enet_socket_destroy(s);
 }

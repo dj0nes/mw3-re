@@ -100,6 +100,7 @@ class DiscoveryAnswer {  // the host's side, polled each frame
  private:
   intptr_t socket_ = -1;
   uint16_t port_ = 0;
+  std::shared_ptr<struct AnswerLimit> limit_;
 };
 // Probes for `ms` milliseconds: the LAN's broadcast on `port`, and each of
 // `direct` ("ip:port" of a discovery port).
