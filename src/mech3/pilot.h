@@ -279,7 +279,10 @@ class MultiplayerGame : public Game {
   int32_t x70 = 0;                   // +0x70  never set by the constructor (saved)
   float x74 = 10.0f;                 // +0x74
   int32_t x78 = 90;                  // +0x78
-  int32_t x7c = 0, x84 = 0;          // +0x7c, +0x84
+  // The network game's clock and end (0x0046ef70); the start clears them.
+  float clock_next = 0;              // +0x7c  when the host sends the clock (0x11) again
+  float end_time = 0;                // +0x80  (not set by the constructor)
+  int32_t end_state = 0;             // +0x84  0, 1 ending, 3 ended
   uint8_t b8c = 1, b8d = 0, b8e = 0, b8f = 1;  // +0x8c..+0x8f
   int32_t x90 = 0, x94 = 1;          // +0x90, +0x94
   int32_t kills = 0, deaths = 0;     // +0x98, +0x9c  the pilot screen's line (0x27e)

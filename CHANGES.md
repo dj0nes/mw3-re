@@ -568,3 +568,8 @@ Known quirks the rebuild deliberately keeps:
 - The reticle turns yellow over a target out to your selected weapons' range, past 800 m (the ER large laser, ER PPC, Gauss rifle and others reach further); the original stopped looking at 800 m (bug fixes on).
 - A targeted building such as the Clan HQ in mission c3m1 shows on the radar and the map where it stands; the original pointed it at the map's zero point instead (bug fixes on).
 - The movies play smoothly with their sound: each frame shows once, when the sound reaches it; the original repeated one frame and skipped one every three or so, because it looked at the sound only when its own clock ticked (bug fixes on).
+- Multiplayer runs over UDP with ENet instead of DirectPlay, which modern systems no longer have: games are found on the local network or joined by address (`IP:port`, the host's UDP port forwarded for internet play). IPX, modem and serial connections are gone. In progress: for now a session starts from the command line (`--host`, `--join`); the lobby screens come later.
+- Another player's loadout that arrives cut short is read only as far as it goes, instead of past its end.
+- Another player's record that arrives cut short makes no mech instead of being read past its end.
+- A multiplayer update or shot aimed at something that is not another player's mech names no player, instead of whatever memory followed that object.
+- A multiplayer update that arrives cut short is dropped, and its shots and damage are read only as far as it goes.

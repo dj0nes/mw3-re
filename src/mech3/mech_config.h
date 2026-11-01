@@ -121,7 +121,11 @@ struct Config {                    // 0xd8 bytes, vtable 0x005bd3c0
   // count; true only when it is gone from the list (and deleted).
   bool remove(ConfigItem* item, int32_t n);
   ConfigItem* find_like(const ConfigItem* item);                // 0x004714c0: by vt+0x24
-  EquipmentItem* add_equipment(int32_t kind, int32_t tech, int32_t n);  // 0x00471fb0
+  EquipmentItem* add_equipment(int32_t kind, int32_t tech, int32_t n);  // 0x00471fb0  vt+0x0c
+  AmmoItem* add_ammo(int32_t weapon, int32_t n);                // 0x00472210  vt+0x08
+  WeaponItem* add_weapon(int32_t weapon, int32_t tech);         // 0x00472330  vt+0x10
+  // 0x004259c0: another player's loadout from its packed form (`words` long).
+  static Config* unpacked(const uint32_t* p, size_t words);
   int32_t sink_items() const;                                   // 0x00425f30
   int32_t weapon_count() const;                                 // 0x00425ea0: weapons and TAG
   int32_t equipment_count(int32_t kind, int32_t tech) const;    // 0x00473570: tech 3 any

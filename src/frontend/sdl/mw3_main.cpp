@@ -49,6 +49,7 @@
 #include <cstdlib>
 #include <cmath>
 #include <cstring>
+#include <functional>
 #include <filesystem>
 #include <map>
 #include <fstream>
@@ -72,6 +73,9 @@
 #include "frontend/sdl/sdl_sound.h"
 #include "frontend/sdl/sdl_twod_host.h"
 #include "frontend/sdl/sdl_vfw.h"
+#include "frontend/sdl/net_enet.h"
+#include "gamez/znetwork/znet_dplay.h"
+#include "gamez/znetwork/znet_session.h"
 #include "gamez/ztwod/twod_host.h"
 #include "gamez/zeffect/zeff_anim_save.h"
 #include "gamez/zutil/zfix.h"
@@ -164,6 +168,14 @@ struct Args {
   std::vector<ClickAt> clicks_at;  // --click-at X,Y@N (the game's 640 x 480 pixels)
   std::string briefing;  // --briefing NAME (ours): a campaign mission's briefing, as the menus reach it
   bool walk = false;  // --walk: full throttle (THROTTLE0's key) at the start (ours)
+  // The network (ours, multiplayer-port.md piece 4, until the lobby screens):
+  // --host / --join HOST[:PORT] start a session before the game, as the
+  // player --net-name; --net-port the port (a host's default 27930, a
+  // joiner's the system's), --net-bind the address (127.0.0.1 in tests),
+  // --net-say TEXT@N a chat line to everyone at the N-th pass.
+  bool net_host = false;
+  std::string net_join, net_name = "Pilot", net_bind = "0.0.0.0", net_say;
+  int net_port = -1, net_say_at = 0;
   bool shot_any = false;
 };
 
@@ -208,6 +220,16 @@ bool parse(int argc, char** argv, Args& a) {
     else if (s == "--win" && next(1)) a.win = std::atoi(argv[++i]);
     else if (s == "--lab-mech" && next(1)) a.lab_mech = std::atoi(argv[++i]);
     else if (s == "--frames" && next(1)) a.frames = std::atoi(argv[++i]);
+    else if (s == "--host") a.net_host = true;
+    else if (s == "--join" && next(1)) a.net_join = argv[++i];
+    else if (s == "--net-name" && next(1)) a.net_name = argv[++i];
+    else if (s == "--net-port" && next(1)) a.net_port = std::atoi(argv[++i]);
+    else if (s == "--net-bind" && next(1)) a.net_bind = argv[++i];
+    else if (s == "--net-say" && next(1)) {
+      const std::string v = argv[++i];
+      const size_t atpos = v.rfind('@');
+      a.net_say = v.substr(0, atpos), a.net_say_at = atpos == std::string::npos ? 1 : std::atoi(v.c_str() + atpos + 1);
+    }
     else if (s == "--campaign-chain" && next(1)) a.chain = argv[++i];
     else if (s == "--action-chain" && next(1)) a.modes = argv[++i];
     else if (s == "--frame-ms" && next(1)) a.frame_ms = std::atoi(argv[++i]);
@@ -312,6 +334,39 @@ void split_mission(const std::string& name, std::string& dir, std::string& varia
 }
 
 int run(const Args& a, platform::VideoForWindows* vfw);
+
+// The network's log until the lobby screens are ported (ours, piece 4): its
+// local messages as lines, a chat's text, and the per-pass work.
+std::function<void()> g_net_pass;
+void net_log(uint32_t from, const uint8_t* m, size_t size) {
+  const uint16_t type = static_cast<uint16_t>(m[0] | m[1] << 8);
+  const char* name = znet::player_name(from);
+  const std::string who = std::to_string(from) + (name ? std::string(" (") + name + ")" : std::string());
+  switch (type) {
+    case 0x3: std::printf("mw3: network: player %s joined\n", who.c_str()); break;
+    case 0x6: std::printf("mw3: network: player %s left\n", who.c_str()); break;
+    case 0x7: std::printf("mw3: network: we were kicked out\n"); break;
+    case 0xd: std::printf("mw3: network: player %s is the host\n", who.c_str()); break;
+    case 0xc: std::printf("mw3: network: error: %.*s\n", static_cast<int>(size > 4 ? size - 5 : 0), m + 4); break;
+    case 0x1f:
+      if (size > 8) std::printf("mw3: network: player %s says \"%.*s\"\n", who.c_str(), static_cast<int>(strnlen(reinterpret_cast<const char*>(m + 8), size - 8)), m + 8);
+      break;
+    default: break;
+  }
+  std::fflush(stdout);
+}
+void net_log_handlers() {
+  for (uint16_t t : {0x3, 0x6, 0x7, 0xd, 0xc, 0x1f}) znet::on(t, &net_log);
+}
+// A chat line (0x1f: +4 the team bit, +8 the text) to everyone.
+void net_say(const std::string& text) {
+  std::vector<uint8_t> m(8 + text.size() + 1, 0);
+  const uint16_t type = 0x1f, size = static_cast<uint16_t>(m.size());
+  std::memcpy(m.data(), &type, 2);
+  std::memcpy(m.data() + 2, &size, 2);
+  std::memcpy(m.data() + 8, text.data(), text.size());
+  znet::send(m.data(), size, false, 0);
+}
 
 // --install-from (ours, disc_install.h): the disc's files into a folder of
 // our own, no Windows installer run, the patch with it when given (then not
@@ -583,7 +638,45 @@ int main(int argc, char** argv) {
   }
   if (a.force_import || (plain && !a.no_import && !vfw)) sdlfe::first_run_import(a.install, a.write_dir, a.force_import);
 
+  // The network's session, before the game (ours, piece 4).
+  std::unique_ptr<sdlfe::EnetTransport> net;
+  std::unique_ptr<sdlfe::DiscoveryAnswer> lan;
+  if (a.net_host || !a.net_join.empty()) {
+    sdlfe::NetOptions o;
+    o.bind = a.net_bind;
+    o.port = static_cast<uint16_t>(a.net_port >= 0 ? a.net_port : (a.net_host ? sdlfe::kDefaultPort : 0));
+    net = std::make_unique<sdlfe::EnetTransport>(o);
+    if (!net->ok()) {
+      std::printf("mw3: network: cannot use port %u on %s\n", o.port, o.bind.c_str());
+    } else {
+      znet::initialise(net.get());
+      net_log_handlers();
+      bool ok;
+      if (a.net_host) {
+        znet::SessionDesc d;
+        d.name = a.net_name + "'s game";
+        ok = znet::host_session(d, a.net_name.c_str());
+        lan = std::make_unique<sdlfe::DiscoveryAnswer>(sdlfe::kDiscoveryPort, a.net_bind);
+      } else {
+        ok = znet::join_session(a.net_join, a.net_name.c_str());
+      }
+      if (ok)
+        std::printf("mw3: network: %s on port %u as player %u (%s), the host %u\n",
+                    a.net_host ? "hosting" : ("joined " + a.net_join).c_str(), net->port(), znet::local_id(),
+                    a.net_name.c_str(), znet::session().host_id);
+      else
+        std::printf("mw3: network: %s failed\n", a.net_host ? "hosting" : ("joining " + a.net_join).c_str());
+      // Each pass: the LAN's questions answered, and --net-say's line.
+      g_net_pass = [&a, &net, &lan] {
+        static int passes = 0;
+        ++passes;
+        if (lan) lan->poll(znet::session().desc, static_cast<uint32_t>(znet::lists().players.size()), net->port());
+        if (!a.net_say.empty() && passes == a.net_say_at) net_say(a.net_say);
+      };
+    }
+  }
   const int result = run(a, vfw.get());
+  g_net_pass = nullptr;
   vfw.reset();
   SDL_Quit();  // after every SDL object above is gone
   return result;
@@ -1090,7 +1183,11 @@ int run(const Args& a, platform::VideoForWindows* vfw) {
       }
 
       sdlfe::SdlPump pump(&input, &app);
-      if (clock.frame_ms) pump.each_pass = [&] { clock.frame(); };
+      if (clock.frame_ms || g_net_pass)
+        pump.each_pass = [&] {
+          if (clock.frame_ms) clock.frame();
+          if (g_net_pass) g_net_pass();
+        };
       // Ours: Alt+Enter, and the game's sounds silent while the window is away.
       pump.toggle_fullscreen = [&] { window.switch_fullscreen(!window.fullscreen()); };
       if (auto* s = dynamic_cast<sdlfe::SdlSoundOutput*>(sound.get())) pump.focus_changed = [s](bool on) { s->set_focused(on); };

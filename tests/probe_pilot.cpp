@@ -171,8 +171,10 @@ void dump_pilot(Dump& d, Pilot* p) {
   d.kv("x70", m->x70);
   d.kv("x74", f74);
   d.kv("x78", m->x78);
-  d.kv("x7c", m->x7c);
-  d.kv("x84", m->x84);
+  int32_t f7c;  // its bits, signed as the field was
+  std::memcpy(&f7c, &m->clock_next, 4);
+  d.kv("x7c", f7c);
+  d.kv("x84", m->end_state);
   d.kv("b8c", m->b8c);
   d.kv("b8d", m->b8d);
   d.kv("b8e", m->b8e);
@@ -282,8 +284,8 @@ void set_field(Game* g, uint32_t off, uint32_t v) {
       case 0x70: m->x70 = i; break;
       case 0x74: std::memcpy(&m->x74, &v, 4); break;
       case 0x78: m->x78 = i; break;
-      case 0x7c: m->x7c = i; break;
-      case 0x84: m->x84 = i; break;
+      case 0x7c: std::memcpy(&m->clock_next, &v, 4); break;
+      case 0x84: m->end_state = i; break;
       case 0x8c: m->b8c = b; break;
       case 0x8d: m->b8d = b; break;
       case 0x8e: m->b8e = b; break;

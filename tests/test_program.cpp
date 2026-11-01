@@ -3344,6 +3344,61 @@ TEST(mech_build_launches_the_player_c1m1_headless) {
   mech3::options() = mech3::Options{};
 }
 
+// Multiplayer piece 5c in a real mission (c1m1, launched as the build test
+// does): another player over the in-process hub joins with the pilot's own
+// mech and loadout; its first state makes its network mech, built as any
+// mech is, put where the state says, not colliding, in the world, its torso
+// in mode 2; its leaving deletes it, and the end takes the handlers off.
+TEST(net_mech_made_from_a_record_c1m1_headless) {
+  if (!have_game()) return;
+  SavedMounts keep;
+  zutl::mounts() = zutl::Mounts{};
+  zutl::mount(MW3_GAME_DIR);
+  zutl::set_write_dir(temp_dir("net_mech_write"));
+  mech3::reset_states();
+  reset_process_state();
+  mech3::missions() = mech3::Missions{};
+  mech3::mech_types_forget();
+  mech3::options() = mech3::Options{};
+  FakeWindow window;
+  FakeAlert alert;
+  FakeClock clock;
+  FakeScreen screen;
+  platform::SilentSoundOutput sound;
+  mech3::MountFiles files;
+  mech3::Platform p;
+  p.window = &window, p.alert = &alert, p.clock = &clock, p.movie_clock = &fast_movie_clock(), p.screen = &screen, p.sound = &sound, p.files = &files;
+  {
+    mech3::GameEngine engine(p, "mech3.exe -nofmv");
+    engine.quiet = true;
+    mech3::Mech3App app(&engine);
+    mech3::set_app(&app);
+    EXPECT(app.init_instance());
+    mech3::GameEngine::Launch l;
+    engine.set_launch(l);
+    engine.missions_start(0x6098d0);
+    EXPECT(!mech3::missions().failed);
+    mech3::NetMechSeen seen;
+    EXPECT(mech3::program_net_mech_check(&seen));
+    EXPECT(seen.made == 1 && seen.remote == 1 && seen.collides == 0 && seen.torso_mode == 2 && seen.in_world == 1);
+    EXPECT(seen.moved == 1);  // at the state's position
+    EXPECT(seen.state_sent == 1);  // the pilot's own state (piece 6a) arrives with its place
+    EXPECT(seen.followed == 1);    // a second state, applied and reckoned (piece 6b)
+    EXPECT(seen.configs == 1 && seen.config_named == 1);  // "Bob's Config", valid
+    EXPECT(seen.after_leave == 0 && seen.handlers_after == 0);
+    mech3::missions().cleanup(false);
+    app.stop_game();
+    app.exit_instance();
+    mech3::set_app(nullptr);
+  }
+  zrdr::close_archives(true);
+  mech3::reset_states();
+  reset_process_state();
+  mech3::missions() = mech3::Missions{};
+  mech3::mech_types_forget();
+  mech3::options() = mech3::Options{};
+}
+
 namespace {
 // Observers on the action lists, around the two ticks (docs/action-lists.md):
 // each records its place and what the ticks have done so far.
@@ -14316,8 +14371,7 @@ TEST(known_unported_keys_name_their_reason) {
                         "0x005a7e10", "0x005a7f90", "0x00576c50", "0x00535ed0", "0x004f8f60", "0x00537520",
                         "0x00519e50", "0x00526510", "0x005578f0", "0x00557b30", "0x00575f70", "0x00576c60",
                         "0x00516f00", "0x00526780", "0x00557b10", "0x005646d0", "0x00493260",
-                        "0x00495f90", "0x0049bd80", "0x0046ef70",
-                        "0x0046f160", "WeaponCalls.net_event"}) {
+                        "0x00495f90", "0x0049bd80"}) {
     const char* why = mech3::GameEngine::known_unported(k);
     EXPECT(why != nullptr);
     if (!why) continue;
@@ -14326,7 +14380,7 @@ TEST(known_unported_keys_name_their_reason) {
            w.size() > 20);
     ++n;
   }
-  EXPECT(n == 49);  // 0x00586ce0, 0x00586c20 and 0x00588930 ported (multiplayer-port.md pieces 1, 2)
+  EXPECT(n == 46);  // 0x00586ce0, 0x00586c20, 0x00588930, 0x0046ef70, 0x0046f160 ported (multiplayer-port.md pieces 1, 2, 6a)
   for (const char* gap : {"0x00579ea0", "0x004f9fa0", "0x004fa0b0", "0x00479be0", "0x0051a300",
                           "[[0x0060861c]+0x14]", "0x004f3430", "0x005799f0", "0x0051d0c0",
                           "0x00556210", "game.vt", "0x00414000", "0x0047abe0", "0x004f8f50",

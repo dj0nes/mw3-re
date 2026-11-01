@@ -242,7 +242,6 @@ FrameCalls.route_mouse	fallback: unset runs the port (0x0051ba60 (unset: the zTw
 SoundExtraHooks.play	fallback: unset runs the port (0x0056e3d0)
 SoundExtraHooks.subtitle	fallback: unset runs the port (+0x00  the message's text (0x0049d1c0 strdup))
 WeaponCalls.node_part	deferred: 0x0040ef30 answers a vehicle's node with the vehicle, which the exe reads as a part; the vehicle weapons item (with 0x004eb0d0, 0x004abb60)
-WeaponCalls.net_target	multiplayer: the network list's target (0x00605f84 by +0x6fc)
 WeaponCalls.normalize	test: no caller in src/
 WeaponCalls.spawn	fallback: unset runs the port
 WeaponCalls.radar_track	fallback: unset runs the port (+0x5d0 = 0x004b4a30 / 0x004b4a20)

@@ -204,6 +204,7 @@ add_library(mw3core STATIC
   src/mech3/veh_controls.cpp
   src/mech3/veh_move.cpp
   src/mech3/mech_anim.cpp
+  src/mech3/mech_net.cpp
   src/mech3/mech_reader.cpp
   src/mech3/mech_salvage.cpp
   src/mech3/mech_skin.cpp
@@ -289,6 +290,21 @@ target_include_directories(mw3core PRIVATE third_party)
 set_source_files_properties(third_party/pl_mpeg/pl_mpeg.c PROPERTIES COMPILE_OPTIONS "$<IF:$<C_COMPILER_ID:MSVC>,/w,-w>")
 # tinfl (third_party/miniz, miniz's inflate) likewise.
 set_source_files_properties(third_party/miniz/miniz_tinfl.c PROPERTIES COMPILE_OPTIONS "$<IF:$<C_COMPILER_ID:MSVC>,/w,-w>")
+# ENet (third_party/enet, MIT): the multiplayer transport (docs/multiplayer-port.md),
+# unmodified, its warnings not ours. unix.c's feature macros as its own build
+# finds them on macOS and Linux (no gethostby*_r: it falls back).
+add_library(enet STATIC
+  third_party/enet/callbacks.c third_party/enet/compress.c third_party/enet/host.c third_party/enet/list.c
+  third_party/enet/packet.c third_party/enet/peer.c third_party/enet/protocol.c third_party/enet/unix.c
+  third_party/enet/win32.c)
+target_include_directories(enet PUBLIC third_party/enet/include)
+target_compile_options(enet PRIVATE "$<IF:$<C_COMPILER_ID:MSVC>,/w,-w>")
+if(WIN32)
+  target_link_libraries(enet PUBLIC ws2_32 winmm)
+else()
+  target_compile_definitions(enet PRIVATE HAS_FCNTL=1 HAS_POLL=1 HAS_GETADDRINFO=1 HAS_GETNAMEINFO=1
+                             HAS_INET_PTON=1 HAS_INET_NTOP=1 HAS_MSGHDR_FLAGS=1 HAS_SOCKLEN_T=1)
+endif()
 # The x87 never fuses a multiply and an add; clang does by default on arm64,
 # which rounds differently from the original (CLAUDE.md, FPU precision).
 if(NOT MSVC)
@@ -421,6 +437,7 @@ add_library(mw3probe SHARED
   tests/probe_fade.cpp
   tests/probe_fmv.cpp
   tests/probe_znet.cpp
+  tests/probe_mech_net.cpp
   tests/probe_frame.cpp
   tests/probe_view.cpp
   tests/probe_hud.cpp
@@ -477,9 +494,10 @@ if(SDL3_FOUND)
     src/frontend/sdl/sdl_render3d.cpp
     src/frontend/sdl/sdl_sound.cpp
     src/frontend/sdl/sdl_vfw.cpp
+    src/frontend/sdl/net_enet.cpp
     src/frontend/sdl/sdl_child.cpp
   )
-  target_link_libraries(mw3sdl PUBLIC mw3core SDL3::SDL3)
+  target_link_libraries(mw3sdl PUBLIC mw3core SDL3::SDL3 enet)
   # Windows: the Direct3D 12 shaders (sdl_render3d.hlsl), DXIL by the
   # Windows SDK's dxc, as headers the renderer includes.
   if(WIN32)
@@ -593,6 +611,7 @@ if(SDL3_FOUND)
     add_executable(mw3sdltests
       tests/main.cpp
       tests/test_sdl_frontend.cpp
+      tests/test_net_enet.cpp
     )
     target_link_libraries(mw3sdltests PRIVATE mw3text mw3sdl mw3core SDL3::SDL3)
     target_compile_definitions(mw3sdltests PRIVATE MW3_GAME_DIR="${MW3_GAME_DIR}"

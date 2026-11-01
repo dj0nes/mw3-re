@@ -14,6 +14,7 @@
 #include "mech3/turret.h"
 #include "mech3/app_vehicle.h"
 
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <unordered_set>
@@ -42,6 +43,11 @@
 #include "mech3/mech_anim.h"
 #include "mech3/mech_build.h"
 #include "mech3/mech_dead.h"
+#include "mech3/app_sensors.h"
+#include "mech3/mech_net.h"
+#include "gamez/znetwork/znet_session.h"
+#include "gamez/znetwork/znet_dplay.h"
+#include "gamez/zutil/zutl_msgdll.h"
 #include "mech3/mech_lod.h"
 #include "mech3/mech_skin.h"
 #include "mech3/mech_collide.h"
@@ -318,6 +324,8 @@ class WiredBuild : public MechBuildHooks {
   }
 };
 
+bool (*g_launch_game)(NetLaunchGame* out) = nullptr;  // net_set_launch_game's
+
 class WiredLaunch : public LaunchHooks {
  public:
   uint32_t unported(const char* key, std::initializer_list<zgame::Arg> args) override {
@@ -404,6 +412,12 @@ class WiredLaunch : public LaunchHooks {
   // and saved (pilot.md section 7); a debug start's stand-in has no campaign
   // to settle.
   void pilot_478f10(Handle) override { program_record_mission(false); }
+  void multiplayer(Handle) override {  // 0x0046da80 on the pilot
+    NetLaunchGame g;
+    Mech* m = launched_mech();
+    if (m && g_launch_game && g_launch_game(&g) && g.loadout)
+      net_launch_player(*m, g.loadout->packed(), g.skin, g.unlimited_ammo, g.outside_view);
+  }
   // The Instant Action (and multiplayer) launch's pilot save: the file opened
   // (0x00478ce0), its header (0x004794f0) and record (vt+0x04) written, closed.
   void pilot_478ce0(Handle) override { program_pilot_file(0); }
@@ -931,6 +945,181 @@ void wire_mech_parts() {
 // 0x005a9820 from the mechs' set-up 0x00413e60, at each mission's start.
 void program_motions_open() { open_motions("zbd/motion.zbd"); }
 
+// The mission's network side (mech_net.cpp, multiplayer-port.md piece 5):
+// what it calls outside the network code.
+void wire_net(bool on) {
+  NetCalls& nc = net_calls();
+  const NetCalls kept = nc;  // the force feedback's are app_force.cpp's
+  nc = NetCalls{};
+  nc.ff_stop = kept.ff_stop, nc.ff_spawn = kept.ff_spawn;
+  nc.game_clear = kept.game_clear;  // the pilot's side's
+  nc.game = kept.game, nc.game_time = kept.game_time, nc.clock_left = kept.clock_left, nc.clock_on = kept.clock_on;
+  if (!on) return;
+  nc.set_position = [](NetMech& m, const float pos[3]) {  // vtable +0x18
+    const Vec3 v{pos[0], pos[1], pos[2]};
+    if (collide_calls().set_position) collide_calls().set_position(m, &v);
+  };
+  nc.hud_message = [](float seconds, int32_t id, const char* name) {  // 0x0040fe70
+    if (!message_panel()) return;
+    message_panel()->show_for(seconds);
+    const std::string t = zutl::format_message(id, name);
+    if (!t.empty()) message_panel_add("%s", t.c_str());
+  };
+  nc.forget = [](NetMech& m) { ai::entities_forget(g_w.handle_of(g_w.engine, &m)); };  // 0x004aa6b0
+  nc.free = [](NetMech* m) {  // vt+0 (1), and off the program's own lists (as mech_free)
+    net_mech_unlist(m);
+    mission_ai_mech_forget(m, g_w.handle_of ? g_w.handle_of(g_w.engine, m) : 0);
+    m->release();
+    mech_objects().erase(m);
+    if (g_w.forget_object) g_w.forget_object(g_w.engine, m);
+    delete m;
+  };
+  nc.view_outside = [] { program_view_set_camera(1); };  // 0x0040ae70(1)
+  // The sends (0x0046f160): the mech's and its torso node's world positions,
+  // the target's player (its contact's vehicle, when a network mech).
+  nc.position = [](Mech& m, float out[3]) { return mech_world_position(&m, out); };
+  nc.torso_position = [](Mech& m, float out[3]) {
+    if (!m.torso || !m.torso->node) return false;
+    return zcls::node_world_position(zn(m.torso->node), out) != 0;
+  };
+  nc.target_player = [](Mech& m) -> uint32_t {
+    void* v = m.target ? hud_object_mech(hud_contact_vehicle(m.target)) : nullptr;  // 0x004e7010: vt+0x2c, vt+0x58
+    const NetMech* t = v ? net_mech_of(v) : nullptr;
+    return t ? t->owner : 0;
+  };
+  nc.sensor_range = [](NetMech& m) { m.set_sensor_range(g_w.handle_of(g_w.engine, &m), m.sensor_range); };
+  nc.world_add = [](NetMech& m) {  // [0x00608c84] vt+0x00
+    if (zcls::Node* w = world_hooks().world) zcls::node_add_child(w, zn(m.node));
+  };
+  nc.spawn_point = [](const char* name, float pos[3], float* yaw) {  // aiv.zrd's (0x004e0680)
+    ai::AivRecord rec;
+    const ai::AivRecord* r = g_launch.aiv_read_named(rec, name);
+    if (!r) return false;
+    pos[0] = r->get<float>(0x08), pos[1] = r->get<float>(0x0c), pos[2] = r->get<float>(0x10);
+    *yaw = r->get<float>(0x14);
+    return true;
+  };
+  // The mech's network calls (vt+0x168, vt+0x158): the sends, and for a
+  // network mech its dead reckoning (piece 6b).
+  damage_calls().net_event = [](Mech& m, int kind, intptr_t arg) { net_send_event(m, kind, arg); };
+  weapon_calls().net_event = [](Handle owner, int32_t kind, Weapon* w) {
+    if (entity_is_mech(owner)) net_send_event(*static_cast<Mech*>(owner), kind, reinterpret_cast<intptr_t>(w));
+  };
+  const auto net_update = [](Mech& m, float dt) {
+    if (!m.remote) return net_mech_tick(m);
+    auto& n = *static_cast<NetMech*>(&m);
+    net_calls().reckon ? net_calls().reckon(n, dt) : net_reckon(n, dt);
+  };
+  // The apply's (0x0046e4d0): the target (0x004a7b40, as the pocket
+  // commander's pick), the radar's light, the pilot's mech; the shots'
+  // target players (0x004b08c0's lookup).
+  nc.pick_target = [](NetMech& m, Handle v) {
+    const zgame::Handle e = v ? g_w.handle_of(g_w.engine, v) : 0;
+    if (m.target && m.target->seen == e) return;
+    ai::Contact* found = nullptr;
+    for (ai::Contact* c : m.contacts)
+      if (e && c->seen == e) {
+        found = c;
+        break;
+      }
+    m.set_target(found, false);
+  };
+  nc.radar_toggled = [](NetMech& m) { program_radar_light(&m); };
+  nc.pilot_mech = [] { return world().mission_player; };
+  weapon_calls().net_target = [](Handle id) -> Handle {
+    const auto player = static_cast<uint32_t>(reinterpret_cast<uintptr_t>(id));
+    if (player == znet::local_id()) return world().mission_player;
+    return net_mech(player);
+  };
+  update_calls().net_update = net_update;
+  dead_calls().net_update = net_update;
+  nc.player_mech_end = [] {  // 0x0041e580 on the pilot's mech
+    if (Mech* m = world().mission_player; m && free_calls().player_object_free) free_calls().player_object_free(*m);
+  };
+}
+
+void net_set_game_clear(void (*fn)()) { net_calls().game_clear = fn; }
+void net_set_launch_game(bool (*fn)(NetLaunchGame* out)) { g_launch_game = fn; }
+namespace {
+NetGameAccess g_game_access;
+}  // namespace
+void net_set_game_access(const NetGameAccess& a) {
+  g_game_access = a;
+  NetCalls& nc = net_calls();
+  nc.game = []() -> NetGameFields* {
+    static NetGameFields f;
+    if (!g_game_access.fields || !g_game_access.fields(&f.players, &f.clock_next, &f.end_time, &f.end_state))
+      return nullptr;
+    return &f;
+  };
+  nc.game_time = a.game_time, nc.clock_left = a.clock_left, nc.clock_on = a.clock_on;
+}
+
+bool program_net_mech_check(NetMechSeen* out) {
+  Mech* me = launched_mech();
+  if (!me || !me->config || !me->pilot) return false;
+  znet::Hub hub;
+  znet::session() = znet::Session{};
+  znet::initialise(hub.endpoint());
+  if (!znet::host_session(znet::SessionDesc{}, "Host")) return false;
+  znet::Transport* b = hub.endpoint();
+  if (!b->join("loopback") || b->create_player("Bob", "Bob") != 2) return false;
+  const std::vector<uint32_t> p = me->config->packed();
+  const uint32_t n = p[0] & 0xffff;
+  std::vector<uint8_t> rec(n + 0xc, 0);
+  const int32_t head[3] = {2, 0, me->pilot->roster};
+  std::memcpy(rec.data(), head, 0xc);
+  std::memcpy(rec.data() + 0xc, p.data(), n);
+  b->set_data(false, 2, rec.data(), static_cast<uint32_t>(rec.size()));
+  znet::poll(-1);
+  const size_t before = znet::session().handlers.size();
+  net_start();
+  float at[3];
+  mech_world_position(me, at);
+  at[0] += 30.0f;
+  uint8_t state[0x40] = {0x0f, 0, 0x40, 0};
+  std::memcpy(state + 4, at, 12);
+  b->send(1, state, sizeof state, true, nullptr);
+  znet::poll(-1);
+  if (NetMech* m = net_mech(2)) {
+    out->made = 1, out->remote = m->remote, out->collides = m->collides;
+    out->torso_mode = m->torso ? m->torso->mode : -1;
+    out->in_world = zn(m->node)->parent_count() > 0;
+    float t[3];
+    mech_world_position(m, t);
+    out->moved = std::fabs(t[0] - at[0]) < 0.01f && std::fabs(t[2] - at[2]) < 0.01f;
+    // A second state 10 m on, its flag bit 0 set: the reckoning puts it there.
+    float on[3] = {at[0] + 10.0f, at[1], at[2]};
+    std::memcpy(state + 4, on, 12);
+    const uint32_t snap = 1;
+    std::memcpy(state + 0x38, &snap, 4);
+    b->send(1, state, sizeof state, true, nullptr);
+    znet::poll(-1);
+    net_reckon(*m, 1.0f / 30.0f);
+    mech_world_position(m, t);
+    out->followed = std::fabs(t[0] - on[0]) < 0.01f && std::fabs(t[2] - on[2]) < 0.01f;
+  }
+  // The pilot's own state, as the timer sends it (0x0046f160 kind 0xf).
+  net_send_event(*me, 0xf, 0);
+  float mine[3];
+  mech_world_position(me, mine);
+  for (znet::Packet pk; b->receive(&pk);)
+    if (pk.from == 1 && pk.data.size() == 0x3c && pk.data[0] == 0xf) {
+      float got[3];
+      std::memcpy(got, pk.data.data() + 4, 12);
+      out->state_sent = got[0] == mine[0] && got[1] == mine[1] && got[2] == mine[2];
+    }
+  out->configs = static_cast<int32_t>(net_game().configs.size());
+  out->config_named = out->configs == 1 && std::strcmp(net_game().configs.front()->name, "Bob's Config") == 0;
+  b->close();
+  znet::poll(-1);
+  out->after_leave = static_cast<int32_t>(net_game().mechs.size());
+  net_end();
+  out->handlers_after = static_cast<int32_t>(znet::session().handlers.size() - before);
+  znet::shutdown();
+  return true;
+}
+
 void wire_mech_build(const MechWiring* w) {
   if (!w) {
     g_w = MechWiring{};
@@ -957,9 +1146,11 @@ void wire_mech_build(const MechWiring* w) {
     set_launch_hooks(nullptr);
     panel_calls().entity_mech = nullptr, panel_calls().key_binding = nullptr, panel_calls().key_name = nullptr;
     wire_pocket(nullptr);
+    wire_net(false);
     return;
   }
   g_w = *w;
+  wire_net(true);
   // The pocket commander's panel (docs/ai.md 17.6b): zEntity's mechs, the
   // orders' keys (an action's first key, 0x0051d1f0, and its name,
   // 0x0051d330). Its names, cursor picks and marker are not wired yet (L4c2c).

@@ -84,6 +84,7 @@ bool invert(const Mat34& m, Mat34& out, bool translation);  // 0x00523c50, false
 bool invert_single(const Mat34& m, Mat34& out, bool translation);  // 0x00523c50
 void euler_to_quat(float x, float y, float z, float q[4]);  // 0x00525340  q = (w, x, y, z)
 void quat_matrix(const float q[4], float r[9]);           // 0x00525740  unit quaternion to 3x3
+void quat_two_angles(float a, float b, float q[4]);       // 0x00525280  euler_to_quat(b, a, 0)'s way
 void quat_angles(const float q[4], float out[3]);         // 0x00525f80  through 0x00525740 and 0x00523bc0
 void quat_exp(const float v[3], float q[4]);               // 0x00525900  axis-angle vector to (w, x, y, z)
 void quat_mul(const float a[4], const float b[4], float out[4]);  // 0x005255d0  a * b

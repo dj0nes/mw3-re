@@ -869,6 +869,30 @@ From the weapon code (weapons.md).
 - **In multiplayer the host re-checks the locked rules every 51 seconds**;
   changing them in memory (say, unlimited ammo after the lock) ends the game
   a minute or two later as if the clock ran out.
+- **In a multiplayer mission another player's mech appears with their first
+  position update.** Until it does, everything else they send in the mission
+  is ignored, including chat. A player who leaves vanishes on the spot (no
+  wreck, no kill to anyone), and "<name> has bailed out of the game." shows
+  for four seconds. (`multiplayer-port.md`, piece 5a)
+- **In multiplayer an illegal loadout makes you invisible to the others.**
+  Each player's mech is built on the other machines from the loadout they
+  sent, and only if it passes the mech lab's checks (weight, armour, jump
+  jets, every item placed). One that fails builds nothing there: the player
+  plays on, but no one else sees their mech. (`multiplayer-port.md`, piece 5c)
+- **Multiplayer resends all your damage every 26th update.** Your mech's
+  position goes out up to 10 times a second (slower with more players:
+  7 a second for 2-4, 2 a second past 8), over a connection that can lose
+  packets. Damage rides along only when it changes, so every 26th update
+  carries every part's damage anyway: a lost hit shows up on the others'
+  screens within a few seconds. At one minute left the game says so, and
+  at three seconds left the game starts ending. (`network-messages.md`)
+- **Other players' mechs glide between updates, and their aim is not
+  corrected for lag.** Each update pulls a remote mech toward where it was
+  said to be, and between updates it carries on at its last speed, slowing
+  by about a quarter a second. The aim is meant to be pushed forward by the
+  measured lag, but the lag (in seconds) is divided by the time since the
+  last update (in milliseconds), so the correction is a tenth of a percent:
+  in effect none. (`multiplayer-port.md`, piece 6b)
 - **Only one copy runs at a time.** Started a second time, the game finds the
   first window and brings it to the front instead. Launched from a multiplayer
   lobby, it closes the old copy instead.
