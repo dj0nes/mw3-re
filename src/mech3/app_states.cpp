@@ -166,6 +166,17 @@ bool TrDummyState::enter() {
 }
 
 // ---------------------------------------------------------------------------
+// Multi-Exit
+
+// Mech3.exe 1.2 @ 0x00470710
+bool MultiExitState::enter() {
+  Engine& en = e();
+  en.mission_cleanup(1);  // 0x00491780
+  en.replace_state(2);    // 0x00590250 with 0x00482970(2): the main menu
+  return true;
+}
+
+// ---------------------------------------------------------------------------
 // Intro
 
 // Mech3.exe 1.2 @ 0x00482070. -nofmv skips INTRO only: the SPLASH logos in

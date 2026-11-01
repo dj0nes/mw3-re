@@ -63,6 +63,7 @@ struct SkinSet {                   // 0x14 bytes
   Skin* damage = nullptr;          // +0x10
   explicit SkinSet(int32_t count); // 0x00474f60
   bool add(Skin* skin);            // 0x004752e0
+  Skin* named(const char* name) const;  // 0x00475b00
   ~SkinSet();                      // 0x004751a0
   // 0x00475520: with HOLES, the damage skin loaded (cached images) once and
   // every skin's entries linked to it; the damage skin, else null.

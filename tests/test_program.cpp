@@ -2485,6 +2485,71 @@ TEST(mission_c1m1_lead_circle_leads_by_the_lead_velocity_headless) {
   reset_process_state();
   mech3::options() = mech3::Options{};
 }
+
+// Playtest W39: with no part picked, the lead circle starts from the target's
+// 0x005a8630, its target node (the torso, or the marker 0.65 up before a hit;
+// damage.md 4). The HUD's hook gave the mech's place (0x005a85e0, its feet),
+// so the circle sat on the ground between the target's feet.
+TEST(mission_c1m1_lead_circle_starts_from_the_target_node_headless) {
+  if (!have_game()) return;
+  SavedMounts keep;
+  zutl::mounts() = zutl::Mounts{};
+  zutl::mount(MW3_GAME_DIR);
+  zutl::set_write_dir(temp_dir("mission_aim_node_write"));
+  mech3::reset_states();
+  reset_process_state();
+  mech3::missions() = mech3::Missions{};
+  mech3::mech_types_forget();
+  mech3::options() = mech3::Options{};
+  FakeWindow window;
+  FakeAlert alert;
+  FakeClock clock;
+  FakeScreen screen;
+  platform::SilentSoundOutput sound;
+  mech3::MountFiles files;
+  mech3::Platform p;
+  p.window = &window, p.alert = &alert, p.clock = &clock, p.movie_clock = &fast_movie_clock(), p.screen = &screen, p.sound = &sound, p.files = &files;
+  float hook[3] = {}, place[3] = {}, node[3] = {};
+  bool seen = false;
+  {
+    mech3::GameEngine engine(p, "mech3.exe -nofmv");
+    engine.quiet = true;
+    mech3::Mech3App app(&engine);
+    mech3::set_app(&app);
+    EXPECT(app.init_instance());
+    mech3::GameEngine::Launch l;  // c1m1
+    engine.set_launch(l);
+    app.post_intro_ = &mech3::states().load;
+    int frames = 0;
+    engine.on_present = [&](int) {
+      if (app.current() != &mech3::states().core) return;
+      if (++frames != 5) return;
+      void* player = mech3::mech_mission_player();
+      const float* n = player ? mech3::weapon_lock_point(player) : nullptr;
+      if (!n) return;
+      node[0] = n[0], node[1] = n[1], node[2] = n[2];
+      mech3::hud_hooks().vehicle_position(player, hook);
+      mech3::hud_hooks().mech_position(static_cast<mech3::Mech*>(player), place);
+      seen = true;
+    };
+    CountingPump pump;
+    pump.stop = [&] { return frames >= 6; };
+    pump.limit = 3000;
+    app.run(pump);
+    mech3::missions().cleanup(false);
+    app.stop_game();
+    app.exit_instance();
+    mech3::set_app(nullptr);
+  }
+  std::printf("  the place (%.2f %.2f %.2f), the target node (%.2f %.2f %.2f), the HUD's hook (%.2f %.2f %.2f)\n", place[0],
+              place[1], place[2], node[0], node[1], node[2], hook[0], hook[1], hook[2]);
+  EXPECT(seen && node[1] - place[1] > 2.0f);
+  EXPECT(hook[0] == node[0] && hook[1] == node[1] && hook[2] == node[2]);
+  zrdr::close_archives(true);
+  mech3::reset_states();
+  reset_process_state();
+  mech3::options() = mech3::Options{};
+}
 // HUD plan items 7-8, the mission maps: maps.zrd read at the start
 // (0x004583b0); the mission's map picked as the briefing does (0x004582a0 on
 // its MAP, c1m1's "c1m1"), its image loaded from images\maps and the mech's
@@ -3384,8 +3449,74 @@ TEST(net_mech_made_from_a_record_c1m1_headless) {
     EXPECT(seen.moved == 1);  // at the state's position
     EXPECT(seen.state_sent == 1);  // the pilot's own state (piece 6a) arrives with its place
     EXPECT(seen.followed == 1);    // a second state, applied and reckoned (piece 6b)
+    EXPECT(seen.respawned == 1);   // made again in place by a respawn (piece 7a)
     EXPECT(seen.configs == 1 && seen.config_named == 1);  // "Bob's Config", valid
     EXPECT(seen.after_leave == 0 && seen.handlers_after == 0);
+    mech3::missions().cleanup(false);
+    app.stop_game();
+    app.exit_instance();
+    mech3::set_app(nullptr);
+  }
+  zrdr::close_archives(true);
+  mech3::reset_states();
+  reset_process_state();
+  mech3::missions() = mech3::Missions{};
+  mech3::mech_types_forget();
+  mech3::options() = mech3::Options{};
+}
+
+// Multiplayer piece 8 in a running mission (c1m1): the network game's end
+// (0x004707c0) fades to the Multi-Exit State, which unloads the mission and
+// goes to the main menu; the network game is over.
+TEST(net_game_over_reaches_the_main_menu_c1m1_headless) {
+  if (!have_game()) return;
+  SavedMounts keep;
+  zutl::mounts() = zutl::Mounts{};
+  zutl::mount(MW3_GAME_DIR);
+  zutl::set_write_dir(temp_dir("net_end_write"));
+  mech3::reset_states();
+  reset_process_state();
+  mech3::missions() = mech3::Missions{};
+  mech3::mech_types_forget();
+  mech3::player_controls_instance() = nullptr;
+  mech3::options() = mech3::Options{};
+  FakeWindow window;
+  FakeAlert alert;
+  FakeClock clock;
+  FakeScreen screen;
+  platform::SilentSoundOutput sound;
+  mech3::MountFiles files;
+  mech3::Platform p;
+  p.window = &window, p.alert = &alert, p.clock = &clock, p.movie_clock = &fast_movie_clock(), p.screen = &screen, p.sound = &sound, p.files = &files;
+  {
+    mech3::GameEngine engine(p, "mech3.exe -nofmv");
+    engine.quiet = true;
+    mech3::Mech3App app(&engine);
+    mech3::set_app(&app);
+    EXPECT(app.init_instance());
+    mech3::GameEngine::Launch l;
+    engine.set_launch(l);
+    app.post_intro_ = &mech3::states().load;
+    int core_frames = 0, after = 0;
+    bool ended = false, exit_seen = false, main_seen = false, up = false;
+    engine.on_present = [&](int) {
+      if (!ended && app.current() == &mech3::states().core && ++core_frames == 5) {
+        up = mech3::program_net_game_over();
+        ended = true;
+      } else if (ended) {
+        ++after;
+        exit_seen |= app.current() == &mech3::states().multi_exit;
+        main_seen |= app.current() == &mech3::states().main;
+      }
+    };
+    CountingPump pump;
+    pump.limit = 900;
+    pump.stop = [&] { return main_seen; };
+    app.run(pump);
+    EXPECT(up);
+    EXPECT(main_seen);                  // the main menu, through the fade and the Multi-Exit State
+    EXPECT(mech3::missions().done == 0);  // the mission cleaned up (0x00491780: its load event gone)
+    (void)exit_seen;
     mech3::missions().cleanup(false);
     app.stop_game();
     app.exit_instance();

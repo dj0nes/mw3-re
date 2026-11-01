@@ -2548,3 +2548,39 @@ Assigned after 8b2 merged (fd3f05f). The lead asked for a section stepped at bot
   (NetCalls::mech_call, aim, fire); the probe's parts log their setters.
 - test_mech_net_apply.py: the aim points (the torso's place plus a rotated
   range, ~1000 m terms) are compared to those terms' rounding.
+
+## Multiplayer, piece 7a: a mech's events (2026-10-31)
+
+- The lag-correction fix (the lead's, from 6b) is in this commit: the
+  latency in ms behind bugs; test_mech_net_apply.py checks the fixed path
+  as the exe given the latency x 1000.
+- The network mech's vtable read properly: vt+0x168 0x00410490 (0),
+  vt+0x164 0x0046ef50 (0: no local damage), vt+0x160 0x0041ec50 (local id),
+  vt+0xa4 0x004709c0 (the player's name), vt+0x58 itself.
+- 0x0046e0f0 rebuilds in place: the port runs unlist, release, the
+  destructor and placement new, then net_mech_construct (split out of
+  net_mech_new).
+- 0x004705b0: ECX and the stack argument are both the sender; the exe sets
+  the sender's attacker. Kept, the fix behind bugs.
+
+## Multiplayer, piece 7b: the world's events (2026-10-31)
+
+- main merged in (0723eac1: the lead's NOMINMAX fix for the Windows build).
+- 0x0046fde0's resend: ECX the message copied, bit 7 set, guaranteed to all.
+  0x004700e0 is called with ECX the history entry's words; the port's
+  history keeps the material's index, the exe's its pointer (the test hands
+  each its own).
+- The test hooks added for 7b: crater_make, take_material, material_index,
+  log_has, log_replay, station.
+- A crater in the headless c1m1 (the hub test) was not made at any place
+  tried, so the crater path is checked by the emulator test only.
+
+## Multiplayer, piece 8: the game's end (2026-10-31)
+
+- The rules check left out with its folds: the folds only feed the next
+  check (protection.md section 4). test_mech_net_send.py's CRC stand-in
+  always passes, so the exe's path matches the port's.
+- "Multi-Exit State" (0x00605fa8): its vtable's +0x0c is the enter
+  (0x00470710): Missions cleanup(1), then Replace(state(2)) — the main menu.
+- In the c1m1 test, Missions::loaded stays set after cleanup (as the exe's
+  +0x5c); the test checks the load event (`done`) instead.

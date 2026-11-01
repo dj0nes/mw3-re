@@ -565,11 +565,13 @@ void wire_mech_frame() {
   // free look (playtest #14: wired to the camera switch before).
   k.view_camera = program_view_look;
   // 0x005a8630 on a contact's vehicle (the part aim's fallback): a mech's
-  // position; the other entities' are not ported (none).
+  // target node (its torso), not its place (W39); the other entities' are
+  // not ported (none).
   k.seen_position = [](uint32_t s) -> const float* {
     static Vec3 at;
     Mech* m = entity_mech(s);
     if (!m) return nullptr;
+    if (const float* p = weapon_lock_point(m)) return p;
     at = mech_position(*m);
     return &at.x;
   };
@@ -945,6 +947,8 @@ void wire_mech_parts() {
 // 0x005a9820 from the mechs' set-up 0x00413e60, at each mission's start.
 void program_motions_open() { open_motions("zbd/motion.zbd"); }
 
+const char* entity_name(zgame::Handle o);  // entity_classes.h (its entity_mech clashes with this file's)
+
 // The mission's network side (mech_net.cpp, multiplayer-port.md piece 5):
 // what it calls outside the network code.
 void wire_net(bool on) {
@@ -954,6 +958,7 @@ void wire_net(bool on) {
   nc.ff_stop = kept.ff_stop, nc.ff_spawn = kept.ff_spawn;
   nc.game_clear = kept.game_clear;  // the pilot's side's
   nc.game = kept.game, nc.game_time = kept.game_time, nc.clock_left = kept.clock_left, nc.clock_on = kept.clock_on;
+  nc.set_clock_left = kept.set_clock_left, nc.exit_fade = kept.exit_fade;
   if (!on) return;
   nc.set_position = [](NetMech& m, const float pos[3]) {  // vtable +0x18
     const Vec3 v{pos[0], pos[1], pos[2]};
@@ -975,6 +980,11 @@ void wire_net(bool on) {
     delete m;
   };
   nc.view_outside = [] { program_view_set_camera(1); };  // 0x0040ae70(1)
+  nc.pilot_save = [] {  // 0x00478ce0, the header, vt+0x04, the handle closed (0x004707c0's)
+    program_pilot_file(0);
+    if (program_pilot_file(1)) program_pilot_file(2);
+    program_pilot_file(3);
+  };
   // The sends (0x0046f160): the mech's and its torso node's world positions,
   // the target's player (its contact's vehicle, when a network mech).
   nc.position = [](Mech& m, float out[3]) { return mech_world_position(&m, out); };
@@ -1025,6 +1035,22 @@ void wire_net(bool on) {
     m.set_target(found, false);
   };
   nc.radar_toggled = [](NetMech& m) { program_radar_light(&m); };
+  // The events (piece 7a): the HUD's two-name line, a mech's name, the
+  // collisions' push on a network mech (0x00470320).
+  nc.hud_message2 = [](float seconds, int32_t id, const char* a, const char* b) {  // 0x0040fe70
+    if (!message_panel()) return;
+    message_panel()->show_for(seconds);
+    const std::string t = zutl::format_message(id, {a ? a : "", b ? b : ""});
+    if (!t.empty()) message_panel_add("%s", t.c_str());
+  };
+  nc.mech_name = [](Mech& m) { return entity_name(g_w.handle_of(g_w.engine, &m)); };  // vt+0xa4
+  nc.node_mech = [](Handle node) -> Mech* {  // 0x0040ef10: the node's owner, when a mech
+    const Handle o = damage_calls().node_owner ? damage_calls().node_owner(node) : nullptr;
+    return o && entity_is_mech(o) ? static_cast<Mech*>(o) : nullptr;
+  };
+  collide_calls().net_shove = [](Mech&, Mech& other, float damage, float vx, float vz) {
+    net_send_shove(other, damage, vx, vz);
+  };
   nc.pilot_mech = [] { return world().mission_player; };
   weapon_calls().net_target = [](Handle id) -> Handle {
     const auto player = static_cast<uint32_t>(reinterpret_cast<uintptr_t>(id));
@@ -1048,11 +1074,28 @@ void net_set_game_access(const NetGameAccess& a) {
   NetCalls& nc = net_calls();
   nc.game = []() -> NetGameFields* {
     static NetGameFields f;
-    if (!g_game_access.fields || !g_game_access.fields(&f.players, &f.clock_next, &f.end_time, &f.end_state))
+    if (!g_game_access.fields ||
+        !g_game_access.fields(&f.players, &f.clock_next, &f.end_time, &f.end_state, &f.kills, &f.deaths, &f.score_limit))
       return nullptr;
     return &f;
   };
   nc.game_time = a.game_time, nc.clock_left = a.clock_left, nc.clock_on = a.clock_on;
+  nc.set_clock_left = a.set_clock_left;
+  nc.exit_fade = a.exit_fade;
+}
+
+bool program_net_game_over() {
+  static znet::Hub* hub = nullptr;  // kept to the end of the process: the session is shut by the end
+  delete hub;
+  hub = new znet::Hub();
+  znet::session() = znet::Session{};
+  znet::initialise(hub->endpoint());
+  if (!znet::host_session(znet::SessionDesc{}, "Host")) return false;
+  net_start();
+  const bool up = net_game().running;
+  net_game_over();
+  znet::shutdown();
+  return up;
 }
 
 bool program_net_mech_check(NetMechSeen* out) {
@@ -1098,6 +1141,16 @@ bool program_net_mech_check(NetMechSeen* out) {
     net_reckon(*m, 1.0f / 30.0f);
     mech_world_position(m, t);
     out->followed = std::fabs(t[0] - on[0]) < 0.01f && std::fabs(t[2] - on[2]) < 0.01f;
+    // Dead, then made again by a 0x12 (piece 7a): the same mech, rebuilt in place.
+    m->active = false;
+    uint8_t re[0x10] = {0x12, 0, 0x10, 0};
+    const float back[3] = {at[0] + 20.0f, at[1], at[2]};
+    std::memcpy(re + 4, back, 12);
+    b->send(1, re, sizeof re, true, nullptr);
+    znet::poll(-1);
+    mech_world_position(m, t);
+    out->respawned = net_mech(2) == m && m->active && m->remote && !m->collides && std::fabs(t[0] - back[0]) < 0.01f &&
+                     std::fabs(t[2] - back[2]) < 0.01f;
   }
   // The pilot's own state, as the timer sends it (0x0046f160 kind 0xf).
   net_send_event(*me, 0xf, 0);

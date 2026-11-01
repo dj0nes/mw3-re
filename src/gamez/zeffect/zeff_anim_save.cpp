@@ -266,6 +266,37 @@ void load_objects(const uint8_t* b, uint32_t size, bool model) {
 }
 }  // namespace
 
+// Mech3.exe 1.2 @ 0x0050ca20: a record's bytes as sent, by its type.
+int32_t log_record_size(const AnimLogRecord* r) {
+  switch (r->type) {
+    case 2: return 0x38;
+    case 3: return 0x48;
+    case 4: return 0x4c;
+    default: return 0x50;
+  }
+}
+
+// Mech3.exe 1.2 @ 0x0050d200 (ECX the name, 0x0050d260): bit 0 kept for the
+// save, bit 1 sent; the def's own settings win over the defaults; 0 for a
+// name no def has.
+uint32_t log_flags(const AnimLogRecord* r) {
+  const AnimDef* d = anim_find(r->name);  // 0x0050b450
+  if (!d) return 0;
+  const uint32_t f = d->get<uint32_t>(0x94);
+  const uint32_t save = (f & 0x1000) ? (f >> 13 & 1) : static_cast<uint32_t>(g_log.save_on);
+  const uint32_t net = (f & 0x400) ? (f >> 11 & 1) : static_cast<uint32_t>(g_log.net_on);
+  return (save != 0 ? 1u : 0u) | (net != 0 ? 2u : 0u);
+}
+
+// Mech3.exe 1.2 @ 0x0050b680: a record with the same node and name logged.
+bool log_has(const AnimLogRecord* r) {
+  for (int32_t i = 0; i < g_log.count; ++i) {
+    const AnimLogRecord& o = g_log.records[static_cast<size_t>(i)];
+    if (o.node == r->node && std::strncmp(o.name, r->name, 0x20) == 0) return true;
+  }
+  return false;
+}
+
 // Mech3.exe 1.2 @ 0x0050d1d0 (ECX fn, EDX tag)
 void log_set_net(void (*fn)(AnimLogRecord* rec), uint32_t tag) {
   g_log.net = fn;

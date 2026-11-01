@@ -270,6 +270,14 @@ functions (about 4,050 lines of pseudocode), the game's network code at
 
 Then the two-process and soak tests over the whole flow, menus included.
 
+## After v1.0
+
+- Matchmaking (Owen, 2026-10-31, through the lead): someday, after Pirate's
+  Moon and everything else, and only if many people play: a small master
+  server with a game browser, NAT punch-through, and a relay when
+  punch-through fails. The connection screen keeps room for it (a "Browse
+  internet games" entry, pieces 9-10). No work on it now.
+
 ## Progress
 
 - **Piece 1** (2026-10-31, mac4/mp): `gamez/znetwork/znet_session` holds
@@ -528,7 +536,8 @@ Then the two-process and soak tests over the whole flow, menus included.
   (x 1/127, +0x760), the throttle and turn through IControls (vt+0x20,
   +0x28), the torso's turn (0x00525280 `zmth::quat_two_angles`, 0x004646f0),
   the aim (quat_exp of its turn, carried on from the last by (latency +
-  gap) / gap, a latency in seconds over a gap in milliseconds; rotated onto
+  gap) / gap, a latency in seconds over a gap in milliseconds (FIX (bug),
+  behind bugs: the latency in milliseconds); rotated onto
   (0, 0, -range) from the torso node: the weapons' aim, 0x004b0bc0), the
   heading quaternion (+0x750), the passive radar (vt+0xb8's light) and the
   target (the pilot, a network mech by player 0x00470c20, or none:
@@ -551,6 +560,92 @@ Then the two-process and soak tests over the whole flow, menus included.
   `test_mech_net_apply.py` (3000 applies, reckonings, pings and sends done
   identical, floats within rounding; a break caught), and the c1m1 test's
   second state followed (a break caught).
+
+- Piece 7 split: **7a** a mech's events (respawn 0x12, kill 0x13 and the
+  scores 0x14, posture 0x17, the collisions' push 0x18, a part shot off
+  0x21), **7b** the world's (craters 0x19, effects 0x1a, drop points 0x1b,
+  the clock and the game's end 0x11).
+- **Piece 7a** (2026-10-31): the sends in `net_send_event`: 0x12 the place,
+  guaranteed; 0x13 the victim (vt+0x160, the local id) and killer (a
+  network mech's player, else the local id), guaranteed, then heard here
+  too; 0x17 the action; 0x21 a network mech's part shot off here (the
+  local id, its player, the part's id; only sent for a network mech's part:
+  the exe reads +0x6fc unchecked); 0x18 from a collision with a network
+  mech (CollideCalls::net_shove, 0x00470320: the damage, the push, to its
+  player). The receivers: 0x0046ed10 the action queued; 0x0046ed30 a dead
+  mech made again: 0x0046e0f0 (`net_mech_rebuild`) runs its destructor and
+  constructor on its own memory (the same pointer, put back at the list's
+  end) keeping its controls and loadout, then its sensors, skin by the old
+  name (`SkinSet::named` = 0x00475b00), team, the snap bit off; then placed
+  (0x00418e90); 0x0046eba0 the kill's HUD line (5 s, 0xf0a for a suicide,
+  0xf09 with both names: a network mech's player, the pilot's name,
+  "Unknown") and the host's score 0x00470170 (a suicide; a kill between
+  teams, the score limit ending the game, state 2, the clock sent at once;
+  then the scores 0x14 to all); 0x004708e0 the scores in; 0x004705b0 the
+  push on the pilot (its torso's damage vt+0x38, the velocity); 0x0046fff0
+  the pilot's part's structure to 0 (vt+0x3c). The lobby's scores, the
+  HUD's refresh and a mech's name are hooks (the lobby is piece 11).
+  Found while reading: a network mech's vt+0x164 (the damage handler) is
+  0x0046ef50, returning 0, so it takes no damage here (its damage comes in
+  its states); `Mech::take_damage` now returns for one. So Mech::die (and
+  the controls' _purecall through vt+0xa8) is not reached through a hit;
+  whether anything else kills a network mech stays for 7b's read. FIX (bug)
+  behind bugs: a push makes the pusher the pilot's attacker (the exe sets
+  the sender's own +0x664). Tests: `test_mech_net_events.py` (4000 events
+  identical, and the push's fixed path; a break caught), the sender test's
+  new kinds (3000 sends identical), and in c1m1 a dead remote mech made
+  again in place by a 0x12 (a break caught).
+
+- **Piece 7b** (2026-10-31): the world's events. Craters: zDecal's veto
+  in a network game is 0x0046fd30 (`net_crater_veto`, set by the start): a
+  crater of the pilot's own shot goes to the host as 0x19 (the ground's
+  material by index, the place, the radius; the host handles its own at
+  once) and is not made here; any other is not made at all; one with a
+  negative radius (from a 0x19) passes, its radius made positive (the
+  veto writes the caller's order). 0x0046fde0 (`net_crater_in`): the order
+  from the defaults (0x004ff920) with the message's ground, place and
+  negated radius; the host makes any and, when made, sends it on to all
+  with bit 7; the others make only bit-7 ones. The host's replay to a
+  joiner (0x004700a0, then 0x00500c60 with 0x004700e0, `net_host_replay`):
+  the anim log's records it sends (0x0050d200 bit 1) and every crater of
+  its history, with bit 7. Effects: the anim log's network hook 0x0046feb0
+  (`net_anim_sent`): the record raw (its size by type, 0x0050ca20), to all,
+  but not the mobile field base stations' (a name with "mfb_station_01")
+  nor while one heard is replayed ([0x00605fb8]); 0x0046ff50
+  (`net_effect_in`): replayed (0x0050ca90) unless one like it is logged
+  (0x0050b680: the same node and name). New in zeff_anim_save:
+  `log_record_size`, `log_flags`, `log_has`. Drop points: 0x0046ff90
+  (`net_send_drop`, a repair station's id) and 0x0046ffd0 (the station's
+  repair on the sender's mech, 0x0045a140); the stations' call to send it
+  is the field bases' unported multiplayer side. The clock: the sender's
+  0x11 (the time left, the end's reason in bits 0-1, the host's sent to
+  all, then heard here too) and 0x00470740 (`net_clock_in`): the time left
+  set; a reason ends the game: its line (0x9aa the time, 0x9ab the score
+  limit, 5 s), the state 3, the end 3 s on. The game over itself
+  (0x004707c0) is piece 8's. FIX (bug): 0x00470740 reads the game
+  unchecked (no play change). Tests: `test_mech_net_world.py` (3000 events
+  identical; a break caught) and the sender test's 0x11 (3000 sends). Not
+  checked in a real mission: a crater (the headless c1m1 made none at the
+  places tried, through the host or not).
+
+- **Piece 8** (2026-10-31): the game's end. The host's rules check in the
+  ping (0x0046fbd7..0x0046fc33: the CRC of the rules block +0x60 against
+  +0x88, then the live +0x8c / +0x8d folded in for the next check) is left
+  out, FIX (trap) (protection.md section 4). 0x004707c0
+  (`net_game_over`, from the timer once the end state is 3 and its time
+  passed): the local player's lobby kills and deaths (0x00435a30 /
+  0x00435b40, -1 without a slot) onto the game's totals (+0x98 / +0x9c),
+  the pilot written (its file opened, the header, the record, closed:
+  `program_pilot_file`), the fade (0x0048ef00, 2 s, to black from the front
+  buffer) to the Multi-Exit State (0x00605fa8, vtable 0x005c3680; its enter
+  0x00470710 unloads the mission and replaces itself with the main menu,
+  state 2), and the network end (0x0046d100). The main menu is where the
+  original goes; the lobby (piece 11) is reached from there. Tests:
+  `test_mech_net_end.py` (500 ends identical; a break caught) and
+  `net_game_over_reaches_the_main_menu_c1m1_headless` (in a running c1m1
+  the end fades to the Multi-Exit State and the main menu, the mission
+  cleaned up; a break caught). The soak test of the plan waits for the
+  lobby (pieces 9-11), which starts real games.
 
 ## Open
 
