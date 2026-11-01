@@ -24,7 +24,7 @@ The objects (found from the exe, not assumed):
 |---|---|---|
 | [0x00730724] | IDirectPlay4A | CoCreateInstance(CLSID_DirectPlay d1eb6d20-8923-11d0-9d97-00a0c90a43cb, IID_IDirectPlay4A 0ab1c531-4745-11d1-a7a1-0000f803abfc), 0x00589540 and 0x0058a5f0 |
 | [0x00730728] | IDirectPlayLobby3A | DPLAYX ordinal 4 (DirectPlayLobbyCreateA, the only DPLAYX import, thunk 0x005ac650), 0x005899d3 / 0x00589f1e |
-| [0x007307e0] | an unidentified COM object, CLSID 3faf0afe-b48b-11d2-8a51-00c04f8ef4e9 (IID ...afd) | 0x00589c20 from 0x00589d00, used by the lobby screen (0x00498550); released at once when its set-up fails. **Open**: identify it before porting the lobby screen (not DirectPlay's own) |
+| [0x007307e0] | a game service's score report, CLSID 3faf0afe-b48b-11d2-8a51-00c04f8ef4e9 (IID ...afd; Microsoft's range, from late 1998: most likely the MSN Gaming Zone's) | 0x00589c20 from 0x00589d00, only with a lobby's launch ([0x00608e24]): the lobby's scores (0x00498550) give it each player's score and team and 2 a win, 8 a shared win, 4 a loss, 0x100 gone (0x00589df0), then send (0x00589e30). Not ported (FIX (A), piece 11a): the service is gone |
 
 The IDirectPlay4A methods called (vtable slots seen in the code; `+off`):
 
@@ -878,12 +878,235 @@ Ours, in three pieces:
   34 m below its target), or circling. A break (no shots replayed) leaves
   B whole and fails.
 
+- **Piece 11a** (2026-11-01): the lobby's frame (`mech3/mp_lobby`,
+  MULTIPLAYER_HOST_DIALOG; the engine's `construct(0x495f90)`, entered by
+  the page switch, given the pilot and its multiplayer game by 0x0049cc30).
+  Its records are the multiplayer game's (pilot.h): a player's
+  (0x00499030, vtable 0x005c7cc0: id, team, host, name, state 1 mech lab /
+  3 ready, skin, its place in the count, kills, suicides, a score line) and
+  a team's (0x00499280: name, players, skin, owner), made again from the
+  network's walks (0x005898b0 / 0x00589910, which hand the callback the
+  id and team as the exe's ECX / EDX) at each refresh; the lookups
+  0x00495b10..0x00495d20 and the game's 0x00435910..0x00435b40 (a side in
+  play is a player's place in the count, or in team play its team's
+  skin), the rescore 0x004361e0 and the scores' lines 0x00435b60. A
+  player's data, the lobby's kind 1: {1, skin, state, n, the add-on worlds
+  it has}; enter (0x00497720) makes ours (outside team play every player
+  starts with skin 1, 0x0049bd10 answering 0 there) and lists the worlds:
+  UNAVAILABLE, the shipped eight (value number << 8 | folder) and every
+  folder's `readermp*.zbd` numbered over 2 named by its mpinfo.zrd's
+  db_name (c3's mp3 and mp4 in 1.2). The rules' lists and boxes set from
+  the game; the handlers (2..6, 8..0xa the refresh, 7 kicked, 0xd a new
+  host); the session's fourth word 1 again (open) through a new
+  `set_game_info` (0x00586f20; the transport's `set_session_desc`, ENet's
+  frame kDesc from the host). TP_LIST and PLAYERS_LIST (0x00498710): the
+  host's "++", "**" for one without the chosen add-on world, "In MechLab",
+  "Ready!", the skin's name, our mech's; SCORES_LIST (0x00498550) with
+  the game service's report dropped (FIX (A), above); READY, MECHLAB,
+  START, NEW_TEAM as things stand (0x004993f0), the host's rules controls
+  (0x00498260), the lists' choices (0x0049a3a0, 0x0049a6a0), KICK and
+  KICK2 (not ourselves, 0x2c1), being kicked (0x2c3, then CANCEL), CANCEL
+  (the handlers off, back, the network off, the records gone). Ours: the
+  host's two address lines (piece 9c's) at the screen's foot. Left for
+  11b: the rules' changes and their message 0x20 (0x00499b10, 0x00499cf0),
+  LOCK_OPTIONS (0x0049aca0) and the locked game refused at the door; 11c:
+  START (0x0049b790, 0x1e), READY (0x0049a970), MECHLAB (0x0049b500), the
+  teams' buttons (4, 5, 7) and PICK_SKIN, the scores' 0x14 (0x0049b150);
+  12 the chat. Test: `net_lobby_screen_headless` (the host and one joiner
+  on the hub: the worlds and our data, the lists' lines, the scores'
+  columns and order, the session's word at the joiner, the kicks, being
+  kicked); breaks caught: the host's mark, a world's value, the add-on
+  check, the step over UNAVAILABLE, the scores' order, the players'
+  places, the self-kick guard.
+- **9c's quit** (the lead's review, 2026-11-01): the port mapper's end
+  waits at most a second for its worker (a router still discovering, or
+  stalling a SOAP call), then leaves it to finish on its own (it holds its
+  state); removing the mapping stays best effort and the window closes.
+  Test: `net_upnp_quit_does_not_wait_on_a_stalled_router` (the fake router
+  holds AddPortMapping: the end takes 1.0 s; with a plain join 4.8 s,
+  caught).
+- **A real router's check** (the lead's): `MW3_UPNP_REAL=1
+  MW3_TEST=net_upnp_real_router mw3sdltests`, skipped without the
+  variable, no window needed (ssh). The mapper finds the router and maps
+  UDP 27930; the test reads the entry back from the router itself
+  (GetSpecificPortMappingEntry: to this computer, port 27930, "MechWarrior
+  3"), unmaps and looks again (gone). It prints the states and the
+  external address's class (public, private, carrier-grade NAT), never the
+  address. Behind carrier-grade NAT it stops after the look (nothing is
+  mapped there by design).
+
+- **Piece 11b** (2026-11-01): the rules. The host's 0x20 with each
+  refresh (0x00499b10: the flags 1 respawn, 2 mobile bases, 4 stock mechs,
+  8 unlimited ammo, 0x10 first person, 0x20 locked, then the world, kills,
+  minutes and tons as int16; guaranteed, to all); a joiner's (0x00499cf0):
+  the lists set by value (a world we lack is UNAVAILABLE), the boxes set
+  and disabled, the game's rules block (+0x60: the flags, the four
+  values, a rand() word) and its CRC-32 at +0x88 (0x00576c10 from 0) kept
+  as the exe does, read by nothing (the host's check stays dropped, FIX
+  (trap), piece 8); the lock taken as sent, and on the first lock the
+  players again and our mech fitted. FIX (A): only the host's, and whole. The rules' buttons (0xc: a world without MOBILE clears and
+  disables it; 0xd..0x14 the refresh). LOCK_OPTIONS (0x0049aca0): not while
+  a player lacks the chosen add-on world (0xfe0 with their names); asked
+  first with neither a score nor a time limit (0xfbd), then 0x2c4; locked:
+  the players again, the session's fourth word 3, the host's controls off,
+  the rules sent, the mech fitted, the block kept (seeded with the time).
+  The mech fitted (0x0049b360): the store's mechs out, each within the
+  tons in (marked), a slot mech over the limit becomes the heaviest within
+  it with its first stock loadout; with STOCK on a loadout not one of the
+  mech's stock ones becomes the first, and the slot's is always a copy, so
+  always: FIX (bug) behind `zfix bugs` (the lead), found by name instead. Ours: a locked game turns a joiner away
+  at the door (ENet's kHello). The test hook sees message_box3 too
+  (`last_box_text`). Tests: `net_lobby_rules_host_headless` (the messages
+  and their fields, a change sent, the add-on refusal with the names, the
+  endless-game question and a "no", the lock: word 3 at the joiner, the
+  controls off, the block and its CRC, the heaviest of several mechs within 50 tons,
+  the store cut), `net_lobby_rules_join_headless` (another player's and a
+  short message ignored, unknown bits without effect, a world we lack, limits the
+  lists lack, the lock with STOCK putting the second stock loadout back to
+  the first) and `net_enet_session_desc_and_the_locked_door`. Breaks
+  caught: any sender, no add-on check, the lightest mech (once several
+  fit: at 30 tons only one does), the stock bit, no lock question, the
+  open door.
+
+- **Piece 11c** (2026-11-01): the start and each player's own. START
+  (0x0049b790): the host tells everyone the players' places (0x1e: the
+  player in each place 1..8; their order in the lobby's count) and shows
+  the game in progress (its fourth word 2); everyone gives the game the
+  lobby's settings (the score limit, 100 none: 0x7fffffff; respawn, ammo,
+  first person, stock, mobile bases; the tons; the minutes as a float),
+  the rules block's values (its flags or'd), the mission clock ([0x00609920]
+  minutes x 60, [0x00609924] on unless unlimited), the world (folder +0x90,
+  UNAVAILABLE -1; number +0x94) and the players' lines for the briefing
+  (+0xac, 0x00436470: vt+0x10, with vt+0x04 "M U L T I P L A Y E R", vt+0x08
+  the world's name, vt+0x0c the session's), drops the lobby's handlers and
+  goes to the Load state (0x0049ca80), which now loads a multiplayer game's
+  world (mp<number> in its folder). A joiner's 0x1e (0x0049bcb0) sets the
+  places and starts on its next update; FIX (A) only the host's, whole.
+  Ours: the network game's lobby calls (team_of 0x00435910, the start's
+  place, a kill 0x004359b0 and suicide 0x00435ac0, the kills 0x00435a30 and
+  the score toward the limit 0x00435a50, which mech_net had as one hook and
+  are two now, the 0x14 list, the sets, the rescore 0x004361e0, a player's
+  leaving +0x18) on this game in place of the debug start's stand-in
+  (`program_net_lobby`). READY (0x0049a970): our data's state 3 or 2 (its
+  check of another team with our skin calls 0x0049bd10 with the skin as the
+  exception and never finds one: dead). MECHLAB (0x0049b500): our state
+  kept, "In MechLab" (1), the lab on the game's store (stock mechs only with
+  STOCK); back (0x0049b660, the engine's `multiplayer_resume`) our state
+  again. The scores between games (0x14, 0x0049b150): each player's kills
+  and suicides, the lines again; FIX (A) read only as far as the message
+  goes. The teams: JOIN (0x0049a550, out of ours first), REMOVE an empty one
+  (0x0049a630), a player into a team (0x0049a220: the first its owner, the
+  team's data's first word), a new team with its skin (0x0049a300) and our
+  skin (0x0049a850: our data's second word, or our team's); the last two are
+  the new team's dialog's (piece 13, with NEW_TEAM and PICK_SKIN). The
+  mission's mobile-bases flag ([0x00479480]+0xa8) from the game. The
+  transports now tell the setter of its own data's change too, as of the
+  teams' (ENet applies its own frame, the hub tells all): the exe needs it,
+  its own READY refreshing its lines by the 9 it raises (0x00499600), or a
+  host readying last would never see START. Tests:
+  `net_lobby_start_host_headless` (READY's states and our "Ready!" line,
+  the mech lab's state and back, the 0x14 scores and their line, START: the
+  places at the joiner, word 2, the game's settings, world and roster, the
+  network game asking this game, the briefing's texts, the handlers off),
+  `net_lobby_start_join_and_teams_headless` (a new team joined with us its
+  owner and its skin our side, its lines, another joined by JOIN, the empty
+  one removed, our team's skin; another player's 0x1e ignored, the host's
+  places, the start), `sdl_lobby_host_alone_starts_a_game` (one mw3 through
+  the menus: HOST, LOCK and OK, READY, START, Beachhead loaded and ready to
+  launch). Breaks caught: the world's folder and number swapped, any
+  player's 0x1e taken, READY's states swapped, ENet's and the hub's setter
+  left deaf, no team owner, no score hook, the Load state without
+  multiplayer. Left: the chat (12), the new team's dialog (13), the briefing and debriefing
+  (14), two processes through the lobby into a game.
+
+- **Two processes through the lobby into a game** (the lead, after 11c):
+  `sdl_two_processes_from_the_lobby_into_a_game`. A hosts from the menus,
+  B finds and joins it; once both are in (`--click-players`, ours: a
+  click N frames after the session first holds P players, so the two
+  processes keep their order whatever their speed: a lock before B's
+  arrival would now shut B out) A locks, says OK and readies, B readies, A
+  starts. Both load c1 and reach play; `--net-soak` now also prints its
+  line for a game the menus started ("soak menus"), and each machine sees
+  the other's mech where the other puts itself (16 lines each, within
+  2 m). The start places match the debug start's on c1mp1. Found while
+  making it: nothing new between the lobby and the game.
+
+- **The mobile bases' stations** (0x00490950, the lead, after 11c): with
+  ALLOW MOBILE BASES the mission load (0x0048faf0's multiplayer branch)
+  gives each point of the mission's waynet (waynet_mp<N>, the missions'
+  +0xb0) a copy of the world's mfb_station01 (0x004f9af0(.., 0, 0)),
+  added to the world, placed on the point, named mfb_station_04 on and
+  shown; the point's label becomes that name (the dock asks by it). The
+  emulator on the shipped waynet_mp files shows every element of a built
+  waynet is a point with a place (c1's mp1: mfb_station_01 at -3104 -31
+  -1502 and _02 at -1600 3 -1600; mp2: _03, _04), so the exe reads no
+  null place; ported as it is (a placeless element would be passed over).
+  The field base's repairs in a network game (0x00479480+0xa8) read the
+  same flag (`program_set_mp_mobile_bases`). Test:
+  `net_mobile_base_stations_c1mp1_headless` (c1mp1 as a network game: on,
+  a station in the world on each point, shown, the points relabelled; off,
+  none); breaks caught: the names from 01, not in the world, the flag off.
+
+- **Piece 12** (2026-11-01): the lobby's chat. CHAT_REC_LIST (vtable
+  0x005c6e70, `ChatLog`): a text box of 14 lines over the chat's last 100
+  (a list of strings, the oldest dropped, 0x00495e60), a window between a
+  top and a bottom line; a line added (0x004996d0) shown when the window
+  was at the bottom (it moves with it), a full log at its top scrolled down
+  a line first; CHAT_UP and CHAT_DOWN (0x004997c0, 0x00499820) scroll a
+  line, writing the line come into view at the top or the bottom; the
+  enter's clear (0x00499680) a log of three spaces. CHAT_ENTER_EDIT's Enter
+  (0x00499880) sends to our team with CHAT_TEAM_CHECKBOX in team play,
+  else to all (buttons 3 and 2, 0x00499a00 / 0x004999f0); the send
+  (0x004998b0): the bar's text trimmed (empty: nothing), 0x1f {flags 1 to a
+  team, the text with its 0}, its size the text's length and 0xc,
+  unguaranteed (as the exe), to the team or to all; shown here as the
+  others see it; the bar emptied. A player's (0x00499610): "< %1 to all >"
+  (0xf44) or "< %1 to team >" (0xf43, 0x40 bytes at most), then the text;
+  FIX (A): a message cut short dropped, the text ended within the message.
+  The lead's check after 12: neither a peer's text nor its name is ever a
+  format (the text goes in as "%s"; zutl::format_message fills the header's
+  %1 in one pass over the message's own text, never over what it put in),
+  and control characters become '?' in the text and in every name zNetwork
+  records (players' and teams', `clipped`), as in the search's game names;
+  tested with "%s%n%1" and an escape in a name and a text.
+  Test: `net_lobby_chat_headless` (the message's bytes, our lines, an empty
+  bar sending nothing, Bob's to the team, a short one and one without its
+  0, 120 lines into 100, the window, UP and DOWN, a line added away from
+  the bottom, the full log's step at its top, team play: to our team only,
+  and to all again); breaks caught: no team flag, a short message taken, no
+  step at the top, a window that does not move, Enter never to the team. A
+  shot of the lobby with two lines sent shows them under their headers.
+
+- **Piece 13** (2026-11-01): the new team's dialog, MULTIPLAYER_NEW_TEAM_DIALOG
+  (`TeamScreen`, 0x0049bd80, the Multiplayer State's third page; the
+  engine's `construct(0x49bd80)`, entered by the page switch with the
+  lobby, 0x0049c2c0). Over a still of the screen under it (0x00579500(2),
+  the 2D host's `screen_grab`, freed on OK or CANCEL, 0x00517b10). The
+  lobby's NEW_TEAM (7, 0x0049a2b0: a new team, its skin, JOIN; the chat's
+  bar without the keyboard, TP_LIST's choice off) and PICK_SKIN (8,
+  0x0049a820: the skin alone) set its three flags (+0x111ec..+0x111ee) and
+  open page 3. Enter: the name's bar (shown with the keyboard for a new
+  team), SKIN_LIST on to choose, holding every skin no team has
+  (0x0049bd10; all of them outside team play, our own team's taken too),
+  SKIN_TEXTURES the chosen skin's "popup_box%d", a new team named by its
+  first free skin's letter ("A Team", 0xf64), JOIN shown and checked. OK
+  (0x0049c6c0): a new team needs a name (0x1e5) no team has (0x1e6,
+  0x00589680, `znet::team_named`), then is made with the skin and joined
+  with JOIN (0x0049a300); else our skin (0x0049a850); back (0x0049c680:
+  the chat's bar the keyboard again, page 2). Enter in the name's bar is OK
+  (0x0049bfe0); SKIN_LIST's change its image. Test:
+  `net_lobby_team_dialog_headless` (A Team made and joined with skin 1,
+  the next B Team without skin 1, a name in use and none refused, CANCEL,
+  PICK_SKIN setting our team's skin 5); breaks caught: always "A", names
+  repeated, taken skins listed, never joined, no skin set. A shot of PICK
+  A SKIN over the lobby shows the still, the skin's picture and its list.
+
 ## Open
 
-- The COM object at [0x007307e0] (CLSID 3faf0afe-...): what it is and
-  whether the lobby screen needs it.
-- The names of dialog.zrd's three MULTIPLAYER dialogs and which screen
-  uses each (read with the lobby screen's port).
+- c3's two 1.2 multiplayer maps for a 1.0 install (patch12.md, What stays
+  out): the lobby lists them when the files are there.
+- The score report's service at [0x007307e0]: the Zone is the likely one
+  (section 1's table); not needed (piece 11a).
 - network-messages.md's open items: the caller of 0x21, 0x18's +4 value,
   the 0xf flag bits, whether the lobby handlers stay registered in a
   mission, the name of the setting at [0x00608e28].

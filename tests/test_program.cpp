@@ -110,6 +110,8 @@
 #include "mech3/menu_states.h"
 #include "mech3/pilot.h"
 #include "mech3/mp_connect.h"
+#include "mech3/mp_lobby.h"
+#include "gamez/zutil/zutl_zar.h"
 #include "gamez/znetwork/znet_session.h"
 #include "mech3/briefing.h"
 #include "gamez/zutil/zfix.h"
@@ -3612,6 +3614,724 @@ TEST(net_connect_screen_headless) {
   mech3::reset_states();
   reset_process_state();
   mech3::options() = mech3::Options{};
+}
+
+// The lobby (multiplayer-port.md, piece 11a) as the host with one joiner on
+// the hub: the names, the worlds (the shipped eight and the add-ons in our
+// data), the rules' lists, the players' lines (the host's ++, Ready!, the
+// skins, our mech, ** for a missing add-on world), the scores' order, the
+// session opened again, the kicks (not ourselves), and being kicked.
+TEST(net_lobby_screen_headless) {
+  if (!have_game()) return;
+  SavedMounts keep;
+  zutl::mounts() = zutl::Mounts{};
+  zutl::mount(MW3_GAME_DIR);
+  zutl::set_write_dir(temp_dir("net_lobby_write"));
+  mech3::reset_states();
+  reset_process_state();
+  mech3::options() = mech3::Options{};
+  FakeWindow window;
+  FakeAlert alert;
+  FakeClock clock;
+  FakeScreen screen;
+  platform::SilentSoundOutput sound;
+  mech3::MountFiles files;
+  mech3::Platform p;
+  p.window = &window, p.alert = &alert, p.clock = &clock, p.movie_clock = &fast_movie_clock(), p.screen = &screen, p.sound = &sound, p.files = &files;
+  znet::Hub hub;
+  p.network_open = [&hub]() -> znet::Transport* { return hub.endpoint(); };
+  mech3::Engine::NetReach reach;
+  reach.state = mech3::Engine::NetReach::kMapped, reach.internet = "203.0.113.7", reach.lan = "192.168.1.5";
+  p.network_reach = [&reach] { return reach; };
+  znet::session() = znet::Session{};
+  {
+    mech3::GameEngine engine(p, "mech3.exe -nofmv");
+    engine.quiet = true;
+    mech3::Mech3App app(&engine);
+    mech3::set_app(&app);
+    EXPECT(app.init_instance());
+    std::vector<int32_t> boxes;
+    engine.on_message_box = [&boxes](int32_t, int32_t, int32_t text) { boxes.push_back(text); return 1u; };
+    const mech3::Handle st = engine.construct(0x49c900, {});
+    auto* g = dynamic_cast<mech3::GameMenuState*>(engine.menu_state_of(st));
+    auto* l = g ? dynamic_cast<mech3::LobbyScreen*>(engine.screen_of(g->screens[1])) : nullptr;
+    EXPECT(g && l && mech3::lobby_screen() == l);
+    if (!g || !l) return;
+    engine.network_set(1);
+    znet::SessionDesc d;
+    d.name = "Mine", d.max_players = 4, d.user[0] = 1, d.user[1] = mech3::kGameVersion;
+    EXPECT(znet::host_session(d, "Ann") && znet::is_host() && znet::local_id() == 1);
+    znet::Transport* bob = hub.endpoint();
+    EXPECT(bob->join("loopback") && bob->create_player("Bob", "Bob") == 2);
+    const uint32_t bob_data[5] = {1, 3, 3, 1, 0x302};  // skin 3, ready, c3's readermp3
+    EXPECT(bob->set_data(false, 2, bob_data, sizeof bob_data));
+    znet::poll(-1);
+    mech3::multiplayer_setup().team_play = 0;
+    mech3::MultiplayerGame game(nullptr);
+    l->take_pilot(1, &game);
+    l->enter();
+    znet::poll(-1);
+    l->update(0.1f);
+    EXPECT(l->player_name.labels.empty() || std::string(l->player_name.labels.front()->text) == "Ann");
+    // The worlds: UNAVAILABLE, the eight, then c3's two add-ons; ours in our data.
+    EXPECT(l->worlds.count() == 11 && l->worlds.value_at(1) == 0x100 && l->worlds.value_at(8) == 0x203);
+    EXPECT(l->worlds.value_at(9) == 0x302 && l->worlds.value_at(10) == 0x402 && l->worlds.selected_value() == 0x100);
+    uint32_t mine[8] = {}, size = sizeof mine;
+    EXPECT(znet::get_player_data(1, mine, &size) && size == 0x18);
+    EXPECT(mine[0] == 1 && mine[1] == 1 && mine[2] == 0 && mine[3] == 2 && mine[4] == 0x302 && mine[5] == 0x402);
+    // A step past the last world wraps over UNAVAILABLE (0x00496880).
+    l->worlds.select(10);
+    l->worlds.step(1);
+    EXPECT(l->worlds.index == 1);
+    l->worlds.select(1);
+    // The rules: kills 1..40 and unlimited, the game's minutes and tons.
+    EXPECT(l->kills_list.count() == 6 && l->kills_list.value_at(4) == 40 && l->kills_list.value_at(5) == 100);
+    EXPECT(l->kills_list.selected_value() == 5 && l->time_list.selected_value() == 10 &&
+           l->weight_list.selected_value() == 90 && l->weight_list.count() == 15);
+    EXPECT(l->worlds.prev.enabled != 0 && l->lock_btn.enabled == 1 && l->start_btn.enabled == 0);
+    // The players: ours first (host, no state, gunmetal, our mech), Bob ready in desert.
+    EXPECT(l->players_list.item_count() == 2 && l->teams_list.item_count() == 0);
+    if (l->players_list.item_count() == 2) {
+      const std::string a = l->players_list.items[0]->text, b = l->players_list.items[1]->text;
+      EXPECT(a.rfind("Ann++  {gunmetal} ", 0) == 0 && a.size() > 18);
+      EXPECT(b == "Bob Ready! {desert} ");
+    }
+    EXPECT(game.lobby_players.size() == 2 && game.lobby_player(2) && game.lobby_player(2)->order == 2);
+    EXPECT(game.slot.skin == 0 && game.net_skin(2) == 3 && game.net_team(2) == 2);
+    // The scores: padded columns; before any kill every key is 0 and the
+    // order the players' (the keys come with a kill, 0x004361e0); then Bob's
+    // first (his skin's key the larger).
+    l->scores(false);
+    EXPECT(l->scores_list.item_count() == 2);
+    if (l->scores_list.item_count() == 2)
+      EXPECT(std::string(l->scores_list.items[0]->text) == "Ann                   0      0      0");
+    EXPECT(game.add_kills(2, 3) == 3 && game.add_deaths(2, 1) == 1 && game.score_of(2) == 2);
+    l->scores(false);
+    if (l->scores_list.item_count() == 2)
+      EXPECT(std::string(l->scores_list.items[0]->text) == "Bob                   2      3      1");
+    EXPECT(game.best == 2 && game.best_count == 1);
+    // The session open again for the search, and Bob's copy of it.
+    EXPECT(znet::session().desc.user[3] == 1 && bob->session_desc().user[3] == 1);
+    // An add-on world Bob lacks: "**".
+    l->worlds.select_value(0x402);
+    mech3::g_lobby_dirty = 1;
+    l->update(0.1f);
+    if (l->players_list.item_count() == 2) EXPECT(std::string(l->players_list.items[1]->text) == "Bob** Ready! {desert} ");
+    // The host's addresses.
+    EXPECT(l->internet_line.copy == "203.0.113.7" && l->lan_line.copy == "192.168.1.5");
+    // Kicks: not ourselves; Bob chosen gives KICK2, then he is out.
+    l->players_list.select(0);
+    l->on_button(0x17, 0, 0);
+    EXPECT(l->kick2_btn.enabled == 0 && l->pick_skin_btn.enabled == 1);
+    l->on_button(9, 0, 0);
+    EXPECT(boxes.size() == 1 && boxes[0] == 0x2c1);
+    l->players_list.select(1);
+    l->on_button(0x17, 0, 0);
+    EXPECT(l->kick2_btn.enabled == 1);
+    l->on_button(9, 0, 0);
+    znet::poll(-1);
+    l->update(0.1f);
+    EXPECT(l->players_list.item_count() == 1 && game.lobby_players.size() == 1);
+    // Being kicked: the message, then back (the network off).
+    const uint8_t kicked[8] = {7, 0, 8, 0, 1, 0, 0, 0};
+    znet::dispatch(1, kicked, sizeof kicked);
+    EXPECT(boxes.size() == 2 && boxes[1] == 0x2c3 && mech3::g_lobby_back == 1);
+    l->update(0.1f);
+    EXPECT(mech3::g_lobby_back == 0 && !znet::session().initialised && game.lobby_players.empty());
+    app.exit_instance();
+    mech3::set_app(nullptr);
+  }
+  znet::session() = znet::Session{};
+  mech3::reset_states();
+  reset_process_state();
+  mech3::options() = mech3::Options{};
+}
+
+namespace mech3 {
+float max_mass(int32_t mech);  // mech3/mech_names.h (its Engine clashes with app_hooks.h's)
+}
+
+namespace {
+// The lobby's rules tests (piece 11b): the engine, the Multiplayer State's
+// lobby, a hub, its boxes' answers and the messages they showed.
+struct LobbyRig {
+  SavedMounts keep;
+  FakeWindow window;
+  FakeAlert alert;
+  FakeClock clock;
+  FakeScreen screen;
+  platform::SilentSoundOutput sound;
+  mech3::MountFiles files;
+  mech3::Platform p;
+  znet::Hub hub;
+  std::unique_ptr<mech3::GameEngine> engine;
+  std::unique_ptr<mech3::Mech3App> app;
+  mech3::LobbyScreen* l = nullptr;
+  mech3::GameMenuState* g = nullptr;
+  mech3::Handle st = 0;
+  std::vector<int32_t> boxes;
+  uint32_t answer = 1;
+  mech3::MultiplayerGame game{nullptr};
+  explicit LobbyRig(const char* write) {
+    zutl::mounts() = zutl::Mounts{};
+    zutl::mount(MW3_GAME_DIR);
+    zutl::set_write_dir(temp_dir(write));
+    mech3::reset_states();
+    reset_process_state();
+    mech3::options() = mech3::Options{};
+    p.window = &window, p.alert = &alert, p.clock = &clock, p.movie_clock = &fast_movie_clock(), p.screen = &screen,
+    p.sound = &sound, p.files = &files;
+    p.network_open = [this]() -> znet::Transport* { return hub.endpoint(); };
+    znet::session() = znet::Session{};
+    engine = std::make_unique<mech3::GameEngine>(p, "mech3.exe -nofmv");
+    engine->quiet = true;
+    app = std::make_unique<mech3::Mech3App>(engine.get());
+    mech3::set_app(app.get());
+    app->init_instance();
+    engine->on_message_box = [this](int32_t, int32_t, int32_t text) {
+      boxes.push_back(text);
+      return answer;
+    };
+    st = engine->construct(0x49c900, {});
+    g = dynamic_cast<mech3::GameMenuState*>(engine->menu_state_of(st));
+    l = g ? dynamic_cast<mech3::LobbyScreen*>(engine->screen_of(g->screens[1])) : nullptr;
+    engine->network_set(1);
+  }
+  ~LobbyRig() {
+    engine->network_set(0);
+    app->exit_instance();
+    mech3::set_app(nullptr);
+    app.reset();
+    engine.reset();
+    znet::session() = znet::Session{};
+    mech3::reset_states();
+    reset_process_state();
+    mech3::options() = mech3::Options{};
+  }
+  void enter() {
+    mech3::multiplayer_setup().team_play = 0;
+    l->take_pilot(1, &game);
+    l->enter();
+    znet::poll(-1);
+    l->update(0.1f);
+  }
+};
+// The rules messages (0x20) a hub endpoint has heard, oldest first.
+std::vector<std::vector<uint8_t>> rules_heard(znet::Transport* t) {
+  std::vector<std::vector<uint8_t>> out;
+  znet::Packet pk;
+  while (t->receive(&pk))
+    if (pk.from && pk.data.size() >= 4 && pk.data[0] == 0x20) out.push_back(pk.data);
+  return out;
+}
+uint32_t word_at(const std::vector<uint8_t>& m, size_t at) {
+  uint32_t v = 0;
+  std::memcpy(&v, m.data() + at, 4);
+  return v;
+}
+int16_t half_at(const std::vector<uint8_t>& m, size_t at) {
+  int16_t v = 0;
+  std::memcpy(&v, m.data() + at, 2);
+  return v;
+}
+uint32_t rules_crc_of(const mech3::MultiplayerGame::Rules& r) {
+  uint8_t b[0x10];
+  std::memcpy(b, &r.flags, 4);
+  std::memcpy(b + 4, &r.world, 2), std::memcpy(b + 6, &r.kills, 2), std::memcpy(b + 8, &r.time, 2);
+  std::memcpy(b + 10, &r.weight, 2), std::memcpy(b + 12, &r.seed, 4);
+  return zutl_zar::crc32(0, b, sizeof b);
+}
+// The heaviest mech within `tons` (not 7), -1 none.
+int32_t heaviest_within(float tons) {
+  int32_t best = -1;
+  for (int32_t m = 0; m < 0x13; ++m)
+    if (m != 7 && mech3::max_mass(m) <= tons && (best == -1 || mech3::max_mass(best) < mech3::max_mass(m))) best = m;
+  return best;
+}
+}  // namespace
+
+// The host's rules (piece 11b): sent with each refresh (0x20: the flags and
+// the lists' values), a change asked again; LOCK_OPTIONS refused while a
+// player lacks the add-on world (0xfe0 with the names), asked twice with
+// neither limit, a "no" leaving it open; locked: the search's word 3 (at the
+// joiner too), the host's controls off, the lock in the rules, the block and
+// its CRC, our mech the heaviest within 50 tons (of several) with the store
+// cut to them.
+TEST(net_lobby_rules_host_headless) {
+  if (!have_game()) return;
+  LobbyRig r("net_rules_host_write");
+  EXPECT(r.l != nullptr);
+  if (!r.l) return;
+  znet::SessionDesc d;
+  d.name = "Mine", d.max_players = 4, d.user[1] = mech3::kGameVersion;
+  EXPECT(znet::host_session(d, "Ann"));
+  znet::Transport* bob = r.hub.endpoint();
+  EXPECT(bob->join("loopback") && bob->create_player("Bob", "Bob") == 2);
+  const uint32_t bob_data[5] = {1, 3, 3, 1, 0x302};
+  bob->set_data(false, 2, bob_data, sizeof bob_data);
+  znet::poll(-1);
+  r.enter();
+  std::vector<std::vector<uint8_t>> heard = rules_heard(bob);
+  EXPECT(!heard.empty());
+  if (!heard.empty()) {
+    const std::vector<uint8_t>& m = heard.back();
+    EXPECT(m.size() == 0x10 && m[2] == 0x10 && word_at(m, 4) == 5);  // respawn, stock
+    EXPECT(half_at(m, 8) == 0x100 && half_at(m, 10) == 5 && half_at(m, 12) == 10 && half_at(m, 14) == 90);
+  }
+  r.l->weight_list.select_value(50);
+  r.l->on_button(0xf, 0, 0);
+  r.l->update(0.1f);
+  heard = rules_heard(bob);
+  EXPECT(heard.size() == 1 && half_at(heard[0], 14) == 50);
+  // The add-on world Bob lacks: no lock.
+  r.l->worlds.select_value(0x402);
+  r.l->on_button(0xb, 0, 0);
+  EXPECT(r.boxes.size() == 1 && r.boxes[0] == 0xfe0 && r.engine->last_box_text.find("Bob") != std::string::npos);
+  EXPECT(!r.l->locked);
+  // Neither limit: asked first; "no" to the lock leaves it open.
+  r.l->worlds.select_value(0x302);
+  r.l->kills_list.select_value(100);
+  r.l->time_list.select_value(100);
+  r.boxes.clear();
+  r.answer = 2;
+  r.l->on_button(0xb, 0, 0);
+  EXPECT(r.boxes.size() == 1 && r.boxes[0] == 0xfbd && !r.l->locked);
+  r.answer = 1;
+  r.boxes.clear();
+  r.game.slot.mech = -1;
+  for (int32_t m = 0; m < 0x13; ++m)
+    if (mech3::max_mass(m) > 50) r.game.slot.mech = m;
+  EXPECT(r.game.slot.mech >= 0);
+  rules_heard(bob);
+  r.l->on_button(0xb, 0, 0);
+  EXPECT(r.boxes.size() == 2 && r.boxes[0] == 0xfbd && r.boxes[1] == 0x2c4 && r.l->locked == 1);
+  EXPECT(znet::session().desc.user[3] == 3 && bob->session_desc().user[3] == 3);
+  EXPECT(r.l->regen_box.enabled == 0 && r.l->lock_btn.enabled == 0 && r.l->worlds.prev.enabled == 0);
+  heard = rules_heard(bob);
+  EXPECT(!heard.empty() && (word_at(heard.back(), 4) & 0x20) && half_at(heard.back(), 8) == 0x302);
+  const mech3::MultiplayerGame::Rules& b = r.game.rules;
+  EXPECT(b.world == 0x302 && b.kills == 100 && b.time == 100 && b.weight == 50 && b.flags == (5 | 0x20));
+  EXPECT(r.game.rules_crc == rules_crc_of(b) && r.game.rules_crc != 0);
+  EXPECT(r.game.slot.mech == heaviest_within(50) && r.game.slot.mech >= 0);
+  int32_t mechs = 0;
+  bool over = false;
+  for (const mech3::ConfigItem* it : r.game.store.items)
+    if (it->kind() == 0) ++mechs, over = over || mech3::max_mass(it->id()) > 50;
+  EXPECT(mechs >= 2 && !over);  // more than one fits: the heaviest is a choice
+  std::printf("  locked at 50 tons: mech %d, %d mechs in the store\n", r.game.slot.mech, mechs);
+}
+
+// A joiner's rules (piece 11b): the host's 0x20 shown and the boxes not
+// ours; a world we lack UNAVAILABLE; the lock taken (our mech fitted, the
+// block and CRC kept); a rules message from another player or cut short
+// ignored (FIX (A)), and unknown flag bits dropped.
+TEST(net_lobby_rules_join_headless) {
+  if (!have_game()) return;
+  LobbyRig r("net_rules_join_write");
+  EXPECT(r.l != nullptr);
+  if (!r.l) return;
+  znet::Transport* bob = r.hub.endpoint();
+  znet::SessionDesc d;
+  d.name = "Bob's", d.max_players = 4, d.user[1] = mech3::kGameVersion;
+  EXPECT(bob->host(d) && bob->create_player("Bob", "Bob") == 1);
+  EXPECT(znet::join_session("loopback", "Ann") && znet::local_id() == 2);
+  znet::Transport* cat = r.hub.endpoint();
+  EXPECT(cat->join("loopback") && cat->create_player("Cat", "Cat") == 3);
+  const uint8_t host_msg[4] = {0x0d, 0, 4, 0};
+  bob->send(0, host_msg, 4, true, nullptr);
+  znet::poll(-1);
+  r.enter();
+  EXPECT(znet::session().host_id == 1 && !znet::is_host());
+  auto rules = [](uint32_t flags, int16_t w, int16_t k, int16_t t, int16_t wt) {
+    std::vector<uint8_t> m(0x10, 0);
+    m[0] = 0x20, m[2] = 0x10;
+    std::memcpy(m.data() + 4, &flags, 4);
+    const int16_t v[4] = {w, k, t, wt};
+    std::memcpy(m.data() + 8, v, 8);
+    return m;
+  };
+  // From Cat (not the host): ignored. Cut short: ignored.
+  std::vector<uint8_t> m = rules(0x3f, 0x203, 10, 20, 50);
+  cat->send(0, m.data(), m.size(), true, nullptr);
+  bob->send(0, m.data(), 12, true, nullptr);
+  znet::poll(-1);
+  EXPECT(r.l->worlds.selected_value() == 0x100 && !r.l->locked && r.l->kills_list.selected_value() == 5);
+  EXPECT(r.l->regen_box.enabled == 0);  // a joiner's from the start (0x00498260)
+  // The host's, with bits we do not know: shown, the boxes disabled.
+  m = rules(0xffc0 | 1 | 8, 0x203, 10, 20, 50);
+  bob->send(0, m.data(), m.size(), true, nullptr);
+  znet::poll(-1);
+  EXPECT(r.l->worlds.selected_value() == 0x203 && r.l->kills_list.selected_value() == 10 &&
+         r.l->time_list.selected_value() == 20 && r.l->weight_list.selected_value() == 50);
+  EXPECT(r.l->regen_box.checked == 1 && r.l->ammo_box.checked == 1 && r.l->stock_box.checked == 0);
+  EXPECT(r.l->regen_box.enabled == 0 && r.l->select_box.enabled == 0 && !r.l->locked);
+  EXPECT(r.game.rules.flags == (1 | 8) && r.game.rules.world == 0x203 && r.game.rules_crc == rules_crc_of(r.game.rules));
+  // A world we do not have: UNAVAILABLE; values the lists lack: theirs kept.
+  m = rules(1, 0x777, 33, 7, 3);
+  bob->send(0, m.data(), m.size(), true, nullptr);
+  znet::poll(-1);
+  EXPECT(r.l->worlds.index == 0 && r.l->kills_list.selected_value() == 10 && r.l->weight_list.selected_value() == 50);
+  // The lock with STOCK: our mech within 40 tons keeps its place, but its
+  // second stock loadout becomes the first (the slot's copy is never one of
+  // the list's, 0x00425b70).
+  const int32_t fits = heaviest_within(40);
+  const mech3::ConfigList* stock = fits >= 0 ? r.engine->mech_loadouts(fits) : nullptr;
+  EXPECT(stock && stock->configs.size() >= 2);
+  if (!stock || stock->configs.size() < 2) return;
+  r.game.slot.mech = fits;
+  r.game.slot.set_config(stock->configs[1]);
+  zfix::options().bugs = false;  // the exe's
+  m = rules(1 | 4 | 0x20, 0x100, 5, 10, 40);
+  bob->send(0, m.data(), m.size(), true, nullptr);
+  znet::poll(-1);
+  EXPECT(r.l->locked == 1 && r.game.slot.mech == fits && r.game.slot.config && stock->configs[0]->name &&
+         std::string(r.game.slot.config->name) == stock->configs[0]->name);
+  // FIX (bug) on: the chosen stock loadout kept.
+  zfix::options().bugs = true;
+  r.game.slot.set_config(stock->configs[1]);
+  r.l->lock_mech();
+  EXPECT(r.game.slot.config && stock->configs[1]->name && std::string(r.game.slot.config->name) == stock->configs[1]->name);
+  zfix::options() = zfix::Options{};
+  EXPECT((r.game.rules.flags & 0x20) == 0 && r.game.rules.weight == 40);  // the block keeps the lock as it was
+}
+
+// Each player's own in the lobby (piece 11c): READY into our data's state
+// (3, then 2), MECHLAB "In MechLab" (1) and back to what it was, the host's
+// scores between games (0x14, read only as far as it goes), and START: the
+// players' places to everyone (0x1e), the game in progress, the lobby's
+// settings in the game, the world, the briefing's lines, the network game
+// asking this game for sides and places.
+TEST(net_lobby_start_host_headless) {
+  if (!have_game()) return;
+  LobbyRig r("net_start_host_write");
+  EXPECT(r.l != nullptr);
+  if (!r.l) return;
+  znet::SessionDesc d;
+  d.name = "Mine", d.max_players = 4, d.user[1] = mech3::kGameVersion;
+  EXPECT(znet::host_session(d, "Ann"));
+  znet::Transport* bob = r.hub.endpoint();
+  EXPECT(bob->join("loopback") && bob->create_player("Bob", "Bob") == 2);
+  const uint32_t bob_data[5] = {1, 3, 2, 0, 0};
+  bob->set_data(false, 2, bob_data, sizeof bob_data);
+  znet::poll(-1);
+  r.enter();
+  auto my_state = [] {
+    uint32_t w[8] = {}, size = sizeof w;
+    return znet::get_player_data(1, w, &size) ? static_cast<int32_t>(w[2]) : -1;
+  };
+  r.l->ready_box.set_checked(1);
+  r.l->on_button(0x15, 0, 0);
+  EXPECT(my_state() == 3);
+  znet::poll(-1);
+  r.l->update(0.1f);  // our own data's change refreshes our line (the setter is told)
+  if (r.l->players_list.item_count() >= 1) EXPECT(std::string(r.l->players_list.items[0]->text).find("Ready!") != std::string::npos);
+  r.l->ready_box.set_checked(0);
+  r.l->on_button(0x15, 0, 0);
+  EXPECT(my_state() == 2);
+  r.l->on_button(10, 0, 0);  // no pilot here: the lab does not open
+  EXPECT(my_state() == 1 && r.l->saved_state == 2);
+  r.l->resume();
+  EXPECT(my_state() == 2);
+  // The scores: Ann 4 kills 1 suicide, Bob 2 and 0; a third entry past the end.
+  std::vector<uint8_t> sc(6 + 12 * 2, 0);
+  sc[0] = 0x14, sc[2] = static_cast<uint8_t>(sc.size());
+  const int16_t n = 3;
+  std::memcpy(sc.data() + 4, &n, 2);
+  const uint32_t e[6] = {1, 4, 1, 2, 2, 0};
+  std::memcpy(sc.data() + 6, e, sizeof e);
+  bob->send(0, sc.data(), sc.size(), true, nullptr);
+  znet::poll(-1);
+  EXPECT(r.game.kills_of(1) == 4 && r.game.deaths_of(1) == 1 && r.game.kills_of(2) == 2);
+  EXPECT(r.l->scores_list.item_count() == 2);
+  if (r.l->scores_list.item_count() == 2)
+    EXPECT(std::string(r.l->scores_list.items[0]->text) == "Ann                   3      4      1");
+  // START.
+  r.l->worlds.select_value(0x302);
+  r.l->kills_list.select_value(100);
+  r.l->time_list.select_value(20);
+  r.l->weight_list.select_value(70);
+  r.l->ammo_box.set_checked(1);
+  r.l->update(0.1f);
+  rules_heard(bob);
+  r.l->on_button(0, 0, 0);
+  std::vector<uint8_t> start;
+  znet::Packet pk;
+  while (bob->receive(&pk))
+    if (pk.from == 1 && pk.data.size() == 0x24 && pk.data[0] == 0x1e) start = pk.data;
+  EXPECT(start.size() == 0x24 && word_at(start, 4) == 1 && word_at(start, 8) == 2 && word_at(start, 12) == 0);
+  EXPECT(znet::session().desc.user[3] == 2 && bob->session_desc().user[3] == 2 && r.l->keep_order == 1);
+  EXPECT(r.game.x70 == 0x7fffffff && r.game.x74 == 20.0f && r.game.x78 == 70 && r.game.b8d == 1 && r.game.b8c == 1);
+  EXPECT(r.game.x90 == 2 && r.game.x94 == 3 && r.game.world() == 0x302);
+  EXPECT(r.game.rules.world == 0x302 && r.game.rules.time == 20 && (r.game.rules.flags & 0x1f) == (1 | 4 | 8));
+  EXPECT(r.game.roster.rfind("Ann++", 0) == 0 && r.game.roster.find("\nBob") != std::string::npos);
+  r.game.set_kills(1, 3);  // (the lobby's refreshes made the records again since the 0x14)
+  EXPECT(mech3::program_net_team_of(2) == 2 && mech3::program_net_start_of(1) == 1 &&
+         mech3::program_net_score_of(1) == 3);
+  EXPECT(std::string(r.game.game_text(0x04)) == "M U L T I P L A Y E R" &&
+         std::string(r.game.game_text(0x0c)) == "Mine");
+  // The lobby's handlers are off: a scores message changes nothing.
+  bob->send(0, sc.data(), sc.size(), true, nullptr);
+  r.game.set_kills(1, 9);
+  znet::poll(-1);
+  EXPECT(r.game.kills_of(1) == 9);
+}
+
+// A joiner's start (piece 11c): the host's places taken, then START our own;
+// another player's 0x1e ignored (FIX (A)). Teams (team play): a new team
+// joined (its owner us, its skin our side), another made and joined, the
+// empty one removed, our team's skin changed.
+TEST(net_lobby_start_join_and_teams_headless) {
+  if (!have_game()) return;
+  LobbyRig r("net_start_join_write");
+  EXPECT(r.l != nullptr);
+  if (!r.l) return;
+  znet::Transport* bob = r.hub.endpoint();
+  znet::SessionDesc d;
+  d.name = "Bob's", d.max_players = 4, d.user[1] = mech3::kGameVersion;
+  EXPECT(bob->host(d) && bob->create_player("Bob", "Bob") == 1);
+  EXPECT(znet::join_session("loopback", "Ann") && znet::local_id() == 2);
+  znet::Transport* cat = r.hub.endpoint();
+  EXPECT(cat->join("loopback") && cat->create_player("Cat", "Cat") == 3);
+  const uint8_t host_msg[4] = {0x0d, 0, 4, 0};
+  bob->send(0, host_msg, 4, true, nullptr);
+  znet::poll(-1);
+  mech3::multiplayer_setup().team_play = 1;
+  r.l->take_pilot(1, &r.game);
+  r.l->enter();
+  znet::poll(-1);
+  r.l->update(0.1f);
+  // Teams.
+  r.l->new_team("Red", 2, true);
+  znet::poll(-1);
+  mech3::g_lobby_dirty = 1;  // our own changes raise no event at us (the dialog's close re-enters)
+  r.l->update(0.1f);
+  const mech3::LobbyTeam* red = r.game.lobby_teams.empty() ? nullptr : r.game.lobby_teams.front().get();
+  EXPECT(red && red->name == "Red" && red->owner == 2 && red->skin == 2 && r.game.lobby_team_id(2) == red->id);
+  EXPECT(r.game.net_team(2) == 2 && r.game.net_skin(2) == 2);
+  const uint32_t red_id = red ? red->id : 0;  // (the records are made again at each refresh)
+  if (r.l->teams_list.item_count() >= 2) {
+    EXPECT(std::string(r.l->teams_list.items[0]->text) == "Red  {sunfire} ");
+    EXPECT(std::string(r.l->teams_list.items[1]->text) == "   Ann ");
+  }
+  r.l->new_team("Blue", 3, false);
+  znet::poll(-1);
+  mech3::g_lobby_dirty = 1;
+  r.l->update(0.1f);
+  EXPECT(r.game.lobby_teams.size() == 2);
+  int32_t blue_at = -1, red_at = -1;
+  for (size_t i = 0; i < r.l->teams_list.records.size(); ++i)
+    if (r.l->teams_list.records[i]->kind() == 2) (r.l->teams_list.records[i]->id == red_id ? red_at : blue_at) = static_cast<int32_t>(i);
+  r.l->teams_list.select(blue_at);
+  r.l->on_button(0x16, 0, 0);
+  EXPECT(r.l->join_team_btn.enabled == 1);
+  r.l->on_button(4, 0, 0);
+  znet::poll(-1);
+  mech3::g_lobby_dirty = 1;
+  r.l->update(0.1f);
+  const mech3::LobbyTeam* blue = r.game.lobby_team(r.game.lobby_team_id(2));
+  EXPECT(blue && blue->name == "Blue" && blue->owner == 2 && r.game.net_skin(2) == 3);
+  for (size_t i = 0; i < r.l->teams_list.records.size(); ++i)
+    if (r.l->teams_list.records[i]->kind() == 2 && r.l->teams_list.records[i]->id == red_id) red_at = static_cast<int32_t>(i);
+  r.l->teams_list.select(red_at);
+  r.l->on_button(5, 0, 0);
+  znet::poll(-1);
+  mech3::g_lobby_dirty = 1;
+  r.l->update(0.1f);
+  EXPECT(r.game.lobby_teams.size() == 1 && !r.game.lobby_team(red_id));
+  r.l->set_skin(5);
+  znet::poll(-1);
+  mech3::g_lobby_dirty = 1;
+  r.l->update(0.1f);
+  EXPECT(r.game.net_skin(2) == 5);
+  // The start: Cat's places ignored, then the host's.
+  auto places = [](uint32_t a, uint32_t b, uint32_t c) {
+    std::vector<uint8_t> m(0x24, 0);
+    m[0] = 0x1e, m[2] = 0x24;
+    std::memcpy(m.data() + 4, &a, 4), std::memcpy(m.data() + 8, &b, 4), std::memcpy(m.data() + 12, &c, 4);
+    return m;
+  };
+  std::vector<uint8_t> m = places(3, 2, 1);
+  cat->send(0, m.data(), m.size(), true, nullptr);
+  znet::poll(-1);
+  EXPECT(!r.l->start_pending);
+  m = places(2, 3, 1);
+  bob->send(0, m.data(), m.size(), true, nullptr);
+  znet::poll(-1);
+  EXPECT(r.l->start_pending == 1 && r.game.lobby_player(2) && r.game.lobby_player(2)->order == 1);
+  r.l->update(0.1f);
+  EXPECT(!r.l->start_pending && r.game.lobby_player(1) && r.game.lobby_player(1)->order == 3);
+  EXPECT(mech3::program_net_start_of(3) == 2 && mech3::program_net_team_of(2) == 5);
+  EXPECT(znet::session().desc.user[3] != 2);  // only the host's word says in progress
+  mech3::multiplayer_setup().team_play = 0;
+}
+
+// The lobby's chat (piece 12): Enter sends the bar's text trimmed (0x1f,
+// its flags, the text with its 0, the length and 0xc) and shows it here
+// under "< Ann to all >"; a player's to the team shows "< Bob to team >";
+// a message cut short is dropped, a text without its 0 ends in the message;
+// in team play with CHAT_TEAM it goes to our team only. The log keeps 100
+// lines, its window 14; UP and DOWN scroll; a line added away from the
+// bottom leaves the window.
+TEST(net_lobby_chat_headless) {
+  if (!have_game()) return;
+  LobbyRig r("net_chat_write");
+  EXPECT(r.l != nullptr);
+  if (!r.l) return;
+  znet::SessionDesc d;
+  d.name = "Mine", d.max_players = 4, d.user[1] = mech3::kGameVersion;
+  EXPECT(znet::host_session(d, "Ann"));
+  znet::Transport* bob = r.hub.endpoint();
+  EXPECT(bob->join("loopback") && bob->create_player("Bob", "Bob") == 2);
+  znet::poll(-1);
+  r.enter();
+  mech3::ChatLog& log = r.l->chat_log;
+  auto lines = [&] { return std::vector<std::string>(log.history.begin(), log.history.end()); };
+  EXPECT(lines() == std::vector<std::string>{"   "});
+  auto heard = [&] {
+    std::vector<std::vector<uint8_t>> out;
+    znet::Packet pk;
+    while (bob->receive(&pk))
+      if (pk.from == 1 && pk.data.size() >= 4 && pk.data[0] == 0x1f) out.push_back(pk.data);
+    return out;
+  };
+  heard();
+  r.l->chat_edit.set_text("  hello  ");
+  r.l->chat_edit.on_return();
+  std::vector<std::vector<uint8_t>> h = heard();
+  EXPECT(h.size() == 1);
+  if (h.size() == 1)
+    EXPECT(h[0].size() == 5 + 0xc && h[0][2] == 5 + 0xc && h[0][4] == 0 && std::string(reinterpret_cast<const char*>(h[0].data() + 8)) == "hello");
+  EXPECT((lines() == std::vector<std::string>{"   ", "< Ann to all >", "hello"}));
+  EXPECT(std::string(r.l->chat_edit.get_text()) == "");
+  r.l->chat_edit.set_text("   ");
+  r.l->chat_edit.on_return();
+  EXPECT(heard().empty() && lines().size() == 3);
+  // Bob's, to the team; one cut short; one with no 0 in it.
+  std::vector<uint8_t> m(0x10, 0);
+  m[0] = 0x1f, m[2] = 0x10, m[4] = 1;
+  std::memcpy(m.data() + 8, "gg", 3);
+  bob->send(0, m.data(), m.size(), false, nullptr);
+  bob->send(0, m.data(), 8, false, nullptr);
+  std::vector<uint8_t> open(0xc, 'x');
+  open[0] = 0x1f, open[1] = 0, open[2] = 0xc, open[3] = 0, open[4] = 0, open[5] = open[6] = open[7] = 0;
+  bob->send(0, open.data(), open.size(), false, nullptr);
+  znet::poll(-1);
+  const std::vector<std::string> got = lines();
+  EXPECT(got.size() == 7);
+  if (got.size() == 7) EXPECT(got[3] == "< Bob to team >" && got[4] == "gg" && got[5] == "< Bob to all >" && got[6] == "xxxx");
+  // A name and a text with format specifiers and an escape: shown as they
+  // are, the escape's control character as '?', nothing formatted again.
+  znet::Transport* eve = r.hub.endpoint();
+  EXPECT(eve->join("loopback") && eve->create_player("Eve%s%n%1\x1b[", "Eve") == 3);
+  znet::poll(-1);
+  const char evil[] = "%s%n%1\x1b[31m";
+  std::vector<uint8_t> em(8 + sizeof evil, 0);
+  em[0] = 0x1f, em[2] = static_cast<uint8_t>(em.size());
+  std::memcpy(em.data() + 8, evil, sizeof evil);
+  eve->send(0, em.data(), em.size(), false, nullptr);
+  znet::poll(-1);
+  EXPECT(log.history.size() >= 2);
+  if (log.history.size() >= 2) {
+    EXPECT(*std::prev(log.history.end(), 2) == "< Eve%s%n%1?[ to all >");
+    EXPECT(log.history.back() == "%s%n%1?[31m");
+  }
+  // The log: 100 lines, the window on the last 14; up, then a line added away
+  // from the bottom; down to the bottom again.
+  for (int i = 0; i < 120; ++i) log.add(("line " + std::to_string(i)).c_str());
+  EXPECT(log.history.size() == 100 && log.at_bottom() && *log.bottom == "line 119" && *log.top == "line 106");
+  log.scroll_up();
+  EXPECT(*log.top == "line 105" && *log.bottom == "line 118" && !log.at_bottom());
+  log.add("late");
+  EXPECT(*log.bottom == "line 118" && log.history.back() == "late");
+  for (int i = 0; i < 5; ++i) log.down_btn.on_left_up();
+  EXPECT(log.at_bottom() && *log.bottom == "late");
+  for (int i = 0; i < 200; ++i) log.up_btn.on_left_up();
+  EXPECT(log.at_top() && *log.top == "line 21");
+  log.add("top full");  // at the top and full: down a line first
+  EXPECT(*log.top == "line 22" && log.history.front() == "line 22" && log.history.back() == "top full");  // "line 21" dropped
+  // Team play: to our team only.
+  mech3::multiplayer_setup().team_play = 1;
+  r.l->new_team("Red", 2, true);
+  znet::poll(-1);
+  mech3::g_lobby_dirty = 1;
+  r.l->update(0.1f);
+  heard();
+  r.l->chat_team.set_checked(1);
+  r.l->chat_edit.set_text("team only");
+  r.l->chat_edit.on_return();
+  EXPECT(heard().empty() && log.history.back() == "team only" && *std::prev(log.history.end(), 2) == "< Ann to team >");
+  r.l->chat_team.set_checked(0);
+  r.l->chat_edit.set_text("everyone");
+  r.l->chat_edit.on_return();
+  h = heard();
+  EXPECT(h.size() == 1 && h.size() == 1 && h[0][4] == 0);
+  mech3::multiplayer_setup().team_play = 0;
+}
+
+// The new team's dialog (piece 13): NEW_TEAM opens page 3 with a new team's
+// name (the first free skin's letter), every free skin and JOIN checked; OK
+// makes it and joins it; a name in use (0x1e6) or none (0x1e5) refused;
+// CANCEL back with nothing made; the next one's name and skins leave out the
+// taken skin; PICK_SKIN alone sets our team's skin.
+TEST(net_lobby_team_dialog_headless) {
+  if (!have_game()) return;
+  LobbyRig r("net_team_dialog_write");
+  EXPECT(r.l != nullptr);
+  if (!r.l) return;
+  auto* t = dynamic_cast<mech3::TeamScreen*>(r.engine->screen_of(r.g->screens[2]));
+  EXPECT(t != nullptr);
+  if (!t) return;
+  znet::SessionDesc d;
+  d.name = "Mine", d.max_players = 4, d.user[1] = mech3::kGameVersion;
+  EXPECT(znet::host_session(d, "Ann"));
+  znet::poll(-1);
+  mech3::multiplayer_setup().team_play = 1;
+  r.l->take_pilot(1, &r.game);
+  r.l->enter();
+  znet::poll(-1);
+  r.l->update(0.1f);
+  auto open = [&](int32_t button) {
+    r.l->on_button(button, 0, 0);
+    EXPECT(r.g->want == 3 && r.g->x19 == 1);
+    r.engine->multiplayer_switch(r.st);
+  };
+  auto refresh = [&] {
+    znet::poll(-1);
+    mech3::g_lobby_dirty = 1;
+    r.l->update(0.1f);
+  };
+  open(7);
+  EXPECT(r.l->team_new == 1 && r.l->team_skin == 1 && r.l->team_join == 1 && t->lobby == r.l);
+  EXPECT(t->skins.count() == 8 && t->skins.selected_value() == 1 && t->join_box.checked == 1);
+  EXPECT(std::string(t->name_edit.get_text()) == "A Team");
+  t->on_button(2, 0, 0);  // SKIN_LIST's change: its image
+  t->on_button(0, 0, 0);
+  refresh();
+  EXPECT(r.g->want == 2 && r.game.lobby_teams.size() == 1);
+  if (!r.game.lobby_teams.empty()) {
+    const mech3::LobbyTeam& a = *r.game.lobby_teams.front();
+    EXPECT(a.name == "A Team" && a.skin == 1 && a.owner == 1 && r.game.lobby_team_id(1) == a.id);
+  }
+  // The next: skin 1 taken, "B Team"; a name in use, none, then CANCEL.
+  open(7);
+  EXPECT(t->skins.count() == 7 && t->skins.selected_value() == 2 && std::string(t->name_edit.get_text()) == "B Team");
+  t->name_edit.set_text("A Team");
+  t->on_button(0, 0, 0);
+  t->name_edit.set_text("   ");
+  t->on_button(0, 0, 0);
+  EXPECT(r.boxes.size() == 2 && r.boxes[0] == 0x1e6 && r.boxes[1] == 0x1e5 && r.g->want == 3);
+  t->on_button(1, 0, 0);
+  refresh();
+  EXPECT(r.g->want == 2 && r.game.lobby_teams.size() == 1);
+  // PICK_SKIN: no name, no JOIN; our team's skin.
+  open(8);
+  EXPECT(r.l->team_new == 0 && r.l->team_skin == 1 && r.l->team_join == 0);
+  EXPECT(t->skins.count() == 7);
+  t->skins.select_value(5);
+  t->on_button(0, 0, 0);
+  refresh();
+  EXPECT(r.game.net_skin(1) == 5);
+  mech3::multiplayer_setup().team_play = 0;
 }
 
 // The host's addresses under the host setup (multiplayer-port.md, piece 9c),
@@ -14948,7 +15668,7 @@ TEST(known_unported_keys_name_their_reason) {
                         "0x005a7e10", "0x005a7f90", "0x00576c50", "0x00535ed0", "0x004f8f60", "0x00537520",
                         "0x00519e50", "0x00526510", "0x005578f0", "0x00557b30", "0x00575f70", "0x00576c60",
                         "0x00516f00", "0x00526780", "0x00557b10", "0x005646d0",
-                        "0x00495f90", "0x0049bd80"}) {
+                        }) {
     const char* why = mech3::GameEngine::known_unported(k);
     EXPECT(why != nullptr);
     if (!why) continue;
@@ -14957,7 +15677,7 @@ TEST(known_unported_keys_name_their_reason) {
            w.size() > 20);
     ++n;
   }
-  EXPECT(n == 45);  // 0x00586ce0, 0x00586c20, 0x00588930, 0x0046ef70, 0x0046f160 ported (multiplayer-port.md pieces 1, 2, 6a), 0x00493260 (9b)
+  EXPECT(n == 43);  // 0x00586ce0, 0x00586c20, 0x00588930, 0x0046ef70, 0x0046f160 ported (multiplayer-port.md pieces 1, 2, 6a), 0x00493260 (9b), 0x00495f90 (11a), 0x0049bd80 (13)
   for (const char* gap : {"0x00579ea0", "0x004f9fa0", "0x004fa0b0", "0x00479be0", "0x0051a300",
                           "[[0x0060861c]+0x14]", "0x004f3430", "0x005799f0", "0x0051d0c0",
                           "0x00556210", "game.vt", "0x00414000", "0x0047abe0", "0x004f8f50",
@@ -16046,6 +16766,103 @@ TEST(net_pilot_respawns_c1mp1_headless) {
   net_respawn_run(false, &died, &back, &health, &camera);
   std::printf("  respawn off: died %d, back %d, camera %d\n", died, back, camera);
   EXPECT(died && !back && camera == 4);
+}
+
+// The mobile bases' stations in a network game (0x00490950, after piece
+// 11c): c1mp1 launched as a network game with ALLOW MOBILE BASES on; at each
+// point of the mission's waynet a copy of the world's mfb_station01, named
+// mfb_station_04 on (after the data's own labels, 01 and 02 here), in the
+// world, standing on the point, shown, the point's label its name. Off, none.
+TEST(net_mobile_base_stations_c1mp1_headless) {
+  if (!have_game()) return;
+  for (int on = 0; on < 2; ++on) {
+    SavedMounts keep;
+    zutl::mounts() = zutl::Mounts{};
+    zutl::mount(MW3_GAME_DIR);
+    zutl::set_write_dir(temp_dir("net_stations"));
+    mech3::reset_states();
+    reset_process_state();
+    mech3::missions() = mech3::Missions{};
+    mech3::mech_types_forget();
+    mech3::player_controls_instance() = nullptr;
+    mech3::options() = mech3::Options{};
+    FakeWindow window;
+    FakeAlert alert;
+    FakeClock clock;
+    FakeScreen screen;
+    platform::SilentSoundOutput sound;
+    mech3::MountFiles files;
+    mech3::Platform p;
+    p.window = &window, p.alert = &alert, p.clock = &clock, p.movie_clock = &fast_movie_clock(), p.screen = &screen,
+    p.sound = &sound, p.files = &files;
+    znet::Hub hub;
+    znet::session() = znet::Session{};
+    znet::initialise(hub.endpoint());
+    EXPECT(znet::host_session(znet::SessionDesc{}, "Host"));
+    int stations = 0, placed = 0, labelled = 0, points = 0;
+    {
+      mech3::GameEngine engine(p, "mech3.exe -nofmv");
+      engine.quiet = true;
+      mech3::Mech3App app(&engine);
+      mech3::set_app(&app);
+      EXPECT(app.init_instance());
+      mech3::MultiplayerGame game(nullptr);
+      game.x70 = 1 << 30;
+      game.ba8 = static_cast<uint8_t>(on);
+      mech3::GameEngine::Launch l;
+      l.index = 0, l.number = 1, l.type = 3, l.multi = &game;  // c1mp1
+      engine.set_launch(l);
+      mech3::program_net_debug_lobby();
+      app.post_intro_ = &mech3::states().load;
+      int core_frames = 0;
+      engine.on_present = [&](int) {
+        if (app.current() != &mech3::states().core || ++core_frames != 5) return;
+        for (int32_t n = 4; n < 40; ++n) {
+          char name[32];
+          std::snprintf(name, sizeof name, "mfb_station_%02d", n);
+          auto* node = static_cast<zcls::Node*>(zcls::list_find_by_name(6, name));
+          if (!node) break;
+          ++stations;
+        }
+        int32_t next = 4;
+        for (int32_t i = 0; i < 64; ++i) {
+          const char* label = nullptr;
+          float at[3];
+          if (!mech3::program_mission_point(i, &label, at)) continue;
+          ++points;
+          char want[32];
+          std::snprintf(want, sizeof want, "mfb_station_%02d", next);
+          if (!label || std::strcmp(label, want) != 0) continue;  // the data's own: 01, 02 on c1mp1
+          ++labelled, ++next;
+          auto* node = static_cast<zcls::Node*>(zcls::list_find_by_name(6, label));
+          float x = 0, y = 0, z = 0;
+          if (node) zcls::object3d_get_translation(node, &x, &y, &z);
+          const bool in_world = node && node->parent_count() == 1 && node->parents && node->parents[0] == mech3::world_hooks().world;
+          if (node && in_world && std::fabs(x - at[0]) < 0.01f && std::fabs(y - at[1]) < 0.01f &&
+              std::fabs(z - at[2]) < 0.01f && (node->flags() & 4) != 0)
+            ++placed;
+        }
+      };
+      CountingPump pump;
+      pump.limit = 2400;
+      pump.stop = [&] { return core_frames >= 5; };
+      app.run(pump);
+      mech3::missions().cleanup(false);
+      app.stop_game();
+      app.exit_instance();
+      mech3::set_app(nullptr);
+    }
+    znet::shutdown();
+    std::printf("  mobile bases %s: %d points, %d stations, %d labelled, %d placed\n", on ? "on" : "off", points, stations,
+                labelled, placed);
+    EXPECT(points > 0);
+    if (on) EXPECT(stations == points && labelled == points && placed == points);
+    else EXPECT(stations == 0 && labelled == 0);
+    zrdr::close_archives(true);
+    mech3::reset_states();
+    reset_process_state();
+    mech3::options() = mech3::Options{};
+  }
 }
 
 // The same census in a network game (piece 8d: the respawn's hook was null

@@ -228,8 +228,6 @@ const std::map<std::string, const char*>& known_keys() {
       {"0x00576d90", "own: the back buffer's size, zvid's Surface (lock_3d); here only the targets' arguments"},
       {"0x00576da0", "own: the back buffer's height, the same (lock_3d)"},
       {"0x00576dc0", "own: the back buffer's pitch, the same"},
-      {"0x00495f90", "deferred: multiplayer (its second screen)"},
-      {"0x0049bd80", "deferred: multiplayer (its third screen)"},
       {"0x0041ab90", "deferred: multiplayer (the chat panel at mech +0x378, made by commands 0x76 / 0x77)"},
       {"0x004ac860", "deferred: the stealth object (its block; back burner, vehicles.md)"},
       {"0x004a4de0", "deferred: the stealth object"},
@@ -426,6 +424,10 @@ uint32_t GameEngine::message_box(int32_t a, int32_t caption, int32_t text, int32
 // 0x004ac150 with three strings (the controls screen's reassignment questions).
 uint32_t GameEngine::message_box3(int32_t a, int32_t caption, int32_t text, const char* s1, const char* s2,
                                   const char* s3) {
+  if (on_message_box) {
+    last_box_text = zutl::format_message(text, {s1, s2, s3});
+    return on_message_box(a, caption, text);
+  }
   return game_message_box(a, caption, zutl::format_message(text, {s1, s2, s3}));
 }
 

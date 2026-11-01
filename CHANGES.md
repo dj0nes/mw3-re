@@ -583,3 +583,10 @@ Known quirks the rebuild deliberately keeps:
 - A multiplayer clock message that would end the game outside a network game is ignored instead of crashing.
 - Messages from other players are checked before they are used, as anyone on the internet can send anything: a crater on ground that does not exist, an effect on objects that do not exist, more shots than a message holds, or a move the mech does not have are dropped instead of reading or writing past the game's tables.
 - The multiplayer host no longer re-checks its locked game rules every 51 seconds (a guard against memory editing that ended the game).
+- The multiplayer lobby no longer sends the scores to an online game service (the MSN Gaming Zone's score reporting, long gone).
+- The multiplayer lobby shows the host its internet and LAN addresses, with a click to copy, as the connection screen does.
+- The multiplayer lobby takes game settings only from the host, and checks them before use.
+- The multiplayer lobby takes the start of a game only from the host, and reads the scores between games only as far as the message goes.
+- The multiplayer lobby's chat reads each message only as far as it goes.
+- A locked multiplayer game turns away players who try to join it, instead of only greying out its Join button.
+- With bug fixes on, locking a multiplayer game with "Use stock 'Mechs" keeps the stock loadout a player chose instead of resetting it to the mech's first.

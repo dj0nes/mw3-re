@@ -45,6 +45,7 @@ class EnetTransport : public znet::Transport {
   bool join(const std::string& address) override;  // "host[:port]"
   uint32_t create_player(const std::string& short_name, const std::string& long_name) override;
   znet::SessionDesc session_desc() const override;
+  bool set_session_desc(const znet::SessionDesc& desc) override;
   void close() override;
   bool send(uint32_t to, const void* data, size_t size, bool guaranteed, uint32_t* id) override;
   bool receive(znet::Packet* out) override;

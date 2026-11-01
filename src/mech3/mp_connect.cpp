@@ -38,6 +38,7 @@ MultiplayerSetup& multiplayer_setup() {
   static MultiplayerSetup s;
   return s;
 }
+bool multiplayer_team_play() { return multiplayer_setup().team_play != 0; }
 
 // ---- the connection ----
 
@@ -454,32 +455,32 @@ void CopyLine::on_left_up() {
 // will open, when hosting) the port; else what stands in the way: no router
 // (forward the port), a refusal (forward it), carrier-grade NAT (the lead:
 // say so, and do not offer that address). The LAN line: this computer's.
-void ConnectScreen::show_reach() {
-  const Engine::NetReach r = engine().network_reach();
+std::string reach_line(const Engine::NetReach& r) {
   const std::string port = std::to_string(r.port ? r.port : 27930);
-  std::string line, copy;
   switch (r.state) {
-    case Engine::NetReach::kLooking: line = "Internet: looking for your router..."; break;
-    case Engine::NetReach::kNoRouter: line = "Internet: forward UDP " + port + " on your router to host"; break;
-    case Engine::NetReach::kRefused: line = "Could not open the port: forward UDP " + port + " on your router"; break;
-    case Engine::NetReach::kBlocked:
-      line = "Your internet provider blocks hosting: use a LAN, or a VPN such as Tailscale";
-      break;
+    case Engine::NetReach::kLooking: return "Internet: looking for your router...";
+    case Engine::NetReach::kNoRouter: return "Internet: forward UDP " + port + " on your router to host";
+    case Engine::NetReach::kRefused: return "Could not open the port: forward UDP " + port + " on your router";
+    case Engine::NetReach::kBlocked: return "Your internet provider blocks hosting: use a LAN, or a VPN such as Tailscale";
     case Engine::NetReach::kDoubleNat:
-      line = "Another router stands in front of yours: forward UDP " + port + " on it, or use a VPN such as Tailscale";
-      break;
+      return "Another router stands in front of yours: forward UDP " + port + " on it, or use a VPN such as Tailscale";
     case Engine::NetReach::kReady:
     case Engine::NetReach::kMapped:
-      if (!r.internet.empty()) {
-        line = "Internet: " + r.internet + (r.state == Engine::NetReach::kMapped ? " (port open)" : "") + "  - click to copy";
-        copy = r.internet;
-      } else {
-        line = "Internet: forward UDP " + port + " on your router to host";
-      }
-      break;
-    default: break;
+      if (!r.internet.empty())
+        return "Internet: " + r.internet + (r.state == Engine::NetReach::kMapped ? " (port open)" : "") + "  - click to copy";
+      return "Internet: forward UDP " + port + " on your router to host";
+    default: return "";
   }
-  if (line != internet_line.line) internet_line.show(line, copy);
+}
+
+std::string reach_copy(const Engine::NetReach& r) {
+  return (r.state == Engine::NetReach::kReady || r.state == Engine::NetReach::kMapped) ? r.internet : "";
+}
+
+void ConnectScreen::show_reach() {
+  const Engine::NetReach r = engine().network_reach();
+  const std::string line = reach_line(r);
+  if (line != internet_line.line) internet_line.show(line, reach_copy(r));
   const std::string lan = r.lan.empty() ? "" : "LAN: " + r.lan + "  - click to copy";
   if (lan != lan_line.line) lan_line.show(lan, r.lan);
 }

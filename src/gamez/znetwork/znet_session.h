@@ -101,6 +101,12 @@ class Transport {
   }
   // The joined session's description (the host's).
   virtual SessionDesc session_desc() const { return {}; }
+  // The host's change of it (SetSessionDesc): the others hear
+  // DPSYS_SETSESSIONDESC. False when not the host.
+  virtual bool set_session_desc(const SessionDesc& desc) {
+    (void)desc;
+    return false;
+  }
   virtual void close() = 0;
   // A message from the local player; guaranteed ones arrive, in order. The
   // send's id (for the send-done event) in *id, 0 when it has none.
@@ -218,6 +224,10 @@ bool game_info(int32_t index, GameInfo* out);
 // 0x00586fb0: the game list's entry info.index joined. kOk or an error; the
 // local player is made after (create_player).
 int32_t open_host(const GameInfo& info);
+// 0x00586f20 (0x005876f0): the host's session given info's words and limit
+// (SetSessionDesc); 0x00586e10: the description asked again (GetSessionDesc).
+bool set_game_info(const GameInfo& info);
+bool refresh_session();
 int32_t open_join(const GameInfo& info);
 // Ours: the session joined left (its local player not made yet), zNetwork
 // still up for another search (the connection screen's name in use).

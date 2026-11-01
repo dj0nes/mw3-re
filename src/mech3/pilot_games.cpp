@@ -1,7 +1,10 @@
 // The pilot's games, their slots and stores (docs/pilot.md, The games).
+#include <algorithm>
 #include <cstdlib>
 #include <cstring>
 
+#include "gamez/znetwork/znet_session.h"
+#include "gamez/zreader/zreader.h"
 #include "gamez/zsave/zsave.h"
 #include "gamez/zutil/zutl_msg.h"
 #include "gamez/zutil/zutl_msgdll.h"
@@ -876,6 +879,231 @@ void MultiplayerGame::load() {
   rd(f, &x94, 4);
   rd(f, &b8f, 1);
   rd(f, &x78, 4);
+}
+
+// Mech3.exe 1.2 @ 0x00437920, 0x00436500, 0x00437950, 0x00437930
+const char* MultiplayerGame::game_text(int32_t slot) {
+  switch (slot) {
+    case 0x04: return pilot_hooks().message(0x10d);
+    case 0x08: {
+      if (x94 > 2) {  // an add-on's: the reader's mpinfo.zrd ([0x00605850] holds it)
+        static std::string name;
+        zrdr::Node* info = zrdr::load("mpinfo.zrd");
+        const char* s = zrdr::get_string(info, "db_name");
+        name = s ? s : "";
+        if (info) zrdr::free_node(info);
+        return name.c_str();
+      }
+      if (x90 >= 0 && x90 <= 3 && (x94 == 1 || x94 == 2)) return pilot_hooks().message(0x320 + x90 * 2 + x94 - 1);
+      return pilot_hooks().message(0xd75);  // "Unknown"
+    }
+    case 0x0c: return znet::session().desc.name.c_str();
+    case 0x10: return roster.c_str();
+    default: return nullptr;
+  }
+}
+
+// Mech3.exe 1.2 @ 0x00436470
+void MultiplayerGame::set_roster(const std::vector<std::string>& lines) {
+  roster.clear();
+  for (const std::string& l : lines) roster += l + "\n";
+}
+
+// ---- the lobby's records (multiplayer-port.md, piece 11) ----
+
+// Mech3.exe 1.2 @ 0x00495b10
+LobbyPlayer* MultiplayerGame::lobby_player(uint32_t id) {
+  for (auto& p : lobby_players)
+    if (p->id == id) return p.get();
+  return nullptr;
+}
+
+// Mech3.exe 1.2 @ 0x00495b60
+uint32_t MultiplayerGame::lobby_team_id(uint32_t player) {
+  const LobbyPlayer* p = lobby_player(player);
+  return p ? p->team : 0;
+}
+
+// Mech3.exe 1.2 @ 0x00495bb0
+int32_t MultiplayerGame::lobby_skin(uint32_t player) {
+  const LobbyPlayer* p = lobby_player(player);
+  return p ? p->skin : 0;
+}
+
+// Mech3.exe 1.2 @ 0x00495c00
+bool MultiplayerGame::in_team(uint32_t player, uint32_t team) {
+  for (auto& p : lobby_players)
+    if (p->id == player && p->team == team) return true;
+  return false;
+}
+
+// Mech3.exe 1.2 @ 0x00495d20
+LobbyTeam* MultiplayerGame::lobby_team(uint32_t id) {
+  for (auto& t : lobby_teams)
+    if (t->id == id) return t.get();
+  return nullptr;
+}
+
+// Mech3.exe 1.2 @ 0x00495a50, 0x00495c60, 0x00495d70
+void MultiplayerGame::clear_lobby() {
+  lobby_players.clear();
+  lobby_teams.clear();
+  score_lines.clear();
+}
+
+// Mech3.exe 1.2 @ 0x00435910
+uint32_t MultiplayerGame::net_team(uint32_t player) {
+  if (!multiplayer_team_play()) {
+    const LobbyPlayer* p = lobby_player(player);
+    return p ? static_cast<uint32_t>(p->order) : 0;
+  }
+  const LobbyTeam* t = lobby_team(lobby_team_id(player));
+  return t ? static_cast<uint32_t>(t->skin) : 0;
+}
+
+// Mech3.exe 1.2 @ 0x00435960
+int32_t MultiplayerGame::net_skin(uint32_t player) {
+  if (!multiplayer_team_play()) return lobby_skin(player);
+  const LobbyTeam* t = lobby_team(lobby_team_id(player));
+  return t ? t->skin : 0;
+}
+
+// Mech3.exe 1.2 @ 0x004359b0
+int32_t MultiplayerGame::add_kills(uint32_t player, int32_t n) {
+  LobbyPlayer* p = lobby_player(player);
+  if (!p) return -1;
+  p->kills += n;
+  rescore();
+  return p->kills;
+}
+
+// Mech3.exe 1.2 @ 0x004359f0
+int32_t MultiplayerGame::set_kills(uint32_t player, int32_t n) {
+  LobbyPlayer* p = lobby_player(player);
+  if (!p) return -1;
+  p->kills = n;
+  rescore();
+  return p->kills;
+}
+
+// Mech3.exe 1.2 @ 0x00435a30
+int32_t MultiplayerGame::kills_of(uint32_t player) {
+  const LobbyPlayer* p = lobby_player(player);
+  return p ? p->kills : -1;
+}
+
+// Mech3.exe 1.2 @ 0x00435a50
+int32_t MultiplayerGame::score_of(uint32_t player) {
+  if (!multiplayer_team_play()) return kills_of(player) - deaths_of(player);
+  rescore();
+  const LobbyTeam* t = lobby_team(lobby_team_id(player));
+  return t && t->score ? t->score->score : -1;
+}
+
+// Mech3.exe 1.2 @ 0x00435ac0
+int32_t MultiplayerGame::add_deaths(uint32_t player, int32_t n) {
+  LobbyPlayer* p = lobby_player(player);
+  if (!p) return -1;
+  p->deaths += n;
+  rescore();
+  return p->deaths;
+}
+
+// Mech3.exe 1.2 @ 0x00435b00
+int32_t MultiplayerGame::set_deaths(uint32_t player, int32_t n) {
+  LobbyPlayer* p = lobby_player(player);
+  if (!p) return -1;
+  p->deaths = n;
+  rescore();
+  return p->deaths;
+}
+
+// Mech3.exe 1.2 @ 0x00435b40
+int32_t MultiplayerGame::deaths_of(uint32_t player) {
+  const LobbyPlayer* p = lobby_player(player);
+  return p ? p->deaths : -1;
+}
+
+namespace {
+uint32_t floor0(int32_t kills, int32_t deaths) {
+  const int32_t s = kills - deaths;
+  return s < 0 ? 0u : static_cast<uint32_t>(s);
+}
+}  // namespace
+
+// Mech3.exe 1.2 @ 0x004361e0: each score kills less suicides, not under 0;
+// a team's the sum of its players'. The order key puts each team's line
+// over its players' (the +1), the teams by score, then the players.
+void MultiplayerGame::rescore() {
+  if (!multiplayer_team_play()) {
+    for (auto& p : lobby_players) {
+      if (!p->score) continue;
+      const uint32_t s = floor0(p->kills, p->deaths);
+      p->score->score = static_cast<int32_t>(s);
+      p->score->key = ((static_cast<uint32_t>(p->skin) & 7) + (s & 0xfff) * 8) * 2;
+    }
+    return;
+  }
+  for (auto& t : lobby_teams) {
+    if (!t->score) continue;
+    t->score->score = 0;
+    t->kills = 0;
+    for (auto& p : lobby_players)
+      if (p->team == t->id) {
+        t->kills += p->kills;
+        t->score->score += static_cast<int32_t>(floor0(p->kills, p->deaths));
+      }
+  }
+  for (auto& t : lobby_teams) {
+    if (!t->score) continue;
+    const uint32_t ts = static_cast<uint32_t>(t->score->score) & 0xfff, skin = static_cast<uint32_t>(t->skin) & 7;
+    t->score->key = (skin + (ts + ts * 0x1000) * 8) * 2 + 1;
+    for (auto& p : lobby_players)
+      if (p->team == t->id && p->score) {
+        const uint32_t s = floor0(p->kills, p->deaths);
+        p->score->score = static_cast<int32_t>(s);
+        p->score->key = (skin + ((s & 0xfff) + ts * 0x1000) * 8) * 2;
+      }
+  }
+}
+
+// Mech3.exe 1.2 @ 0x00435b60: SCORES_LIST's lines (under the heading 0xdd6,
+// "Player Score Kills Suicides"): the name and two numbers cut to their
+// columns, then the suicides; a team's line its name and score. The best
+// score and how many have it noted; the lines sorted by their keys
+// (std::sort in the exe, its order of equal keys unspecified: stable here).
+void MultiplayerGame::score_texts(int32_t name_width, int32_t number_width) {
+  const auto left = [](const std::string& s, int32_t n) { return s.substr(0, n < 0 ? 0 : static_cast<size_t>(n)); };
+  char buf[256];
+  best = 0, best_count = 0;
+  const auto line = [&](LobbyPlayer& p, const char* name_format) {
+    ScoreLine* l = p.score;
+    if (!l) return;
+    if (l->score > best) best = l->score, best_count = 1;
+    else if (l->score == best) ++best_count;
+    std::snprintf(buf, sizeof buf, name_format, p.name.c_str());
+    std::string t = left(buf, name_width) + " ";
+    std::snprintf(buf, sizeof buf, "%d             ", l->score);
+    t += left(buf, number_width);
+    std::snprintf(buf, sizeof buf, "%d             ", p.kills);
+    t += left(buf, number_width);
+    std::snprintf(buf, sizeof buf, "%d", p.deaths);
+    l->text = t + buf;
+  };
+  if (!multiplayer_team_play()) {
+    for (auto& p : lobby_players) line(*p, "%s                        ");  // [0x005e3790]
+  } else {
+    for (auto& t : lobby_teams) {
+      if (t->score) {
+        std::snprintf(buf, sizeof buf, "%s ( %d )", t->name.c_str(), t->score->score);
+        t->score->text = buf;
+      }
+      for (auto& p : lobby_players)
+        if (p->team == t->id) line(*p, "  %s                  ");  // [0x005e37c0]
+    }
+  }
+  std::stable_sort(score_lines.begin(), score_lines.end(),
+                   [](const std::unique_ptr<ScoreLine>& a, const std::unique_ptr<ScoreLine>& b) { return a->key > b->key; });
 }
 
 // Mech3.exe 1.2 @ 0x00436e30

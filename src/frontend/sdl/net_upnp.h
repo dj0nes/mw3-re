@@ -39,16 +39,20 @@ class PortMapper {
   // `port` the game's UDP port. `description_url` skips the discovery (the
   // tests' fake router); empty: SSDP on the LAN, waiting `discover_ms`.
   PortMapper(uint16_t port, std::string description_url = "", int discover_ms = 2000);
-  ~PortMapper();  // the mapping removed first
+  // The mapping removed, best effort: a router still busy after `quit_ms`
+  // (discovery, or a SOAP call it stalls) is left to the worker, which
+  // finishes on its own; the game's close does not wait on it.
+  ~PortMapper();
   void map();     // hosting: the port opened (when a router is ready)
   void unmap();   // hosting ended: the mapping removed
   UpnpStatus status() const;
   bool idle() const;  // nothing asked of it is still being done (the tests)
+  static constexpr int quit_ms = 1000;
 
   struct Impl;
 
  private:
-  std::unique_ptr<Impl> impl_;
+  std::shared_ptr<Impl> impl_;  // shared with its worker, which may outlive us
 };
 
 }  // namespace sdlfe
