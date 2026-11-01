@@ -24,9 +24,11 @@ every box here is ticked:
 - [x] The software renderer no longer offered anywhere in the menus.
 - [ ] Every row in `docs/playtest.md` closed: fixed, by design or the
       original's, none open.
-- [ ] The community-reported problems (`docs/community-issues.md`) each
-      have a verdict (done on mac5/issues; items 9 and 12 wait on Owen).
-- [ ] Owen has played the whole campaign through on the release build.
+- [x] The community-reported problems (`docs/community-issues.md`) each
+      have a verdict (Owen, 2026-10-31: items 9 and 12 kept as the original).
+- The whole campaign on the release build: the automated 20-mission run
+  (`sdl_program_campaign_by_objectives`) counts; Owen's own playthrough is a
+  later playtest, not a gate (Owen, 2026-10-31).
 - [ ] Every check in sections 1-4 below passes on all three platforms.
 
 ## 1. Before

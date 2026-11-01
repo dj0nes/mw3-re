@@ -451,9 +451,13 @@ struct ProgramHudHooks : HudHooks {
     return true;
   }
   void mech_position(Mech* m, float out[3]) override { mech_pos(m, out); }
-  void vehicle_position(void* v, float out[3]) override {  // 0x005a8630
+  // 0x005a8630: a mech's target node (its torso, damage.md 4), not its
+  // place 0x005a85e0. Until 2026-10-31 the place, so with no part picked the
+  // lead circle sat between the target's feet (playtest W39).
+  void vehicle_position(void* v, float out[3]) override {
     if (v && !entity_is_mech(v)) return hud_object_aim_place(v, out);
-    if (v) mech_pos(mech_of(v), out);
+    if (const float* p = v ? weapon_lock_point(v) : nullptr) out[0] = p[0], out[1] = p[1], out[2] = p[2];
+    else if (v) mech_pos(mech_of(v), out);
     else out[0] = out[1] = out[2] = 0.0f;
   }
   // vt+0xc (0x0041d480): the lead velocity (0x0041d400: airborne the world

@@ -570,11 +570,13 @@ void wire_mech_frame() {
   // free look (playtest #14: wired to the camera switch before).
   k.view_camera = program_view_look;
   // 0x005a8630 on a contact's vehicle (the part aim's fallback): a mech's
-  // position; the other entities' are not ported (none).
+  // target node (its torso), not its place (W39); the other entities' are
+  // not ported (none).
   k.seen_position = [](uint32_t s) -> const float* {
     static Vec3 at;
     Mech* m = entity_mech(s);
     if (!m) return nullptr;
+    if (const float* p = weapon_lock_point(m)) return p;
     at = mech_position(*m);
     return &at.x;
   };

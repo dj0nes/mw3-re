@@ -7,9 +7,14 @@ the mockups were handed over in the outbox (launcher-sketch).
 
 ## The flow
 
-`mw3` with no check flags (not `--hidden`, `--frames`, `--shot`,
-`--campaign-chain`, `--mission`/`--fly`, `--movie`, `--dialog`, nor
-`--no-launcher`) runs:
+Since SETUP from any source (2026-10-31, docs/setup-sources.md and
+games-layout.md): a plain `mw3` start goes straight into the game when an
+install is found (mw3.cfg's, `<write dir>/install`, the finder's places),
+with no launcher; with none, it opens the **setup screen alone** (BACK is
+QUIT there) and goes on into the game in the same window once one is
+found or installed. `mw3 --launcher` shows the launcher below (the
+launcher's own program after the launcher split). What follows is the
+launcher as `--launcher` runs it:
 
 1. SDL, the write dir, mw3.log (as now).
 2. The window, made once and kept for the game: fullscreen at the desktop
@@ -39,12 +44,14 @@ the mockups were handed over in the outbox (launcher-sketch).
 
 ## The setup screen (mockups 2 to 4)
 
-A status line, then four plates and Back:
+A status box (two lines, red for a refusal), then the plates and Back
+(SETUP from any source, 2026-10-31, replacing FIND and INSTALL):
 
 | plate | shown | what it does |
 | --- | --- | --- |
-| Find my installed MechWarrior 3 | always | the finder again, then a folder/Mech3.exe picker; `setup::check_install`; saved by `sdlfe::save_install` |
-| Install from my disc or disc image | always | the discs `setup::find_discs()` sees as plates of their own, plus "Choose a .iso or .cue file..."; `setup::probe_source` first ("MechWarrior 3 1.0 disc image (.cue), with 2 music tracks: about 711 MB to install." with Install / Back), then `setup::install_from_disc` into `<write dir>/install`, music into `<write dir>/music` for a .cue |
+| Point to your game | always | with no game found yet, the finder first (an install found is used at once); then a file picker (a disc image, a download: .zip .7z .rar .tar.., or Mech3.exe); `source::map_source` on the worker ("LOOKING AT YOUR GAME", its bar, CANCEL), then an installed copy on disk is used where it is, anything else gets INSTALL / BACK under its plain summary and `setup::install_from_source` into `<write dir>/install`, a cue's music into `<write dir>/music` |
+| A folder instead | always | a folder picker (an installed copy, a drive or a disc's files), then as above |
+| Search again | always | the finder (a moved install), else a disc in a drive (`find_discs`) looked at as if picked, else says nothing was found |
 | Apply the 1.2 patch | when the data is 1.0 or a mix | a file picker (the ZIP) or a folder picker; `setup::apply_patch` into `<write dir>/patch12` |
 | Add the music from my disc image | always (offered again after an install from an .iso, which has no CD audio) | a .cue picker; `setup::add_music` |
 
