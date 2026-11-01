@@ -1248,6 +1248,10 @@ From the network code (network-messages.md).
 - **Your start point is your place in the lobby.** The host's START tells
   everyone the players' order in the lobby list, and each mech's starting
   point is chosen by that place.
+- **New teams are named by colour letter.** NEW TEAM suggests "A Team",
+  "B Team" and so on, by the first colour no team has yet (Gunmetal A,
+  Sunfire B...). A team's colour list never offers a colour another team
+  has, your own team's current one included.
 - **Lobby chat can be lost.** The lobby sends each chat message without
   asking for delivery, so on a bad connection a line may never arrive. The
   chat keeps the last 100 lines; the arrows scroll 14 at a time, and a team

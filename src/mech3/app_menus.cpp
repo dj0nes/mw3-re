@@ -385,6 +385,8 @@ Handle GameEngine::construct(uint32_t ctor, std::initializer_list<Arg> args) {
       return screen(0x13b04, [](GameEngine& e, Handle s) -> MenuScreen* { return new ConnectScreen(e, s); });
     case 0x495f90:  // its second, new(0x1505c): the lobby
       return screen(0x1505c, [](GameEngine& e, Handle s) -> MenuScreen* { return new LobbyScreen(e, s); });
+    case 0x49bd80:  // its third, new(0x11f3c): the new team's dialog
+      return screen(0x11f3c, [](GameEngine& e, Handle s) -> MenuScreen* { return new TeamScreen(e, s); });
     case 0x488bc0:  // the Action State's screen, new(0x17730)
       return screen(0x17730, [](GameEngine& e, Handle s) -> MenuScreen* { return new ActionScreen(e, s); });
     case 0x48a6c0:
@@ -1270,8 +1272,8 @@ void GameEngine::network_set(int32_t on) {
 // Mech3.exe 1.2 @ 0x0049cb20: the Multiplayer State's page shown as wanted
 // (1 the connection screen, 2 the lobby, 3 the new team), each told when
 // it starts over (+0x19): the connection screen forgets its kind
-// (0x004949d0), the lobby's (0x00497720) and the new team's (0x0049c2c0)
-// come with their pieces.
+// (0x004949d0), the lobby enters (0x00497720), the new team's dialog
+// enters over the lobby (0x0049c2c0).
 void GameEngine::multiplayer_switch(Handle state) {
   auto it = menu_states_.find(state);
   auto* g = it == menu_states_.end() ? nullptr : dynamic_cast<GameMenuState*>(it->second);
@@ -1286,7 +1288,9 @@ void GameEngine::multiplayer_switch(Handle state) {
       if (auto* l = dynamic_cast<LobbyScreen*>(screen_of(g->screens[1]))) l->enter();
   } else if (g->want == 3) {
     g->screen_ = g->screens[2];
-    if (g->x19) unported("0x0049c2c0", {g->screens[1]});
+    if (g->x19)
+      if (auto* t = dynamic_cast<TeamScreen*>(screen_of(g->screens[2])))
+        t->enter(dynamic_cast<LobbyScreen*>(screen_of(g->screens[1])));
   }
   if (!quiet && g->page != g->want) std::printf("mw3: multiplayer page %d\n", static_cast<int>(g->want));  // ours
   g->page = g->want;

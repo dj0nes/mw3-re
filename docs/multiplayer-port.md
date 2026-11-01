@@ -1063,6 +1063,12 @@ Ours, in three pieces:
   others see it; the bar emptied. A player's (0x00499610): "< %1 to all >"
   (0xf44) or "< %1 to team >" (0xf43, 0x40 bytes at most), then the text;
   FIX (A): a message cut short dropped, the text ended within the message.
+  The lead's check after 12: neither a peer's text nor its name is ever a
+  format (the text goes in as "%s"; zutl::format_message fills the header's
+  %1 in one pass over the message's own text, never over what it put in),
+  and control characters become '?' in the text and in every name zNetwork
+  records (players' and teams', `clipped`), as in the search's game names;
+  tested with "%s%n%1" and an escape in a name and a text.
   Test: `net_lobby_chat_headless` (the message's bytes, our lines, an empty
   bar sending nothing, Bob's to the team, a short one and one without its
   0, 120 lines into 100, the window, UP and DOWN, a line added away from
@@ -1070,6 +1076,30 @@ Ours, in three pieces:
   and to all again); breaks caught: no team flag, a short message taken, no
   step at the top, a window that does not move, Enter never to the team. A
   shot of the lobby with two lines sent shows them under their headers.
+
+- **Piece 13** (2026-11-01): the new team's dialog, MULTIPLAYER_NEW_TEAM_DIALOG
+  (`TeamScreen`, 0x0049bd80, the Multiplayer State's third page; the
+  engine's `construct(0x49bd80)`, entered by the page switch with the
+  lobby, 0x0049c2c0). Over a still of the screen under it (0x00579500(2),
+  the 2D host's `screen_grab`, freed on OK or CANCEL, 0x00517b10). The
+  lobby's NEW_TEAM (7, 0x0049a2b0: a new team, its skin, JOIN; the chat's
+  bar without the keyboard, TP_LIST's choice off) and PICK_SKIN (8,
+  0x0049a820: the skin alone) set its three flags (+0x111ec..+0x111ee) and
+  open page 3. Enter: the name's bar (shown with the keyboard for a new
+  team), SKIN_LIST on to choose, holding every skin no team has
+  (0x0049bd10; all of them outside team play, our own team's taken too),
+  SKIN_TEXTURES the chosen skin's "popup_box%d", a new team named by its
+  first free skin's letter ("A Team", 0xf64), JOIN shown and checked. OK
+  (0x0049c6c0): a new team needs a name (0x1e5) no team has (0x1e6,
+  0x00589680, `znet::team_named`), then is made with the skin and joined
+  with JOIN (0x0049a300); else our skin (0x0049a850); back (0x0049c680:
+  the chat's bar the keyboard again, page 2). Enter in the name's bar is OK
+  (0x0049bfe0); SKIN_LIST's change its image. Test:
+  `net_lobby_team_dialog_headless` (A Team made and joined with skin 1,
+  the next B Team without skin 1, a name in use and none refused, CANCEL,
+  PICK_SKIN setting our team's skin 5); breaks caught: always "A", names
+  repeated, taken skins listed, never joined, no skin set. A shot of PICK
+  A SKIN over the lobby shows the still, the skin's picture and its list.
 
 ## Open
 

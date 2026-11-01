@@ -2646,4 +2646,8 @@ Assigned after 8b2 merged (fd3f05f). The lead asked for a section stepped at bot
   emulator on c1's waynet_mp1 and mp2: all elements points), ported as is.
 - 12 done (multiplayer-port.md, 12): the chat log, its scroll, the send
   and the 0x1f, FIX (A) for a short or open message.
-- Next: 13 (the new team's dialog).
+- The lead's chat check: names and chat text never a format, control
+  characters as '?' (names in zNetwork's records).
+- 13 done (multiplayer-port.md, 13): the new team's dialog, NEW_TEAM and
+  PICK_SKIN.
+- Next: 14 (the in-game chat panel, the multiplayer briefing and debriefing).

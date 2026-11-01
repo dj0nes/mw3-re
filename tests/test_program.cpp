@@ -3730,6 +3730,8 @@ struct LobbyRig {
   std::unique_ptr<mech3::GameEngine> engine;
   std::unique_ptr<mech3::Mech3App> app;
   mech3::LobbyScreen* l = nullptr;
+  mech3::GameMenuState* g = nullptr;
+  mech3::Handle st = 0;
   std::vector<int32_t> boxes;
   uint32_t answer = 1;
   mech3::MultiplayerGame game{nullptr};
@@ -3753,8 +3755,8 @@ struct LobbyRig {
       boxes.push_back(text);
       return answer;
     };
-    const mech3::Handle st = engine->construct(0x49c900, {});
-    auto* g = dynamic_cast<mech3::GameMenuState*>(engine->menu_state_of(st));
+    st = engine->construct(0x49c900, {});
+    g = dynamic_cast<mech3::GameMenuState*>(engine->menu_state_of(st));
     l = g ? dynamic_cast<mech3::LobbyScreen*>(engine->screen_of(g->screens[1])) : nullptr;
     engine->network_set(1);
   }
@@ -4180,6 +4182,22 @@ TEST(net_lobby_chat_headless) {
   const std::vector<std::string> got = lines();
   EXPECT(got.size() == 7);
   if (got.size() == 7) EXPECT(got[3] == "< Bob to team >" && got[4] == "gg" && got[5] == "< Bob to all >" && got[6] == "xxxx");
+  // A name and a text with format specifiers and an escape: shown as they
+  // are, the escape's control character as '?', nothing formatted again.
+  znet::Transport* eve = r.hub.endpoint();
+  EXPECT(eve->join("loopback") && eve->create_player("Eve%s%n%1\x1b[", "Eve") == 3);
+  znet::poll(-1);
+  const char evil[] = "%s%n%1\x1b[31m";
+  std::vector<uint8_t> em(8 + sizeof evil, 0);
+  em[0] = 0x1f, em[2] = static_cast<uint8_t>(em.size());
+  std::memcpy(em.data() + 8, evil, sizeof evil);
+  eve->send(0, em.data(), em.size(), false, nullptr);
+  znet::poll(-1);
+  EXPECT(log.history.size() >= 2);
+  if (log.history.size() >= 2) {
+    EXPECT(*std::prev(log.history.end(), 2) == "< Eve%s%n%1?[ to all >");
+    EXPECT(log.history.back() == "%s%n%1?[31m");
+  }
   // The log: 100 lines, the window on the last 14; up, then a line added away
   // from the bottom; down to the bottom again.
   for (int i = 0; i < 120; ++i) log.add(("line " + std::to_string(i)).c_str());
@@ -4210,6 +4228,72 @@ TEST(net_lobby_chat_headless) {
   r.l->chat_edit.on_return();
   h = heard();
   EXPECT(h.size() == 1 && h.size() == 1 && h[0][4] == 0);
+  mech3::multiplayer_setup().team_play = 0;
+}
+
+// The new team's dialog (piece 13): NEW_TEAM opens page 3 with a new team's
+// name (the first free skin's letter), every free skin and JOIN checked; OK
+// makes it and joins it; a name in use (0x1e6) or none (0x1e5) refused;
+// CANCEL back with nothing made; the next one's name and skins leave out the
+// taken skin; PICK_SKIN alone sets our team's skin.
+TEST(net_lobby_team_dialog_headless) {
+  if (!have_game()) return;
+  LobbyRig r("net_team_dialog_write");
+  EXPECT(r.l != nullptr);
+  if (!r.l) return;
+  auto* t = dynamic_cast<mech3::TeamScreen*>(r.engine->screen_of(r.g->screens[2]));
+  EXPECT(t != nullptr);
+  if (!t) return;
+  znet::SessionDesc d;
+  d.name = "Mine", d.max_players = 4, d.user[1] = mech3::kGameVersion;
+  EXPECT(znet::host_session(d, "Ann"));
+  znet::poll(-1);
+  mech3::multiplayer_setup().team_play = 1;
+  r.l->take_pilot(1, &r.game);
+  r.l->enter();
+  znet::poll(-1);
+  r.l->update(0.1f);
+  auto open = [&](int32_t button) {
+    r.l->on_button(button, 0, 0);
+    EXPECT(r.g->want == 3 && r.g->x19 == 1);
+    r.engine->multiplayer_switch(r.st);
+  };
+  auto refresh = [&] {
+    znet::poll(-1);
+    mech3::g_lobby_dirty = 1;
+    r.l->update(0.1f);
+  };
+  open(7);
+  EXPECT(r.l->team_new == 1 && r.l->team_skin == 1 && r.l->team_join == 1 && t->lobby == r.l);
+  EXPECT(t->skins.count() == 8 && t->skins.selected_value() == 1 && t->join_box.checked == 1);
+  EXPECT(std::string(t->name_edit.get_text()) == "A Team");
+  t->on_button(2, 0, 0);  // SKIN_LIST's change: its image
+  t->on_button(0, 0, 0);
+  refresh();
+  EXPECT(r.g->want == 2 && r.game.lobby_teams.size() == 1);
+  if (!r.game.lobby_teams.empty()) {
+    const mech3::LobbyTeam& a = *r.game.lobby_teams.front();
+    EXPECT(a.name == "A Team" && a.skin == 1 && a.owner == 1 && r.game.lobby_team_id(1) == a.id);
+  }
+  // The next: skin 1 taken, "B Team"; a name in use, none, then CANCEL.
+  open(7);
+  EXPECT(t->skins.count() == 7 && t->skins.selected_value() == 2 && std::string(t->name_edit.get_text()) == "B Team");
+  t->name_edit.set_text("A Team");
+  t->on_button(0, 0, 0);
+  t->name_edit.set_text("   ");
+  t->on_button(0, 0, 0);
+  EXPECT(r.boxes.size() == 2 && r.boxes[0] == 0x1e6 && r.boxes[1] == 0x1e5 && r.g->want == 3);
+  t->on_button(1, 0, 0);
+  refresh();
+  EXPECT(r.g->want == 2 && r.game.lobby_teams.size() == 1);
+  // PICK_SKIN: no name, no JOIN; our team's skin.
+  open(8);
+  EXPECT(r.l->team_new == 0 && r.l->team_skin == 1 && r.l->team_join == 0);
+  EXPECT(t->skins.count() == 7);
+  t->skins.select_value(5);
+  t->on_button(0, 0, 0);
+  refresh();
+  EXPECT(r.game.net_skin(1) == 5);
   mech3::multiplayer_setup().team_play = 0;
 }
 
@@ -15547,7 +15631,7 @@ TEST(known_unported_keys_name_their_reason) {
                         "0x005a7e10", "0x005a7f90", "0x00576c50", "0x00535ed0", "0x004f8f60", "0x00537520",
                         "0x00519e50", "0x00526510", "0x005578f0", "0x00557b30", "0x00575f70", "0x00576c60",
                         "0x00516f00", "0x00526780", "0x00557b10", "0x005646d0",
-                        "0x0049bd80"}) {
+                        }) {
     const char* why = mech3::GameEngine::known_unported(k);
     EXPECT(why != nullptr);
     if (!why) continue;
@@ -15556,7 +15640,7 @@ TEST(known_unported_keys_name_their_reason) {
            w.size() > 20);
     ++n;
   }
-  EXPECT(n == 44);  // 0x00586ce0, 0x00586c20, 0x00588930, 0x0046ef70, 0x0046f160 ported (multiplayer-port.md pieces 1, 2, 6a), 0x00493260 (9b), 0x00495f90 (11a)
+  EXPECT(n == 43);  // 0x00586ce0, 0x00586c20, 0x00588930, 0x0046ef70, 0x0046f160 ported (multiplayer-port.md pieces 1, 2, 6a), 0x00493260 (9b), 0x00495f90 (11a), 0x0049bd80 (13)
   for (const char* gap : {"0x00579ea0", "0x004f9fa0", "0x004fa0b0", "0x00479be0", "0x0051a300",
                           "[[0x0060861c]+0x14]", "0x004f3430", "0x005799f0", "0x0051d0c0",
                           "0x00556210", "game.vt", "0x00414000", "0x0047abe0", "0x004f8f50",

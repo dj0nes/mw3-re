@@ -61,6 +61,7 @@ uint32_t create_team(const char* name);              // 0x00588390: the team's i
 bool add_to_team(uint32_t team, uint32_t player);    // 0x005884c0
 bool remove_from_team(uint32_t team, uint32_t player);  // 0x00588500: the record's team cleared
 bool destroy_team(uint32_t team);                    // 0x00588590
+bool team_named(const char* name);                   // 0x00589680: a team of that name (strcmp) is listed
 int32_t enum_teams();                                // 0x00588200: the teams' list made again; their count
 bool enum_team_players();                            // 0x00588300: each team's players' records given it
 int32_t enum_players();                              // 0x005885c0: records for new players; their count

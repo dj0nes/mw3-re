@@ -352,8 +352,7 @@ void LobbyScreen::update(float dt) {
   Window::update(dt);
 }
 
-// Mech3.exe 1.2 @ 0x00497410. NEW_TEAM (7, 0x0049a2b0) and PICK_SKIN (8,
-// 0x0049a820) open the new team's dialog, piece 13.
+// Mech3.exe 1.2 @ 0x00497410
 void LobbyScreen::on_button(int32_t id, int32_t a, int32_t b) {
   (void)a, (void)b;
   Engine& e = engine();
@@ -373,6 +372,8 @@ void LobbyScreen::on_button(int32_t id, int32_t a, int32_t b) {
       return;
     }
     case 4: join_team(); return;
+    case 7: open_new_team(); return;
+    case 8: open_pick_skin(); return;
     case 5: remove_team(); return;
     case 10: mech_lab(); return;
     case 0x15: ready(); return;
@@ -1175,7 +1176,9 @@ void LobbyScreen::chat_send(uint32_t team) {
 
 // Mech3.exe 1.2 @ 0x00499610: the sender's line ("< %1 to team >" 0xf43 or
 // "< %1 to all >" 0xf44, 0x40 bytes at most), then the text. FIX (A): a
-// message cut short is dropped and the text ends within it.
+// message cut short is dropped, the text ends within it, its control
+// characters are '?'; neither the text nor the name is a format (the
+// message's %1 is filled once, zutl::format_message).
 void LobbyScreen::on_chat(uint32_t from, const uint8_t* msg, size_t size) {
   LobbyScreen* l = g_lobby;
   if (!l || size < 9) return;
@@ -1184,7 +1187,147 @@ void LobbyScreen::on_chat(uint32_t from, const uint8_t* msg, size_t size) {
   if (head.size() > 0x3f) head.resize(0x3f);
   l->chat_log.add(head.c_str());
   const char* text = reinterpret_cast<const char*>(msg + 8);
-  l->chat_log.add(std::string(text, strnlen(text, size - 8)).c_str());
+  std::string line(text, strnlen(text, size - 8));
+  for (char& c : line)  // FIX (A): no control characters on the screen; the text only ever a "%s" argument
+    if (static_cast<unsigned char>(c) < 0x20 || c == 0x7f) c = '?';
+  l->chat_log.add(line.c_str());
+}
+
+// ---- the new team's dialog (piece 13) ----
+
+// Mech3.exe 1.2 @ 0x0049a2b0: a new team, its name and skin, JOIN checked;
+// the chat's bar without the keyboard, TP_LIST's choice off; page 3.
+void LobbyScreen::open_new_team() {
+  if (!state) return;
+  team_join = team_new = team_skin = 1;
+  chat_edit.set_focus(0);
+  teams_list.select_index(-1);
+  engine().multiplayer_page(state, 3, 1);  // 0x0049cb00
+}
+
+// Mech3.exe 1.2 @ 0x0049a820: our skin alone; page 3.
+void LobbyScreen::open_pick_skin() {
+  team_skin = 1;
+  team_join = team_new = 0;
+  if (state) engine().multiplayer_page(state, 3, 1);
+}
+
+void TeamNameBar::on_return() { screen->on_button(0, 0, 0); }
+
+// Mech3.exe 1.2 @ 0x0049bd80
+TeamScreen::TeamScreen(Engine& e, Handle s)
+    : MenuScreen(e, s), cancel_btn(e, 1), ok_btn(e, 0), name_edit(e, this), skins(e, 2) {
+  name_edit.editor.set_reject(":|\\<>/?\"*");  // [0x005e28e8]
+  name_edit.set_size(0x19);
+  if (load_from(e.main_menu_definition(), "MULTIPLAYER_NEW_TEAM_DIALOG", true)) {
+    add(&backdrop);
+    bind_primitive(&skin_image, "SKIN_TEXTURES");
+    bind_button(&cancel_btn, "CANCEL_BUTTON");
+    bind_button(&ok_btn, "OK_BUTTON");
+    bind_button(&name_edit, "NEW_TEAM_NAME_EDIT");
+    bind_button(&join_box, "JOIN_TEAM_CHECKBOX");
+    bind_button(&skins, "SKIN_LIST");
+  }
+  set_flags_all(0);
+  set_active(1);
+}
+
+// Mech3.exe 1.2 @ 0x0049c170
+TeamScreen::~TeamScreen() {
+  if (still_tex) ztwod::host().image_release(still_tex);
+}
+
+// Mech3.exe 1.2 @ 0x0049c2c0: the screen under it kept as its backdrop; the
+// name's bar shown with the keyboard for a new team; SKIN_LIST on to choose
+// a skin, holding each one no other team has (every one outside team play),
+// its image; a new team named by its first free skin's letter ("A Team",
+// 0xf64); JOIN shown and checked for a new team.
+void TeamScreen::enter(LobbyScreen* l) {
+  lobby = l;
+  still_tex = ztwod::host().screen_grab(2);
+  if (still_tex) backdrop.set_image(still_tex);
+  if (!lobby) return;
+  if (lobby->team_new) {
+    name_edit.show_for(-1.0f);
+    name_edit.set_focus(1);
+  } else {
+    name_edit.set_focus(0);
+    name_edit.hide();
+  }
+  skins.set_baked(lobby->team_skin != 0);  // +0x90: the button and its arrows on or off
+  if (lobby->team_join) join_box.show_for(-1.0f);
+  else join_box.hide();
+  Engine& e = engine();
+  int32_t first = 1000;
+  skins.clear_items();
+  for (int32_t i = 0; i < 8; ++i)
+    if (lobby->free_skin(i + 1, -1) == 0) {
+      skins.add_item(e.message(0xdd6 + i + 1), i + 1);
+      if (first >= i) first = i;
+    }
+  show_skin();
+  if (lobby->team_new) {
+    const char letter[2] = {static_cast<char>('A' + (first < 0x19 ? first : 0x19)), 0};  // [0x005e3e10]
+    name_edit.set_text(zutl::format_message_f(0xf64, letter).c_str());
+  } else {
+    name_edit.set_text("");
+  }
+  if (lobby->team_join) join_box.set_checked(1);
+}
+
+void TeamScreen::show_skin() {
+  char name[32];
+  std::snprintf(name, sizeof name, "popup_box%d", skins.selected_value());  // [0x005e7cb8]
+  skin_image.set_image(name);
+}
+
+// Mech3.exe 1.2 @ 0x0049c550: OK, CANCEL (the backdrop freed after either),
+// SKIN_LIST's change its image.
+void TeamScreen::on_button(int32_t id, int32_t, int32_t) {
+  if (id == 2) {
+    show_skin();
+    return;
+  }
+  if (id != 0 && id != 1) return;
+  if (id == 0) ok();
+  else back();
+  if (still_tex) ztwod::host().image_release(still_tex);  // 0x00517b10
+  still_tex = nullptr;
+  backdrop.set_image(static_cast<zimg::Texture*>(nullptr));
+}
+
+// Mech3.exe 1.2 @ 0x0049c680: the chat's bar the keyboard again; the lobby.
+void TeamScreen::back() {
+  if (!state || !lobby) return;
+  lobby->chat_edit.set_focus(0);
+  lobby->chat_edit.set_focus(1);
+  engine().multiplayer_page(state, 2, 0);
+}
+
+// Mech3.exe 1.2 @ 0x0049c6c0: a new team needs a name (0x1e5) no team has
+// (0x1e6, 0x00589680), then is made with SKIN_LIST's skin, joined with JOIN
+// (0x0049a300); else our skin (0x0049a850); back to the lobby.
+void TeamScreen::ok() {
+  if (!state || !lobby) return;
+  Engine& e = engine();
+  if (lobby->team_new) {
+    std::string name = name_edit.get_text() ? name_edit.get_text() : "";
+    const size_t a = name.find_first_not_of(" \t\r\n");
+    name = a == std::string::npos ? "" : name.substr(a, name.find_last_not_of(" \t\r\n") - a + 1);
+    const int32_t why = name.empty() ? 0x1e5 : znet::team_named(name.c_str()) ? 0x1e6 : 0;
+    if (why) {
+      cursor_obj.erase();
+      e.message_box(0x30, 0x1e4, why);
+      set_flags_all(0);
+      return;
+    }
+    lobby->new_team(name.c_str(), skins.selected_value(), join_box.checked != 0);
+  } else if (lobby->team_skin) {
+    lobby->set_skin(skins.selected_value());
+  }
+  lobby->chat_edit.set_focus(0);
+  lobby->chat_edit.set_focus(1);
+  engine().multiplayer_page(state, 2, 0);
 }
 
 // The host's lines (the connection screen's, mp_connect.cpp); none for a

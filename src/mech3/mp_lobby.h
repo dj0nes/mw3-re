@@ -126,6 +126,8 @@ class LobbyScreen : public MenuScreen {
   bool add_to_team(uint32_t team, uint32_t player);  // 0x0049a220
   void new_team(const char* name, int32_t skin, bool join);  // 0x0049a300
   void set_skin(int32_t skin);       // 0x0049a850
+  void open_new_team();              // 0x0049a2b0: NEW_TEAM (7)
+  void open_pick_skin();             // 0x0049a820: PICK_SKIN (8)
   int32_t free_skin(int32_t skin, int32_t except);  // 0x0049bd10: the team with that skin, 0 none
   bool has_world(uint32_t player, int32_t world);   // 0x0049ab30: an add-on world in its data
   // Ours (piece 9c, the lead's plan for piece 11): the host's addresses, as
@@ -180,12 +182,51 @@ class LobbyScreen : public MenuScreen {
   uint8_t start_pending = 0;         // +0x15052  START asked; the update starts (piece 11c)
   uint8_t keep_order = 0;            // +0x15053  a refresh keeps the players' places
   int32_t saved_state = 0;           // +0x15054  our data's state while in the mech lab
+  uint8_t team_new = 0;              // +0x111ec  the team dialog: a new team (its name)
+  uint8_t team_skin = 0;             // +0x111ed  ... its skin chosen
+  uint8_t team_join = 0;             // +0x111ee  ... JOIN_TEAM_CHECKBOX shown and checked
   Handle pilot = 0;                  // +0x15058
   CopyLine internet_line, lan_line;  // ours (piece 9c)
   float reach_timer = 0;
 
  private:
   bool handlers_on_ = false;
+};
+
+// MULTIPLAYER_NEW_TEAM_DIALOG (0x0049bd80, vtable 0x005c7cd0), 0x11f3c
+// bytes, the Multiplayer State's third page, over a still of the lobby: a
+// new team's name and skin (and whether we join it), or our skin alone, by
+// the lobby's three flags (piece 13).
+class TeamScreen;
+// NEW_TEAM_NAME_EDIT (vtable 0x005c7e30, 0x19 characters, a file name's
+// rejects): Enter is OK (0x0049bfe0).
+class TeamNameBar : public ShellEditBar {
+ public:
+  TeamNameBar(Engine& e, TeamScreen* s) : ShellEditBar(e), screen(s) {}
+  void on_enter() override {}        // +0x3c  0x0049bfd0
+  void on_leave() override {}        // +0x40  0x0049bfd0
+  void on_return() override;         // +0x90  0x0049bfe0
+  TeamScreen* screen;                // +0x38c
+};
+class TeamScreen : public MenuScreen {
+ public:
+  TeamScreen(Engine& e, Handle state);  // 0x0049bd80
+  ~TeamScreen() override;            // 0x0049c170 (deleting 0x0049c150)
+  void on_button(int32_t id, int32_t a, int32_t b) override;  // +0x14  0x0049c550
+  void enter(LobbyScreen* lobby);    // 0x0049c2c0
+  void ok();                         // 0x0049c6c0
+  void back();                       // 0x0049c680
+  void show_skin();                  // the SKIN_TEXTURES image of SKIN_LIST's skin ("popup_box%d")
+
+  ShellButton cancel_btn;            // +0x111ec  CANCEL_BUTTON (1)
+  ShellButton ok_btn;                // +0x11344  OK_BUTTON (0)
+  TeamNameBar name_edit;             // +0x1149c  NEW_TEAM_NAME_EDIT
+  InvertCheck join_box;              // +0x1182c  JOIN_TEAM_CHECKBOX
+  CycleButton skins;                 // +0x11998  SKIN_LIST (2)
+  ztwod::Image skin_image{0};        // +0x11dbc  SKIN_TEXTURES
+  ztwod::Image backdrop{0};          // +0x11e78  the screen under it (0x00579500(2))
+  zimg::Texture* still_tex = nullptr;  // +0x11f34
+  LobbyScreen* lobby = nullptr;      // +0x11f38
 };
 
 // [0x006099d4]: the lobby, its handlers' screen; [0x006099cc] its lists'
