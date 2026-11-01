@@ -31,19 +31,19 @@ SKIP(mech3::draw_calls, map_point, "0x004586e0")  // DrawCalls.map_point
 SKIP(mech3::pocket_calls, view_pocket, "0x004b5290")  // PocketCalls.view_pocket
 // The mission's network side (mech_net.cpp): pieces 5b-7 and the lobby.
 SKIP(mech3::net_calls, clock, "0x00470740")  // NetCalls.clock
-SKIP(mech3::net_calls, respawn, "0x0046ed30")  // NetCalls.respawn
-SKIP(mech3::net_calls, kill, "0x0046eba0")  // NetCalls.kill
-SKIP(mech3::net_calls, scores, "0x004708e0")  // NetCalls.scores
 SKIP(mech3::net_calls, rules, "0x0058b380")  // NetCalls.rules
-SKIP(mech3::net_calls, posture, "0x0046ed10")  // NetCalls.posture
-SKIP(mech3::net_calls, knockback, "0x004705b0")  // NetCalls.knockback
 SKIP(mech3::net_calls, effect, "0x0046ff50")  // NetCalls.effect
 SKIP(mech3::net_calls, drop, "0x0046ffd0")  // NetCalls.drop
 SKIP(mech3::net_calls, chat, "0x00470490")  // NetCalls.chat
-SKIP(mech3::net_calls, part_off, "0x0046fff0")  // NetCalls.part_off
 SKIP(mech3::net_calls, crater, "0x0046fde0")  // NetCalls.crater
 SKIP(mech3::net_calls, lobby_left, "0x00495b10")  // NetCalls.lobby_left
-SKIP(mech3::net_calls, send_other, "0x0046f160 kinds 0x11-0x13, 0x17, 0x21")  // NetCalls.send_other
+SKIP(mech3::net_calls, send_other, "0x0046f160 kind 0x11")  // NetCalls.send_other
 SKIP(mech3::net_calls, rules_check, "0x00576c10")  // NetCalls.rules_check
 SKIP(mech3::net_calls, game_over, "0x004707c0")  // NetCalls.game_over
-SKIP(mech3::net_calls, respawn_at, "0x0046ed30")  // NetCalls.respawn_at
+SKIP(mech3::net_calls, lobby_suicide, "0x00435ac0")  // NetCalls.lobby_suicide
+SKIP(mech3::net_calls, lobby_kill, "0x004359b0")  // NetCalls.lobby_kill
+SKIP(mech3::net_calls, lobby_kills, "0x00435a50")  // NetCalls.lobby_kills
+SKIP(mech3::net_calls, lobby_scores, "0x00470170 lobby list")  // NetCalls.lobby_scores
+SKIP(mech3::net_calls, lobby_set_kills, "0x004359f0")  // NetCalls.lobby_set_kills
+SKIP(mech3::net_calls, lobby_set_deaths, "0x00435b00")  // NetCalls.lobby_set_deaths
+SKIP(mech3::net_calls, hud_scores, "0x00446ad0")  // NetCalls.hud_scores

@@ -14,6 +14,10 @@ floats within float rounding (x87 at 24 bits against the port's).
 
     cmake --build build && .venv/bin/python tests/differential/test_mech_net_apply.py
 
+Then the fixed path (bug fixes on, FIX (bug)): the aim's lag correction
+takes the latency in milliseconds, as the gap is; the exe given the
+latency x 1000 computes the same, and the applies are compared so.
+
 BREAK=1 gives the port's apply another throttle byte; it must fail.
 """
 import ctypes
@@ -31,6 +35,7 @@ from test_matrix import ASIN, COPYSIGN, IAT_ASIN, IAT_COPYSIGN  # noqa: E402
 probe.probe_mech_net_apply.argtypes = [ctypes.POINTER(ctypes.c_int32), ctypes.POINTER(ctypes.c_int32), ctypes.c_int32]
 probe.probe_mech_net_apply.restype = ctypes.c_int32
 probe.probe_mech_net_rx_count.restype = ctypes.c_int32
+probe.probe_mech_net_bugs.argtypes = [ctypes.c_int32]
 
 NAMES = ['mode', 'len', ('msg', 64), 'flags_in', ('pos_in', 3), ('vel_in', 3), ('heading_q', 4), ('aim_q', 4), 'heard',
          'latency', ('orient', 4), ('world', 3), ('torso_at', 3), 'xbc', 'power', 'masc', 'narc', 'crouched',
@@ -329,7 +334,7 @@ def same(mine, theirs):
         if a == b:
             continue
         x, y = fl(a), fl(b)
-        scale = 1000.0 if i in aim else max(abs(x), abs(y), 1.0)
+        scale = max(abs(x), abs(y), 1000.0 if i in aim else 1.0)
         if not (abs(x) > 1e-30 and abs(y) > 1e-30 and math.isfinite(x) and abs(x - y) <= 3e-6 * scale):
             return False
     return True
@@ -363,9 +368,39 @@ def main():
                          min(len(mine), len(theirs)))
                 print(f'FAIL case {n} mode {v[K["mode"]]} at {i}:\n  port     {mine[max(0, i - 6):i + 8]}\n'
                       f'  original {theirs[max(0, i - 6):i + 8]}')
+    # The fixed path: the port with bug fixes on against the exe given the latency in milliseconds.
+    probe.probe_mech_net_bugs(1)
+    fixed = changed = 0
+    rng = random.Random(18)
+    for n in range(800):
+        v = case(rng)
+        v[K['mode']] = 0
+        if not v[K['len']] or v[K['len']] < 0x3c:
+            continue
+        v[K['latency']] = bits(rng.choice([0.05, 0.1, 0.3]))
+        ms = list(v)
+        ms[K['latency']] = bits(fl(v[K['latency']]) * 1000.0)
+        theirs = exe.run(ms)
+        theirs[-10] = v[K['latency']]  # the latency kept (before the ping words and the 92 block) is the port's seconds
+        original = exe.run(v)
+        arr = (ctypes.c_int32 * COUNT)(*v)
+        out = (ctypes.c_int32 * 4096)()
+        k = probe.probe_mech_net_apply(arr, out, 4096)
+        mine = list(out[:k])
+        fixed += 1
+        changed += theirs != original
+        if not same(mine, theirs):
+            fails += 1
+            if fails <= 2:
+                i = next((j for j, (a, b) in enumerate(zip(mine, theirs)) if not same([a], [b])), None)
+                print(f'FAIL fixed path case {n} at {i}: port {mine[max(0, (i or 0) - 4):(i or 0) + 5]} '
+                      f'original {theirs[max(0, (i or 0) - 4):(i or 0) + 5]}')
+    probe.probe_mech_net_bugs(0)
     if fails:
         print(f'{fails} of {cases} differ')
         sys.stdout.flush(); os._exit(1)
+    assert changed > 0, 'the fix never changed an aim'
+    print(f'ok: fixed path: {fixed} applies as the exe with the latency in ms ({changed} aims carried on further)')
     print(f'ok: {cases} cases identical (applies {modes.get(0, 0)}, reckonings {modes.get(1, 0)}, '
           f'pings {modes.get(2, 0)}, sends done {modes.get(3, 0)})')
     sys.stdout.flush(); os._exit(0)

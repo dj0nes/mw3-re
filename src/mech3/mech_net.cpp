@@ -5,6 +5,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <new>
 
 #include "gamez/zdeclient/zdec_crater.h"
 #include "mech3/mech_parts.h"
@@ -13,6 +14,7 @@
 #include "gamez/zeffect/zeff_anim_save.h"
 #include "gamez/znetwork/znet_dplay.h"
 #include "gamez/znetwork/znet_session.h"
+#include "gamez/zutil/zfix.h"
 #include "gamez/zutil/ztimer.h"
 #include "mech3/mech_config.h"
 #include "mech3/mech_dead.h"
@@ -125,16 +127,21 @@ void net_route(uint32_t from, const uint8_t* msg, size_t size) {
     case 0xf: return c.state ? c.state(m, from, msg, size) : net_state_apply(*m, msg, size);
     case 0x10: return c.ping ? c.ping(m, from, msg, size) : net_ping_in(*m, msg, size);
     case 0x11: return call(c.clock, m, from, msg, size);
-    case 0x12: return call(c.respawn, m, from, msg, size);
-    case 0x13: return call(c.kill, m, from, msg, size);
-    case 0x14: return call(c.scores, m, from, msg, size);
+    case 0x12: {
+      if (c.respawn) return c.respawn(m, from, msg, size);
+      float pos[3] = {0, 0, 0};
+      if (size >= 16) std::memcpy(pos, msg + 4, 12);
+      return net_respawn_in(*m, pos);
+    }
+    case 0x13: return c.kill ? c.kill(m, from, msg, size) : net_kill_in(msg, size);
+    case 0x14: return c.scores ? c.scores(m, from, msg, size) : net_scores_in(msg, size);
     case 0x16: return call(c.rules, m, from, msg, size);
-    case 0x17: return call(c.posture, m, from, msg, size);
-    case 0x18: return call(c.knockback, m, from, msg, size);
+    case 0x17: return c.posture ? c.posture(m, from, msg, size) : net_posture_in(*m, msg, size);
+    case 0x18: return c.knockback ? c.knockback(m, from, msg, size) : net_shove_in(*m, msg, size);
     case 0x1a: return call(c.effect, m, from, msg, size);
     case 0x1b: return call(c.drop, m, from, msg, size);
     case 0x1f: return call(c.chat, m, from, msg, size);
-    case 0x21: return call(c.part_off, m, from, msg, size);
+    case 0x21: return c.part_off ? c.part_off(m, from, msg, size) : net_part_off_in(msg, size);
     default: return;  // 0x15 is registered but not handled in a mission
   }
 }
@@ -283,7 +290,7 @@ float net_send_period(int32_t players) {
 
 // Mech3.exe 1.2 @ 0x0046f160
 int32_t net_send_event(Mech& m, int32_t kind, intptr_t arg) {
-  if (!g_net.running || m.remote) return 0;  // a network mech's vt+0x168 is 0x0046ef50: 0
+  if (!g_net.running || m.remote) return 0;  // a network mech's vt+0x168 is 0x00410490: 0
   const NetCalls& c = g_calls;
   switch (kind) {
     case 0xf: {
@@ -321,7 +328,45 @@ int32_t net_send_event(Mech& m, int32_t kind, intptr_t arg) {
       m.net_shots.push_back(s);
       return 0;
     }
-    case 0x11: case 0x12: case 0x13: case 0x17: case 0x21:
+    case 0x12: {  // made again (the respawn), at its place
+      uint8_t b[0x10] = {0x12, 0, 0x10, 0};
+      float pos[3] = {0, 0, 0};
+      if (c.position) c.position(m, pos);
+      std::memcpy(b + 4, pos, 12);
+      znet::send(b, sizeof b, true, 0);
+      return 0;
+    }
+    case 0x13: {  // killed (arg its killer): to all, then as if heard
+      const uint32_t victim = znet::local_id();  // vt+0x160, 0x0041ec50
+      uint32_t killer = victim;
+      if (arg) {
+        const NetMech* k = net_mech_of(reinterpret_cast<Handle>(arg));  // vt+0x58
+        killer = k ? k->owner : znet::local_id();  // else its vt+0x160
+      }
+      uint8_t b[0xc] = {0x13, 0, 0xc, 0};
+      std::memcpy(b + 4, &victim, 4);
+      std::memcpy(b + 8, &killer, 4);
+      znet::send(b, sizeof b, true, 0);
+      c.kill ? c.kill(nullptr, 0, b, sizeof b) : net_kill_in(b, sizeof b);  // 0x0046eba0
+      return 0;
+    }
+    case 0x17: {  // an action queued (arg its kind)
+      uint8_t b[8] = {0x17, 0, 8, 0};
+      const auto a = static_cast<int32_t>(arg);
+      std::memcpy(b + 4, &a, 4);
+      znet::send(b, sizeof b, false, 0);
+      return 0;
+    }
+    case 0x21: {  // a network mech's part shot off here (arg the part)
+      const auto* p = reinterpret_cast<const MechPart*>(arg);
+      const NetMech* t = p ? net_mech_of(p->mech) : nullptr;  // 0x00460000, vt+0x58
+      const uint32_t words[3] = {znet::local_id(), t ? t->owner : 0, static_cast<uint32_t>(p && p->node ? p->id : -1)};
+      uint8_t b[0x10] = {0x21, 0, 0x10, 0};
+      std::memcpy(b + 4, words, 12);
+      znet::send(b, sizeof b, false, 0);
+      return 0;
+    }
+    case 0x11:
       return c.send_other ? c.send_other(m, kind, arg) : 0;
     default:
       return 0;
@@ -388,8 +433,7 @@ void mech_do(NetMech& m, uint32_t fn, int32_t arg) {
 // Mech3.exe 1.2 @ 0x0046e4d0. The controls are set through IControls
 // (vt+0x20 the throttle, +0x28 the turn, +0x34 the jump). The aim's turn
 // is carried on from the last by the latency over the gap since that
-// state, a latency in seconds over a gap in milliseconds (so barely), and
-// its z dropped then (it is 0 anyway).
+// state, and its z dropped then (it is 0 anyway).
 void net_state_apply(NetMech& m, const uint8_t* msg, size_t size) {
   const NetCalls& c = g_calls;
   if (size < sizeof(NetStateIn)) return;  // FIX (bug): the exe reads 0x3c bytes whatever came
@@ -416,7 +460,10 @@ void net_state_apply(NetMech& m, const uint8_t* msg, size_t size) {
     } else {
       const uint32_t now = c.now_ms ? c.now_ms() : ztimer::ticks_ms();
       const double gap = static_cast<double>(now - m.heard);
-      const double f = gap > 1.0 ? (m.latency + gap) / gap : 1.0;
+      // FIX (bug): the latency (seconds) in milliseconds, as the gap is; the
+      // exe adds the seconds, a correction of about 0.1%.
+      const double lag = zfix::options().bugs ? m.latency * 1000.0 : m.latency;
+      const double f = gap > 1.0 ? (lag + gap) / gap : 1.0;
       for (int i = 0; i < 3; ++i) use[i] = static_cast<float>((qn[i] - m.aim_q[i]) * f + m.aim_q[i]);
       use[3] = 0.0f;
     }
@@ -503,7 +550,7 @@ void net_state_apply(NetMech& m, const uint8_t* msg, size_t size) {
       default: break;
     }
   }
-  if (respawn && c.respawn_at) c.respawn_at(m, st.pos);  // 0x0046ed30 with the static 0x12 [0x005e55f8]
+  if (respawn) c.respawn_at ? c.respawn_at(m, st.pos) : net_respawn_in(m, st.pos);  // 0x0046ed30 with the static 0x12 [0x005e55f8]
 }
 
 // Mech3.exe 1.2 @ 0x0046ed70
@@ -567,6 +614,168 @@ void net_send_done(const uint8_t* msg, size_t size) {
   }
 }
 
+// Mech3.exe 1.2 @ 0x0046ed10
+void net_posture_in(NetMech& m, const uint8_t* msg, size_t size) {
+  int32_t kind = 0;
+  if (size >= 8) std::memcpy(&kind, msg + 4, 4);
+  mech_do(m, 0x416780, kind);
+}
+
+// Mech3.exe 1.2 @ 0x0046ed30 (ECX the mech, its message's place)
+void net_respawn_in(NetMech& m, const float pos[3]) {
+  if (m.active) return;
+  g_calls.rebuild ? g_calls.rebuild(m) : net_mech_rebuild(m);  // 0x0046e0f0
+  g_calls.reset_at ? g_calls.reset_at(m, pos) : m.reset_at(pos);  // 0x00418e90
+}
+
+// Mech3.exe 1.2 @ 0x0046e0f0. The mech is made again in its own memory:
+// its destructor run (vt+0 with 0: off the lists, its parts and models
+// gone; the controls kept), then the constructor 0x0046e280 with the same
+// player, controls and loadout, the type's data and name again; then its
+// sensors, its skin by the old one's name, its team, the state's snap bit
+// off. Without controls or a loadout it is not made again.
+void net_mech_rebuild(NetMech& m) {
+  const NetCalls& c = g_calls;
+  const int32_t roster = m.pilot ? m.pilot->roster : 0;
+  MechData* data = c.data ? c.data(roster) : mech_build_hooks().mech_data(roster, 1);  // 0x00430d10
+  if (!data) return;
+  NetControls* ctl = static_cast<NetControls*>(m.controls);
+  m.controls = nullptr;
+  char name[64] = {}, skin[64] = {};
+  if (const char* n = c.mech_name ? c.mech_name(m) : znet::player_name(m.owner)) std::snprintf(name, sizeof name, "%s", n);
+  const auto* old_skin = static_cast<const Skin*>(m.decals);
+  if (old_skin && old_skin->name) std::snprintf(skin, sizeof skin, "%s", old_skin->name);
+  const uint32_t owner = m.owner;
+  Config* cfg = m.config;
+  NetMech* self = &m;
+  if (ctl && cfg) {
+    net_mech_unlist(self);
+    self->release();
+    self->~NetMech();
+    new (self) NetMech();
+    net_mech_construct(self, owner, data, ctl, cfg, name);
+  }
+  if (c.sensor_range) c.sensor_range(*self);  // 0x004d6d20
+  const MechDfn* dfn = c.dfn ? c.dfn(self->pilot ? self->pilot->roster : roster) : mech_dfn(roster);
+  Handle s = dfn && dfn->skins ? dfn->skins->named(skin) : nullptr;  // 0x00475b00
+  c.skin ? c.skin(*self, s) : (void)mech_set_skin(*self, s);
+  self->set_team(c.team_of ? c.team_of(owner) : 0);
+  self->state.flags &= ~1u;
+}
+
+namespace {
+// A mech by player for the kill's line: the network mech's, the pilot's,
+// else none.
+Mech* player_mech(uint32_t id) {
+  if (NetMech* m = net_mech(id)) return m;
+  if (id == znet::local_id() && g_calls.pilot_mech) return g_calls.pilot_mech();
+  return nullptr;
+}
+const char* name_of(Mech* m) {
+  if (!m) return "Unknown";  // [0x005e56f0]
+  if (m->remote) return znet::player_name(static_cast<NetMech*>(m)->owner);  // 0x004709c0
+  return g_calls.mech_name ? g_calls.mech_name(*m) : nullptr;  // 0x0041df30
+}
+}  // namespace
+
+// Mech3.exe 1.2 @ 0x0046eba0 (ECX the message). 0x40a00000 is 5 s.
+void net_kill_in(const uint8_t* msg, size_t size) {
+  const NetCalls& c = g_calls;
+  if (size < 12) return;
+  uint32_t victim, killer;
+  std::memcpy(&victim, msg + 4, 4);
+  std::memcpy(&killer, msg + 8, 4);
+  const char* v = name_of(player_mech(victim));
+  const char* k = name_of(player_mech(killer));
+  if (c.hud_message) {
+    if (victim == killer) c.hud_message(5.0f, 0xf0a, v);  // "%1 has managed to kill himself"
+    else if (c.hud_message2) c.hud_message2(5.0f, 0xf09, v, k);  // "%1 has been killed by %2"
+  }
+  if (znet::is_host()) net_score_kill(victim, killer);
+}
+
+// Mech3.exe 1.2 @ 0x00470170. A kill counts only between teams; reaching
+// the score limit ends the game (state 2) at once.
+void net_score_kill(uint32_t victim, uint32_t killer) {
+  const NetCalls& c = g_calls;
+  if (!znet::is_host()) return;
+  NetGameFields* g = c.game ? c.game() : nullptr;
+  if (!g) return;
+  if (victim == killer) {
+    if (c.lobby_suicide) c.lobby_suicide(victim);
+  } else if ((c.team_of ? c.team_of(killer) : 0) != (c.team_of ? c.team_of(victim) : 0)) {
+    if (c.lobby_kill) c.lobby_kill(killer);
+    if ((c.lobby_kills ? c.lobby_kills(killer) : 0) >= g->score_limit) {
+      if (g->end_state && *g->end_state == 0) *g->end_state = 2;
+      if (g->clock_next) *g->clock_next = game_time();
+    }
+  }
+  if (c.scores_reset) c.scores_reset();  // 0x004361e0
+  std::vector<uint32_t> list(3 * static_cast<size_t>(std::max(g->players, 0)), 0);
+  const int32_t n = c.lobby_scores ? c.lobby_scores(list.data(), g->players) : 0;
+  std::vector<uint8_t> b(static_cast<size_t>(g->players) * 0xc + 6, 0);
+  put16(b, 0, 0x14);
+  put16(b, 2, static_cast<uint16_t>(b.size()));
+  put16(b, 4, static_cast<uint16_t>(g->players));
+  std::memcpy(b.data() + 6, list.data(), 4 * 3 * static_cast<size_t>(std::min(n, g->players)));
+  znet::send(b.data(), static_cast<uint32_t>(b.size()), true, 0);
+  if (c.hud_scores) c.hud_scores();  // 0x00446ad0
+}
+
+// Mech3.exe 1.2 @ 0x004708e0
+void net_scores_in(const uint8_t* msg, size_t size) {
+  const NetCalls& c = g_calls;
+  if (!(c.game && c.game()) || size < 6) return;
+  int16_t n;
+  std::memcpy(&n, msg + 4, 2);
+  for (int32_t k = 0; k < n && 6 + 12 * static_cast<size_t>(k + 1) <= size; ++k) {
+    uint32_t w[3];
+    std::memcpy(w, msg + 6 + 12 * k, 12);
+    if (c.lobby_set_kills) c.lobby_set_kills(w[0], w[1]);
+    if (c.lobby_set_deaths) c.lobby_set_deaths(w[0], w[2]);
+  }
+  if (c.scores_reset) c.scores_reset();
+  if (c.hud_scores) c.hud_scores();
+}
+
+// Mech3.exe 1.2 @ 0x00470320 (the collision 0x00423c04)
+void net_send_shove(Mech& other, float damage, float vx, float vz) {
+  const NetMech* t = net_mech_of(&other);  // vt+0x58
+  uint8_t b[0x10] = {0x18, 0, 0x10, 0};
+  const float f[3] = {damage, vx, vz};
+  std::memcpy(b + 4, f, 12);
+  znet::send(b, sizeof b, false, t ? t->owner : 0);
+}
+
+// Mech3.exe 1.2 @ 0x004705b0 (the sender's mech, the message): its push on
+// the pilot, whose torso takes the damage. FIX (bug): the pusher is the
+// pilot's attacker (the exe sets the sender's own +0x664 to itself, so a
+// death by the push credits no one).
+void net_shove_in(NetMech& from, const uint8_t* msg, size_t size) {
+  Mech* p = g_calls.pilot_mech ? g_calls.pilot_mech() : nullptr;
+  if (!p || size < 16) return;
+  float f[3];
+  std::memcpy(f, msg + 4, 12);
+  if (zfix::options().bugs) p->attacker = &from;
+  else from.attacker = &from;
+  if (p->torso) p->torso->apply_damage(f[0], 0);  // vt+0x38
+  p->velocity.x += f[1];
+  p->velocity.z += f[2];
+}
+
+// Mech3.exe 1.2 @ 0x0046fff0: for the pilot only, its part's structure to 0.
+void net_part_off_in(const uint8_t* msg, size_t size) {
+  if (size < 16) return;
+  uint32_t w[3];
+  std::memcpy(w, msg + 4, 12);
+  if (w[1] != znet::local_id()) return;
+  Mech* p = g_calls.pilot_mech ? g_calls.pilot_mech() : nullptr;
+  MechPart* part = p ? part_by_id(*p, static_cast<int32_t>(w[2])) : nullptr;
+  if (!part) return;
+  p->attacker = net_mech(w[0]);
+  part->set_internal(0.0f, 0);  // vt+0x3c
+}
+
 // Mech3.exe 1.2 @ 0x0046e0a0
 void net_spawn_offset(float pos[3], int32_t slot) {
   if (slot >= 2 && slot <= 4) pos[0] += 10.0f;
@@ -626,8 +835,12 @@ bool net_launch_player(Mech& m, const std::vector<uint32_t>& p, int32_t skin, bo
 
 // Mech3.exe 1.2 @ 0x0046e280
 NetMech* net_mech_new(uint32_t owner, MechData* data, NetControls* ctl, Config* cfg, const char* name) {
-  const NetCalls& c = g_calls;
   auto* m = new NetMech();
+  net_mech_construct(m, owner, data, ctl, cfg, name);
+  return m;
+}
+void net_mech_construct(NetMech* m, uint32_t owner, MechData* data, NetControls* ctl, Config* cfg, const char* name) {
+  const NetCalls& c = g_calls;
   mech_construct(*m, data, ctl, cfg, name);  // 0x004149f0
   if (c.label_new) m->label = c.label_new(*m);
   m->remote = true;  // vtable 0x005c3508
@@ -637,7 +850,6 @@ NetMech* net_mech_new(uint32_t owner, MechData* data, NetControls* ctl, Config* 
   if (c.world_add) c.world_add(*m);
   if (m->torso) m->torso->set_mode(2);
   m->power(0);
-  return m;
 }
 
 // Mech3.exe 1.2 @ 0x0046d450. The record's word 0 is 2 for a mech's.

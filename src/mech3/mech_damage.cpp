@@ -40,6 +40,7 @@ void flat_normal(const Vec3& v, Vec3& out) {
 // zWeapon (docs/damage.md, the hit path).
 int Mech::take_damage(WeaponDef* def, Collision* coll, float damage) {
   int result = 0;
+  if (remote) return 0;  // a network mech's vt+0x164 is 0x0046ef50: its damage comes with its states
   if (anim_state == kDead || !active) return 0;
   DamageCalls& c = calls();
   World& w = world();

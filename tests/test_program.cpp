@@ -3384,6 +3384,7 @@ TEST(net_mech_made_from_a_record_c1m1_headless) {
     EXPECT(seen.moved == 1);  // at the state's position
     EXPECT(seen.state_sent == 1);  // the pilot's own state (piece 6a) arrives with its place
     EXPECT(seen.followed == 1);    // a second state, applied and reckoned (piece 6b)
+    EXPECT(seen.respawned == 1);   // made again in place by a respawn (piece 7a)
     EXPECT(seen.configs == 1 && seen.config_named == 1);  // "Bob's Config", valid
     EXPECT(seen.after_leave == 0 && seen.handlers_after == 0);
     mech3::missions().cleanup(false);

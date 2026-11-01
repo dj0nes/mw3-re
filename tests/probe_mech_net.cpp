@@ -13,6 +13,7 @@
 #include "gamez/zeffect/zeff_anim_save.h"
 #include "gamez/znetwork/znet_dplay.h"
 #include "gamez/znetwork/znet_session.h"
+#include "gamez/zutil/zfix.h"
 #include "gamez/zutil/ztimer.h"
 #include "mech3/mech_net.h"
 #include "mech3/mech_reader.h"
@@ -456,7 +457,7 @@ extern "C" int32_t probe_mech_net_send(const int32_t* in, int32_t* out, int32_t 
     return 0;
   };
   g_clock_next = fbits(in[kClockNext]), g_end_time = fbits(in[kEndTime]), g_end_state = in[kEndState];
-  g_fields = mech3::NetGameFields{in[kPlayers], &g_clock_next, &g_end_time, &g_end_state};
+  g_fields = mech3::NetGameFields{0, in[kPlayers], &g_clock_next, &g_end_time, &g_end_state};
   c.game = []() -> mech3::NetGameFields* { return g_in[kHasGame] ? &g_fields : nullptr; };
   c.game_time = [] { return fbits(g_in[kGameTime]); };
   c.clock_left = [] { return fbits(g_in[kClockLeft]); };
@@ -534,13 +535,23 @@ extern "C" int32_t probe_mech_net_send(const int32_t* in, int32_t* out, int32_t 
   const int32_t wt = in[kWeaponTarget];  // 0 none, 1..4 a remote mech, 5 a plain object
   static mech3::Mech plain;
   weapon.projectile_target = wt == 0 ? nullptr : wt <= static_cast<int32_t>(remotes.size()) ? remotes[wt - 1] : &plain;
+  c.kill = [](NetMech*, uint32_t, const uint8_t*, size_t) { log({6}); };  // 0x0046eba0, the receive side's test
+  mech3::Arm part;  // 0x21's: a part of the mech kWeaponTarget names, its id kArg (none below 0)
+  part.mech = wt == 0 ? nullptr : static_cast<mech3::Mech*>(weapon.projectile_target);
+  part.id = in[kArg] < 0 ? -1 : in[kArg];
+  static int node_stub;
+  part.node = in[kArg] < 0 ? nullptr : &node_stub;
   int32_t ret = 0;
   if (in[kKind] == 100) {
     mech3::net_mech_tick(*m);
   } else {
-    const intptr_t arg = in[kKind] == 0x16 ? reinterpret_cast<intptr_t>(&weapon) : in[kArg];
+    intptr_t arg = in[kArg];
+    if (in[kKind] == 0x16) arg = reinterpret_cast<intptr_t>(&weapon);
+    if (in[kKind] == 0x13) arg = reinterpret_cast<intptr_t>(weapon.projectile_target);
+    if (in[kKind] == 0x21) arg = reinterpret_cast<intptr_t>(&part);
     ret = mech3::net_send_event(*m, in[kKind], arg);
   }
+  part.mech = nullptr, part.node = nullptr;
   log({90, ret, static_cast<int32_t>(m->net_damaged), static_cast<int32_t>(m->net_shots.size())});
   for (const mech3::NetShot& sh : m->net_shots) log({sh.slot, sh.x04, sh.trigger, static_cast<int32_t>(sh.target)});
   log({91, static_cast<int32_t>(m->net_sent), m->net_acked, bits(g.next_state), bits(g.next_ping), g.resends, g.warned,
@@ -699,3 +710,145 @@ extern "C" int32_t probe_mech_net_apply(const int32_t* in, int32_t* out, int32_t
   return n;
 }
 extern "C" int32_t probe_mech_net_rx_count() { return rRxCount; }
+// The bug fixes on or off for the next calls (the library starts them off).
+extern "C" void probe_mech_net_bugs(int32_t on) { zfix::options().bugs = on != 0; }
+
+// The events' receivers (piece 7a) for test_mech_net_events.py. in: the
+// handler (0 posture, 1 respawn, 2 kill, 3 scores in, 4 shove in, 5 part
+// off, 6 shove out), the message (16 words) and its length, the local id,
+// host, the remote players (4), the receiving mech (0..3 a remote, its
+// +0x08 active), the pilot's HUD shows the scores, the game, its score
+// limit and end state, the lobby (8 players: id, team, kills, deaths).
+namespace {
+enum Ev {
+  eKind, eLen, eMsg, eLocal = eMsg + 16, eHost, eRemotes, eOwners, eWho = eOwners + 4, eActive, eHudScores, eHasGame,
+  eLimit, eEndState, eLobby, eSlots, eShove = eSlots + 32, eEvCount = eShove + 3
+};
+const int32_t* g_ev;
+int32_t g_ev_end;
+float g_ev_clock;
+mech3::NetGameFields g_ev_fields;
+struct LogTorsoEv : mech3::Torso {
+  void apply_damage(float d, int s) override { log({30, bits(d), s}); }
+  void set_internal(float v, int s) override { log({31, bits(v), s}); }
+};
+struct LogPartEv : mech3::Arm {
+  void set_internal(float v, int s) override { log({31, bits(v), s}); }
+};
+int32_t slot_of(uint32_t id) {
+  for (int32_t k = 0; k < g_ev[eLobby]; ++k)
+    if (static_cast<uint32_t>(g_ev[eSlots + 4 * k]) == id) return k;
+  return -1;
+}
+}  // namespace
+
+extern "C" int32_t probe_mech_net_events(const int32_t* in, int32_t* out, int32_t cap) {
+  std::vector<int32_t> lg;
+  g_log = &lg;
+  g_ev = in;
+  mech3::NetCalls& c = mech3::net_calls();
+  c = mech3::NetCalls{};
+  c.mech_call = [](NetMech&, uint32_t fn, int32_t arg) { log({10, static_cast<int32_t>(fn), arg}); };
+  c.rebuild = [](NetMech& m) { log({11, static_cast<int32_t>(m.owner)}); };
+  c.reset_at = [](NetMech&, const float p[3]) { log({12, bits(p[0]), bits(p[1]), bits(p[2])}); };
+  const auto num = [](const char* n) -> int32_t { return !n ? -3 : std::strcmp(n, "Unknown") == 0 ? -1 : std::strcmp(n, "Pilot") == 0 ? -2 : std::atoi(n + 1); };
+  static decltype(num) s_num = num;
+  c.hud_message = [](float t, int32_t id, const char* a) { log({2, bits(t), id, s_num(a)}); };
+  c.hud_message2 = [](float t, int32_t id, const char* a, const char* b) { log({2, bits(t), id, s_num(a), s_num(b)}); };
+  c.mech_name = [](mech3::Mech&) -> const char* { return "Pilot"; };
+  c.team_of = [](uint32_t p) {
+    const int32_t k = slot_of(p);
+    return k < 0 ? 0u : static_cast<uint32_t>(g_ev[eSlots + 4 * k + 1]);
+  };
+  c.lobby_suicide = [](uint32_t p) { log({20, static_cast<int32_t>(p)}); };
+  c.lobby_kill = [](uint32_t p) { log({21, static_cast<int32_t>(p)}); };
+  c.lobby_kills = [](uint32_t p) {
+    const int32_t k = slot_of(p);
+    return k < 0 ? 0 : g_ev[eSlots + 4 * k + 2];
+  };
+  c.lobby_scores = [](uint32_t* o, int32_t n) {
+    const int32_t m = std::min(n, g_ev[eLobby]);
+    for (int32_t k = 0; k < m; ++k)
+      o[3 * k] = static_cast<uint32_t>(g_ev[eSlots + 4 * k]), o[3 * k + 1] = static_cast<uint32_t>(g_ev[eSlots + 4 * k + 2]),
+      o[3 * k + 2] = static_cast<uint32_t>(g_ev[eSlots + 4 * k + 3]);
+    return m;
+  };
+  c.lobby_set_kills = [](uint32_t p, uint32_t v) { log({22, static_cast<int32_t>(p), static_cast<int32_t>(v)}); };
+  c.lobby_set_deaths = [](uint32_t p, uint32_t v) { log({23, static_cast<int32_t>(p), static_cast<int32_t>(v)}); };
+  c.scores_reset = [] { log({24}); };
+  c.hud_scores = [] { if (g_ev[eHudScores]) log({25}); };
+  g_ev_end = in[eEndState], g_ev_clock = -1.0f;
+  g_ev_fields = mech3::NetGameFields{in[eLimit], in[eLobby], &g_ev_clock, nullptr, &g_ev_end};
+  c.game = []() -> mech3::NetGameFields* { return g_ev[eHasGame] ? &g_ev_fields : nullptr; };
+  c.game_time = [] { return 77.5f; };
+  static mech3::Mech pilot;
+  pilot = mech3::Mech{};
+  LogTorsoEv ptorso;
+  pilot.torso = &ptorso;
+  LogPartEv parts[5];
+  pilot.arms[0] = &parts[0], pilot.arms[1] = &parts[1];
+  pilot.legs[0] = reinterpret_cast<mech3::Leg*>(static_cast<mech3::MechPart*>(&parts[2]));
+  pilot.legs[1] = reinterpret_cast<mech3::Leg*>(static_cast<mech3::MechPart*>(&parts[3]));
+  pilot.head = reinterpret_cast<mech3::Head*>(static_cast<mech3::MechPart*>(&parts[4]));
+  g_rx_pilot = &pilot;
+  c.pilot_mech = []() -> mech3::Mech* { return g_rx_pilot; };
+  Sends t;
+  g_send_id = 100;
+  znet::session() = znet::Session{};
+  znet::clear_lists();
+  znet::Session& s = znet::session();
+  s.transport = &t, s.initialised = true, s.open = true, s.async = true;
+  s.local = std::make_unique<znet::Player>();
+  s.local->id = static_cast<uint32_t>(in[eLocal]);
+  s.host_id = in[eHost] ? s.local->id : 99u;
+  for (uint32_t id = 1; id <= 8; ++id) {
+    auto r = std::make_unique<znet::PlayerRecord>();
+    r->id = id, r->short_name = "P" + std::to_string(id);
+    znet::lists().players.push_back(std::move(r));
+  }
+  mech3::NetGame& g = mech3::net_game();
+  g = mech3::NetGame{};
+  g.running = true;
+  g_rx_remotes.clear();
+  for (int32_t k = 0; k < in[eRemotes]; ++k) {
+    auto* r = new NetMech();
+    r->remote = true;
+    r->owner = static_cast<uint32_t>(in[eOwners + k]);
+    g.mechs.push_back(r);
+    g_rx_remotes.push_back(r);
+  }
+  NetMech* who = in[eWho] < static_cast<int32_t>(g_rx_remotes.size()) ? g_rx_remotes[in[eWho]] : nullptr;
+  if (who) who->active = in[eActive] != 0;
+  std::vector<uint8_t> msg(static_cast<size_t>(in[eLen]));
+  std::memcpy(msg.data(), in + eMsg, msg.size());
+  switch (in[eKind]) {
+    case 0: if (who) mech3::net_posture_in(*who, msg.data(), msg.size()); break;
+    case 1: {
+      float pos[3] = {0, 0, 0};
+      if (msg.size() >= 16) std::memcpy(pos, msg.data() + 4, 12);
+      if (who) mech3::net_respawn_in(*who, pos);
+      break;
+    }
+    case 2: mech3::net_kill_in(msg.data(), msg.size()); break;
+    case 3: mech3::net_scores_in(msg.data(), msg.size()); break;
+    case 4: if (who) mech3::net_shove_in(*who, msg.data(), msg.size()); break;
+    case 5: mech3::net_part_off_in(msg.data(), msg.size()); break;
+    case 6: if (who) mech3::net_send_shove(*who, fbits(in[eShove]), fbits(in[eShove + 1]), fbits(in[eShove + 2])); break;
+    default: break;
+  }
+  log({90, mech_code(pilot.attacker), bits(pilot.velocity.x), bits(pilot.velocity.y), bits(pilot.velocity.z), g_ev_end,
+       bits(g_ev_clock), who ? mech_code(who->attacker) : -9});
+  pilot.torso = nullptr;
+  pilot.arms[0] = pilot.arms[1] = nullptr, pilot.legs[0] = pilot.legs[1] = nullptr, pilot.head = nullptr;
+  pilot.attacker = nullptr;
+  for (NetMech* r : g_rx_remotes) delete r;
+  g_rx_remotes.clear();
+  g = mech3::NetGame{};
+  znet::clear_lists();
+  znet::session() = znet::Session{};
+  c = mech3::NetCalls{};
+  const int32_t n = static_cast<int32_t>(std::min<size_t>(lg.size(), static_cast<size_t>(cap)));
+  std::copy(lg.begin(), lg.begin() + n, out);
+  return n;
+}
+extern "C" int32_t probe_mech_net_ev_count() { return eEvCount; }

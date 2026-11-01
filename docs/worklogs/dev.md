@@ -2320,3 +2320,17 @@ Assigned after 8b2 merged (fd3f05f). The lead asked for a section stepped at bot
   (NetCalls::mech_call, aim, fire); the probe's parts log their setters.
 - test_mech_net_apply.py: the aim points (the torso's place plus a rotated
   range, ~1000 m terms) are compared to those terms' rounding.
+
+## Multiplayer, piece 7a: a mech's events (2026-10-31)
+
+- The lag-correction fix (the lead's, from 6b) is in this commit: the
+  latency in ms behind bugs; test_mech_net_apply.py checks the fixed path
+  as the exe given the latency x 1000.
+- The network mech's vtable read properly: vt+0x168 0x00410490 (0),
+  vt+0x164 0x0046ef50 (0: no local damage), vt+0x160 0x0041ec50 (local id),
+  vt+0xa4 0x004709c0 (the player's name), vt+0x58 itself.
+- 0x0046e0f0 rebuilds in place: the port runs unlist, release, the
+  destructor and placement new, then net_mech_construct (split out of
+  net_mech_new).
+- 0x004705b0: ECX and the stack argument are both the sender; the exe sets
+  the sender's attacker. Kept, the fix behind bugs.

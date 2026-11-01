@@ -945,6 +945,8 @@ void wire_mech_parts() {
 // 0x005a9820 from the mechs' set-up 0x00413e60, at each mission's start.
 void program_motions_open() { open_motions("zbd/motion.zbd"); }
 
+const char* entity_name(zgame::Handle o);  // entity_classes.h (its entity_mech clashes with this file's)
+
 // The mission's network side (mech_net.cpp, multiplayer-port.md piece 5):
 // what it calls outside the network code.
 void wire_net(bool on) {
@@ -1025,6 +1027,18 @@ void wire_net(bool on) {
     m.set_target(found, false);
   };
   nc.radar_toggled = [](NetMech& m) { program_radar_light(&m); };
+  // The events (piece 7a): the HUD's two-name line, a mech's name, the
+  // collisions' push on a network mech (0x00470320).
+  nc.hud_message2 = [](float seconds, int32_t id, const char* a, const char* b) {  // 0x0040fe70
+    if (!message_panel()) return;
+    message_panel()->show_for(seconds);
+    const std::string t = zutl::format_message(id, {a ? a : "", b ? b : ""});
+    if (!t.empty()) message_panel_add("%s", t.c_str());
+  };
+  nc.mech_name = [](Mech& m) { return entity_name(g_w.handle_of(g_w.engine, &m)); };  // vt+0xa4
+  collide_calls().net_shove = [](Mech&, Mech& other, float damage, float vx, float vz) {
+    net_send_shove(other, damage, vx, vz);
+  };
   nc.pilot_mech = [] { return world().mission_player; };
   weapon_calls().net_target = [](Handle id) -> Handle {
     const auto player = static_cast<uint32_t>(reinterpret_cast<uintptr_t>(id));
@@ -1098,6 +1112,16 @@ bool program_net_mech_check(NetMechSeen* out) {
     net_reckon(*m, 1.0f / 30.0f);
     mech_world_position(m, t);
     out->followed = std::fabs(t[0] - on[0]) < 0.01f && std::fabs(t[2] - on[2]) < 0.01f;
+    // Dead, then made again by a 0x12 (piece 7a): the same mech, rebuilt in place.
+    m->active = false;
+    uint8_t re[0x10] = {0x12, 0, 0x10, 0};
+    const float back[3] = {at[0] + 20.0f, at[1], at[2]};
+    std::memcpy(re + 4, back, 12);
+    b->send(1, re, sizeof re, true, nullptr);
+    znet::poll(-1);
+    mech_world_position(m, t);
+    out->respawned = net_mech(2) == m && m->active && m->remote && !m->collides && std::fabs(t[0] - back[0]) < 0.01f &&
+                     std::fabs(t[2] - back[2]) < 0.01f;
   }
   // The pilot's own state, as the timer sends it (0x0046f160 kind 0xf).
   net_send_event(*me, 0xf, 0);

@@ -81,12 +81,13 @@ class Exe:
                  0x41d510: (self.part, 4), 0x5888a0: (self.send, 8), 0x586d20: (lambda c: self.v[K['host']], 0),
                  0x479480: (lambda c: self.game, 0), 0x40fe70: (self.hud, 0), 0x4707c0: (self.log_(4), 0),
                  0x576c10: (self.crc, 4), 0x5abd26: (lambda c: self.emu.alloc(c.arg(0)), 0),
-                 0x5abd1a: (lambda c: 0, 0)}
+                 0x5abd1a: (lambda c: 0, 0), 0x46eba0: (self.log_(6), 0), 0x586d10: (lambda c: 9, 0),
+                 0x460000: (lambda c: self.emu.u32(c.ecx + 4), 0)}  # a part's mech (+0x04 here)
         for a, (fn, pop) in stubs.items():
             cpu.stub_function(a, fn, pop)
         # the kinds of pieces 7 and 8: logged where their case starts, then the epilogue
         index = cpu.read(0x46fd10, 0x13)
-        for kind in (0x11, 0x12, 0x13, 0x17, 0x21):
+        for kind in (0x11,):
             target = struct.unpack('<I', cpu.read(0x46fce8 + 4 * index[kind - 0xf], 4))[0]
             cpu.uc.hook_add(UC_HOOK_CODE, self.other(kind), begin=target, end=target)
 
@@ -133,6 +134,7 @@ class Exe:
         m = emu.alloc(0x800)
         mv = emu.alloc(0x200)
         u(mv + 0xa0, 0x41cc10)
+        u(mv + 0x160, 0x41ec50)  # the player's id: local_id
         u(mv + 0x168, SENDER)
         u(m, mv)
         w8(m + 0x8, v[K['active']])
@@ -213,12 +215,16 @@ class Exe:
         u(MECHS, lst)
         u(MECHS_N, v[K['remotes']])
         remotes = []
+        nvt, pvt = emu.alloc(0x200), emu.alloc(0x200)  # a network mech's vt+0x58 (itself); a plain mech's (0)
+        u(nvt + 0x58, 0x4d2a70), u(nvt + 0x160, 0x41ec50), u(pvt + 0x58, 0x40bae0), u(pvt + 0x160, 0x41ec50)
         for k in range(v[K['remotes']]):
             r = emu.alloc(0x800)
+            u(r, nvt)
             u(r + 0x6fc, v[K['owners'] + k]), u(r + 0x6e0, v[K['echo'] + k]), u(r + 0x6d8, v[K['heard'] + k])
             self.push(lst, r)
             remotes.append(r)
         plain = emu.alloc(0x800)
+        u(plain, pvt)
         weapon = emu.alloc(0x80)
         u(weapon + 0x1c, v[K['weapon_slot']])
         w8(weapon + 0x5c, v[K['weapon_locked']])
@@ -234,11 +240,18 @@ class Exe:
             g = self.game = emu.alloc(0x100)
             u(g + 0x50, v[K['players']]), u(g + 0x7c, v[K['clock_next']]), u(g + 0x80, v[K['end_time']])
             u(g + 0x84, v[K['end_state']]), u(g + 0x88, 0x1234)
+        tobj = 0 if wt == 0 else remotes[wt - 1] if wt <= len(remotes) else plain
+        part = emu.alloc(0x80)
+        u(part + 4, tobj)  # its mech, for the 0x460000 stand-in
+        if v[K['arg']] >= 0:
+            node = emu.alloc(0x40)
+            u(node + 0x28, v[K['arg']])
+            u(part + 8, node)
         ret = 0
         if v[K['kind']] == 100:
             cpu.call(0x46ef70, ecx=m)
         else:
-            arg = weapon if v[K['kind']] == 0x16 else v[K['arg']]
+            arg = {0x16: weapon, 0x13: tobj, 0x21: part}.get(v[K['kind']], v[K['arg']])
             cpu.call(SENDER, ecx=m, stack_args=(v[K['kind']], arg))
             ret = s32(cpu.uc.reg_read(UC_X86_REG_EAX))
         self.log += [90, ret, s32(emu.u32(m + 0x680)), emu.u32(m + 0x67c)]
@@ -271,8 +284,10 @@ def frac(rng):
 
 def case(rng):
     v = [0] * COUNT
-    v[K['kind']] = rng.choice([0xf, 0xf, 0xf, 0x10, 0x15, 0x16, 100, 100, 0x11, 0x13])
-    v[K['arg']] = rng.randrange(0, 12)
+    v[K['kind']] = rng.choice([0xf, 0xf, 0xf, 0x10, 0x15, 0x16, 100, 100, 0x11, 0x12, 0x13, 0x17, 0x21])
+    v[K['arg']] = rng.randrange(-1, 12)
+    if v[K['kind']] == 0x15:
+        v[K['arg']] = rng.randrange(0, 12)
     for i in range(3):
         v[K['vel'] + i] = bits(rng.choice([rng.uniform(-30, 30), rng.uniform(-300, 300), 0.0]))
     yaw = rng.uniform(-math.pi, math.pi)
@@ -345,6 +360,9 @@ def case(rng):
     v[K['weapon_slot']] = rng.randrange(0, 20)
     v[K['weapon_target']] = rng.randrange(0, 6)
     v[K['state']] = rng.randrange(0, 4)
+    if v[K['kind']] == 0x21:  # a network mech's part: the exe reads its mech's +0x6fc unchecked
+        v[K['remotes']] = max(v[K['remotes']], 1)
+        v[K['weapon_target']] = rng.randrange(1, v[K['remotes']] + 1)
     return v
 
 
