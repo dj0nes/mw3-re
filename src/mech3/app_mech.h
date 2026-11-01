@@ -263,6 +263,20 @@ float mech_forward_speed(void* mech);            // +0x44, its z
 void mech_set_local_velocity(void* mech, float x, float y, float z);  // +0x3c..+0x44
 bool mech_airborne(void* mech);                  // vt+0x144, +0x584
 float mech_jet_fuel(void* mech);                 // vt+0x148, +0x564
+void program_mech_set_jet_fuel(void* mech, float fuel);  // for the tests: +0x564
+// For the tests: each projectile a weapon spawns (Weapon::fire, 0x004b3450).
+struct FiredShot {
+  void* owner;
+  const char* weapon;
+  float muzzle[3], dir[3], target[3];
+  int32_t salvo_left;
+  bool locked;
+  // The owner's torso, a mech's: its mode, the AI's aim on and its direction,
+  // facing, yaw and limit, its forward; the mech's yaw (radians).
+  int32_t torso_mode, torso_aim;
+  float aim_dir[3], facing, torso_yaw, max_yaw, front[3], mech_yaw;
+};
+void program_watch_shots(void (*seen)(const FiredShot&));
 // The manoeuvre's aim (0x004ca749): the lead point (0x0041d940) when the
 // mech's selected target (+0x6c) sees `target`.
 bool mech_lead_point_at(void* mech, uint32_t target, float out[3]);

@@ -42,6 +42,24 @@ std::string path_find(const char* name) {
   return "";
 }
 
+WaveAliasHook g_alias = nullptr;
+
+// The alias hook's sound for `name`, when the archive lacks it and no loose
+// file has it (ours; set_wave_alias_hook).
+void read_alias(Wave& w, zutl_zar::Archive& a, const char* name) {
+  WaveAlias alias;
+  if (!g_alias || !name || !path_find(name).empty() || !g_alias(name, &alias)) return;
+  Wave src;
+  src.path = alias.source;
+  if (!wave_read_archive(src, a) || !src.has_format || src.format.block_align == 0) return;
+  const uint32_t cut = static_cast<uint32_t>(alias.trim_end_seconds * src.format.samples_per_sec + 0.5f) *
+                       src.format.block_align;
+  if (cut >= src.data_size) return;
+  src.data_size -= cut;
+  src.path = name;
+  w = std::move(src);
+}
+
 // 0x0056ffc0: every sound of the set not loaded yet, from the open archive.
 int32_t load_from_archive(Set* set, zutl_zar::Archive& a) {
   for (Sound& s : set->sounds) {
@@ -49,6 +67,7 @@ int32_t load_from_archive(Set* set, zutl_zar::Archive& a) {
     Wave w;
     w.path = s.file ? s.file : "";
     wave_read_archive(w, a);
+    if (!w.valid) read_alias(w, a, s.file);
     if (w.valid) s.flags = (s.flags & ~kLoaded) | ((create_buffer(&s, w) & 1) << 3);
     else s.flags &= ~kLoaded;
   }
@@ -178,6 +197,8 @@ const char* name_of(Object* obj) {
   if (obj->kind == 1) return static_cast<Group*>(obj)->name;
   return nullptr;
 }
+
+void set_wave_alias_hook(WaveAliasHook hook) { g_alias = hook; }
 
 // Mech3.exe 1.2 @ 0x0056fbf0. The archive of the detail setting (SoundLOD),
 // or the next one that opens: soundsM.zbd is not shipped, so medium loads

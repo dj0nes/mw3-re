@@ -107,16 +107,18 @@ struct Firing {
   void stand_down();       // 0x004b6700 (the brain's 0x004e9590): the plan dropped, rest +0x10
   void free_for_test() { free_plan(); }  // the probes' set-up
 
+  // The defaults are the template [0x005e8868] the constructor copies, filled
+  // by the start-up initializer 0x004b6500 (W34: the port had them all 0).
   int32_t phase = 8;       // +0x00  8 start, 1/6 plan, 2 aim, 3 track, 4 fire, 5 rest, 7 burst's end
-  float time = 0;          // +0x04
-  float quick_delay = 0;   // +0x08
-  float delay = 0;         // +0x0c
-  float rest = 0;          // +0x10
+  float time = 3.4028235e38f;  // +0x04
+  float quick_delay = 3;   // +0x08
+  float delay = 6;         // +0x0c
+  float rest = 1;          // +0x10
   FirePlan* plan = nullptr;  // +0x14
-  float reach_arg = 0;     // +0x18
-  float track_arg = 0;     // +0x1c
-  float fire_arg = 0;      // +0x20
-  float range = 0;         // +0x24  the vehicle's sensor range (+0xa0), set at the start
+  float reach_arg = 0.9396926f;   // +0x18  cos 20 degrees [0x005c93d0]: the torso near enough to track
+  float track_arg = 0.8660254f;   // +0x1c  cos 30 [0x005c93d8]
+  float fire_arg = 0.70710677f;   // +0x20  cos 45 [0x005c93e0]: to fire
+  float range = 50;        // +0x24  the vehicle's sensor range (+0xa0), set at the start
   zgame::Handle obstacle = 0;  // +0x28  something a target near the line to is passed over for (until one is not)
   Brain* brain = nullptr;  // +0x2c  0x004b6660
   FireSource* first = nullptr;   // +0x30

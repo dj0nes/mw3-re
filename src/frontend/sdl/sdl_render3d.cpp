@@ -130,6 +130,7 @@ SdlRender3D::SdlRender3D(SDL_GPUDevice* device, SDL_Window* window) : dev_(devic
 }
 
 SdlRender3D::~SdlRender3D() {
+  if (last_frame_) SDL_WaitForGPUFences(dev_, true, &last_frame_, 1), SDL_ReleaseGPUFence(dev_, last_frame_);
   for (auto& [k, p] : pipelines_) SDL_ReleaseGPUGraphicsPipeline(dev_, p);
   for (auto& [k, s] : samplers_) SDL_ReleaseGPUSampler(dev_, s);
   for (SDL_GPUTexture* t : textures_)
@@ -532,8 +533,14 @@ void SdlRender3D::present() {
     }
     bi.filter = SDL_GPU_FILTER_LINEAR;
     SDL_BlitGPUTexture(cmd, &bi);
+    SDL_SubmitGPUCommandBuffer(cmd);
+    return;
   }
-  SDL_SubmitGPUCommandBuffer(cmd);
+  // No swapchain image (a hidden window, or none to be had): nothing paces
+  // the frames, so at most one stays in flight.
+  SDL_GPUFence* f = SDL_SubmitGPUCommandBufferAndAcquireFence(cmd);
+  if (last_frame_) SDL_WaitForGPUFences(dev_, true, &last_frame_, 1), SDL_ReleaseGPUFence(dev_, last_frame_);
+  last_frame_ = f;
 }
 
 }  // namespace sdlfe

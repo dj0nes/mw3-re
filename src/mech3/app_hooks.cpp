@@ -151,7 +151,10 @@ int32_t Engine::menu_vmode() {
   if (menu_vmode_ >= 0) return menu_vmode_;
   int32_t w = 0, h = 0;
   const int32_t m = in_game_vmode();
-  const bool wide = zfix::options().any_resolution && zfix::options().wide_menus && mech3::vmode_canvas(m, &w, &h) && w > 640;
+  // Wide means a shape wider than 4:3, not a bigger canvas: the original's
+  // modes up to 10 (1600x1200) draw the 2D at full size, still 4:3.
+  const bool wide = zfix::options().any_resolution && zfix::options().wide_menus && mech3::vmode_canvas(m, &w, &h) &&
+                    w > 640 && w * 3 > h * 4;
   return menu_vmode_ = wide ? m : 5;
 }
 float Engine::mouse_accel_x() { return options().mouse_accel[0]; }

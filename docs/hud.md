@@ -428,6 +428,9 @@ Every weapon aims at one world point the HUD works out each frame.
    material's game soil is 1 (water); with several, the nearest by squared
    distance from the near point among the non-water ones. A failed query or
    no hit: the far point.
+   The far clip is 800 m, short of the ER large laser's 1000 m (W33): with
+   the bug fixes on the query reaches the selected group's longest range
+   instead, the miss's point unchanged (fixes.md).
 3. **Kept** at reticle +0x8fc (the aim point, = HUD +0x1d48), +0x924 its
    distance from the near point (the far plane's when nothing was hit), and
    +0x928 the hit's record (0x00444710; 0x004446a0 builds one facing up at
@@ -852,6 +855,13 @@ circle by its distance times radius over range, turned into the mech's frame
   0x00413e60; `mech_radar_blip` 0x0041ec60). TARGET's own contact is drawn
   instead as a small triangle (a Shape scaled 5.77, clipped to the screen
   0x00579880) in blue, red or the HUD green by the same sides.
+  The place is the object's (0x005a85e0, its node's world position +0x84,
+  refreshed when stale): for a targets.zrd building that is the world's
+  origin, the building's mesh being in world co-ordinates (c3m1's hqbuild:
+  node at 0, 0, 0, centroid at -860, 24, 193), so the exe points its
+  triangle at the origin at the contact's range (they are on the radar only
+  when targeted). With the bug fixes the port takes a targets.zrd object's
+  centroid (W32, fixes.md); `mission_c3m1_hq_targeted_is_ahead_on_the_radar_headless`.
 - **The waypoint marker** ([0x00609980]'s selected element, 0x0058b060:
   the mission waynet's point, vehicles.md, The nav waynet; first taken for a
   network player's): its image by its +0xc (hud_mfbwaypoint_icon

@@ -32,6 +32,8 @@ std::vector<std::string> install_candidates();
 // mw3.cfg's install= line set to `install` (added, or replacing the old one),
 // the other lines kept; false when the file cannot be written.
 bool save_install(const std::string& write_dir, const std::string& install);
+// mw3.cfg's KEY=VALUE line set (first, any other KEY= line dropped).
+bool save_config_value(const std::string& write_dir, const std::string& key, const std::string& value);
 
 // The search: the first valid of `configured` (mw3.cfg's) and the
 // candidates; with `may_ask`, else a message box and a file dialog until a

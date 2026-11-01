@@ -141,6 +141,7 @@ class SlideButton : public ShellButton {
   float speed = 0.0f;                // +0x1bc  the ring's growth, pixels a second
   float amplitude = 0.0f;            // +0x1c0  7, less 0.3 a frame; it stops at 2
   float wavelength = 0.0f;           // +0x1c4
+  float radius_carry = 0.0f;         // ours: the growth's fraction (menu_ripple.h, FIX (B))
   float phase = 0.0f;                // +0x1c8
   int32_t radius = 0;                // +0x1cc
   int32_t max_radius = 0;            // +0x1d0  MAXRADIUS (200)

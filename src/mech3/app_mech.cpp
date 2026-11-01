@@ -197,8 +197,8 @@ class WiredShade : public ShadeHooks {
   }
   int32_t frame() override { return static_cast<int32_t>(zcls::frames().frame); }
   void walk_callbacks(bool on) override {
-    zcls::scene_walk().pre = on ? [](zcls::Node* n) { shade_before(id(n)); } : nullptr;
-    zcls::scene_walk().post = on ? [](zcls::Node* n) { shade_after(id(n)); } : nullptr;
+    zcls::scene_walk().pre = on ? +[](zcls::Node* n) { shade_before(id(n)); } : nullptr;
+    zcls::scene_walk().post = on ? +[](zcls::Node* n) { shade_after(id(n)); } : nullptr;
   }
   void static_lights(int32_t on) override { zmod::draw_state().static_lights = on; }
   void stamps_frozen(int32_t on) override { zcls::frames().frozen = on; }
@@ -1716,6 +1716,33 @@ float mech_forward_speed(void* mech) { return static_cast<Vehicle*>(mech)->vec_3
 void mech_set_local_velocity(void* mech, float x, float y, float z) { static_cast<Vehicle*>(mech)->vec_3c = {x, y, z}; }
 bool mech_airborne(void* mech) { return static_cast<Mech*>(mech)->airborne(); }
 float mech_jet_fuel(void* mech) { return static_cast<Mech*>(mech)->jet_fuel; }
+void program_mech_set_jet_fuel(void* mech, float fuel) { static_cast<Mech*>(mech)->jet_fuel = fuel; }
+namespace {
+void (*g_watch_shots)(const FiredShot&) = nullptr;
+}
+void program_watch_shots(void (*seen)(const FiredShot&)) {
+  g_watch_shots = seen;
+  weapon_calls().test_fired = !seen ? nullptr : [](const Weapon& w) {
+    FiredShot s{};
+    s.owner = w.manager ? w.manager->owner : nullptr;
+    s.weapon = w.def && w.def->name ? w.def->name : "?";
+    s.muzzle[0] = w.muzzle.x, s.muzzle[1] = w.muzzle.y, s.muzzle[2] = w.muzzle.z;
+    s.dir[0] = w.direction.x, s.dir[1] = w.direction.y, s.dir[2] = w.direction.z;
+    s.target[0] = w.target.x, s.target[1] = w.target.y, s.target[2] = w.target.z;
+    s.salvo_left = w.salvo_left;
+    s.locked = w.locked;
+    if (s.owner && entity_is_mech(s.owner))
+      if (const Torso* t = static_cast<Mech*>(s.owner)->torso) {
+        const Mech& m = *static_cast<Mech*>(s.owner);
+        s.torso_mode = t->mode, s.torso_aim = t->aim;
+        s.aim_dir[0] = t->aim_dir.x, s.aim_dir[1] = t->aim_dir.y, s.aim_dir[2] = t->aim_dir.z;
+        s.facing = t->facing, s.torso_yaw = t->yaw, s.max_yaw = t->max_yaw;
+        s.front[0] = t->front.x, s.front[1] = t->front.y, s.front[2] = t->front.z;
+        s.mech_yaw = static_cast<float>(std::atan2(-m.transform[6], -m.transform[8]));
+      }
+    g_watch_shots(s);
+  };
+}
 bool mech_lead_point_at(void* mech, uint32_t target, float out[3]) {
   Mech* m = static_cast<Mech*>(mech);
   const ai::Contact* c = m->target;

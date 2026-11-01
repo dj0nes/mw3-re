@@ -25,7 +25,9 @@
 //                        the movies are the importer's (mw3import), in the write dir
 //   --shot FILE.bmp      save frame N (--shot-frame N, default 30) and quit; hides the window
 //     --shot-any         count every frame shown (the fade's too), not only the 3D scene's
-//   --frames N           quit after N frames of a debug start
+//   --frames N           quit after N frames shown (a debug start's; from the menus each flip counts,
+//                        a movie's at its own rate: the intro's 15 a second); also keeps the window
+//                        out of fullscreen
 //   --action-chain all|cN|cN:S  Instant Action played through, each world and scenario (ours, modes_chain.h)
 //   --campaign-chain new:N|resume:N|kills:N|retry:N  a pilot through the campaign as a player (ours,
 //                        campaign_chain.h): N missions won, shots in --write-dir
@@ -122,8 +124,11 @@ std::string campaign_summary() {
 }
 
 struct Args {
+  SDL_Window* launcher_window = nullptr;  // the launcher's, for the game to take (one window; ours)
   std::string install, write_dir, mission, variant, dialog_file, dialog_name, shot, movie;
   std::string cfg_install;  // mw3.cfg's install= (the command line's wins)
+  std::string cfg_mw1_game;  // mw3.cfg's mw1_game= (ours: the launcher's MechWarrior 1989 folder)
+  int wide_menus = -1, cfg_wide_menus = -1;  // --wide-menus / --no-wide-menus, mw3.cfg's widemenus= (ours)
   std::vector<std::string> assets;
   std::string original;  // -nofmv -seasick -cdN, passed on as the command line
   // The bug fixes (zfix bugs; fixes.md, The bug fixes switch): mw3.cfg's
@@ -143,6 +148,8 @@ struct Args {
   bool no_import = false, force_import = false;  // --no-import, --import (ours: first_run_import.h)
   bool no_launcher = false;   // --no-launcher (ours: launcher.h): a plain start straight to the game
   std::string launcher_shot, launcher_screen = "main";  // --launcher-shot FILE [--launcher-screen NAME]
+  bool launcher_play = false;  // --launcher-play: the launcher shown, MECHWARRIOR 3 pressed at once (checks)
+  bool launcher_mw1 = false;   // --launcher-mw1: likewise MECHWARRIOR (1989), the launcher quit when it returns
   std::string vfw_helper;     // --vfw-helper EXE (ours, sdl_vfw.h): the movies' Video for Windows helper; "-" none
   std::string patch;          // --patch PATH (ours, patch_import.h): the official 1.2 patch into the write dir's overlay
   std::string install_from, install_to;  // --install-from PATH, --install-to DIR (ours, disc_install.h)
@@ -177,7 +184,7 @@ void usage() {
       "mw3 [install-dir] [--install DIR | --install-from DISC|ISO|CUE [--install-to DIR]] [--assets DIR]... [--write-dir DIR] [--version]\n"
       "    [--mission NAME | --fly NAME [--variant BLOCK]] [--pos X Y Z] [--look YAW PITCH] [--vehicle-ahead M [--vehicle-hold]] [--turret-ahead M] [--mech-ahead M] [--dialog FILE NAME]\n"
       "    [--shot FILE.bmp [--shot-frame N] [--shot-any] [--shot-series K]] [--fire N [--fire-group 1..5]] [--objectives N] [--win N] [--lab-mech N]\n"
-      "    [--windowed] [--original] [--import | --no-import] [--no-launcher] [--launcher-shot FILE [--launcher-screen main|setup|work]] [--patch ZIP|DIR] [--vfw-helper EXE | --no-vfw-helper] [--briefing c1m2] [--click N[:M]] [--click-at X,Y@N]... [--walk] [--tap DIK@N[:M]]... [--frames N] [--frame-ms N] [--frame-times N] [--seed N] [--window WxH] [--nosound] [--hidden] [--verbose]\n"
+      "    [--windowed] [--original] [--import | --no-import] [--no-launcher] [--launcher-shot FILE [--launcher-screen main|setup|work|notes]] [--launcher-play] [--launcher-mw1] [--wide-menus | --no-wide-menus] [--patch ZIP|DIR] [--vfw-helper EXE | --no-vfw-helper] [--briefing c1m2] [--click N[:M]] [--click-at X,Y@N]... [--walk] [--tap DIK@N[:M]]... [--frames N] [--frame-ms N] [--frame-times N] [--seed N] [--window WxH] [--nosound] [--hidden] [--verbose]\n"
       "    [-nofmv] [-seasick] [-cdN]\n"
       "See docs/program.md.\n");
 }
@@ -253,8 +260,11 @@ bool parse(int argc, char** argv, Args& a) {
     else if (s == "--no-import") a.no_import = true;
     else if (s == "--no-launcher") a.no_launcher = true;
     else if (s == "--launcher-shot" && next(1)) a.launcher_shot = argv[++i];
+    else if (s == "--launcher-play") a.launcher_play = true;
+    else if (s == "--launcher-mw1") a.launcher_mw1 = true;
     else if (s == "--launcher-screen" && next(1)) a.launcher_screen = argv[++i];
-    else if (s == "--wide-menus") zfix::options().wide_menus = true;
+    else if (s == "--wide-menus") a.wide_menus = 1;
+    else if (s == "--no-wide-menus") a.wide_menus = 0;
     else if (s == "--original") a.play_original = true;
     else if (s == "--import") a.force_import = true;
     else if (s == "--patch" && next(1)) a.patch = argv[++i];
@@ -301,10 +311,13 @@ void read_config(const std::string& dir, Args& a) {
   while (std::getline(f, line)) {
     if (!line.empty() && line.back() == '\r') line.pop_back();
     if (line.rfind("install=", 0) == 0) a.cfg_install = line.substr(8);
+    else if (line.rfind("mw1_game=", 0) == 0) a.cfg_mw1_game = line.substr(9);
     else if (line.rfind("assets=", 0) == 0) a.assets.push_back(line.substr(7));
     else if (line == "windowed=1") a.windowed = true;
     else if (line == "bugfixes=0") a.cfg_bugfixes = 0;
     else if (line == "bugfixes=1") a.cfg_bugfixes = 1;
+    else if (line == "widemenus=0") a.cfg_wide_menus = 0;
+    else if (line == "widemenus=1") a.cfg_wide_menus = 1;
   }
 }
 
@@ -449,14 +462,10 @@ std::vector<std::string> start_notes(const mech3::DataVersion& d, const std::str
     if (v.size() > 6) s += ", ...";
     return s;
   };
-  if (d.name == "1.0")
-    out.push_back("Your MechWarrior 3 data is version 1.0. It plays, but the rebuild is made and tested on 1.2's. " + patch);
-  else if (d.name == "1.0 with 1.2 files")
-    out.push_back("Your MechWarrior 3 data is part 1.0, part 1.2 (" + std::to_string(d.of_12) + " of " +
-                  std::to_string(d.of_10 + d.of_12) + " files patched). " + patch);
-  else if (d.name == "unknown")
+  // 1.0's data and a mix need no note: they load as 1.2 (docs/patch12.md).
+  if (d.name == "unknown")
     out.push_back("Some MechWarrior 3 files are neither version 1.0's nor 1.2's (another version or a mod): " + list(d.unknown) +
-                  ". They may not play right.");
+                  ". They may not play right. " + patch);
   else if (d.name == "incomplete")
     out.push_back("Some MechWarrior 3 files are missing from the install: " + list(d.unknown) +
                   ". Reinstall MechWarrior 3 from its disc.");
@@ -517,6 +526,12 @@ int main(int argc, char** argv) {
     if (char* p = SDL_GetPrefPath("MicroProse", "MechWarrior 3")) a.write_dir = p, SDL_free(p);
   }
   while (a.write_dir.size() > 1 && a.write_dir.back() == '/') a.write_dir.pop_back();
+  // A --write-dir that does not exist is made, as SDL_GetPrefPath makes the default.
+  if (!a.write_dir.empty()) {
+    std::error_code ec;
+    std::filesystem::create_directories(a.write_dir, ec);
+    if (ec) std::fprintf(stderr, "mw3: cannot make the write dir %s: %s\n", a.write_dir.c_str(), ec.message().c_str());
+  }
   // Everything printed from here also goes to <write dir>/mw3.log, the last
   // start's kept as mw3.old.log (ours): with no console (the Windows package
   // build) stdout and stderr go to the file (log_to_file), else they are
@@ -530,6 +545,9 @@ int main(int argc, char** argv) {
   // Every play-changing bug fix off with --original or bugfixes=0 (ours; the
   // platform fixes that let it run stay on: fixes.md, The bug fixes switch).
   zfix::options().bugs = !a.play_original && a.cfg_bugfixes != 0;
+  // The menus' 16:9 (a display choice, kept by --original): the command
+  // line's, else mw3.cfg's widemenus=, else on.
+  zfix::options().wide_menus = a.wide_menus >= 0 ? a.wide_menus != 0 : a.cfg_wide_menus != 0;
   if (!zfix::options().bugs)
     std::printf("mw3: bug fixes off (%s): the original's play\n", a.play_original ? "--original" : "bugfixes=0 in mw3.cfg");
   // The launcher (ours: launcher.h, docs/launcher.md): a player's plain
@@ -538,21 +556,23 @@ int main(int argc, char** argv) {
   const bool player_start = !a.hidden && a.frames == 0 && a.shot.empty() && a.chain.empty() && a.modes.empty() &&
                             a.mission.empty() && !a.fly && a.dialog_file.empty() && a.movie.empty() && a.install.empty() &&
                             a.install_from.empty() && a.patch.empty() && a.original.find("-nofmv") == std::string::npos;
-  if (!a.launcher_shot.empty() || (player_start && !a.no_launcher)) {
+  if (!a.launcher_shot.empty() || a.launcher_play || a.launcher_mw1 || (player_start && !a.no_launcher)) {
     sdlfe::LauncherOptions lo;
-    lo.write_dir = a.write_dir, lo.cfg_install = a.cfg_install;
+    lo.write_dir = a.write_dir, lo.cfg_install = a.cfg_install, lo.cfg_mw1_game = a.cfg_mw1_game;
 #ifdef MW3_GAME_DIR
     if (!std::getenv("MW3_FIND_INSTALL")) lo.more_installs.push_back(MW3_GAME_DIR);
 #endif
     lo.fullscreen = !a.windowed && !a.window_given;
+    lo.sound = !a.nosound;
     lo.win_w = a.win_w, lo.win_h = a.win_h;
-    lo.shot = a.launcher_shot, lo.screen = a.launcher_screen;
+    lo.shot = a.launcher_shot, lo.screen = a.launcher_screen, lo.play = a.launcher_play, lo.play_mw1 = a.launcher_mw1;
     const sdlfe::LauncherChoice c = sdlfe::run_launcher(lo);
     if (c.kind != sdlfe::LauncherChoice::kPlay) {
       SDL_Quit();
       return 0;
     }
     a.install = c.install;
+    a.launcher_window = c.window;
   }
   if (!a.install_from.empty() && !install_from_disc(a)) {
     SDL_Quit();
@@ -666,7 +686,7 @@ namespace {
 
 int run(const Args& a, platform::VideoForWindows* vfw) {
   sdlfe::SdlWindow window;
-  if (!window.init(a.hidden)) return 1;
+  if (!window.init(a.hidden, a.launcher_window)) return 1;
   sdlfe::SdlInput input;
   sdlfe::SdlForceDevice force([&input] { return input.joystick(); });  // FIX (A): IFORCE2 as rumble (sdl_force.h)
   input.window = window.sdl();
@@ -1176,6 +1196,23 @@ int run(const Args& a, platform::VideoForWindows* vfw) {
       if (launch) pump.should_quit = [&] { return launch_done; };
       if (chain) pump.should_quit = [&] { return chain->done(); };
       if (modes) pump.should_quit = [&] { return modes->done(); };
+      pump.stays_active = a.frames > 0 || !a.shot.empty() || chain || modes;  // a check: no pause for focus
+      // MW3_FOCUS_LOST_AT=N (checks): the window's focus lost at the pump's
+      // Nth pass, as when another app is in front.
+      int focus_lost_at = 0, passes = 0;
+      if (const char* f = SDL_getenv("MW3_FOCUS_LOST_AT")) focus_lost_at = std::atoi(f);
+      if (focus_lost_at > 0) {
+        auto before = pump.each_pass;
+        pump.each_pass = [&, before] {
+          if (before) before();
+          if (++passes != focus_lost_at) return;
+          SDL_Event ev{};
+          ev.type = SDL_EVENT_WINDOW_FOCUS_LOST;
+          ev.window.windowID = SDL_GetWindowID(window.sdl());
+          SDL_PushEvent(&ev);
+          std::printf("mw3: focus lost (MW3_FOCUS_LOST_AT)\n");
+        };
+      }
       // A quit outside the Exit state returns through ExitInstance, as the exe's WM_QUIT does,
       // and leaves the world to the process's end: stop_game after zSound's shutdown freed
       // the sounds the world's nodes still held (the exit's SIGTRAP, docs/program.md).

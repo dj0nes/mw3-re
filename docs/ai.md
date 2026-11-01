@@ -841,7 +841,7 @@ byte stays 0 from the allocation.
 | +0x00 | the record's settings copied (AiParams, 0x4d9bf0 -> 0x4d9940: the 0xcc bytes, the orders' list copied, an empty one as none, the pilot and voice strdup'd), +0xdc FLT_MAX |
 | +0xe0 | the virtual base pointer |
 | +0xe4..+0x104 | 0, FLT_MAX, 1.0, 0, FLT_MAX, byte 0, 0, 0 (+0x100 the fire timer), byte 0 (+0x104 the order's run-again flag; section 4) |
-| +0x108 | the firing state (0x4b6570, 0x58 bytes): 11 words from 0x5e8868 (8, then zeros), +0x2c the brain (0x4b6660, which also calls the brain's IControls vt+0x10(0): nothing then), +0x34 a fire plan (0x4b6390, vtable 0x5c9458), +0x54 the aim error (`new(0x24)`, 0x4b7060: offset 0, drift (1, 0, 0), off, 0, limit 1.0; 17.7) |
+| +0x108 | the firing state (0x4b6570, 0x58 bytes): 11 words from 0x5e8868, a template the CRT start-up's initializer 0x4b6500 fills (phase 8, time FLT_MAX, quick delay 3, delay 6, rest 1, plan 0, reach cos 20°, track cos 30°, fire cos 45°, range 50, obstacle 0; the image holds only the 8; W34), +0x2c the brain (0x4b6660, which also calls the brain's IControls vt+0x10(0): nothing then), +0x34 a fire plan (0x4b6390, vtable 0x5c9458), +0x54 the aim error (`new(0x24)`, 0x4b7060: offset 0, drift (1, 0, 0), off, 0, limit 1.0; 17.7) |
 | +0x160 | the order stack, a `std::deque` of 0x98-byte orders (blocks of 26, 0xf70 bytes); +0x190 its owner, the brain; the last order is the current one (+0x17c) |
 | +0x194 | an order of the brain's own (0x4e8180, vtable 0x5cd8e8), its owner the brain |
 | +0x22c..+0x23c | byte 2, then four words 0 (+0x238 and +0x23c objects the destructor deletes; nothing here sets them) |
@@ -3375,17 +3375,41 @@ lasers' 0.38 is out and the Gauss alone is kept. The plan's track re-picks
 each frame, so the group changes while he turns. The Gauss reaches phase 4
 for 111 frames and fires once (t 15.22 s, ammo 16 -> 15, reload 2.5 s),
 and the slug flies about 80 degrees off the target and hits nothing:
-the firing's reach, track and fire thresholds (+0x18 / +0x1c / +0x20) are
-0 (the defaults 0x5e8868; nothing in the exe writes them after), so
-`in_reach` (vt+0x150, 0x41dba0: the torso's facing +0x98 strictly above
-the cosine) passes as soon as the target is within 90 degrees of the
-torso's front, while it is still turning; the weapon fires along its own
-arc-limited direction. The original's design; the item 8 trace sampled
-every 25 frames and missed the one shot. Playtest #23 is the same
+the firing's reach, track and fire thresholds (+0x18 / +0x1c / +0x20) were
+0 in the port, so `in_reach` (vt+0x150, 0x41dba0: the torso's facing +0x98
+strictly above the cosine) passed as soon as the target was within 90
+degrees of the torso's front, while it was still turning; the weapon fired
+along its own arc-limited direction. **Corrected (W34):** that was a port
+bug, not the original's design. The defaults' template 0x5e8868 holds
+zeros in the image, but the CRT start-up's initializer 0x4b6500 fills it
+(cos 20°, 30°, 45° and the waits 3 s, 6 s, 1 s); the emulator never ran it,
+so the brain's differential test agreed with the zeros. The test now runs
+it and compares the fields (break: the zeros caught). Playtest #23 is the same
 mechanism seen from the player's side (step 2): the AI is not delayed by
 it beyond the recharge, since it presses again every frame. Nothing here is
 a port change; whether the original plays the same scene alike can only be
 checked in play (no whole-mission emulation).
+
+What the real waits do (W34, from the tests that had been pinned on the
+zeros):
+
+- A plan is kept to its end. Phase 3 waits for a clear line (the plan's
+  ready, 0x4d5980) until the delay (6 s, 3 for a quick plan) runs out; the
+  pick (0x4b6790) does not run meanwhile, so a nearer enemy that turns up
+  waits for it. The pick itself prefers the near one (under 40 m the
+  distance term is 100; a blocked line multiplies the score by 10).
+- A field base's centroid is its node's origin, on the ground: the
+  constructor 0x458a70 calls 0x4d6c90(node, 0, 0, 0), whose 0x5a8390
+  finds or makes the centroid child at the origin, and nothing raises it
+  (a mech's set-up puts its centroid at half its height). The line from
+  an AI's centroid to a base far off grazes the ground, so a plan on a
+  base often waits out its whole delay (c1m1: the Owens 534 m off, 6 s,
+  then a 1 s rest and the same base again).
+- The fire threshold (cos 45) is against the torso's facing (+0x98), and
+  the torso stops at its twist limit (Dominic's 1.92 rad): an enemy behind
+  a mech walking away from it is aimed at but never fired on (c1m4,
+  Dominic following the player). Under the zeros (90 degrees) he fired,
+  his shots along the torso's facing.
 
 ### 17.8 The switches
 

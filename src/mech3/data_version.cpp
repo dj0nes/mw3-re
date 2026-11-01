@@ -1,6 +1,7 @@
 #include "mech3/data_version.h"
 
 #include <cstdio>
+#include <cstring>
 #include <vector>
 
 #include "gamez/zutil/zutl_path.h"
@@ -108,6 +109,17 @@ bool measure(const char* path, uint32_t* size, uint32_t* crc) {
 const DataFile* data_files(int* count) {
   *count = static_cast<int>(sizeof kFiles / sizeof kFiles[0]);
   return kFiles;
+}
+
+int data_file_version(const char* path) {
+  for (const DataFile& k : kFiles) {
+    if (std::strcmp(k.path, path) != 0) continue;
+    uint32_t size = 0, crc = 0;
+    if (!measure(k.path, &size, &crc)) return -1;
+    if (size == k.size_12 && crc == k.crc_12) return 12;
+    return k.size_10 && size == k.size_10 && crc == k.crc_10 ? 10 : 0;
+  }
+  return 0;
 }
 
 DataVersion detect_data_version() {

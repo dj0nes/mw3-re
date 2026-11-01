@@ -1,5 +1,6 @@
 #include "gamez/zsave/zsave.h"
 
+#include <cstdlib>
 #include <cstring>
 #include <vector>
 

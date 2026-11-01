@@ -457,6 +457,10 @@ void hud_object_view_tint(const void* o, bool on) {
   if (tur::Turret* t = program_turret_by_handle(h)) return t->tint(on);
   if (void* v = vehicle(h)) program_vehicle_view_tint(v, on);
 }
+bool hud_object_is_target(const void* o) {
+  const EntityClass c = entity_facts().class_of(handle(o));
+  return c == EntityClass::target || c == EntityClass::trap;
+}
 bool hud_object_is_field_base(const void* o) {
   void* v = vehicle(handle(o));
   return v && program_is_field_base(v);

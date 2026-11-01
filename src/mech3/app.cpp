@@ -94,10 +94,22 @@ void Mech3App::pick_post_intro_state(bool lobby) {
   post_intro_ = state(n);
 }
 
+// Ours, FIX (A): the software renderer is not ported; a saved software
+// choice (HWCardFlag 0, HWCardDev -1) starts on the GPU's device, windowed
+// too (restore_video runs only full screen; fixes.md).
+void Mech3App::gpu_only() {
+  Engine& e = *engine_;
+  if (!e.software_renderer() && e.install_options(0xff) && (e.hw_card_flag() == 0 || e.hw_card_dev() < 0))
+    e.set_hw_card_dev(999);
+}
+
 // Mech3.exe 1.2 @ 0x0047fe10: the 3D card and screen mode saved by an earlier run.
+// FIX (A): the software renderer is not ported, so a saved software choice
+// (HWCardFlag 0, HWCardDev -1) or a pick of it starts on the GPU's device.
 void Mech3App::restore_video(bool hw, bool pick) {
   Engine& e = *engine_;
-  if (!hw || e.install_options(0xff) == 0) {
+  const bool sw = e.software_renderer();
+  if ((!hw && sw) || e.install_options(0xff) == 0) {
     e.select_hw(0);
     return;
   }
@@ -108,6 +120,7 @@ void Mech3App::restore_video(bool hw, bool pick) {
     dev = e.hw_card_dev();
     if (dev == 999) dev = e.pick_video_device(0, 0);
   }
+  if (!sw && (dev < 0 || dev == 999)) dev = 0;
   if (dev == -1) {
     e.select_hw(0);
     e.set_hw_card_dev(-1);
@@ -199,6 +212,7 @@ bool Mech3App::init_instance() {
   e.classes_set_mode(0);
   frame_ = create_main_window();  // vtable +0xbc, after Enable3dControls (FIX (A))
   e.set_field32(frame_, 0xc0, 0x608c88);  // the frame's app: hooks know it by its address
+  gpu_only();
   if (fullscreen()) restore_video(e.hw_card_flag() != 0, false);
   if (!start(main_window())) return false;
   e.update_window(main_window());

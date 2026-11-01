@@ -5156,6 +5156,7 @@ struct RepairRun {
   std::vector<int> fronts;
   mech3::MechWear worn, after[2];
   int done = 0;
+  mech3::MechWear rest[2];  // at the rest after each (c3m1's Clanners fire on him meanwhile)
 };
 RepairRun c3m1_repair_run(bool bugs) {
   RepairRun out;
@@ -5208,6 +5209,10 @@ RepairRun c3m1_repair_run(bool bugs) {
       void* player = mech3::mech_mission_player();
       const mech3::DockSummary d = mech3::program_dock_summary();
       if (d.front != last_front) {
+        // The repair done (step 4 over): the wear then, before anyone's next
+        // shot; read at the rest after it, c3m1's enemies hit him meanwhile.
+        if (last_front == 4 && out.repairs >= 1 && out.repairs <= 2)
+          out.after[out.repairs - 1] = mech3::program_mech_wear(player);
         out.fronts.push_back(d.front), last_front = d.front;
         if (d.front == 4) ++out.repairs;
       }
@@ -5230,7 +5235,7 @@ RepairRun c3m1_repair_run(bool bugs) {
           break;
         case 1:  // the first repair done
           if (out.repairs == 1 && rest) {
-            out.after[0] = mech3::program_mech_wear(player), out.done = 1;
+            out.rest[0] = mech3::program_mech_wear(player), out.done = 1;
             mech3::mech_power(player, 0);
             put(player, point[0] + 40.0f, point[2]);  // off the point
             mech3::program_mech_wear_down(player, 0.5f, 0.5f);
@@ -5248,7 +5253,7 @@ RepairRun c3m1_repair_run(bool bugs) {
           }
           if (frames == at + 61 && d.front != 7) mech3::program_mcb_command(player);
           if (frames > at + 61 && d.front == 2) put(player, point[0], point[2]), mech3::mech_power(player, 1);
-          if (out.repairs == 2 && rest) out.after[1] = mech3::program_mech_wear(player), out.done = 2, phase = 9;
+          if (out.repairs == 2 && rest) out.rest[1] = mech3::program_mech_wear(player), out.done = 2, phase = 9;
           break;
         default: break;
       }
@@ -5277,13 +5282,128 @@ TEST(mission_c3m1_field_bases_repair_the_player_twice_headless) {
   if (!have_game()) return;
   for (const bool bugs : {true, false}) {
     const RepairRun r = c3m1_repair_run(bugs);
-    std::printf("  bugs %d: bases %d, repairs %d, worn armour %.2f internals %.2f; after 1: %.2f %.2f; after 2: %.2f %.2f; fronts",
-                bugs, r.bases, r.repairs, r.worn.armor, r.worn.internal, r.after[0].armor, r.after[0].internal, r.after[1].armor,
-                r.after[1].internal);
+    std::printf("  bugs %d: bases %d, repairs %d, worn armour %.2f internals %.2f; after 1: %.2f %.2f (rest %.2f %.2f); after 2: "
+                "%.2f %.2f (rest %.2f %.2f); fronts",
+                bugs, r.bases, r.repairs, r.worn.armor, r.worn.internal, r.after[0].armor, r.after[0].internal, r.rest[0].armor,
+                r.rest[0].internal, r.after[1].armor, r.after[1].internal, r.rest[1].armor, r.rest[1].internal);
     for (int f : r.fronts) std::printf(" %d", f);
     std::printf("\n");
+    // Full the frame each repair ends. At the rest after it (the dock's last
+    // steps, about 5 s) c3m1's Clanners may have hit him again: since the AI's
+    // real waits (W34) a shot lands there after the second (0.99 / 0.87).
     EXPECT(r.bases && r.done >= 1 && r.after[0].internal == 1.0f && r.after[0].armor == 1.0f);
     if (bugs) EXPECT(r.done == 2 && r.after[1].internal == 1.0f && r.after[1].armor == 1.0f);
+  }
+}
+// W32 (Owen, c3m1): the Clan HQ Q-targeted, its radar triangle out of place.
+// A targets.zrd building's node is at the world's origin (its mesh in world
+// co-ordinates); the radar's place for a contact is the node's (0x005a85e0,
+// the exe's too), so its triangle pointed at the origin. With the bug fixes
+// the record's centroid. The player 400 m south of the HQ facing it, Q.
+namespace {
+struct HqRadar {
+  bool targeted = false;
+  mech3::HudReport r;
+  float centroid[3] = {}, me[3] = {};
+};
+HqRadar c3m1_hq_radar(bool bugs) {
+  HqRadar out;
+  SavedMounts keep;
+  zutl::mounts() = zutl::Mounts{};
+  zutl::mount(MW3_GAME_DIR);
+  zutl::set_write_dir(temp_dir("mission_w32_write"));
+  mech3::reset_states();
+  reset_process_state();
+  mech3::missions() = mech3::Missions{};
+  mech3::mech_types_forget();
+  mech3::player_controls_instance() = nullptr;
+  mech3::options() = mech3::Options{};
+  const bool bugs_was = zfix::options().bugs;
+  zfix::options().bugs = bugs;
+  FakeWindow window;
+  FakeAlert alert;
+  FastClock clock;
+  FakeScreen screen;
+  platform::SilentSoundOutput sound;
+  mech3::MountFiles files;
+  mech3::Platform p;
+  p.window = &window, p.alert = &alert, p.clock = &clock, p.movie_clock = &fast_movie_clock(), p.screen = &screen, p.sound = &sound, p.files = &files;
+  {
+    mech3::GameEngine engine(p, "mech3.exe -nofmv");
+    engine.quiet = true;
+    mech3::Mech3App app(&engine);
+    mech3::set_app(&app);
+    EXPECT(app.init_instance());
+    mech3::GameEngine::Launch l;  // c3, mission 1: the Clan HQ (targets.zrd's hqbuild)
+    l.index = 2, l.number = 1;
+    engine.set_launch(l);
+    app.post_intro_ = &mech3::states().load;
+    int frames = 0, done_at = 0;
+    zgame::Handle hq = 0;
+    engine.on_present = [&](int) {
+      if (app.current() != &mech3::states().core) return;
+      ++frames;
+      void* player = mech3::mech_mission_player();
+      if (frames == 3) {
+        for (mech3::ai::CZAiTarget* x : mech3::ai::target_list()) {
+          auto* n = static_cast<zcls::Node*>(engine.object_of(x->node));
+          if (n && std::string(n->name()) == "hqbuild") hq = x->self, mech3::hud_object_centroid(engine.object_of(x->self), out.centroid);
+        }
+        if (!hq) return;
+        const float x = out.centroid[0], z = out.centroid[2] + 400.0f;
+        const float at[3] = {x, ground_under(x, out.centroid[1] + 200.0f, z), z};
+        mech3::move_mech(player, at, 0.0f);
+        mech3::chain_player_face(out.centroid);
+        return;
+      }
+      if (!hq || frames < 20 || done_at) {
+        if (done_at && frames == done_at + 5) mech3::program_hud_report(&out.r), mech3::mech_world_position(player, out.me);
+        return;
+      }
+      const mech3::ai::AiTarget* pt = mech3::ai::brain_hooks().targetable(engine.handle_of(player));
+      if (pt && pt->target && pt->target->seen == hq) {
+        out.targeted = true, done_at = frames;
+        return;
+      }
+      if (frames % 10 == 0) mech3::player_command(0x48);  // Q: the object under the reticle
+    };
+    CountingPump pump;
+    pump.limit = 3000;
+    pump.stop = [&] { return (done_at && frames > done_at + 5) || frames > 400 || (frames > 3 && !hq); };
+    app.run(pump);
+    mech3::missions().cleanup(false);
+    app.stop_game();
+    app.exit_instance();
+    mech3::set_app(nullptr);
+  }
+  zfix::options().bugs = bugs_was;
+  zrdr::close_archives(true);
+  mech3::reset_states();
+  reset_process_state();
+  mech3::options() = mech3::Options{};
+  return out;
+}
+}  // namespace
+
+TEST(mission_c3m1_hq_targeted_is_ahead_on_the_radar_headless) {
+  if (!have_game()) return;
+  for (const bool bugs : {true, false}) {
+    const HqRadar h = c3m1_hq_radar(bugs);
+    const int dx = h.r.radar_target_x - h.r.radar_x, dy = h.r.radar_target_y - h.r.radar_y;
+    std::printf("  bugs %d: targeted %d, the HQ's centroid %.0f %.0f %.0f, the player %.0f %.0f %.0f; radar r %d, its triangle %d draws at "
+                "%+d %+d from the centre\n",
+                bugs, h.targeted, h.centroid[0], h.centroid[1], h.centroid[2], h.me[0], h.me[1], h.me[2], h.r.radar_r,
+                h.r.radar_target_draws, dx, dy);
+    EXPECT(h.targeted && h.r.radar_target_draws > 0);
+    if (bugs) {
+      // Straight ahead, up from the centre, at its range's share of the radius.
+      EXPECT(std::abs(dx) <= 1 && dy < -2);
+    } else {
+      // The exe's: towards the world's origin, 860 m east and 593 m north of
+      // the player facing north, about 55 degrees right of ahead (+16 -12 of
+      // the 20 px its range gives).
+      EXPECT(dx > 10 && dy < -5 && dx > -dy);
+    }
   }
 }
 TEST(mission_c2m1_field_bases_stay_after_a_repair_headless) {
@@ -5648,6 +5768,132 @@ TEST(mission_c1m1_player_destroys_an_srm_turret_headless) {
               health, died_group);
   EXPECT(on_at > 0);
   EXPECT(!(health > 0.0f) && died_group >= 0);
+  zrdr::close_archives(true);
+  mech3::reset_states();
+  reset_process_state();
+  mech3::options() = mech3::Options{};
+}
+
+// Community report (docs/community-issues.md, item 3): a crash on an alpha
+// strike. The Mad Cat 40 m from tur_srm04, the reticle on it as in the test
+// above, alpha strikes (CMD_ALPHASTRIKE, keypad Enter: every weapon held
+// 0.2 s, 0x004b0a70) every 30 frames for 20 strikes: the turret takes the
+// hits, the heat climbs past the shutdown and the mech powers down while the
+// strikes go on; at critical heat it dies, and the lost mission fades to the
+// debriefing.
+TEST(mission_c1m1_alpha_strikes_into_a_shutdown_headless) {
+  if (!have_game()) return;
+  SavedMounts keep;
+  zutl::mounts() = zutl::Mounts{};
+  zutl::mount(MW3_GAME_DIR);
+  zutl::set_write_dir(temp_dir("mission_alpha_write"));
+  mech3::reset_states();
+  reset_process_state();
+  mech3::missions() = mech3::Missions{};
+  mech3::mech_types_forget();
+  mech3::options() = mech3::Options{};
+  struct Keys : platform::Input {
+    std::vector<platform::KeyEvent> queue;
+    uint32_t t = 0;
+    void key(uint32_t dik, bool down) { queue.push_back({dik, down ? 0x80u : 0u, ++t, t}); }
+    bool open(Device d) override { return d == kKeyboard; }
+    void close(Device) override {}
+    int32_t acquire(Device) override { return 0; }
+    int32_t unacquire(Device) override { return 0; }
+    int32_t keyboard_data(platform::KeyEvent* out, uint32_t* count) override {
+      const uint32_t n = std::min<uint32_t>(*count, static_cast<uint32_t>(queue.size()));
+      std::copy(queue.begin(), queue.begin() + n, out);
+      queue.erase(queue.begin(), queue.begin() + n);
+      *count = n;
+      return 0;
+    }
+    int32_t mouse_state(platform::MouseState*) override { return kNotAcquired; }
+    int32_t joystick_state(platform::JoyState*) override { return kNotAcquired; }
+  } keys;
+  FakeWindow window;
+  FakeAlert alert;
+  FakeClock clock;
+  FakeScreen screen;
+  platform::SilentSoundOutput sound;
+  mech3::MountFiles files;
+  mech3::Platform p;
+  p.window = &window, p.alert = &alert, p.clock = &clock, p.movie_clock = &fast_movie_clock(), p.screen = &screen, p.sound = &sound, p.files = &files;
+  p.input = &keys;
+  int frames = 0, strikes = 0, down_at = -1, after = 0;
+  float health0 = -1, health = -1, peak = 0, armor = -1;
+  std::string left_to;
+  {
+    mech3::GameEngine engine(p, "mech3.exe -nofmv");
+    engine.quiet = true;
+    mech3::Mech3App app(&engine);
+    mech3::set_app(&app);
+    EXPECT(app.init_instance());
+    mech3::GameEngine::Launch l;  // c1m1, the Mad Cat
+    engine.set_launch(l);
+    app.post_intro_ = &mech3::states().load;
+    void* player = nullptr;
+    mech3::tur::Turret* t = nullptr;
+    zcls::Node* centroid = nullptr;
+    bool pitching = false;
+    const uint32_t alpha = zin::key1_of(0x39) & 0xff;  // CMD_ALPHASTRIKE
+    engine.on_present = [&](int) {
+      if (app.current() != &mech3::states().core) return;
+      ++frames;
+      if (frames == 3) {
+        player = engine.object_of(engine.field32(engine.pilot(), 0x14));
+        for (mech3::tur::Turret* x : mech3::tur::turret_list())
+          if (std::strcmp(static_cast<zcls::Node*>(engine.object_of(x->node))->name(), "tur_srm04") == 0) t = x;
+        if (!t) return;
+        centroid = zcls::node_find_in_tree(static_cast<zcls::Node*>(engine.object_of(t->node)), "centroid");
+        const float x = t->pos[0] + 40.0f, z = t->pos[2];
+        const float at[3] = {x, ground_under(x, t->pos[1] + 50.0f, z), z};
+        mech3::move_mech(player, at, 1.5707964f);  // facing -x
+      }
+      if (!player || !t) return;
+      if (frames >= 20 && frames < 60) {
+        int32_t ret[2];
+        float pt[3], c[3];
+        bool hit = false;
+        mech3::program_hud_aim(ret, pt, &hit);
+        mech3::node_world_cached(centroid, c);
+        const float dx = pt[0] - c[0], dy = pt[1] - c[1], dz = pt[2] - c[2];
+        const bool on = hit && dx * dx + dy * dy + dz * dz < 36.0f;
+        const uint32_t pd = zin::key1_of(5) & 0xff;  // CMD_PITCH_DN
+        if (!on && !pitching && pt[1] > c[1]) keys.key(pd, true), pitching = true;
+        else if ((on || pt[1] <= c[1]) && pitching) keys.key(pd, false), pitching = false;
+      }
+      if (frames == 60) health0 = t->health;
+      if (frames >= 60 && strikes < 20 && (frames - 60) % 30 == 0) keys.key(alpha, true), ++strikes;
+      else if (frames >= 60 && (frames - 60) % 30 == 2) keys.key(alpha, false);
+      mech3::LaunchedMech d;
+      if (mech3::describe_mech(player, &d)) {
+        peak = std::max(peak, d.heat);
+        armor = d.armor;
+        if (down_at < 0 && d.powering_down) down_at = frames;
+      }
+      health = t->health;
+      if (strikes >= 20) ++after;
+    };
+    CountingPump pump;
+    pump.stop = [&] { return after >= 300 || app.current() == &mech3::states().end_win; };
+    pump.limit = 1000000;
+    app.run(pump);
+    const mech3::States& st = mech3::states();
+    left_to = app.current() == &st.core ? "core" : app.current() == &st.end_win ? "the debriefing" : app.current() == &st.fade ? "the fade"
+            : app.current() == &st.pause ? "the pause" : "another state";
+    mech3::missions().cleanup(false);
+    app.stop_game();
+    app.exit_instance();
+    mech3::set_app(nullptr);
+  }
+  std::printf("  %d alpha strikes: tur_srm04 %.3f -> %.3f, heat peak %.2f, power-down asked at frame %d, %d frames after; "
+              "armor left %.2f, then %s\n", strikes, health0, health, peak, down_at, after, armor, left_to.c_str());
+  // Held at critical heat the mech dies (heat.md, state 4: the torso
+  // destroyed), the mission is lost and fades to the debriefing; else it
+  // runs on. Either way, no crash.
+  EXPECT(strikes == 20 && (after >= 300 || left_to == "the debriefing"));
+  EXPECT(health0 > 0.0f && !(health >= health0));  // the strikes hit
+  EXPECT(peak > 1.0f && down_at > 60);  // overheated and shut down
   zrdr::close_archives(true);
   mech3::reset_states();
   reset_process_state();
@@ -8002,6 +8248,369 @@ TEST(mission_c1m1_left_button_fires_after_focus_headless) {
   mech3::options() = mech3::Options{};
 }
 
+
+// Playtest W31 ("sometimes jump jets don't lift me at all ... I just hover
+// barely"): the Thor's jets held for the same game time in each state:
+// frame times (60, 30 and 20 fps, a hitch), fuel (full, just above and just
+// below the 0.25 a jump from the ground needs, 0x005bcdc0), standing or
+// walking, hot; each with the fixes on and off (bugs and per_second off: the
+// exe's path). The climb must not fall to a hover where the jets fire; above
+// 30 fps walking up even a gentle slope it did (Skis::integrate, fixes.md).
+namespace {
+struct JetCase {
+  const char* what;
+  uint32_t step_ms;     // the clock's step a frame
+  float fuel = 1.0f;
+  float heat = 0.0f;
+  bool walk = false;
+  bool fixes = true;
+  int hitch_at = -1;    // a frame of 400 ms
+};
+struct JetRun {
+  bool firing = false, airborne = false;
+  int state = 0;
+  float climb = 0, fuel_used = 0, secs = 0;
+};
+JetRun jets_run(const JetCase& jc) {
+  JetRun out;
+  SavedMounts keep;
+  zutl::mounts() = zutl::Mounts{};
+  zutl::mount(MW3_GAME_DIR);
+  zutl::set_write_dir(temp_dir("mission_jets_write"));
+  mech3::reset_states();
+  reset_process_state();
+  mech3::missions() = mech3::Missions{};
+  mech3::mech_types_forget();
+  mech3::player_controls_instance() = nullptr;
+  mech3::options() = mech3::Options{};
+  const zfix::Options saved_fix = zfix::options();
+  zfix::options().bugs = jc.fixes, zfix::options().per_second = jc.fixes;
+  struct Keys : platform::Input {
+    std::vector<platform::KeyEvent> queue;
+    uint32_t t = 0;
+    void key(uint32_t dik, bool down) { queue.push_back({dik, down ? 0x80u : 0u, ++t, t}); }
+    bool open(Device d) override { return d == kKeyboard; }
+    void close(Device) override {}
+    int32_t acquire(Device) override { return 0; }
+    int32_t unacquire(Device) override { return 0; }
+    int32_t keyboard_data(platform::KeyEvent* o, uint32_t* count) override {
+      const uint32_t n = std::min<uint32_t>(*count, static_cast<uint32_t>(queue.size()));
+      std::copy(queue.begin(), queue.begin() + n, o);
+      queue.erase(queue.begin(), queue.begin() + n);
+      *count = n;
+      return 0;
+    }
+    int32_t mouse_state(platform::MouseState*) override { return kNotAcquired; }
+    int32_t joystick_state(platform::JoyState*) override { return kNotAcquired; }
+  } keys;
+  struct StepClock : platform::Clock {
+    uint32_t now = 0, step = 33, extra = 0;
+    uint32_t ticks_ms() override { now += step + extra; extra = 0; return now; }
+  } clock;
+  clock.step = jc.step_ms;
+  FakeWindow window;
+  FakeAlert alert;
+  FakeScreen screen;
+  platform::SilentSoundOutput sound;
+  mech3::MountFiles files;
+  mech3::Platform p;
+  p.window = &window, p.alert = &alert, p.clock = &clock, p.movie_clock = &fast_movie_clock(), p.screen = &screen, p.sound = &sound, p.files = &files;
+  p.input = &keys;
+  {
+    mech3::GameEngine engine(p, "mech3.exe -nofmv");
+    engine.quiet = true;
+    mech3::Mech3App app(&engine);
+    mech3::set_app(&app);
+    EXPECT(app.init_instance());
+    mech3::GameEngine::Launch l;  // c1m1, the Thor (its first configuration has jump jets)
+    l.mech = 17;
+    engine.set_launch(l);
+    app.post_intro_ = &mech3::states().load;
+    // The jets held from the start frame for 1.5 s of game time (by the clock's step).
+    const int start = 120, held = static_cast<int>(1500 / jc.step_ms);
+    int frames = 0;
+    void* player = nullptr;
+    uint32_t jump = 0;
+    float y0 = 0, fuel0 = 0, peak = -1e9f;
+    engine.on_present = [&](int) {
+      if (app.current() != &mech3::states().core) return;
+      ++frames;
+      if (frames == 3) {
+        player = engine.object_of(engine.field32(engine.pilot(), 0x14));
+        jump = zin::key1_of(0xc) & 0xff;
+      }
+      if (!player) return;
+      mech3::MechControls* c = mech3::mech_controls(player);
+      if (jc.walk && c && frames > 5) c->throttle_target = 1.0f;
+      if (frames == start - 1) {
+        mech3::program_mech_set_jet_fuel(player, jc.fuel);
+        if (jc.heat > 0) mech3::mech_set_heat(player, jc.heat);
+      }
+      mech3::LaunchedMech m;
+      mech3::describe_mech(player, &m);
+      if (frames == start) {
+        y0 = m.pos[1], fuel0 = mech3::mech_jet_fuel(player);
+        out.airborne = mech3::mech_airborne(player);
+        out.state = m.anim_state;
+        keys.key(jump, true);
+      } else if (frames > start && frames <= start + held) {
+        if (frames == start + jc.hitch_at) clock.extra = 400;
+        out.firing |= m.jets_firing != 0;
+        peak = std::max(peak, m.pos[1]);
+      } else if (frames == start + held + 1) {
+        keys.key(jump, false);
+        out.climb = peak - y0;
+        out.fuel_used = fuel0 - mech3::mech_jet_fuel(player);
+        out.secs = held * jc.step_ms / 1000.0f;
+      }
+    };
+    CountingPump pump;
+    pump.stop = [&] { return frames > start + held + 2; };
+    pump.limit = 4000;
+    app.run(pump);
+    mech3::missions().cleanup(false);
+    app.stop_game();
+    app.exit_instance();
+    mech3::set_app(nullptr);
+  }
+  zfix::options() = saved_fix;
+  zrdr::close_archives(true);
+  mech3::reset_states();
+  reset_process_state();
+  mech3::options() = mech3::Options{};
+  return out;
+}
+}  // namespace
+
+TEST(mission_c1m1_jump_jets_lift_in_every_state_headless) {
+  if (!have_game()) return;
+  const JetCase cases[] = {
+      {"60 fps", 16},
+      {"30 fps", 33},
+      {"20 fps", 50},
+      {"60 fps, a hitch", 16, 1.0f, 0, false, true, 3},
+      {"30 fps, walking", 33, 1.0f, 0, true},
+      {"60 fps, walking", 16, 1.0f, 0, true},
+      {"30 fps, hot", 33, 1.0f, 0.95f},
+      {"30 fps, fuel 0.3", 33, 0.3f},
+      {"30 fps, fuel 0.26", 33, 0.26f},
+      {"30 fps, fuel 0.1", 33, 0.1f},
+      {"60 fps, fuel 0.26", 16, 0.26f},
+      {"144 fps, walking", 7, 1.0f, 0, true},
+      {"144 fps", 7},
+      {"250 fps", 4},
+      {"500 fps", 2},
+      {"1000 fps", 1},
+      {"10 fps", 100},
+  };
+  int hovers = 0, original_hovers = 0;
+  for (const JetCase& jc : cases)
+    for (bool fixes : {true, false}) {
+      JetCase c = jc;
+      c.fixes = fixes;
+      const JetRun r = jets_run(c);
+      std::printf("  jets %-20s fixes %d: state %d air %d firing %d, climb %6.2f m in %.2f s, fuel used %.3f\n", c.what, fixes, r.state, r.airborne, r.firing,
+                  r.climb, r.secs, r.fuel_used);
+      EXPECT(r.firing == (c.fuel > 0.25f));
+      if (r.firing && r.climb < 3.0f) ++(fixes ? hovers : original_hovers);
+    }
+  // The original's path skims the ground walking at 144 fps (0x00477940).
+  EXPECT(hovers == 0);
+  EXPECT(original_hovers > 0);
+}
+// Playtest W33: the reticle's pick (0x00444350) ran from the camera's near
+// to its far clip (800 m), short of an ER large laser's 1000 m: aimed at a
+// mech 860 m off, in the selected group's range, the reticle stayed green.
+// With the fixes it reaches the group's range and turns yellow (over).
+TEST(mission_c1m1_reticle_picks_out_to_the_weapons_range_headless) {
+  if (!have_game()) return;
+  struct Pick {
+    int state = -2;
+    void* node = nullptr;
+    float distance = 0, range = 0, far = 0;
+    bool on_owens = false;
+  };
+  Pick picks[2];  // the fixes off, on
+  void* owens = nullptr;
+  for (int fixes = 0; fixes < 2; ++fixes) {
+    SavedMounts keep;
+    zutl::mounts() = zutl::Mounts{};
+    zutl::mount(MW3_GAME_DIR);
+    zutl::set_write_dir(temp_dir("mission_reticle_range"));
+    mech3::reset_states();
+    reset_process_state();
+    mech3::missions() = mech3::Missions{};
+    mech3::mech_types_forget();
+    mech3::player_controls_instance() = nullptr;
+    mech3::options() = mech3::Options{};
+    const zfix::Options saved_fix = zfix::options();
+    zfix::options().bugs = fixes != 0;
+    FakeWindow window;
+    FakeAlert alert;
+    FakeClock clock;
+    FakeScreen screen;
+    platform::SilentSoundOutput sound;
+    mech3::MountFiles files;
+    mech3::Platform p;
+    p.window = &window, p.alert = &alert, p.clock = &clock, p.movie_clock = &fast_movie_clock(), p.screen = &screen, p.sound = &sound, p.files = &files;
+    {
+      mech3::GameEngine engine(p, "mech3.exe -nofmv");
+      engine.quiet = true;
+      mech3::Mech3App app(&engine);
+      mech3::set_app(&app);
+      EXPECT(app.init_instance());
+      mech3::GameEngine::Launch l;  // c1m1, the Mad Cat
+      engine.set_launch(l);
+      app.post_intro_ = &mech3::states().load;
+      int frames = 0;
+      float at[3] = {};
+      engine.on_present = [&](int) {
+        if (app.current() != &mech3::states().core) return;
+        ++frames;
+        void* player = mech3::mech_mission_player();
+        int32_t made = 0;
+        const mech3::AiMechMade* ai = mech3::mission_ai_mechs(&made);
+        if (made != 1) return;
+        if (frames == 3) {  // 850 m west of the Owens and 150 m up, clear of the hills, facing it
+          mech3::LaunchedMech o;
+          mech3::describe_mech(ai[0].mech, &o);
+          const float x = o.pos[0] - 850.0f, z = o.pos[2];
+          const float to[3] = {x, ground_under(x, o.pos[1] + 300.0f, z) + 150.0f, z};
+          mech3::move_mech(player, to, -1.5707964f);
+        }
+        if (frames == 4) EXPECT(mech3::mech_select_group(player, 3));  // ERLaser_Large x2, PulseLaser_Medium
+        if (frames == 40) {
+          mech3::LaunchedMech o;
+          mech3::describe_mech(ai[0].mech, &o);
+          at[0] = o.pos[0], at[1] = o.pos[1] + o.height * 0.6f, at[2] = o.pos[2];
+          owens = ai[0].mech;
+          Pick& k = picks[fixes];
+          k.state = mech3::program_hud_pick_at(at, &k.node, &k.distance, &k.range, &k.far);
+          k.on_owens = k.node && mech3::program_hud_node_object(k.node) == owens;
+        }
+      };
+      CountingPump pump;
+      pump.stop = [&] { return frames >= 40; };
+      pump.limit = 3000;
+      app.run(pump);
+      mech3::missions().cleanup(false);
+      app.stop_game();
+      app.exit_instance();
+      mech3::set_app(nullptr);
+    }
+    zfix::options() = saved_fix;
+    zrdr::close_archives(true);
+    mech3::reset_states();
+    reset_process_state();
+    mech3::options() = mech3::Options{};
+  }
+  for (int f = 0; f < 2; ++f)
+    std::printf("  fixes %d: the pick %s at %.0f m (far clip %.0f m, the group's range %.0f m); the reticle's state %d\n", f,
+                picks[f].on_owens ? "on the Owens" : picks[f].node ? "on something else" : "missed",
+                picks[f].distance, picks[f].far, picks[f].range, picks[f].state);
+  EXPECT(picks[0].range >= 1000.0f && picks[0].far < 850.0f);
+  EXPECT(!picks[0].node && picks[0].state == 0);  // the original: green
+  EXPECT(picks[1].on_owens && picks[1].distance > 850.0f && picks[1].state == 2);  // yellow
+}
+
+// Playtest W34: the AI's missiles ("sometimes they come from the side or the
+// back of the mech and shoot behind them, sometimes they just hit
+// hillsides"). The firing state's defaults are a template the start-up
+// fills (0x004b6500: the waits, and the torso's cosines to track and fire,
+// 20, 30 and 45 degrees); the port had them 0, so the AI fired at once with
+// its torso still turning, up to 90 degrees off, and each shot past 27
+// degrees of its launcher's facing left along that facing (0x004b36e0).
+// c2m1 with the strider (LRMs) facing the player 150 m to its east: every
+// AI shot in 6000 frames leaves within 27 degrees of its aim point.
+namespace {
+struct AiShots {
+  int missiles = 0, off = 0, all = 0;
+  float worst = 0;
+};
+AiShots* g_ai_shots = nullptr;
+}  // namespace
+
+TEST(mission_c2m1_ai_missiles_leave_toward_their_aim_headless) {
+  if (!have_game()) return;
+  SavedMounts keep;
+  zutl::mounts() = zutl::Mounts{};
+  zutl::mount(MW3_GAME_DIR);
+  zutl::set_write_dir(temp_dir("mission_ai_missiles"));
+  mech3::reset_states();
+  reset_process_state();
+  mech3::missions() = mech3::Missions{};
+  mech3::mech_types_forget();
+  mech3::player_controls_instance() = nullptr;
+  mech3::options() = mech3::Options{};
+  FakeWindow window;
+  FakeAlert alert;
+  FakeClock clock;
+  FakeScreen screen;
+  platform::SilentSoundOutput sound;
+  mech3::MountFiles files;
+  mech3::Platform p;
+  p.window = &window, p.alert = &alert, p.clock = &clock, p.movie_clock = &fast_movie_clock(), p.screen = &screen, p.sound = &sound, p.files = &files;
+  AiShots shots;
+  g_ai_shots = &shots;
+  {
+    mech3::GameEngine engine(p, "mech3.exe -nofmv");
+    engine.quiet = true;
+    mech3::Mech3App app(&engine);
+    mech3::set_app(&app);
+    EXPECT(app.init_instance());
+    mech3::GameEngine::Launch l;  // c2 mission 1
+    l.index = 1, l.op = 2, l.number = 1;
+    engine.set_launch(l);
+    app.post_intro_ = &mech3::states().load;
+    mech3::program_watch_shots([](const mech3::FiredShot& w) {
+      if (!g_ai_shots || !w.owner || w.owner == mech3::mech_mission_player()) return;
+      const float t[3] = {w.target[0] - w.muzzle[0], w.target[1] - w.muzzle[1], w.target[2] - w.muzzle[2]};
+      const float n = std::sqrt(t[0] * t[0] + t[1] * t[1] + t[2] * t[2]);
+      const float c = n > 0 ? (t[0] * w.dir[0] + t[1] * w.dir[1] + t[2] * w.dir[2]) / n : 1.0f;
+      const float deg = std::acos(std::max(-1.0f, std::min(1.0f, c))) * 57.29578f;
+      ++g_ai_shots->all;
+      const std::string name = w.weapon;
+      if (name.find("RM") == std::string::npos) return;  // LRM, SRM, Streak SRM
+      ++g_ai_shots->missiles;
+      g_ai_shots->worst = std::max(g_ai_shots->worst, deg);
+      if (deg > 27.0f) ++g_ai_shots->off;
+    });
+    int frames = 0;
+    engine.on_present = [&](int) {
+      if (app.current() != &mech3::states().core || ++frames != 3) return;
+      int32_t made = 0;
+      const mech3::AiMechMade* ai = mech3::mission_ai_mechs(&made);
+      void* strider = nullptr;
+      for (int32_t i = 0; i < made; ++i)
+        if (ai[i].name && std::string(ai[i].name) == "strider_01") strider = ai[i].mech;
+      if (!strider) return;
+      mech3::LaunchedMech d;
+      mech3::describe_mech(strider, &d);
+      const float ex = d.pos[0] + 150.0f, ez = d.pos[2];
+      const float at[3] = {ex, ground_under(ex, d.pos[1] + 200.0f, ez), ez};
+      mech3::move_mech(mech3::mech_mission_player(), at, 1.5707964f);
+      mech3::move_mech(strider, d.pos, -1.5707964f);  // facing it (+x)
+    };
+    CountingPump pump;
+    pump.limit = 6000;
+    app.run(pump);
+    mech3::program_watch_shots(nullptr);
+    mech3::missions().cleanup(false);
+    app.stop_game();
+    app.exit_instance();
+    mech3::set_app(nullptr);
+  }
+  g_ai_shots = nullptr;
+  std::printf("  AI shots %d, missiles %d: %d past 27 degrees of their aim point, the worst %.1f\n", shots.all,
+              shots.missiles, shots.off, shots.worst);
+  EXPECT(shots.missiles >= 3);
+  EXPECT(shots.off == 0);
+  zrdr::close_archives(true);
+  mech3::reset_states();
+  reset_process_state();
+  mech3::options() = mech3::Options{};
+}
+
 // c1 mission 1's keys through the mech's command handler (0x0041be80,
 // docs/controls.md, The mech's commands): F2 selects the second weapon
 // group; the power key powers the Mad Cat down, and again back up; the jump
@@ -8178,6 +8787,7 @@ TEST(mission_c1m1_owens_runs_its_frames_headless) {
       bool feet = true, mech_block = false, wall_block = false;
       bool ai_on = false, orders_ok = true, node_order = false;
       int32_t fire_phase = -1, look_phase = -1, group_volleys = 0, firing = 0, shooting = 0;
+      int32_t base_wait = 0, near_plan = 0, near_firing = 0;
       int32_t attacked = 0, home_done = 0, home_orders = 0, own_on = 0, let_go = 0;
       bool dodged = false, alongside = false, backed = false;
       float gw_from[2] = {}, gw_closest = 1e9f, let_go_at = 0, gw_moved = 0, gw_close = 0, gw_range = 0;
@@ -8265,12 +8875,10 @@ TEST(mission_c1m1_owens_runs_its_frames_headless) {
         if (seen.brain) {
           const auto& f = seen.brain->firing;
           if (f.plan && f.plan->kind == 2) ++seen.group_volleys;
-          if (f.phase == 4) ++seen.firing;
-          for (int32_t g = 0; g < 5; ++g)
-            if (mech3::mech_group_reloading(owens, g)) {
-              ++seen.shooting;
-              break;
-            }
+          const float d = f.plan && f.plan->target && *f.plan->target ? std::sqrt((*f.plan->target)->dist2) : -1.0f;
+          if (f.phase == 3 && d > 400.0f) ++seen.base_wait;
+          if (f.phase == 2 && d >= 0 && d < 40.0f) ++seen.near_plan;
+          if (f.phase == 4) ++seen.near_firing;
         }
         if (seen.frames == 450) seen.near = o;  // walking at it, 30 m off
         seen.mech_block |= m.blocked[1];
@@ -8295,6 +8903,12 @@ TEST(mission_c1m1_owens_runs_its_frames_headless) {
         }
       } else if (seen.frames > 500 && seen.brain) {
         auto& br = *seen.brain;
+        if (br.firing.phase == 4) ++seen.firing;
+        for (int32_t g = 0; g < 5; ++g)
+          if (mech3::mech_group_reloading(owens, g)) {
+            ++seen.shooting;
+            break;
+          }
         // The attack's orders under the fight: end, rearm, the way home.
         const size_t n = br.orders.size();
         const float pdx = m.pos[0] - o.pos[0], pdz = m.pos[2] - o.pos[2];
@@ -8398,18 +9012,25 @@ TEST(mission_c1m1_owens_runs_its_frames_headless) {
     // The brain's frame ran on every tick since, the AI switch on, the
     // orders kept.
     EXPECT(seen.ai_on && seen.brain && seen.orders_ok);
-    // Awake (the player in sight) each tick. The firing
-    // (ai.md 17.7) picks a plan each tick: the player, 1.4 km off, is past
-    // its range, but the field bases (team 2, 530..600 m off) are within
-    // its sensor range (aiv +0x30, 1000 m): it has a plan on one (phase 2),
-    // its range the plan's, its look-around going.
-    EXPECT(seen.fire_phase == 2 && seen.look_phase >= 1);
+    // Awake (the player in sight) each tick. The firing (ai.md 17.7): the
+    // player, 1.4 km off, is past its range, but the field bases (team 2,
+    // 530..600 m off) are within its sensor range (aiv +0x30, 1000 m): it
+    // has a plan on one, its range the plan's, its look-around going. Phase 3
+    // (W34: 2 with the port's zero waits): a field base's centroid is its
+    // node's origin on the ground (0x00458a70 never raises it), so the line
+    // to it grazes the ground and the plan waits out its 6 s delay.
+    EXPECT(seen.fire_phase == 3 && seen.look_phase >= 1);
     EXPECT(seen.fire_max > 0 && seen.fire_range < seen.fire_max);
-    // 30 m off, the plan pick takes the player and the volley (0x004b1860)
-    // a weapon group; the line clear (0x004d5980), the firing holds the
-    // trigger (phase 4) and the group's lasers fire (a beam running, or
-    // recharging after).
-    EXPECT(seen.group_volleys > 100 && seen.firing > 100 && seen.shooting > 0);
+    // W34, with the real waits (3/6/1 s): the field base's plan is kept
+    // until its delay runs out (frames 201..379), the rest after it, then
+    // the pick takes the player, by then about 10 m off, and the torso turns
+    // to him (phase 2) until frame 500; no burst before. (With the port's
+    // zero waits the pick ran each tick and it fired at once.)
+    EXPECT(seen.group_volleys > 100 && seen.base_wait > 150 && seen.near_plan > 30 && seen.near_firing == 0);
+    // From 160 m east (frames 500..2400) the volley's group fires at him: the
+    // line clear (0x004d5980), the firing holds the trigger (phase 4) and the
+    // lasers fire (recharging after), a burst each rest.
+    EXPECT(seen.firing > 500 && seen.shooting > 30);
     // The radar's shot list has its object, whose action empties it each frame
     // (0x004b4ab0, from the mission's setup; unwired, every shot stayed listed).
     EXPECT(seen.counts0.count("0x004b4ab0") == 0);
@@ -9503,8 +10124,11 @@ TEST(mission_c2m1_lancemate_forms_up_only_in_training_headless) {
   EXPECT(campaign.on_formation == 0 && campaign.following > 0);
   EXPECT(training.on_formation > 0 && training.following == 0);
   // The formation net is one step, the stand behaviour: he stays put; on
-  // the player's net he walks off after the player.
-  EXPECT(moved(campaign) > 10.0f && moved(training) < 1.0f);
+  // the player's net he walks off after the player. W34 (the firing's real
+  // 1 s rests, its picks finding nobody): standing, he turns in place about
+  // 110 degrees in his first 6 s, his feet shuffling 1.3 m; with the port's
+  // zero waits he never rested and stood still (under 1 m then).
+  EXPECT(moved(campaign) > 10.0f && moved(training) < 2.0f);
 }
 
 TEST(mission_c1m4_pocket_commander_sends_dominic_to_a_spot_headless) {
@@ -11220,12 +11844,17 @@ TEST(mission_c1m4_dominic_takes_the_order_and_the_lance_turns_headless) {
     // Since 2026-10-30 Dominic has his radio (W11: no stand-in vehicle at the
     // load), and its lines (call_help, friendly_fire) play through zSound,
     // whose plays draw on rand(): before, 951 / 59.301 / 567 / 951, 184.
+    // W34 (the firing's real waits, 3/6/1 s, for the port's zeros): no shot
+    // in the 2 s before the order (was 53 frames), 103 frames aiming (phase 2,
+    // was 2) before each burst, and the player taken for 186 frames, not 385,
+    // the plan in hand kept to its end before the next pick; before, 53 / 1009
+    // / 1139, 71.189, 385, phases 2 2 1009 126.
     if (!std::getenv("MW3_LANCE_AT") && !std::getenv("MW3_LANCE_DIR") && data_is_12()) {
-      EXPECT(seen.fired_before == 53 && seen.fired_after == 1009 && seen.on_enemy == 1139);
-      EXPECT(std::fabs(seen.d0 - 399.597f) < 1e-3f && std::fabs(seen.closest - 71.189f) < 1e-3f);
+      EXPECT(seen.fired_before == 0 && seen.fired_after == 901 && seen.on_enemy == 1133);
+      EXPECT(std::fabs(seen.d0 - 399.597f) < 1e-3f && std::fabs(seen.closest - 86.592f) < 1e-3f);
       EXPECT(seen.enemies_before == 0xfffffffcu && seen.enemies_after == 0x7ffffffeu);
-      EXPECT(seen.on_player == 385);  // his next pick, once the player is 30 m off
-      EXPECT(seen.phases[2] == 2 && seen.phases[3] == 2 && seen.phases[4] == 1009 && seen.phases[5] == 126);
+      EXPECT(seen.on_player == 186);  // his next pick, once the player is 30 m off
+      EXPECT(seen.phases[2] == 103 && seen.phases[3] == 3 && seen.phases[4] == 901 && seen.phases[5] == 132);
     }
     mech3::missions().cleanup(false);
     app.stop_game();
@@ -11551,12 +12180,17 @@ TEST(mission_c1m4_dominic_fires_on_a_target_headless) {
     // 0x005490e0, hooks-audit.md) his hits bring it from 30 to 0 in the 40 s.
     // Since the AI's wall reverse (0x004231c0, movement-collision.md) he backs
     // off what he walks into: fewer contacts, longer aiming.
+    // Since the probes land in the frame's own step above 30 fps (W31,
+    // Skis::integrate) his walk differs: longer aiming, fewer firing frames.
+    // Since the firing's real waits (W34, 3/6/1 s for the port's zeros) he
+    // keeps a plan to its end and rests between bursts: his first pick is
+    // ghsD5 (was ghsD2), his walk and contacts differ, the hut still falls.
     std::printf("  dominic's target: contacts %d, first %s, on target %d, aiming %d, firing %d, health %.5f\n",
                 seen.target_contacts, seen.first_target.c_str(), seen.on_target, seen.aiming, seen.firing, seen.health);
     EXPECT(seen.hut != 0 && seen.health0 == 30.0f && seen.on_target > 0 && seen.firing > 0 && seen.health < seen.health0);
     if (data_is_12()) {
-      EXPECT(seen.target_contacts == 2163 && seen.first_target == "ghsD2");
-      EXPECT(seen.on_target == 1062 && seen.aiming == 96 && seen.firing == 841);
+      EXPECT(seen.target_contacts == 4869 && seen.first_target == "ghsD5");
+      EXPECT(seen.on_target == 938 && seen.aiming == 72 && seen.firing == 804);
       EXPECT(std::fabs(seen.health - 0.0f) < 1e-3f);
     }
     mech3::missions().cleanup(false);
@@ -11722,7 +12356,9 @@ TEST(mission_c1m4_dominic_stops_at_a_no_go_patch_headless) {
   mech3::options() = mech3::Options{};
 }
 
-TEST(mission_c1m4_dominic_shoots_a_near_enemy_unordered_headless) {
+// W34: was ..._shoots_a_near_enemy_unordered_; with the firing's real
+// thresholds he aims at it and holds his fire (below).
+TEST(mission_c1m4_dominic_aims_at_a_near_enemy_unordered_headless) {
   if (!have_game()) return;
   SavedMounts keep;
   zutl::mounts() = zutl::Mounts{};
@@ -11862,12 +12498,16 @@ TEST(mission_c1m4_dominic_shoots_a_near_enemy_unordered_headless) {
                    seen.enemy_name.c_str(), seen.engage, seen.attacks, seen.targeted, seen.on_enemy,
                    seen.aiming, seen.firing, seen.moved, seen.down, seen.ai_on, seen.contacts, seen.enemy_contacts, seen.phase, seen.follows,
                    seen.follows_player, seen.closest);
-    // The firing picked the enemy itself (0x004b6790) and fired at it, with
+    // The firing picked the enemy itself (0x004b6790) and aims at it, with
     // engaging off all along and no attack: his order the whole time the
     // follow on the player (0x004d1980), never a step nearer the enemy
-    // (ai.md 17.8b).
+    // (ai.md 17.8b). He never fires (W34): walking after the player, the
+    // enemy nearly behind him, his torso twisted to its limit (1.92 rad) is
+    // still 55..68 degrees off it, short of the firing's 45 degrees (cos
+    // 0.707, 0x004b6500). With the port's zero thresholds (90 degrees) he
+    // fired 658 frames, his shots along the torso's facing, not at it.
     if (!std::getenv("MW3_LANCE_AT")) {
-      EXPECT(seen.down == 0 && seen.on_enemy > 600 && seen.firing > 300);
+      EXPECT(seen.down == 0 && seen.on_enemy > 600 && seen.aiming > 600 && seen.firing == 0);
       EXPECT(seen.engage == 0 && seen.attacks == 0);
       EXPECT(seen.follows_player > 600 && seen.closest > 59.0f);
       // Exact, the run repeating (reset_process_state's fixed seed). The
@@ -11877,11 +12517,12 @@ TEST(mission_c1m4_dominic_shoots_a_near_enemy_unordered_headless) {
                   seen.targeted, seen.on_enemy, seen.aiming, seen.firing, seen.follows, seen.follows_player,
                   seen.enemy_contacts, seen.moved, seen.closest);
       // (The puffers' rand()s since they tick: hooks-audit.md.)
-      EXPECT(seen.targeted > 0 && seen.on_enemy > 0 && seen.firing > 0 && seen.follows > 0);
+      EXPECT(seen.targeted > 0 && seen.on_enemy > 0 && seen.follows > 0);
       if (data_is_12()) {
-        EXPECT(seen.targeted == 764 && seen.on_enemy == 764 && seen.aiming == 43 && seen.firing == 658);
+        // W34: before, 764 / 764, aiming 43, firing 658, moved 69.1506.
+        EXPECT(seen.targeted == 702 && seen.on_enemy == 702 && seen.aiming == 639 && seen.firing == 0);
         EXPECT(seen.follows == 765 && seen.follows_player == 765 && seen.enemy_contacts == 765);
-        EXPECT(std::fabs(seen.moved - 69.1506f) < 1e-3f && std::fabs(seen.closest - 60.0f) < 1e-3f);
+        EXPECT(std::fabs(seen.moved - 69.3653f) < 1e-3f && std::fabs(seen.closest - 60.0f) < 1e-3f);
       }
     }
     mech3::missions().cleanup(false);
@@ -17004,6 +17645,9 @@ struct OptionsPlace {
 };
 OptionsPlace c1m1_options_place(int32_t mode) {
   OptionsPlace out;
+  // The 4:3 menus' frame is what this pins (wide menus, on by default, off).
+  const bool wide = zfix::options().wide_menus;
+  zfix::options().wide_menus = false;
   SavedMounts keep;
   zutl::mounts() = zutl::Mounts{};
   zutl::mount(MW3_GAME_DIR);
@@ -17106,6 +17750,7 @@ OptionsPlace c1m1_options_place(int32_t mode) {
   mech3::reset_states();
   reset_process_state();
   mech3::options() = mech3::Options{};
+  zfix::options().wide_menus = wide;
   return out;
 }
 }  // namespace
@@ -17407,6 +18052,32 @@ WideMenus wide_menus_run(bool wide) {
   return out;
 }
 }  // namespace
+
+// 16:9 menus are on by default (Owen, 2026-10-31): with nothing set, the
+// menus take a wide in-mission mode (13: 853x480), and stay 640x480 (mode 5)
+// when that mode is 4:3 (5, or 10: 1600x1200); widemenus=0 or
+// --no-wide-menus turn it off.
+TEST(menus_wide_by_default_at_16_9_only) {
+  const zfix::Options keep = zfix::options();
+  zfix::options() = zfix::Options{};
+  EXPECT(zfix::options().wide_menus);
+  struct ModeEngine : mech3::Engine {
+    int32_t mode = 5;
+    int32_t in_game_vmode() override { return mode; }
+  };
+  auto menus_at = [](int32_t m) {
+    ModeEngine e;
+    e.mode = m;
+    return e.menu_vmode();
+  };
+  zfix::options().any_resolution = true;
+  const int32_t wide = menus_at(13), plain = menus_at(5), tall = menus_at(10);
+  zfix::options().wide_menus = false;
+  const int32_t off = menus_at(13);
+  std::printf("menus' mode with the in-mission 13: %d (off: %d); with 5: %d; with 10: %d\n", wide, off, plain, tall);
+  EXPECT(wide == 13 && plain == 5 && tall == 5 && off == 5);
+  zfix::options() = keep;
+}
 
 TEST(menus_wide_spread_by_their_groups_headless) {
   if (!have_game()) return;

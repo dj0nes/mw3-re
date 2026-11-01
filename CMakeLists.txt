@@ -61,6 +61,13 @@ add_library(mw3core STATIC
   src/platform/reg_file.cpp
   src/platform/cue_audio.cpp
   src/mech3/data_version.cpp
+  src/mech3/patch12.cpp
+  src/mech3/patch12_edits.cpp
+  src/mech3/patch12_force.cpp
+  src/mech3/patch12_hud.cpp
+  src/mech3/patch12_text.cpp
+  src/mech3/patch12_tree.cpp
+  src/mech3/patch12_world.cpp
   src/mech3/patch_import.cpp
   src/mech3/disc_install.cpp
   src/mech3/game_setup.cpp
@@ -306,6 +313,10 @@ elseif(CMAKE_CXX_COMPILER_ID MATCHES "Clang")  # clang-cl
   target_compile_options(mw3core PRIVATE /clang:-ffp-contract=off)
 endif()
 
+# Linked into the shared probe below: position-independent (the Mac's default;
+# GCC on Linux needs it asked for, docs/linux.md).
+set_target_properties(mw3core PROPERTIES POSITION_INDEPENDENT_CODE ON)
+
 # A C interface over a few ported functions, for the differential tests that run
 # the original x86 code in an emulator and compare (tests/differential).
 add_library(mw3probe SHARED
@@ -451,6 +462,8 @@ add_executable(mw3tests
   tests/test_zrndr_span.cpp
   tests/test_fixes.cpp
   tests/test_lance.cpp
+  tests/test_patch12.cpp
+  tests/test_video_device.cpp
   tests/test_resolution.cpp
   tests/test_zreader.cpp
   tests/test_controls_cfg.cpp
@@ -546,7 +559,8 @@ if(SDL3_FOUND)
   # The game, and its front end's tests: the 2D text needs SDL3_ttf.
   find_package(SDL3_ttf CONFIG QUIET)
   if(SDL3_ttf_FOUND)
-    add_library(mw3text STATIC src/frontend/sdl/sdl_twod_host.cpp src/frontend/sdl/gdi_font_size.cpp)
+    add_library(mw3text STATIC src/frontend/sdl/sdl_twod_host.cpp src/frontend/sdl/gdi_font_size.cpp
+                src/frontend/sdl/text_fit.cpp src/frontend/sdl/launcher_notes.cpp)
     target_link_libraries(mw3text PUBLIC mw3sdl SDL3_ttf::SDL3_ttf)
     add_executable(mw3
       src/frontend/sdl/mw3_main.cpp
@@ -560,9 +574,10 @@ if(SDL3_FOUND)
     target_link_libraries(mw3 PRIVATE mw3text mw3sdl mw3core SDL3::SDL3)
     target_compile_definitions(mw3 PRIVATE MW3_VERSION="${MW3_VERSION}")
     # The launcher's art (assets/launcher) in a development build; a package
-    # carries it beside the exe (tools/windows/package.cmd).
-    target_compile_definitions(mw3 PRIVATE MW3_ASSETS_DIR="${CMAKE_SOURCE_DIR}/assets")
+    # carries it beside the exe (tools/windows/package.cmd) or in the app's
+    # Resources (tools/macos/make_app.sh), and keeps no path of this machine.
     if(NOT MW3_PACKAGE)
+      target_compile_definitions(mw3 PRIVATE MW3_ASSETS_DIR="${CMAKE_SOURCE_DIR}/assets")
       target_compile_definitions(mw3 PRIVATE MW3_GAME_DIR="${MW3_GAME_DIR}")
     endif()
     # Windows: the version resource and our placeholder icon (tools/windows).
@@ -647,6 +662,9 @@ if(SDL3_FOUND)
   if(MW3_FFMPEG)
     add_executable(mw3import tools/import/mw3import.cpp)
     target_link_libraries(mw3import PRIVATE mw3core ${MW3_FFMPEG} SDL3::SDL3)
+    # FFmpeg's headers by -I, not -isystem: a stray FFmpeg in /usr/local/include
+    # (another major version) otherwise wins over them and the structs disagree.
+    set_target_properties(mw3import PROPERTIES NO_SYSTEM_FROM_IMPORTED ON)
     target_compile_definitions(mw3import PRIVATE MW3_VERSION="${MW3_VERSION}")
     if(NOT MW3_PACKAGE)
       target_compile_definitions(mw3import PRIVATE MW3_GAME_DIR="${MW3_GAME_DIR}")

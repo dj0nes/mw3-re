@@ -3,6 +3,7 @@
 // the scene graph, object3d and cls_di.c's queries (gamez/zweapon), and the
 // mechs' damage handler. Not original code. Visuals (lights, animations,
 // craters, marks) and sounds stay unset: the shots fly and hit without them.
+#include <cmath>
 #include <cstdint>
 #include <cstring>
 #include <string>
@@ -163,7 +164,7 @@ void wire_weapons(uint32_t (*log)(const char* key)) {
   c.set_action = [](Handle n, void (*fn)()) {
     static void (*act)() = nullptr;  // the node action takes the node; the radar's takes nothing
     act = fn;
-    zcls::node_set_action(zn(n), fn ? [](zcls::Node*) { act(); } : nullptr);
+    zcls::node_set_action(zn(n), fn ? +[](zcls::Node*) { act(); } : nullptr);
   };
   c.node_destroy = [](Handle n) { zcls::node_delete(zn(n)); };
   c.mech_sound = [](int32_t i) { cockpit_sound_play(i, 1.0f); };  // 0x0041e770

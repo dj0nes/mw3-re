@@ -171,7 +171,10 @@ void brain_image(Img& o, uint32_t at, uint32_t addr, const ai::Brain& b, uint32_
   const uint32_t fi = at + 0x108;
   const ai::Firing& f = b.firing;
   o.u(fi, static_cast<uint32_t>(f.phase));
-  for (uint32_t i = 1; i < 11; ++i) o.u(fi + 4 * i, 0);  // nothing set but the phase at first
+  o.f(fi + 4, f.time), o.f(fi + 8, f.quick_delay), o.f(fi + 0xc, f.delay), o.f(fi + 0x10, f.rest);
+  o.p(fi + 0x14, f.plan);
+  o.f(fi + 0x18, f.reach_arg), o.f(fi + 0x1c, f.track_arg), o.f(fi + 0x20, f.fire_arg), o.f(fi + 0x24, f.range);
+  o.u(fi + 0x28, f.obstacle);
   o.u(fi + 0x2c, f.brain ? self : 0);
   o.p(fi + 0x30, f.first);
   o.u(fi + 0x34, 0x005c9458);  // the look-around

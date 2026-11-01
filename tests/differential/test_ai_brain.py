@@ -116,9 +116,11 @@ def run_original(case):
     blocks = case['blocks']
     quiet = set()  # the list copies' and strings' blocks
     # The start-up's [0x0060b4a0] = cos(pi/4), the shared behaviour at
-    # 0x0060b460 (0x004cbdd0 -> 0x004cbe10) and the built-in net's vtable.
+    # 0x0060b460 (0x004cbdd0 -> 0x004cbe10), the firing's template
+    # (0x004b6500) and the built-in net's vtable.
     e.call(0x4ce5b0)
     e.call(0x4cbdd0)
+    e.call(0x4b6500)  # the firing state's template [0x005e8868] (W34)
     w32(0x604008, 0x5bcc68)
     nets = {}
     for kind, addr_kind, net_id in case['nets']:

@@ -1,5 +1,10 @@
 #include "frontend/sdl/net_enet.h"
 
+// FIX (A): enet.h brings in <windows.h> on Windows; without NOMINMAX its
+// min/max macros break std::min and std::max below.
+#if defined(_WIN32) && !defined(NOMINMAX)
+#define NOMINMAX
+#endif
 #include <enet/enet.h>
 
 #include <algorithm>

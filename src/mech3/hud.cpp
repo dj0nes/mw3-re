@@ -1598,11 +1598,21 @@ void HudReticle::aim() {
   k.unproject_world(s, a);
   s[2] = 1.0f / far_z;
   k.unproject_world(s, b);
+  // FIX (bug): the pick ended at the far clip (800 m), short of an ER large
+  // laser's 1000 m: in range, the reticle stayed green (W33; fixes.md).
+  float e[3] = {b[0], b[1], b[2]};
+  if (zfix::options().bugs) {
+    const float range = k.group_range(k.mech_weapons(m));
+    const float d[3] = {b[0] - a[0], b[1] - a[1], b[2] - a[2]};
+    const float len = std::sqrt(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
+    if (len > 0.0f && range > len)
+      for (int i = 0; i < 3; ++i) e[i] = a[i] + d[i] * (range / len);
+  }
   const uint32_t node = k.mech_node(m);
   k.node_set_intersect(node, false);
   int32_t best = -1;
   bool missed = true;
-  if (k.segment_list(k.world_node(k.world()), a, b, &hits) == 0) {
+  if (k.segment_list(k.world_node(k.world()), a, e, &hits) == 0) {
     if (hits.count == 1) {
       if (k.material_soil(hits.rec[0].material) != 1) best = 0;
     } else if (hits.count != 0) {
@@ -2607,6 +2617,10 @@ void HudRadar::update_contacts(float dt, float static_px) {
     if (!selected && !h.contact_on_radar(c)) continue;
     float p[3];
     h.object_position(o, p);
+    // FIX (bug): a targets.zrd building's node sits at the world's origin, its
+    // mesh in world co-ordinates, so the exe's place (0x005a85e0) put its
+    // blip towards the origin; the record's centroid instead (fixes.md, W32).
+    if (zfix::options().bugs) h.object_radar_place(o, p);
     radar_jitter(p, static_px);
     float v[3] = {};
     if (!active) {
@@ -2651,6 +2665,7 @@ void HudRadar::update_contacts(float dt, float static_px) {
       pt[0] = radar_px(get_x(), v[0]);
     }
     tri.set_pos(pt[0], pt[1]);
+    target_at[0] = pt[0], target_at[1] = pt[1], ++target_draws;
     tri.color = colour;
     tri.set_scale(5.773503f);  // 0x40b8c08e
     tri.update(dt);

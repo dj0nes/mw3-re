@@ -33,4 +33,8 @@ struct DataVersion {
 
 DataVersion detect_data_version();  // through zutl's mounts
 
+// One of the 28 by its path: 10 (1.0's), 12 (1.2's), 0 (neither, or not one
+// of the 28), -1 (missing).
+int data_file_version(const char* path);
+
 }  // namespace mech3

@@ -33,6 +33,7 @@
 #include "gamez/zrender/zrndr_tint.h"
 #include "gamez/zvideo/zvid_dd.h"
 #include "gamez/zvideo/zvid_ddd3d.h"
+#include "crt/msvc_math.h"
 #include "gamez/zutil/zutl_msg.h"
 #include "gamez/zutil/zutl_msgdll.h"
 #include "mech3/landmines.h"
@@ -69,6 +70,7 @@ namespace mech3 {
 
 int32_t display_w();  // options.h (0x0040d760), not includable with mech.h
 int32_t vmode();      // options.h (0x0040d9d0)
+void render_to_screen(float p[2]);  // options.h (0x0040da30)
 const char* program_pilot_name();  // app_menus.cpp: the current pilot's (+0x18)
 
 
@@ -525,6 +527,11 @@ struct ProgramHudHooks : HudHooks {
     if (o && !entity_is_mech(o)) return hud_object_place(o, out);
     if (o) mech_pos(mech_of(o), out);
     else out[0] = out[1] = out[2] = 0.0f;
+  }
+  bool object_radar_place(void* o, float out[3]) override {  // ours (W32)
+    if (!o || !hud_object_is_target(o)) return false;
+    hud_object_centroid(o, out);
+    return true;
   }
   void* object_blip(void* o, int32_t kind) override {  // vt+0x3c
     void* b = o ? hud_object_blip(o, kind) : nullptr;
@@ -986,6 +993,29 @@ int program_hud_aim_at(void* node, float distance) {
   return h->reticle.state;
 }
 
+// For the tests: the reticle put over a world point and its pick run
+// (0x00444350), then its aim state (0x00443d20); the node hit, if any.
+int program_hud_pick_at(const float at[3], void** node, float* distance, float* range, float* far_clip) {
+  auto* m = static_cast<Mech*>(mech_mission_player());
+  Hud* h = m && m->pilot ? pilot_hud(*m->pilot) : nullptr;
+  if (!h) return -1;
+  HudHooks& k = hud_hooks();
+  k.view_prepare();
+  float s[3];
+  k.project(at, s);
+  render_to_screen(s);
+  h->reticle.set_pos(crt::msvc_ftol(s[0]), crt::msvc_ftol(s[1]));
+  h->reticle.aim();
+  *node = h->reticle.hit.node;
+  *distance = h->reticle.aim_distance;
+  *range = k.group_range(k.mech_weapons(m));
+  float near_z = 0.0f;
+  k.player_camera_clip(&near_z, far_clip);
+  h->reticle.lock = 0, h->reticle.state = -1;
+  h->reticle.aim_state(false);
+  return h->reticle.state;
+}
+
 // Mech3.exe 1.2 @ 0x0040f8d0's HUD part: the view target's HUD's data update
 // (the message panel's slide before it is not ported).
 void program_hud_data(float dt) {
@@ -1103,6 +1133,7 @@ bool program_hud_report(HudReport* r) {
   r->shape_x = h->target.shape1.translation[0];
   r->radar_shown = !(h->radar.flags & ztwod::kHidden);
   r->radar_r = h->radar.radius, r->radar_x = h->radar.get_x(), r->radar_y = h->radar.get_y();
+  r->radar_target_x = h->radar.target_at[0], r->radar_target_y = h->radar.target_at[1], r->radar_target_draws = h->radar.target_draws;
   r->blips = g_hooks.drawn[0], r->blip_x = g_hooks.blip_at[0], r->blip_y = g_hooks.blip_at[1];
   r->vehicle_blips = g_hooks.drawn[1], r->turret_blips = g_hooks.drawn[2], r->target_blips = g_hooks.drawn[3];
   r->markers = g_hooks.drawn[4];

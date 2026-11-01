@@ -27,3 +27,23 @@ Sources: [VOGONS: MW3 on Win10/11](https://www.vogons.org/viewtopic.php?p=142020
 [VOGONS: resolution patch](https://www.vogons.org/viewtopic.php?p=495930),
 [PCGamingWiki widescreen fix](https://community.pcgamingwiki.com/files/file/2621-mechwarrior-3-widescreenultrawidesuperwidemultimonitor-fix/),
 [MajorGeeks compatibility reports](https://www.majorgeeks.com/compatdb/details/mechwarrior_3_windows.html).
+
+## Verdicts against the port (2026-10-31)
+
+One line each, by the rows above. "Always on": a fix the game needs on a
+modern machine (FIX (A)/(B)) or a crash fix; "behind bugs": off with
+`--original`.
+
+1. Fast machines, rubberbanding: **fixed** (every per-frame step per 1/30 s, `zfix` per_second, always on; fixes.md, Frame rate).
+2. Crashes when hitting mechs: **fixed candidates, the crash itself not checkable without Owen's original setup**: the equipment critical's float bits (0x461211, 7c90ae71) and the crater clip's buffers and side tables (0x512940, 0x513750, a647b083), always on; the port's combat runs (c1m1 AMS, the kills chain) hit for whole missions without a crash.
+3. Crash on overheat or alpha strike: **overheat checked, no crash** (`mission_c1m1_heat_shutdown_stops_the_mech_headless`); **alpha strike checked, no crash**: 20 alpha strikes (keypad Enter, every weapon held 0.2 s, 0x4b0a70) at tur_srm04 in c1m1 destroy it; the heat passes the shutdown (1.76 at its peak), the mech powers down while they go on, and at critical heat it dies (heat.md, state 4: the torso destroyed), so the lost mission fades to the debriefing, as designed (`mission_c1m1_alpha_strikes_into_a_shutdown_headless`).
+4. Freezes cresting hills or banks: **fixed**: the crater walk's and contour count's endless loops (0x510da0, 0x513390; b61186e5, a647b083, `test_weiler.py`), always on; the ground probe's width (movement-ground.md).
+5. Esc or Options from the pause above 640x480: **fixed**: the pause and its options at any size (`mission_c1m1_pause_click_at_any_size_headless`, `..._options_from_the_pause_keep_the_menus_frame_headless`), source rectangles cut at their images (FIX (B)), always on.
+6. Hidden resolutions in the registry only: **as the original** (InGameVMode kept); the port also offers every size the screen has (any_resolution, resolution.md).
+7. 4:3 only: **fixed**: widescreen missions (the angle, the HUD's anchors) always on; the menus 16:9 on a wide screen by default (`widemenus=0` or `--no-wide-menus` for the original's 4:3).
+8. DDrawCompat freezes: **not applicable** (no DirectDraw).
+9. The lancemate-order targeting exploit: **explained, kept as the original**: on the command map, an order to the lancemates on the target marker (the ground spot the player picks, [0x00605f58]) with "only an enemy" (order 10) or "only an ally" (11) runs 0x00468ca0, which gives the marker a team: the lowest bit of the lancemate's enemies (10) or allies (11), its allies that team but bit 0, its enemies every other team. After order 11 the marker, a point on the map, is on the player's team, a team the enemy's mechs count among their enemies (their +0xc8): a hostile at that spot for them: the speedrun notes' "the game converts that point of the map into a target ... which the enemy identifies as being hostile". After order 10 it joins the enemy's team instead and the lancemates attack it. A spot the lance defends being worth attacking reads as design, not a slip, so it stays (a candidate for Owen if the trick should go).
+10. Zoom and reticle: **as the original, by design** (hud.md section 19).
+11. Infinite salvage by save and reload: **the save before "Replace existing game?" fixed** (b9931e9d, behind bugs); **the salvage path checked, no duplication**: c1m1 won, at c1m2's briefing a weapon and a mech moved from the salvage to the store and ammo back, c1m2 launched, the app quit and the pilot read back: the store and the salvage together are as they were (`campaign_menus_to_c1m1_through_the_briefing_headless`, with bugs on and off). The saved game holds both stores in one record, written together, so no save keeps an item on both sides.
+12. Item duplication by loadout: **as the original, kept** (`Store::has_config`); a fix candidate for Owen.
+13. A retry keeping the last attempt's state: **fixed** (the animations' reset 0x0050ad60 and a lost mission not counted won; d9f5bac9, merged 873bf47a).

@@ -6,36 +6,27 @@ licence files are in Contents/Resources/licenses/<library>/. Thank you to all
 of their authors.
 
 
-SDL 3 (libSDL3)
----------------
+Each was built unmodified from its official release source.
+
+
+SDL 3 (libSDL3), version 3.4.12
+-------------------------------
 Simple DirectMedia Layer, https://www.libsdl.org/
 Copyright (C) 1997-2026 Sam Lantinga and others. zlib licence.
 
 
-SDL_ttf 3 (libSDL3_ttf)
------------------------
+SDL_ttf 3 (libSDL3_ttf), version 3.2.2
+--------------------------------------
 https://github.com/libsdl-org/SDL_ttf. Copyright (C) 1997-2025 Sam Lantinga
-and others. zlib licence. It loads:
-- FreeType (libfreetype), under the FreeType License (FTL),
-  https://freetype.org/license.html. Portions of this software are
-  copyright (C) The FreeType Project (www.freetype.org). All rights
-  reserved.
-- HarfBuzz (libharfbuzz), MIT licence ("Old MIT"),
-  https://github.com/harfbuzz/harfbuzz, which loads graphite2 (libgraphite2,
-  LGPL 2.1 or later, or MPL 2.0, https://github.com/silnrsi/graphite) and
-  GLib (libglib-2.0, LGPL 2.1 or later, https://gitlab.gnome.org/GNOME/glib),
-  which loads GNU gettext's libintl (LGPL 2.1 or later,
-  https://www.gnu.org/software/gettext/) and PCRE2 (libpcre2-8, BSD,
-  https://github.com/PCRE2Project/pcre2).
-- libpng (libpng16), the libpng licence, http://www.libpng.org/.
-The LGPL libraries are unmodified Homebrew builds, loaded dynamically from
-Contents/Frameworks; you may replace them with your own builds of the same
-versions. Their source: the project links above, and Homebrew's formulae
-(https://github.com/Homebrew/homebrew-core), which name the exact versions.
+and others. zlib licence. Built into it (no other library):
+- FreeType 2.13.2, under the FreeType License (FTL, licenses/libSDL3_ttf.0.dylib/
+  freetype-2.13.2/FTL.TXT), https://freetype.org/license.html. Portions of
+  this software are copyright (C) The FreeType Project (www.freetype.org).
+  All rights reserved.
 
 
-SDL_sound 3 (libSDL3_sound)
----------------------------
+SDL_sound 3 (libSDL3_sound), version 3.2.0
+------------------------------------------
 https://github.com/icculus/SDL_sound. Copyright (c) 2001-2026 Ryan C. Gordon
 and others. zlib licence. Its built-in decoders have their own terms:
 - dr_mp3, dr_flac and dr_wav (David Reid): public domain (Unlicense), or
@@ -43,6 +34,19 @@ and others. zlib licence. Its built-in decoders have their own terms:
 - stb_vorbis (Sean Barrett): public domain, or MIT.
 - libmodplug (Olivier Lapicque and others): public domain.
 - TiMidity (Copyright (C) 1995 Tuukka Toivonen): the Perl Artistic License.
+
+
+FFmpeg (libavformat, libavcodec, libswscale, libavutil), version 8.1.2
+---------------------------------------------------------------------
+https://ffmpeg.org/. The FFmpeg developers. GNU Lesser General Public
+License, version 2.1 or later (licenses/<library>/ffmpeg-8.1.2/). Used by
+mw3import, which converts your disc's movies on the first start. Built
+unmodified from ffmpeg.org's release tarball ffmpeg-8.1.2.tar.xz, with only
+the AVI demuxer, the Indeo 5 decoder, the MPEG-1 video encoder and muxer,
+swscale and the file protocol enabled (no GPL or non-free parts); the
+configure line is in the project's docs/deps.md. The libraries are loaded
+dynamically from Contents/Frameworks: you may replace them with your own
+build of the same version.
 
 
 ENet 1.3.18 (built into the program)

@@ -269,6 +269,15 @@ implements it:
   (0x0051b080); `SdlInput` also drops the buttons and keys held when the
   focus went, whose releases never arrive. The window's
   close posts the quit. A music file's end is MCI's notify (0x00590740).
+  Ours (2026-10-31): a run that ends by itself (`--frames`, `--shot`, a
+  chain or a modes run) does not pause for a lost focus (`stays_active`):
+  started behind another app, or on the launcher's window handed over
+  unfocused, it waited for an activation that never came (a 28-minute hang
+  on the Mac, a scheduled `--shot` on the PC). The window is raised and
+  given the keyboard when shown (`SDL_HINT_FORCE_RAISEWINDOW`; on the Mac
+  the app is activated), and the launcher's window events are flushed at
+  the hand-over. `MW3_FOCUS_LOST_AT=N` loses the focus at the pump's Nth
+  pass, for `sdl_program_check_runs_on_without_focus`.
 - **Clock** (`SdlClock`): `GetTickCount` counted from the start, `Sleep`.
 - **Input** (`SdlInput`): DirectInput as zInput opens it (0x0051b0a0): the
   keyboard buffered as `GetDeviceData` gives it (0x80 events of

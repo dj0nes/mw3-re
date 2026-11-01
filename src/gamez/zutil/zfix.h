@@ -18,7 +18,10 @@ struct Options {
   bool fpu53 = true;
   bool any_resolution = true;  // FIX (B): any screen size and 16:9 (resolution.md)
   bool nested_lock = true;     // FIX (A): a 3D lock inside a lock leaves the outer one (render-frame.md)
-  bool wide_menus = false;     // ours, in trial: the menus on the mission's wide canvas (resolution.md; --wide-menus)
+  // Ours: the menus on the mission's canvas when it is wider than 640x480
+  // (16:9), on by default (Owen, 2026-10-31); a display choice, not a bug
+  // fix: mw3.cfg's widemenus=0, --no-wide-menus (resolution.md section 12).
+  bool wide_menus = true;
 };
 
 inline Options& options() {

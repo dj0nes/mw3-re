@@ -3,6 +3,7 @@
 #include <SDL3/SDL.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cstdio>
 #include <cstring>
 
@@ -26,6 +27,21 @@ bool read_full(SDL_IOStream* io, void* p, size_t n) {
   }
   return true;
 }
+
+// Ours, for diagnosis (MW3_MOVIE_TRACE): the start-up's times, each call
+// over 20 ms, and each op's totals when a stream is released.
+bool trace_on() {
+  static const bool on = SDL_getenv("MW3_MOVIE_TRACE") != nullptr;
+  return on;
+}
+double ms() {  // the movie trace's clock (fmv_script.cpp)
+  using C = std::chrono::steady_clock;
+  return std::chrono::duration<double, std::milli>(C::now().time_since_epoch()).count();
+}
+struct OpTotals {
+  double ms[16] = {};
+  int calls[16] = {};
+} g_totals;
 
 bool write_full(SDL_IOStream* io, const void* p, size_t n) {
   if (n == 0) return true;
@@ -58,7 +74,9 @@ bool SdlVfwHelper::ready() {
   if (tried_) return ok_;
   tried_ = true;
   const char* args[] = {helper_.c_str(), "--serve", codec_.c_str(), nullptr};
+  const double t0 = ms();
   proc_ = start_child(args);
+  const double t1 = ms();
   if (!proc_) {
     hello_ = std::string("the helper did not start: ") + SDL_GetError();
     return false;
@@ -69,6 +87,9 @@ bool SdlVfwHelper::ready() {
   int32_t r = -1;
   std::vector<uint8_t> text;
   if (ok_ && call(vfwpipe::kHello, 0, 0, 0, 0, nullptr, 0, &r, &text)) hello_.assign(text.begin(), text.end());
+  if (trace_on())
+    std::printf("mw3: movie trace: the helper started in %.1f ms, its hello (the codec loaded) %.1f ms later, at %.1f ms\n",
+                t1 - t0, ms() - t1, ms());
   if (r != static_cast<int32_t>(vfwpipe::kVersion)) {
     if (hello_.empty()) hello_ = "the helper did not answer";
     stop();
@@ -79,6 +100,19 @@ bool SdlVfwHelper::ready() {
 bool SdlVfwHelper::call(uint32_t op, uint32_t stream, uint32_t a, uint32_t b, uint32_t c, const void* data,
                         size_t size, int32_t* result, std::vector<uint8_t>* answer) {
   if (!ok_) return false;
+  const bool trace = trace_on();
+  const double t0 = trace ? ms() : 0;
+  struct Timed {  // the call's time into the op's totals, on every return
+    bool on;
+    uint32_t op;
+    double t0;
+    ~Timed() {
+      if (!on) return;
+      const double d = ms() - t0;
+      g_totals.ms[op & 15] += d, ++g_totals.calls[op & 15];
+      if (d > 20.0) std::printf("mw3: movie trace: helper op %u took %.1f ms (at %.1f ms)\n", op, d, ms());
+    }
+  } timed{trace, op, t0};
   const uint32_t w[7] = {op, stream, a, b, c, 0, static_cast<uint32_t>(size)};
   uint32_t head[2] = {};
   if (!write_full(in_, w, sizeof w) || !write_full(in_, data, size) || !read_full(out_, head, sizeof head)) {
@@ -151,6 +185,18 @@ int32_t SdlVfwHelper::decompress(uint32_t stream, uint32_t flags, const void* ou
 void SdlVfwHelper::release(uint32_t stream) {
   int32_t r = 0;
   call(vfwpipe::kRelease, stream, 0, 0, 0, nullptr, 0, &r, nullptr);
+  if (trace_on()) {
+    static const char* const kNames[] = {"", "hello", "open", "format", "info", "length", "read", "find", "decompress", "release", "quit"};
+    std::string s;
+    char buf[64];
+    for (uint32_t i = 1; i <= 10; ++i)
+      if (g_totals.calls[i]) {
+        std::snprintf(buf, sizeof buf, " %s %d calls %.1f ms (%.2f each);", kNames[i], g_totals.calls[i], g_totals.ms[i],
+                      g_totals.ms[i] / g_totals.calls[i]);
+        s += buf;
+      }
+    std::printf("mw3: movie trace: helper totals so far:%s\n", s.c_str());
+  }
 }
 
 }  // namespace sdlfe

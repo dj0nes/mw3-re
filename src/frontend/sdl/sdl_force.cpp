@@ -6,6 +6,7 @@
 #include <cstring>
 
 #include "gamez/zutil/zutl_path.h"
+#include "mech3/patch12.h"
 
 namespace sdlfe {
 
@@ -61,6 +62,7 @@ bool SdlForceDevice::load(const std::string& path) {
   uint8_t buf[4096];
   for (size_t n; (n = std::fread(buf, 1, sizeof buf, f)) > 0;) d.insert(d.end(), buf, buf + n);
   std::fclose(f);
+  mech3::patch12::force_effects(d);  // 1.0's file: 1.2's effects (docs/patch12.md)
   return parse(d, &records_);
 }
 

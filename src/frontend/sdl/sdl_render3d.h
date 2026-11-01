@@ -91,6 +91,10 @@ class SdlRender3D : public platform::Render3D {
   bool clear_pending_ = true;
   SDL_GPUTexture* frame_ = nullptr;  // the back buffer
   SDL_GPUTexture* held_ = nullptr;   // a shown frame kept (hold_frame), the back buffer's size
+  // A hidden window's last frame (no swapchain to wait on): waited for before
+  // the next is submitted, so a slow GPU (software Vulkan) cannot fall behind
+  // by many frames, each holding cycled staging buffers (docs/linux.md).
+  SDL_GPUFence* last_frame_ = nullptr;
   Uint32 held_w_ = 0, held_h_ = 0;
   Uint32 frame_w_ = 0, frame_h_ = 0;
   float clear_rgb_[3] = {0, 0, 0};

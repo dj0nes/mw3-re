@@ -44,6 +44,7 @@ int32_t i32(const char* key) { return static_cast<int32_t>(call(key, {})); }
 float f32(const char* key) { return zgame::from_bits(call(key, {})); }
 
 struct MenuEngine : mech3::Engine {
+  bool software_renderer() override { return true; }  // the original's VIDEO DEVICE cycle
   uint32_t unported(const char* key, std::initializer_list<Arg> args) override { return call(key, args); }
   int32_t fast_menu() override { return static_cast<int32_t>(call("0x0040cec0", {}) & 0xff); }
   int32_t display_width() override { return i32("0x0040d760"); }

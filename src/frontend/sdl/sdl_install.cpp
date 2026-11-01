@@ -101,6 +101,30 @@ std::vector<std::string> install_candidates() {
   for (const char* d : {"\\MicroProse\\MechWarrior 3", "\\MicroProse\\MechWarrior3", "\\Games\\MechWarrior 3",
                         "\\Games\\MechWarrior3", "\\Games\\MW3", "\\MechWarrior 3", "\\MechWarrior3", "\\MW3"})
     add(drive + d);
+#else
+  // Ours (docs/linux.md): a Windows install under Wine, Proton or Lutris.
+  // Each prefix's drive_c with the installer's default and the usual
+  // hand-picked folders; MW3 is not sold on Steam, so a Proton prefix is a
+  // non-Steam game's (compatdata/<id>/pfx).
+  const char* home_env = std::getenv("HOME");
+  const std::string home = home_env ? home_env : "";
+  std::vector<std::string> prefixes;
+  if (const char* wp = std::getenv("WINEPREFIX")) prefixes.push_back(wp);
+  if (!home.empty()) {
+    prefixes.push_back(home + "/.wine");
+    std::error_code ec;
+    for (const char* steam : {"/.steam/steam/steamapps/compatdata", "/.local/share/Steam/steamapps/compatdata",
+                              "/.var/app/com.valvesoftware.Steam/data/Steam/steamapps/compatdata"})
+      for (const fs::directory_entry& e : fs::directory_iterator(home + steam, ec)) prefixes.push_back(e.path().string() + "/pfx");
+    for (const fs::directory_entry& e : fs::directory_iterator(home + "/Games", ec)) prefixes.push_back(e.path().string());
+  }
+  std::error_code ec;
+  for (const std::string& pfx : prefixes)
+    for (const char* d : {"/drive_c/Program Files (x86)/MicroProse/MechWarrior 3", "/drive_c/Program Files/MicroProse/MechWarrior 3",
+                          "/drive_c/MicroProse/MechWarrior 3", "/drive_c/Games/MechWarrior 3", "/drive_c/MechWarrior 3"})
+      if (fs::is_directory(pfx + d, ec)) add(pfx + d);
+  if (!home.empty())
+    for (const char* d : {"/Games/MechWarrior 3", "/Games/MechWarrior3", "/Games/MW3", "/MechWarrior 3"}) add(home + d);
 #endif
   // This program's folder and the one above (mw3 beside or inside the
   // install); on the Mac, beside the .app.
@@ -115,6 +139,10 @@ std::vector<std::string> install_candidates() {
 }
 
 bool save_install(const std::string& write_dir, const std::string& install) {
+  return save_config_value(write_dir, "install", install);
+}
+
+bool save_config_value(const std::string& write_dir, const std::string& key, const std::string& value) {
   if (write_dir.empty()) return false;
   const fs::path cfg = fs::path(write_dir) / "mw3.cfg";
   std::vector<std::string> lines;
@@ -123,10 +151,10 @@ bool save_install(const std::string& write_dir, const std::string& install) {
     std::string line;
     while (std::getline(f, line)) {
       if (!line.empty() && line.back() == '\r') line.pop_back();
-      if (line.rfind("install=", 0) != 0) lines.push_back(line);
+      if (line.rfind(key + "=", 0) != 0) lines.push_back(line);
     }
   }
-  lines.insert(lines.begin(), "install=" + install);
+  lines.insert(lines.begin(), key + "=" + value);
   std::ofstream o(cfg, std::ios::trunc);
   for (const std::string& l : lines) o << l << '\n';
   return static_cast<bool>(o);

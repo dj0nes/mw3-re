@@ -543,3 +543,35 @@ works alongside it; stay out of its files.
 - Shots: scratch run with VMode irrelevant; `--wide-menus --window
   1920x1080`, InGameVMode 13 in a scratch settings.reg; OPTIONS at canvas
   (58,360).
+
+## 33. Launcher follow-ups (2026-10-31)
+
+- Branch `mac5/launcher-path` (off main ffef80f0). The lead's list, in order:
+  1. the path overflow: done (fit_middle by pixel width, the "Ready" words
+     kept; text_fit.cpp in mw3text so the tests reach it);
+  2. one window from the launcher into the game: done (LauncherChoice::window,
+     SdlWindow::init(hidden, adopt), --launcher-play; not high-DPI);
+  3. the MW1 entry: done (find_mw1/run_mw1, mw1_game=, save_config_value,
+     --launcher-mw1; test with a stand-in script);
+  4. the menu sounds: done (Sounds in launcher.cpp from the install's archive,
+     --nosound, MW3_LAUNCHER_MUTE for the test);
+  5. the first-start notes inside it: done (kNotes screen, launcher_notes.cpp,
+     have_music; sounds load on any screen).
+
+## 34. Linux (2026-10-31, mac5/linux)
+
+- Built in WSL2 (Ubuntu 24.04) on Owen's PC, all under ~/mw3-linux (src,
+  prefix, deps, build, game copy). GCC fixes, PIC mw3core, the finder's
+  Wine/Proton/Lutris places, Linux launcher fonts, make-appimage.sh,
+  docs/linux.md. mw3tests 262/262, mw3sdltests 46/46 (one at a time,
+  run_capped --mem-gb 5, 7 for the screens test).
+- The hidden-frame fence in SdlRender3D::present (software Vulkan fell
+  behind, 200 MB/s); SDL_SyncWindow after a resize.
+- build_deps.sh linux (minimal LGPL FFmpeg, Owen's permission rule) into
+  src/build-deps/linux/prefix; the AppImage bundles mw3import; --import
+  --movie INTRO converted 19 movies and played the intro.
+- My unthrottled SDL run OOM'd WSL (13 GB cap) and broke WSL's service until
+  Owen's wsl --shutdown. WSL stops a distro with no wsl.exe client attached:
+  run jobs attached, never nohup.
+- Then the README for players, docs/building.md, docs/release.md. Queue
+  empty: waiting for Owen's playtest or a merge problem.

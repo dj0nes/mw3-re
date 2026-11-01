@@ -176,9 +176,13 @@ bool Skis::integrate(float* y, float* vy, float dt, float ground, float gravity)
     return false;
   }
   const double span = dt < 0.0333 ? 0.0333 : dt;  // 0x005c3790
-  *vy = static_cast<float>(-(*y - ground) / span);
+  const float v = static_cast<float>(-(*y - ground) / span);
+  // FIX (B): there in this step at any rate, as at 30 fps; the 1/30 s floor
+  // left the probes under rising ground, eating the jets' climb (fixes.md).
+  // The hard landing keeps the floor's speed.
+  *vy = zfix::options().per_second ? -(*y - ground) / dt : v;
   *y = ground;
-  return *vy > 20.0f;  // 0x005c3798
+  return v > 20.0f;  // 0x005c3798
 }
 
 // Mech3.exe 1.2 @ 0x00477620: down a polygon steeper than about 32 degrees.

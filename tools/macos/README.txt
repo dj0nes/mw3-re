@@ -12,6 +12,7 @@ from a Windows PC.
 
 Installing
 ----------
+It runs on macOS 12 (Monterey) or later, on Apple silicon and Intel Macs.
 Drag "MechWarrior 3 Rebuild" into Applications and start it.
 
 The first time, macOS says it cannot check the app for malicious software
@@ -22,12 +23,15 @@ macOS has blocked it once: System Settings > Privacy & Security, and click
 
 On the first start it sets up the game from your disc or image (or asks for
 your installed copy), and remembers it.
+Then it converts the game's movies once (about 3 seconds each, with a
+progress bar; closing it stops, and the next start does the rest) into the
+folder below, so the intro and the mission movies play.
 
 Your settings and saves
 -----------------------
 In ~/Library/Application Support/MicroProse/MechWarrior 3/ (in Finder: Go >
 Go to Folder). It holds mw3.cfg, your pilots and saves, the settings, the
-installed game, its music and mw3.log (what the game reported while it ran;
+installed game, its music, the converted movies and mw3.log (what the game reported while it ran;
 send it with a bug report). Deleting the app keeps this folder.
 
 Licences

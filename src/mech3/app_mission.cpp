@@ -3,6 +3,7 @@
 // Core states: the pilot's game for a debug launch (our addition), the view
 // the Core state draws through. Not original code: it stands where the exe's
 // other modules will be. What has no port is logged once by address.
+#include <cmath>
 #include <cstdio>
 #include <algorithm>
 #include <cstring>

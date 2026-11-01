@@ -11,7 +11,7 @@
 
 namespace sdlfe {
 
-bool SdlWindow::init(bool hidden_for_good) {
+bool SdlWindow::init(bool hidden_for_good, SDL_Window* adopt) {
   hidden_ = hidden_for_good;
   // Metal, Direct3D 12 or Vulkan (SPIR-V only where the build has it).
   SDL_GPUShaderFormat formats = SDL_GPU_SHADERFORMAT_MSL | SDL_GPU_SHADERFORMAT_DXIL;
@@ -20,7 +20,8 @@ bool SdlWindow::init(bool hidden_for_good) {
 #endif
   device_ = SDL_CreateGPUDevice(formats, false, nullptr);
   if (!device_) return std::fprintf(stderr, "mw3: SDL_CreateGPUDevice: %s\n", SDL_GetError()), false;
-  window_ = SDL_CreateWindow("MechWarrior 3", 1280, 960, SDL_WINDOW_HIDDEN | SDL_WINDOW_RESIZABLE);
+  window_ = adopt ? adopt : SDL_CreateWindow("MechWarrior 3", 1280, 960, SDL_WINDOW_HIDDEN | SDL_WINDOW_RESIZABLE);
+  if (adopt) std::printf("mw3: the game took the launcher's window\n");
   if (!window_) return std::fprintf(stderr, "mw3: SDL_CreateWindow: %s\n", SDL_GetError()), false;
   if (!SDL_ClaimWindowForGPUDevice(device_, window_))
     return std::fprintf(stderr, "mw3: SDL_ClaimWindowForGPUDevice: %s\n", SDL_GetError()), false;
@@ -42,6 +43,7 @@ uint32_t SdlWindow::create(const std::string& title, int width, int height) {
   if (fullscreen_) return SDL_SetWindowTitle(window_, title.empty() ? "MechWarrior 3" : title.c_str()), kHwnd;
   SDL_SetWindowSize(window_, width, height);
   SDL_SetWindowPosition(window_, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED);
+  SDL_SyncWindow(window_);  // X11 and Wayland apply a size later: the next frame's is this one (docs/linux.md)
   if (!title.empty()) SDL_SetWindowTitle(window_, title.c_str());
   return kHwnd;
 }
@@ -51,6 +53,10 @@ void SdlWindow::set_title(const std::string& title) {
 void SdlWindow::show() {
   if (!window_ || hidden_) return;
   if (fullscreen_) SDL_SetWindowFullscreen(window_, true), SDL_SyncWindow(window_);
+  // Brought forward and given the keyboard (the Mac's app activated, as SDL
+  // does by default; Windows' foreground taken even from another process),
+  // so the game is not left waiting for a click (the launcher's window too).
+  SDL_SetHint(SDL_HINT_FORCE_RAISEWINDOW, "1");
   SDL_ShowWindow(window_), SDL_RaiseWindow(window_);
 }
 // The display rect the game draws: with any_resolution its shape is kept
@@ -300,7 +306,7 @@ void SdlPump::handle(const SDL_Event& e) {
       break;
     case SDL_EVENT_WINDOW_FOCUS_LOST:
       if (focus_changed) focus_changed(false);
-      if (app_ && app_->active()) app_->on_window_activate(0);
+      if (app_ && app_->active() && !stays_active) app_->on_window_activate(0);
       break;
     default:
       if (e.type == music_event() && app_) {

@@ -1431,6 +1431,7 @@ bool Weapon::fire(const Vec3f* velocity) {
                    g_calls.entity_x64 ? g_calls.entity_x64(e) : nullptr, &muzzle, &direction, velocity, 0, 0,
                    (team & enemies) != 0);  // hostile to the player
   if (owner == g_world.mission_player && g_world.force_feedback && g_calls.ff_weapon) g_calls.ff_weapon(index);
+  if (g_calls.test_fired) g_calls.test_fired(*this);
   if (owner) net_event(owner, this);
   set_lock_globals(nullptr, nullptr);
   reload = def->period;

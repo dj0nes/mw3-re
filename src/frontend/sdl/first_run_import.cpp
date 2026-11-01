@@ -22,7 +22,8 @@ std::string lower(std::string s) {
   return s;
 }
 
-// mw3import(.exe) in the program's own folder.
+// mw3import(.exe) in the program's own folder. In a Mac app SDL's base is
+// Contents/Resources, and the importer is beside mw3 in Contents/MacOS.
 std::string importer_path() {
   const char* base = SDL_GetBasePath();
   if (!base) return {};
@@ -32,7 +33,15 @@ std::string importer_path() {
   const fs::path p = fs::path(base) / "mw3import";
 #endif
   std::error_code ec;
-  return fs::exists(p, ec) ? p.string() : std::string();
+  if (fs::exists(p, ec)) return p.string();
+#if defined(__APPLE__)
+  const fs::path res = fs::path(base).parent_path();  // the base ends in '/'
+  if (res.filename() == "Resources") {
+    const fs::path q = res.parent_path() / "MacOS" / "mw3import";
+    if (fs::exists(q, ec)) return q.string();
+  }
+#endif
+  return {};
 }
 
 // What the importer's stdout says: "progress K N [name]".

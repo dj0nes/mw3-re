@@ -622,16 +622,26 @@ Node* parse_text(std::FILE* file) {
 // 0x00556240, then 0x005563d0). FIX (A): the file is found through
 // zutl::open, the write dir then the mounts, for the original's _access and
 // search path, and read with stdio.
+LoadHook g_load_hook = nullptr;
+void set_load_hook(LoadHook hook) { g_load_hook = hook; }
+MissingHook g_missing_hook = nullptr;
+void set_missing_hook(MissingHook hook) { g_missing_hook = hook; }
+
 Node* load(const char* path) {
   crt::msvc_splitpath_name(path, g_fname, g_ext);
   std::strncat(g_fname, g_ext, sizeof g_fname - std::strlen(g_fname) - 1);
-  if (std::FILE* f = find_in_archives(g_fname)) {
+  // find_in_archives, keeping which archive answered (for the load hook)
+  for (size_t i = 0; g_state.archives_created && i < g_state.archives.size(); ++i) {
+    zutl_zar::Archive* a = g_state.archives[i];
+    std::FILE* f = zutl_zar::seek(*a, zutl_zar::find(*a, g_fname), nullptr);
+    if (!f) continue;
     Node* root = new_nodes(List, 1);
     read_node(f, root);
+    if (g_load_hook) g_load_hook(a->path, g_fname, root);
     return root;
   }
   std::FILE* f = zutl::open(path, "rb");
-  if (!f) return nullptr;
+  if (!f) return g_missing_hook ? g_missing_hook(g_fname) : nullptr;
   Node* root = parse_text(f);
   std::fclose(f);
   return root;

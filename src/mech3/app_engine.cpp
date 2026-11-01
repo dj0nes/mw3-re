@@ -11,6 +11,7 @@
 #endif
 #include "gamez/zfmv/fmv_script.h"
 #include "mech3/mission_map.h"
+#include "mech3/patch12.h"
 #include "mech3/app.h"
 #include "mech3/hud.h"
 #include "mech3/message_panel.h"
@@ -192,6 +193,7 @@ GameEngine::GameEngine(const Platform& p, std::string command_line)
   vp.hardware = [](void* c) { return static_cast<GameEngine*>(c)->video_mode(); };
   vp.sync = [](void* c) { static_cast<GameEngine*>(c)->sync_view(); };
   wire_view(&vp);
+  patch12::install();  // 1.0's data read as 1.2's (docs/patch12.md)
 }
 
 GameEngine::~GameEngine() {
@@ -207,6 +209,7 @@ GameEngine::~GameEngine() {
     wire_view(nullptr);
   }
   zutl::install_messages(nullptr);
+  if (!g_engine) patch12::uninstall();
 }
 
 namespace {
@@ -362,6 +365,7 @@ uint32_t GameEngine::message_dll_load(const char* name) {
       return 0;
     }
   }
+  patch12::messages(dll_);
   zutl::install_messages(&dll_);
   return 1;
 }

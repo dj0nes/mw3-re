@@ -55,7 +55,7 @@ class Engine : public zgame::AppHooks {
   // The options ([0x005f4d10], [0x005f4d2c], [0x005f4d30]), ported.
   virtual int32_t in_game_vmode();
   // Ours: the menus' mode, 5 (the exe's 640x480), or with wide_menus the
-  // mission's mode when it has a wider canvas (16:9). Chosen once, at the
+  // mission's mode when its canvas is wider than 4:3 (16:9). Chosen once, at the
   // start-up: the menu screens are laid out for it when made, so a mode
   // picked in the menus applies to them at the next start.
   int32_t menu_vmode();
@@ -185,6 +185,10 @@ class Engine : public zgame::AppHooks {
   virtual void run_dir() { unported("0x004828d0", {}); }    // RunDir from the registry
   virtual uint32_t message_dll_load(const char* name) { return unported("0x00575f30", {name}); }
   virtual uint32_t directx_version() { return unported("0x0057a3d0", {}); }
+  // Ours: whether the menus offer the software renderer (VIDEO DEVICE's
+  // "software" entry). FIX (A): it is not ported, so no; the differential
+  // tests' engines say yes to check the original's cycle.
+  virtual bool software_renderer() { return false; }
   virtual uint32_t install_options(uint32_t mask) {    // 0x00597d80, InstallOptions & mask
     return unported("0x00597d80", {mask});
   }

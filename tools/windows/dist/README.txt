@@ -32,12 +32,13 @@ On the first start:
       mw3.exe --install-from "D:\"          (the disc's drive)
       mw3.exe --install-from "C:\path\to\MechWarrior3.iso"
   A .cue also gives the music. Add --patch (below) to patch it too.
-- It names the data version it found. With 1.0's data it says so once:
-  the official 1.2 patch is better, and the rebuild reads it without
-  running its installer. Start once with:
+- It names the data version it found. Version 1.0 plays as 1.2: the
+  rebuild makes the 1.2 patch's changes itself as the data loads, without
+  changing your files. Only data of another version (or a mod) is told
+  about the official patch, which it can read without running its
+  installer: start once with
       mw3.exe --patch "C:\path\to\the patch.zip"
-  (the ZIP the patch came in, or its unpacked folder). Your install is not
-  changed; the patched files go to the saves folder below.
+  (the ZIP the patch came in, or its unpacked folder).
 - The movies play through the Indeo 5 codec in your own install, by the
   small helper mw3indeo.exe. If that cannot play them, mw3import.exe
   converts them once instead, with a progress window (about a minute). The
@@ -52,7 +53,7 @@ disc image: a .iso, or a .cue with its .bin files):
 
 copies the game into a folder of its own (in the settings folder below, or
 --install-to "C:\Games\MechWarrior 3") and remembers it. --patch is
-optional and makes it 1.2. From a .cue, its CD audio becomes the music too.
+optional: the disc's 1.0 plays as 1.2 without it. From a .cue, its CD audio becomes the music too.
 
 Music
 -----

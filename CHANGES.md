@@ -354,6 +354,7 @@ Details: [`docs/protection.md`](docs/protection.md).
 
 These change how the game talks to the computer, not how it plays.
 
+- The graphics options no longer offer the software renderer, which the rebuild does not have: the video device list shows your graphics card only, and a setting saved by the original or an older rebuild that chose software starts on the card.
 - **Gamepads work as they did on Windows.** A modern pad's sticks, triggers
   and buttons arrive in the order the game knew from Windows: the left stick
   steers and walks, the triggers are the throttle, the right stick looks.
@@ -420,12 +421,13 @@ These change how the game talks to the computer, not how it plays.
 - Changing the resolution in the middle of a mission gives the view the new shape (the original never needed to: all its sizes were 4:3), and the options reached from a mission stay in their places at any resolution.
 - The pause screen and the quit box over a mission at the new sizes are
   centred and drawn at the same scale as the HUD.
-- An option for 16:9 menus (`--wide-menus`, off by default, being built one
-  screen at a time): the menus open at the in-mission size, their buttons
-  spread to the sides of the screen with their labels and lines, and the
-  backgrounds filled out to the edges from the player's own art as the game
-  runs (nothing on disk changes). A size picked in the menus takes effect
-  for the menus at the next start.
+- On screens refreshing at 120 Hz or more, the main menu's buttons' ripple spreads as it should (it stayed a dot: each frame's growth rounded down to nothing).
+- 16:9 menus: at a widescreen in-mission size the menus open at that size
+  too, their buttons spread to the sides of the screen with their labels and
+  lines, and the backgrounds filled out to the edges from the player's own
+  art as the game runs (nothing on disk changes). On by default; `widemenus=0`
+  in mw3.cfg or `--no-wide-menus` keeps the original's 4:3 menus. A size
+  picked in the menus takes effect for the menus at the next start.
 
 - The craters a host sends to a player joining a multiplayer game name their ground and texture by material number instead of by the host's memory addresses, which meant nothing on the joining machine (and do not fit a 64-bit program).
 
@@ -514,8 +516,21 @@ These change how the game talks to the computer, not how it plays.
   sound quality.
 
 - The rebuild runs on any MechWarrior 3 data, 1.0 as well as 1.2, and says
-  at start which it found. With 1.0's message file, the messages 1.2 added
-  read as blank text where the original would have crashed.
+  at start which it found. On 1.0's files it makes the 1.2 patch's changes
+  itself as the data loads, in its own words and numbers, without the patch's
+  files: so far the messages 1.2 added (target names, the new resolutions,
+  the jump-jet limit), the HUD layouts for 1152x864, 1280x1024 and
+  1600x1200, 1.2's weapon balance, the mechs' torso twist, heat sinks and
+  loadouts, its force feedback effects (a fall and a death shake), the
+  mission fixes (objectives, boundaries, a jump-jet ceiling, patrol points),
+  the named targets, the footstep and engine sounds (the engine loop
+  without its click, made from 1.0's own sound), and the AI paths and
+  regions 1.0 left out of Op 4b Mission 5 (taken from your own Mission 6
+  and 4 files, as 1.2 did), the other new AI paths, and 1.2's fixes to Op
+  3's world (the dome's gaps, the helipads' stray wall, the terrain holes).
+  Only Op 3's two new multiplayer maps are left out until multiplayer is
+  ported. Your files are not changed, and data that is neither 1.0's nor
+  1.2's (a mod) is left as it is. Details in `docs/patch12.md`.
 - A 1.0 install can be brought to 1.2 with the official patch file you
   already have (`--patch`, its ZIP or folder): the rebuild reads the patch
   without running its installer, checks every file against 1.2's, and
@@ -531,10 +546,10 @@ These change how the game talks to the computer, not how it plays.
 - Each start writes everything the rebuild reports to `mw3.log` in the saves
   folder (the start before kept as `mw3.old.log`), for bug reports. It also
   says which version of the game's data it found, and on the first start
-  shows a note when the 1.2 patch would help or no music was found, with
-  what to do.
+  shows a note when no music was found or the game files are of an unknown
+  version, with what to do (1.0's need nothing: they play as 1.2).
 
-- A launcher opens first (ours): it finds your MechWarrior 3 by itself and, when it cannot, sets it up from buttons instead of command lines: find your install, install from the disc or a disc image (with a progress bar and Cancel), apply the official 1.2 patch, add the music from a disc image.
+- A launcher opens first (ours): it finds your MechWarrior 3 by itself and, when it cannot, sets it up from buttons instead of command lines: find your install, install from the disc or a disc image (with a progress bar and Cancel), apply the official 1.2 patch (offered only for game files of an unknown version), add the music from a disc image.
 
 ## Kept as the original, on purpose
 
@@ -549,6 +564,10 @@ Known quirks the rebuild deliberately keeps:
 - A lancemate following you takes the way you walked, round corners and buildings and along canyons, instead of stopping against a wall or short of you (bug fixes on).
 - The mobile field bases stay where you called them after a repair: the next mech (a lancemate told to repair, or you powering down on the spot again) is repaired without calling them again; the third MFB press still sends them away (bug fixes on).
 - Every mech's engine tops out at 400.
+- Jump jets lift you when you fire them walking uphill at more than 30 fps (the original could skim the ground with its jets burning).
+- The reticle turns yellow over a target out to your selected weapons' range, past 800 m (the ER large laser, ER PPC, Gauss rifle and others reach further); the original stopped looking at 800 m (bug fixes on).
+- A targeted building such as the Clan HQ in mission c3m1 shows on the radar and the map where it stands; the original pointed it at the map's zero point instead (bug fixes on).
+- The movies play smoothly with their sound: each frame shows once, when the sound reaches it; the original repeated one frame and skipped one every three or so, because it looked at the sound only when its own clock ticked (bug fixes on).
 - Multiplayer runs over UDP with ENet instead of DirectPlay, which modern systems no longer have: games are found on the local network or joined by address (`IP:port`, the host's UDP port forwarded for internet play). IPX, modem and serial connections are gone. In progress: for now a session starts from the command line (`--host`, `--join`); the lobby screens come later.
 - Another player's loadout that arrives cut short is read only as far as it goes, instead of past its end.
 - Another player's record that arrives cut short makes no mech instead of being read past its end.

@@ -249,6 +249,22 @@ samples read, less two halves, or three just after the first half's refill,
 plus the cursor's samples) x fps / the sample rate, unsigned: with the cursor
 still at 0 on the first poll after the start the frame is huge, the end.
 
+**The beat** (ours, W38): the step (0x00599de0) asks for a frame only when
+its own clock's frame changes, and with sound the stream answers the sound's
+frame. The two 15 fps clocks start on the same step, so each ask falls on the
+sound's own frame change; with a play cursor that moves in its device's
+periods (WASAPI 10 ms, CoreAudio 23 ms; DirectSound's likewise) the ask lands
+just before or after it in a regular beat. Owen's PC, the intro: one frame in
+three repeated and one skipped, through the Indeo helper and the converted
+files alike, the whole movie long. FIX (bug), behind `bugs`: with a streamed
+sound the step asks for the sound's frame each time it runs and shows a frame
+once the sound reaches it (`Stream::sound_frame`), from the clock's frame 1 (a
+cursor still at 0 just after the start reads as the end). Test:
+`sdl_intro_follows_its_sound_without_a_beat` (SDL's dummy driver at 441 frames).
+`MW3_MOVIE_TRACE=1` logs each new frame's clock frame, frame shown, skips, the
+gap, the decode and the flip, the Indeo helper's start-up and slow calls, and
+the sound device's period.
+
 The refill (0x0059ac40): the buffer's part locked (0x00575550), the samples
 read into it at +0x1dc, which then moves on; unlocked (0x00575600). Quirk
 kept: a lock that wraps (two pieces) moves the count by the first piece's

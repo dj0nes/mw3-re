@@ -19,6 +19,11 @@ struct ZbdHeader {                 // 0x24 bytes
   int32_t node_array_size, node_last_free, nodes_offset;
 };
 std::FILE* open_zbd(const char* path, ZbdHeader* header);     // 0x004ff6a0
+// Ours, not the original's: given the opened file, may return another stream
+// with the file's contents changed (the 1.2 data layer, mech3/patch12.h),
+// closing the first. Null: none.
+using OpenHook = std::FILE* (*)(const char* path, std::FILE* f);
+void set_open_hook(OpenHook hook);
 char* zbd_path();                                             // 0x0060bf50, 0x30 bytes
 int read_zbd(const char* path);                               // 0x004ff520
 int32_t node_index_of(const Node* node);                      // 0x004fe100

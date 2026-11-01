@@ -1,63 +1,141 @@
-# mw3-re
+# MechWarrior 3 Rebuild
 
-A rebuild of **MechWarrior 3** (Zipper Interactive, 1999) in modern C++,
-running natively on macOS and Windows on SDL3, with no Wine and no
-DirectX wrappers.
+An unofficial fan rebuild of **MechWarrior 3** (Zipper Interactive and
+MicroProse, 1999) for today's computers: Windows 10 and 11, macOS and Linux,
+with no Wine, DirectX wrappers, DDrawCompat or dgVoodoo.
 
-It is not a remake. The original `Mech3.exe` (patch 1.2) is taken apart with
-Ghidra and [REA](https://github.com/morluto/rea), and its code is ported back
-function by function. Every ported function keeps its original address in a
-comment (`// Mech3.exe 1.2 @ 0x0041a2b0`), and nearly every one is checked
-against the original in an x86 emulator. The game should play the way it
-always did, minus the bugs and the problems it has on modern machines.
+It is not a remake. The original `Mech3.exe` (patch 1.2) was taken apart and
+its code rewritten function by function in C++, most of it checked against
+the original running in an emulator. The game plays the way it always did,
+minus the bugs and the problems it has on modern machines. It is a personal
+learning project: free, not sold, and not affiliated with or endorsed by
+Microsoft or MicroProse.
 
-This is a personal fan project. No original game files are in this
-repository: the rebuild reads them from your own copy of the game.
+**No game files are included.** You need your own copy of MechWarrior 3.
 
-## Where it stands
+> This is a playtest. Expect bugs, and please [report them](#reporting-a-bug).
 
-**Not playable yet.** About 74,000 lines are ported so far.
+## What you need
 
-| Area | State |
+- **Your own MechWarrior 3**, any of these:
+  - an installed copy, version 1.2 or 1.0 (the rebuild makes the 1.2
+    patch's changes itself as 1.0's data loads, so it plays as 1.2; your
+    files are not changed);
+  - the original disc;
+  - a disc image: an `.iso`, or a `.cue` with its `.bin` files (a `.cue`
+    also gives you the music).
+- **A computer** with a graphics card that does Direct3D 12 (Windows), Metal
+  (Mac) or Vulkan (Linux):
+  - Windows 10 or 11, 64-bit;
+  - macOS 12 or later, Apple silicon or Intel;
+  - Linux, x86-64, with your distribution's Vulkan driver.
+
+Pirate's Moon and multiplayer are not supported yet.
+
+## Download
+
+From the [Releases](../../releases) page:
+
+| | File | |
+|---|---|---|
+| Windows | `MW3-Rebuild-Setup-<version>.exe` | An installer. A `.zip` of the same files is there too. |
+| Mac | `MW3-Rebuild-<version>-mac.dmg` | Drag the app to Applications. |
+| Linux | `MW3-Rebuild-<version>-x86_64.AppImage` | Make it executable (`chmod +x`) and run it. |
+
+**On a Mac, the first time:** the app is not signed by Apple, so macOS stops
+it the first time you open it. Right-click (or Control-click) the app, choose
+**Open**, then **Open** again. Or, after macOS has blocked it once, go to
+**System Settings > Privacy & Security** and click **Open Anyway**. macOS
+remembers your choice after that.
+
+**On Windows**, SmartScreen may warn about an unknown publisher: click
+**More info**, then **Run anyway**.
+
+## The first start
+
+The rebuild opens on its launcher.
+
+- **It looks for your MechWarrior 3 install** in the usual places: where the
+  original installer put it, `Program Files`, `C:\Games`, and on Linux and
+  the Mac a Wine, Proton or Lutris copy. If it finds one, it says which
+  version, and **MECHWARRIOR 3** starts the game.
+- **If it finds none**, or you want to change something, **SETUP** has:
+  - **Find my installed MechWarrior 3**: pick the folder yourself.
+  - **Install from my disc or disc image**: copies the game from the disc
+    or an `.iso`/`.cue` into a folder of the rebuild's own. No Windows and
+    no original installer needed.
+  - **Apply the 1.2 patch**: only for game data of another version than
+    1.0 or 1.2 (or a mod). Give it the official patch's `.zip`; your install
+    is not changed.
+  - **Add the music from my disc image**: see below.
+- On the first start it also tells you anything worth knowing about your
+  copy (no music yet, or game files of an unknown version).
+- **The movies** play from your own copy. Where they cannot be played
+  directly, the rebuild converts them once, the first time (about a minute).
+
+Your MechWarrior 3 files are only ever read, never changed.
+
+## Music
+
+The original played its music from the CD's audio tracks, which an
+installed copy does not have. Two ways to get it back:
+
+- With a disc image (a `.cue` and its `.bin`): **SETUP > Add the music from
+  my disc image**.
+- Your own rip: put the tracks in the rebuild's `music` folder (below) as
+  `track02.ogg`, `track03.ogg` and so on (or `.flac`, `.wav`, `.mp3`),
+  numbered as on the CD.
+
+## Playing
+
+- The game runs fullscreen at your desktop's resolution, widescreen
+  included. **Alt+Enter** switches between fullscreen and a window.
+- In a window, press and release **Ctrl+Alt** to free the mouse; click in
+  the window to take it back.
+- Gamepads work as they did on Windows 98, and force feedback becomes rumble.
+- On a widescreen the menus use the whole width too. For the original's 4:3
+  menus, put `widemenus=0` in `mw3.cfg` (or start with `--no-wide-menus`).
+
+### Bug fixes, and playing exactly like the original
+
+The rebuild fixes the original's bugs where the intent is clear: things that
+ran faster on a fast computer, the mobile field bases that would not come
+back, lancemates walking into walls, and more. Quirks that players know and
+plan around are kept. Every change is listed in plain words in
+[CHANGES.md](CHANGES.md).
+
+To play exactly as the original did, turn the fixes off: start with
+`--original`, or put the line `bugfixes=0` in `mw3.cfg` (in the folder
+below). The changes the game needs to run on a modern computer stay on.
+
+## Where your saves and settings go
+
+| | Folder |
 |---|---|
-| Every data format (worlds, models, textures, mechs, animations, scripts, sounds) | Loads, identical to the original |
-| The 3D renderer | Ported end to end; draws the mission worlds |
-| Start-up, main loop, game states, settings, controls setup | Ported |
-| Main menu, options, controls screen, credits, pilot screen | Ported |
-| Mech building, movement, physics, jump jets, falls | Ported |
-| Heat, power, damage, critical hits | Ported |
-| Weapons, missiles, beams, anti-missile, TAG | Ported |
-| Mission scripts, triggers, timers, animations, smoke and fire | Ported |
-| AI: path networks, controllers, sensors, targeting | Partly ported; the AI's decisions are next |
-| Cockpit view, mech placement | In progress |
-| HUD, briefings, campaign screens, mech lab, multiplayer | Not yet |
+| Windows | `%APPDATA%\MicroProse\MechWarrior 3\` |
+| Mac | `~/Library/Application Support/MicroProse/MechWarrior 3/` |
+| Linux | `~/.local/share/MicroProse/MechWarrior 3/` |
 
-Today `mw3` starts, runs the intro, and reaches the real main menu.
-`mw3 --mission c1m1` loads a mission: it builds your mech and the enemy mechs
-and runs the mission's frame, but there is no HUD or cockpit view yet.
+It holds `mw3.cfg`, your pilots and saves, the settings, the converted movies
+and the music, and `mw3.log`. Uninstalling the rebuild keeps it; deleting it
+starts you over.
 
-## What makes it different
+## Reporting a bug
 
-- **Checked against the original.** Differential tests run the original x86
-  code in the [Unicorn](https://www.unicorn-engine.org/) emulator and the
-  rebuilt C++ side by side, on the same inputs, and compare everything that
-  comes out. There are 85 of these tests, and break tests (deliberate
-  mistakes put into the port) show that they catch errors.
-- **Bugs fixed, quirks kept.** Where the original has a clear bug (crashes,
-  typos in data, physics that change with your frame rate), the rebuild fixes
-  it. Where something is a quirk that players know and plan around, it stays.
-  Every change from the original is listed in plain words in
-  [`CHANGES.md`](CHANGES.md).
-- **Runs right on fast machines.** The original ties falls, slopes, jump jets,
-  smoke and more to the frame rate, which is why it goes wrong on modern PCs.
-  The rebuild runs those at the original's 30 fps pace whatever your frame
-  rate.
+Open an [issue](../../issues) and include:
 
-## Discoveries
+- what you did and what happened (a screenshot helps);
+- the mission, and whether it happens with `--original` too;
+- your system (Windows, Mac or Linux, and the version);
+- **`mw3.log`** from the folder above. It is written new at every start and
+  the one before is kept as `mw3.old.log`, so if you started the game again
+  after a crash, send `mw3.old.log`.
+
+## Hidden mechanics
 
 Taking the game apart turned up hundreds of hidden mechanics, quirks and
-bugs, collected for players in
-[`docs/discoveries.md`](docs/discoveries.md). A few:
+bugs, collected for players in [docs/discoveries.md](docs/discoveries.md).
+A few:
 
 - Lasers never cause critical hits, and criticals only happen once a part's
   armor is down to 15%.
@@ -66,67 +144,33 @@ bugs, collected for players in
 - Ultra autocannons never jam; they simply fire twice as fast.
 - TAG works, but the missiles home on the spot you marked, not the target,
   and take 7 seconds to arrive.
-- Wading in water nearly as deep as the mech is tall slows it almost to a
-  standstill, while deeper water lets it speed back up. That is a bug, and
-  it's fixed here.
-- Pilot files track hidden Instant Action and multiplayer stats that the game
-  never shows.
+- Pilot files track hidden Instant Action and multiplayer stats that the
+  game never shows.
 
-## Build
+## Building from source
 
-Needs CMake 3.20+, a C++17 compiler and, for the program itself, SDL3 and
-SDL3_ttf (macOS: `brew install cmake ninja sdl3 sdl3_ttf sdl3_sound`).
+See [docs/building.md](docs/building.md). How the code is organised (the
+shared engine, MechWarrior 3, Pirate's Moon and the launcher):
+[docs/games-layout.md](docs/games-layout.md).
 
-```bash
-cmake -S . -B build -G Ninja && cmake --build build
-./build/mw3tests          # the unit tests
-```
+## Credits and licence
 
-## Run
+- **MechWarrior 3** was made by Zipper Interactive and published by
+  MicroProse in 1999. All the game's content is theirs and comes from your
+  own copy.
+- The rebuild is by Owen Morgan, under the [MIT licence](LICENSE). The
+  original's code was studied with Ghidra and
+  [REA](https://github.com/morluto/rea), the data formats cross-checked with
+  [mech3ax](https://github.com/TerranMechworks/mech3ax), and the port checked
+  against the original in the [Unicorn](https://www.unicorn-engine.org/)
+  emulator.
+- It runs on [SDL3](https://www.libsdl.org/) (with SDL3_ttf, FreeType and
+  SDL3_sound), and converts the movies with a minimal LGPL build of
+  [FFmpeg](https://ffmpeg.org/). Each download lists them in
+  `THIRD-PARTY.txt`, with their own licence files.
+- The launcher can also start **MechWarrior (1989)** through
+  [Elthial's SDL port](https://github.com/Elthial/Mechwarrior-sdl-port), if
+  you have that installed beside it.
 
-Point it at a MechWarrior 3 install patched to 1.2:
-
-```bash
-./build/mw3 path/to/mw3-1.2              # the original start-up and main menu
-./build/mw3 --mission c1m1               # straight into a mission
-./build/mw3 --fly c1                     # a free camera over a mission world
-```
-
-No install? Install it from the disc, with no Windows needed (Mac and
-Linux too): give `--install-from` the CD drive, a disc image (`.iso`) or a
-`.cue`, and the 1.2 patch if you have it. The game is copied into a folder
-of its own (or `--install-to DIR`) and remembered; a `.cue`'s CD audio
-becomes the music. More in [`docs/assets.md`](docs/assets.md), Installing
-from the disc.
-
-```bash
-./build/mw3 --install-from /Volumes/MW3 --patch MechWarrior-3_Patch.zip     # the disc, macOS
-./build/mw3 --install-from "MechWarrior 3 (USA).cue"                       # a Redump image
-```
-
-Music: the original plays CD audio. Rip the disc's tracks to
-`music/track02.ogg`, `track03.ogg` and so on (ogg, flac, wav or mp3) in the
-game folder, numbered as on the disc. More in [`docs/program.md`](docs/program.md).
-
-## The differential tests
-
-They need your game files in `game/mw3-1.2/` and Python with Unicorn:
-
-```bash
-python3 -m venv .venv && .venv/bin/pip install unicorn
-tests/differential/run_all.sh
-```
-
-## Layout
-
-- `src/gamez/<module>/`, `src/mech3/`: the rebuild, laid out like the
-  original source tree recovered from the executable's debug strings
-  ([`docs/module-map.md`](docs/module-map.md)).
-- `src/platform/`, `src/frontend/`: SDL3 in place of Win32, DirectX and MCI.
-- `docs/`: how each system works, the evidence, and the open questions.
-  [`docs/fixes.md`](docs/fixes.md) is the technical record of every change.
-- `tests/`: unit tests, and the differential tests against the original.
-- `tools/`: the analysis scripts.
-
-MechWarrior is a trademark of its owners. This project is not affiliated with
-them; you need your own copy of the game.
+MechWarrior is a trademark of Microsoft. This project is not affiliated with
+or endorsed by Microsoft, MicroProse or Zipper Interactive.

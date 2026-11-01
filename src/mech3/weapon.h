@@ -388,6 +388,7 @@ struct WeaponCalls {
   void (*recoil)(Handle part, float r) = nullptr;             // part vt+0x24
   void (*net_event)(Handle owner, int32_t kind, Weapon* w) = nullptr;  // vt+0x168 (0x16: a weapon)
   void (*ff_weapon)(int32_t index) = nullptr;                // 0x00433630 on [0x00608620]
+  void (*test_fired)(const Weapon& w) = nullptr;           // for the tests: each projectile as it spawns
   Handle (*target_mech)(Handle target) = nullptr;             // vt+0x2c then vt+0x50
   void (*lock_notice)(Handle mech, Handle vehicle, WeaponDef* def) = nullptr;  // 0x0041abd0
   int32_t (*ecm_count)(Handle mech) = nullptr;                // +0x3cc

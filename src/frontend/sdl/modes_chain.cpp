@@ -401,7 +401,11 @@ void ModesChain::act_on(const mech3::Objective* o) {
         break;
       }
       mech3::chain_player_face(at);
-      if (o->kind == O::kTarget) press("CMD_TARGET_CURSOR");
+      // Q on what the reticle's centre line meets; faced level at its
+      // origin, the line can pass between a mech's legs (t1m2's bushwacker_02
+      // standing face-on since the AI's real waits, W34), so every other try
+      // is the next enemy (E), as a player would.
+      if (o->kind == O::kTarget) press(act_ % 2 ? "CMD_TARGET_CURSOR" : "CMD_TARGET_NEXT_E");
       break;
     }
     case O::kAimAt:

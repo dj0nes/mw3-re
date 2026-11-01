@@ -493,12 +493,18 @@ Tests:
   106 to the right (4 checks fail).
 
 
-## 12. 16:9 menus (in progress, 2026-10-30)
+## 12. 16:9 menus (2026-10-30; on by default 2026-10-31)
 
-Ours, `--wide-menus` (`zfix::options().wide_menus`, a display switch beside
-any_resolution, off by default; it changes no play). `Engine::menu_vmode`
-gives the menus the in-mission mode when its canvas is wider than 640
-(853x480 at 16:9), else 5. It is chosen once, at the start-up: the screens
+Ours, `zfix::options().wide_menus`, a display switch beside any_resolution
+(it changes no play, so `--original` keeps it). On by default (Owen,
+2026-10-31); mw3.cfg's `widemenus=0/1` and `--no-wide-menus` /
+`--wide-menus` set it, the command line first. `Engine::menu_vmode` gives
+the menus the in-mission mode when its canvas is wider than 4:3 (853x480
+at 16:9), else 5. The shape, not the size: the original's modes up to 10
+(1600x1200) draw the 2D at full size and are 4:3, and a size test alone
+would have put the menus on a 1600x1200 canvas
+(`menus_wide_by_default_at_16_9_only`). Tests that pin the 4:3 menus'
+places set it off (`mission_c1m1_options_from_the_pause_keep_the_menus_frame_headless`). It is chosen once, at the start-up: the screens
 are laid out when they are made (an OptionsState makes its screen in its
 constructor), so a mode picked in the graphics options reaches the menus at
 the next start, not screens already made for another width.

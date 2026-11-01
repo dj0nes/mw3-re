@@ -38,6 +38,7 @@ const char* text(const char* tag, uint32_t v) {
 std::string g_command_line;
 
 struct Recording : mech3::Engine {
+  bool software_renderer() override { return true; }  // the original's start-up
   uint32_t unported(const char* key, std::initializer_list<Arg> args) override { return call(key, args); }
   void timer_update() override { call("0x00575a00", {}); }
   float frame_dt() override { return zgame::from_bits(peek32(0x72c52c)); }

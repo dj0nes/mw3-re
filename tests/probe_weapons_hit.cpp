@@ -204,7 +204,7 @@ void probe_hit_state(const int32_t* s) {
   st.record_shot = s[0];
   st.splash_enabled = s[1];
   st.beam_ground_fx = s[2];
-  st.pre_hit = s[3] ? [](Handle hd, Handle n, float d, zwep::WeaponDef* def) {
+  st.pre_hit = s[3] ? +[](Handle hd, Handle n, float d, zwep::WeaponDef* def) {
     log({12, static_cast<int32_t>(u(hd)), static_cast<int32_t>(u(n)), fb(d), def->index});
   } : nullptr;
   st.counted = h(static_cast<uint32_t>(s[4]));

@@ -264,7 +264,7 @@ int32_t probe_pocket_keys(const int32_t* in, const float* f, uint32_t* out, int3
   PocketCalls& pc = pocket_calls();
   pc = PocketCalls{};
   pc.view_state = [](PocketControls&, int32_t) {};
-  pc.view_screen = in[4] ? [](Mech&) -> void* { return &g_screen_token; } : nullptr;
+  pc.view_screen = in[4] ? +[](Mech&) -> void* { return &g_screen_token; } : nullptr;
   Mech m;
   m.powered_down = in[0] != 0;
   m.power_down_pending = false;

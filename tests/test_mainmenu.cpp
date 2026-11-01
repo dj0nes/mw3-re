@@ -6,6 +6,7 @@
 #include "gamez/zimage/zimg_library.h"
 #include "gamez/zutil/zfix.h"
 #include "mech3/briefing.h"
+#include "mech3/menu_ripple.h"
 #include "mech3/menu_widgets.h"
 
 namespace {
@@ -63,6 +64,37 @@ TEST(main_menu_moves_per_second) {
   const MenuMotion raw = menu_motion(144.0f, false);
   EXPECT(raw.scrolled == 144 && raw.slid == 288);
   EXPECT(raw.ripple_seconds > 17.5f / 144.0f && raw.ripple_seconds < 18.5f / 144.0f);
+}
+
+// The launcher's ripple is the main menu's (Owen: "much slower than the
+// original ripple"): both run mech3::menu_ripple_step from the same start,
+// so a SlideButton and the launcher's ring have the same radius at every
+// frame, and the ring spreads 120 pixels a second at any frame rate. The
+// exe truncates each frame's growth, so above 120 fps its ring never
+// grew; the fraction is carried (FIX (B), per_second).
+TEST(launcher_ripple_matches_the_main_menus) {
+  for (float fps : {30.0f, 60.0f, 144.0f}) {
+    MenuEngine e;
+    mech3::SlideButton b(e, -1);
+    b.flags |= ztwod::kHidden;
+    b.init_ripple();
+    b.max_radius = mech3::MenuRipple::kMaxRadius;  // read_ripple's default (the main menu's dialog has no MAXRADIUS)
+    b.restart_ripple();
+    int32_t radius = mech3::MenuRipple::kStartRadius;  // as the launcher starts it on a new button
+    float carry = 0.0f, amp = mech3::MenuRipple::kStartAmplitude, phase = 0.0f;
+    const float dt = 1.0f / fps;
+    bool same = true;
+    const int half = static_cast<int>(fps / 2);
+    for (int i = 0; i < half; ++i) {
+      b.update(dt);
+      mech3::menu_ripple_step(radius, carry, amp, phase, mech3::MenuRipple::kSpeed, mech3::MenuRipple::kWavelength,
+                              mech3::MenuRipple::kMaxRadius, dt);
+      same = same && radius == b.radius && amp == b.amplitude;
+    }
+    std::printf("ripple at %.0f fps: after half a second the menu's %d, the launcher's %d\n", fps, b.radius, radius);
+    EXPECT(same);
+    EXPECT(radius >= 79 && radius <= 80);  // 20 + 120 x 0.5
+  }
 }
 
 // The briefing's transport bar (0x00406440): 0.005 a frame towards the load;

@@ -1,4 +1,5 @@
 #include "mech3/menu_widgets.h"
+#include "mech3/menu_ripple.h"
 
 #include "mech3/mech_config.h"
 #include "mech3/mech_salvage.h"
@@ -270,18 +271,7 @@ void SlideButton::update(float dt) {
   if (rippling) dirty();
   Object2D::update(dt);
   if (!rippling) return;
-  if (amplitude > 2.0f) {
-    const float d = speed * dt;
-    radius += static_cast<int32_t>(d);
-    if (radius > max_radius) radius = max_radius;
-    else if (radius < 0) radius = 0;
-    // FIX (B): 0.3 for each 30 fps frame with zfix's per_second, not each frame.
-    amplitude = amplitude - 0.3f * zfix::frame_steps(dt);
-    const float q = d / wavelength;
-    phase = phase - static_cast<float>(static_cast<double>(q) * -3.141592653589793);
-  } else {
-    rippling = 0;
-  }
+  if (!menu_ripple_step(radius, radius_carry, amplitude, phase, speed, wavelength, max_radius, dt)) rippling = 0;
   ripple.amplitude = static_cast<int32_t>(amplitude);
   ripple.inner = static_cast<int32_t>(static_cast<float>(radius) - wavelength * 3.0f);
   ripple.outer = radius;
@@ -366,15 +356,16 @@ void SlideButton::set_baked(bool on) {
 
 // Mech3.exe 1.2 @ 0x00485510
 void SlideButton::init_ripple() {
-  wavelength = 12.0f;
-  speed = 120.0f;
+  wavelength = MenuRipple::kWavelength;
+  speed = MenuRipple::kSpeed;
 }
 
 // Mech3.exe 1.2 @ 0x00485530
 void SlideButton::restart_ripple() {
-  radius = 20;
+  radius = MenuRipple::kStartRadius;
+  radius_carry = 0.0f;
   phase = 0.0f;
-  amplitude = 7.0f;
+  amplitude = MenuRipple::kStartAmplitude;
   rippling = e_.fast_menu() ? 0 : 1;
 }
 

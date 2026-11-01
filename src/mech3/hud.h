@@ -276,6 +276,8 @@ class HudLight : public ztwod::Image {
 class HudRadar : public ztwod::FilledBox {
  public:
   explicit HudRadar(float fov_degrees);  // 0x0043d260
+  int32_t target_at[2] = {};  // ours, for the tests: where the selected target's triangle went last
+  int32_t target_draws = 0;
   void show_for(float seconds) override;  // +0x60  0x0043db70: grows back
   void hide() override;              // +0x64  0x0043dc00: shrinks away, stays shown
   void attach(void* hud);            // 0x0043d6d0: the zoomed size from the display
@@ -948,6 +950,12 @@ class HudHooks : public zgame::Unported {
            unported("peek32", {id(a)}) == unported("peek32", {id(b)});
   }
   virtual void object_position(void* o, float out[3]) { vec3_at(unported("0x005a85e0", {id(o)}), out); }
+  // Ours (W32): a targets.zrd object's centroid for the radar, false for any
+  // other object (its 0x005a85e0 place kept).
+  virtual bool object_radar_place(void* o, float out[3]) {
+    (void)o, (void)out;
+    return false;
+  }
   virtual void* object_blip(void* o, int32_t kind) { return ptr(unported("obj.vt+0x3c", {id(o), static_cast<uint32_t>(kind)})); }
   virtual void blip_place(void* b, int32_t x, int32_t y) { unported("blip.vt+0xc", {id(b), static_cast<uint32_t>(x), static_cast<uint32_t>(y)}); }
   virtual void blip_draw(void* b) { unported("blip.vt+0x4", {id(b)}); }

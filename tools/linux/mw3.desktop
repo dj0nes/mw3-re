@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=MW3 Rebuild
+Comment=MechWarrior 3 rebuilt, with your own game files
+Exec=mw3
+Icon=mw3
+Categories=Game;ActionGame;
+Terminal=false
