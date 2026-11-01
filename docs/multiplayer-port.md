@@ -275,7 +275,7 @@ Then the two-process and soak tests over the whole flow, menus included.
 The connection screen 0x00493260 (MULTIPLAYER_DIALOG, its controls in
 dialog.zrd) asks zNetwork for the service providers (0x005881f0 into
 CONNECTION_LIST), makes a connection for the one chosen (0x0058a110: kind
-0 TCP/IP with an address, 1 IPX, 2 modem, 3 serial; CONNECT_CHECKBOX
+0 modem, 1 IPX, 2 TCP/IP with an address, 3 serial; CONNECT_CHECKBOX
 connects it, 0x004949f0), and searches for games through it
 (0x00586ff0, EnumSessions with ALL | RETURNSTATUS, asynchronous: the
 screen's update asks again every 0.5 s, DPERR_CONNECTING (0x8877015e)
@@ -292,7 +292,7 @@ Ours, in three pieces:
 - **9a, zNetwork's connections and search over the transport.** One
   provider by design (the lead, 2026-11-01: IPX, modem and serial do not
   exist on modern systems, so they are not listed, not even greyed out),
-  TCP/IP's kind 0, shown as "LAN / Internet (UDP)": its address
+  TCP/IP's kind 2, shown as "LAN / Internet (UDP)": its address
   empty searches the LAN (our discovery broadcast, port 27931), else asks
   that host directly; the provider list, the connection object and its
   calls (open, the address) kept as the exe's shape. 0x00586ff0 asks the
@@ -771,14 +771,17 @@ Ours, in three pieces:
   "never set:".
 - **Piece 9a** (2026-11-01): zNetwork's connections and the games' search
   over the transport (piece 9's plan). `znet::connections()` (0x005881f0)
-  lists one provider by design, TCP/IP's kind 0 ("LAN / Internet (UDP)");
+  lists one provider by design, TCP/IP's kind 2 ("LAN / Internet (UDP)";
+  9a first wrote kind 0, the modem's: the screen's switch 0x004949f0 has
+  0 modem, 1 IPX, 2 TCP/IP, 3 serial);
   `find_games` (0x00586ff0 with 0x00587140) asks the transport for the
   connection's address (`Session::address`, "" the LAN) and keeps the
   answers as the game list (`Session::games`); `game_info` (0x00586ea0:
   an entry, or -1 the session) fills a `GameInfo` (the exe's 0x74 bytes:
   the four words, +0x10 the index, +0x14 the limit, +0x18 the players,
   +0x1c the name; the host sets bit 0 of the first word, the second is the
-  game's version); `open_host` (0x00586f60, 0x00587370) and `open_join`
+  game's version, the fourth 2 in a game in progress and 3 in a locked
+  one); `open_host` (0x00586f60, 0x00587370) and `open_join`
   (0x00586fb0, by the entry's index). `Transport::find_sessions` /
   `stop_search`: the ENet transport's search is not blocking (a probe each
   second, the answers drained as they come); with no address the LAN's
@@ -800,6 +803,39 @@ Ours, in three pieces:
   four answers a second (`net_enet_probes_are_padded_and_limited`: short
   probes on both ports unanswered, a burst of 20 answered 4 times, the next
   second again; each guard's break caught).
+- **Piece 9b** (2026-11-01): the connection screen (`mech3/mp_connect`,
+  MULTIPLAYER_DIALOG; the engine makes it as the Multiplayer State's first
+  screen, 0x00493260). Its controls as the dialog binds them (offsets in
+  the header), the modem's ANSWER, DIAL and CALL hidden (FIX (A)); the
+  reset and the connect 0x004949f0 (TCP/IP's branch: HOST, the address,
+  FIND GAME; the help lines 0x2a1 / 0x2a2 "Enter an IP address / Or leave
+  blank to search", the original's own words for Owen's search and join
+  by address), the update 0x00494470 (the search asked when its timer
+  runs out: again at once while DPERR_CONNECTING, else in 3 s),
+  SESSION_LIST's refill 0x00494510 ("%1 <Player Count: n of m>", "<Game
+  in Progress>", "<Game Locked>", the chosen one kept), the buttons
+  0x004953a0 (CANCEL the network off and back, JOIN 0x00495490, HOST
+  0x00495600, FIND GAME 0x004957c0 turning into Stop Search, a game chosen
+  0x00495410), the bars' focus 0x00495310, the hand-over 0x00494920 (the
+  pilot's name, "<name>'s Game", 2..8 players with 8). The engine: the
+  network switch 0x0047fc40 (on: zNetwork on the platform's transport,
+  `Platform::network_open`, FIX (A); off: the game ended, zNetwork down),
+  the page switch 0x0049cb20 and its request 0x0049cb00. Ours: the screen
+  connects and searches the LAN as soon as it opens (Owen); Stop Search
+  with another address searches there instead; a name in use is found
+  after the join (DirectPlay listed a game's players before it), the game
+  then left (`znet::close_session`). The game's version word is 0x28. 9a's
+  note had TCP/IP as kind 0: it is 2 (0 the modem). Tests:
+  `net_connect_screen_headless` (over the hub, which now answers the
+  search: the hand-over's search, a line, another version left with 0xfde,
+  a name in use with 0x2a9, a locked game not joinable, a good one joined
+  with the lobby's page wanted, HOST refused without a name (0x2aa) then
+  hosting; three breaks caught) and
+  `sdl_two_processes_host_and_join_from_the_screens` (two mw3 through the
+  menus: A hosts, B finds A's game in SESSIONS and joins; both reach the
+  lobby's page). The program's `--net-discovery` / `--net-lan` point the
+  LAN's search at loopback in the tests. Left for piece 11: the lobby
+  (page 2), its pilot and game (0x00494920's second screen).
 - **The soak's little damage** (the lead's question): the autopilot's, not
   the network's. At a known range the path works:
   `sdl_network_damage_point_blank` holds A 40 m from a still B

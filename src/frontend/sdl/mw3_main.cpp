@@ -189,6 +189,11 @@ struct Args {
   long long net_drive = -1;
   bool net_staged = true;  // --net-staged 0: the drive stages no kills
   float net_ahead = 0;     // --net-ahead M: the pilot held M m from the nearest remote mech, facing it
+  // The multiplayer screens' (ours, for the tests on loopback, where no
+  // broadcast arrives): --net-discovery N the LAN search answered on N when
+  // hosting, --net-lan IP:PORT the search's LAN probe sent there.
+  int net_discovery = sdlfe::kDiscoveryPort;
+  std::string net_lan;
   bool net_soak = false;
   bool shot_any = false;
 };
@@ -245,6 +250,8 @@ bool parse(int argc, char** argv, Args& a) {
     else if (s == "--net-soak") a.net_soak = true;
     else if (s == "--net-staged" && next(1)) a.net_staged = std::atoi(argv[++i]) != 0;
     else if (s == "--net-ahead" && next(1)) a.net_ahead = std::strtof(argv[++i], nullptr);
+    else if (s == "--net-discovery" && next(1)) a.net_discovery = std::atoi(argv[++i]);
+    else if (s == "--net-lan" && next(1)) a.net_lan = argv[++i];
     else if (s == "--net-say" && next(1)) {
       const std::string v = argv[++i];
       const size_t atpos = v.rfind('@');
@@ -794,6 +801,32 @@ int run(const Args& a, platform::VideoForWindows* vfw) {
   platform::RegFile settings(a.write_dir.empty() ? std::string() : a.write_dir + "/settings.reg");
   if (!a.write_dir.empty()) p.settings = &settings;
   p.ram_mb = static_cast<uint32_t>(SDL_GetSystemRAM());
+  // The multiplayer screens' transport (FIX (A): DirectPlay's instance): UDP
+  // 27930, or a port the system picks when it is taken (another game here).
+  std::unique_ptr<sdlfe::EnetTransport> menu_net;
+  p.network_open = [&menu_net, &a]() -> znet::Transport* {
+    sdlfe::NetOptions o;
+    o.bind = a.net_bind;
+    o.port = static_cast<uint16_t>(a.net_port >= 0 ? a.net_port : sdlfe::kDefaultPort);
+    o.discovery_port = a.net_discovery;
+    menu_net = std::make_unique<sdlfe::EnetTransport>(o);
+    if (!menu_net->ok()) {
+      o.port = 0;
+      menu_net = std::make_unique<sdlfe::EnetTransport>(o);
+    }
+    if (!menu_net->ok()) {
+      menu_net.reset();
+      return nullptr;
+    }
+    if (!a.net_lan.empty()) {  // the LAN's probe to this address and port
+      const size_t colon = a.net_lan.rfind(':');
+      menu_net->lan_address = a.net_lan.substr(0, colon);
+      if (colon != std::string::npos) menu_net->search_port = static_cast<uint16_t>(std::atoi(a.net_lan.c_str() + colon + 1));
+    }
+    std::printf("mw3: network: up on UDP port %u\n", menu_net->port());
+    return menu_net.get();
+  };
+  p.network_close = [&menu_net] { menu_net.reset(); };
 
   int result = 1;
   {

@@ -107,6 +107,7 @@
 #include "mech3/options_menu.h"
 #include "mech3/menu_states.h"
 #include "mech3/pilot.h"
+#include "mech3/mp_connect.h"
 #include "gamez/znetwork/znet_session.h"
 #include "mech3/briefing.h"
 #include "gamez/zutil/zfix.h"
@@ -3471,6 +3472,111 @@ TEST(net_mech_made_from_a_record_c1m1_headless) {
 // mech made, it sends a crater on a ground past the table, effects naming
 // bad or free nodes and one with an unended name, a state saying more shots
 // than it holds, postures of no action, then 3000 random messages of every
+// The connection screen's logic (multiplayer-port.md, piece 9b) over the
+// hub, through the Multiplayer State the engine makes: the hand-over
+// connects and searches at once (ours); a host's game appears in SESSIONS
+// as "name <Player Count: n of m>"; a game of another version is left
+// (0xfde, the network off), one where our name is in use too (0x2a9, no
+// player made), a locked one cannot be joined; a good one is joined and the
+// lobby's page wanted; HOST needs a game's name (0x2aa), then hosts.
+TEST(net_connect_screen_headless) {
+  if (!have_game()) return;
+  SavedMounts keep;
+  zutl::mounts() = zutl::Mounts{};
+  zutl::mount(MW3_GAME_DIR);
+  zutl::set_write_dir(temp_dir("net_connect_write"));
+  mech3::reset_states();
+  reset_process_state();
+  mech3::options() = mech3::Options{};
+  FakeWindow window;
+  FakeAlert alert;
+  FakeClock clock;
+  FakeScreen screen;
+  platform::SilentSoundOutput sound;
+  mech3::MountFiles files;
+  mech3::Platform p;
+  p.window = &window, p.alert = &alert, p.clock = &clock, p.movie_clock = &fast_movie_clock(), p.screen = &screen, p.sound = &sound, p.files = &files;
+  std::unique_ptr<znet::Hub> hub;
+  p.network_open = [&hub]() -> znet::Transport* { return hub->endpoint(); };
+  znet::session() = znet::Session{};
+  {
+    mech3::GameEngine engine(p, "mech3.exe -nofmv");
+    engine.quiet = true;
+    mech3::Mech3App app(&engine);
+    mech3::set_app(&app);
+    EXPECT(app.init_instance());
+    std::vector<int32_t> boxes;
+    engine.on_message_box = [&boxes](int32_t, int32_t, int32_t text) { boxes.push_back(text); return 1u; };
+    const mech3::Handle st = engine.construct(0x49c900, {});
+    auto* g = dynamic_cast<mech3::GameMenuState*>(engine.menu_state_of(st));
+    auto* c = g ? dynamic_cast<mech3::ConnectScreen*>(engine.screen_of(g->screens[0])) : nullptr;
+    EXPECT(g && c);
+    if (!g || !c) return;
+    // Each case a new hub with its own host, and the network on again.
+    auto fresh = [&](const char* game, uint32_t version, uint32_t fourth, const char* host_name) {
+      engine.network_set(0);
+      hub = std::make_unique<znet::Hub>();
+      znet::Transport* other = hub->endpoint();
+      if (game) {
+        znet::SessionDesc d;
+        d.name = game, d.max_players = 4, d.user[1] = version, d.user[3] = fourth;
+        other->host(d);
+        other->create_player(host_name, host_name);
+      }
+      engine.network_set(1);
+      c->take_pilot(1, "Ann");
+      g->want = 1, g->x19 = 0;
+      boxes.clear();
+      c->update(1.0f);  // the search's first ask (0.5 s after FIND)
+    };
+    fresh("Far", mech3::kGameVersion + 1, 0, "Bob");
+    EXPECT(znet::session().initialised && c->connect_box.checked == 1 && !c->find_shows_find);
+    EXPECT(c->host_btn.enabled == 1 && c->join_btn.enabled == 0);
+    EXPECT(std::string(c->session_name.get_text()) == "Ann's Game" && std::string(c->player_name.get_text()) == "Ann");
+    EXPECT(c->sessions.item_count() == 1);
+    if (c->sessions.item_count() == 1) EXPECT(std::string(c->sessions.items[0]->text) == "Far <Player Count: 1 of 4>");
+    c->sessions.select(0);
+    c->on_button(7, 0, 0);
+    EXPECT(c->join_btn.enabled == 1);
+    c->join();  // a newer version's host
+    EXPECT(boxes.size() == 1 && boxes[0] == 0xfde && !znet::session().initialised);
+    fresh("Ann's", mech3::kGameVersion, 0, "Ann");  // our name taken there
+    c->sessions.select(0);
+    c->join();
+    EXPECT(boxes.size() == 1 && boxes[0] == 0x2a9 && znet::local_id() == 0 && !znet::session().open);
+    fresh("Shut", mech3::kGameVersion, 3, "Bob");  // locked
+    EXPECT(c->sessions.item_count() == 1);
+    if (c->sessions.item_count() == 1) EXPECT(std::string(c->sessions.items[0]->text) == "Shut <Game Locked>");
+    c->sessions.select(0);
+    c->on_button(7, 0, 0);
+    EXPECT(c->join_btn.enabled == 0);
+    c->join();
+    EXPECT(!znet::session().open && boxes.empty());
+    fresh("Good", mech3::kGameVersion, 0, "Bob");
+    c->sessions.select(0);
+    c->join();
+    EXPECT(boxes.empty() && znet::local_id() == 2 && g->want == 2 && g->x19 == 1);
+    EXPECT(mech3::multiplayer_setup().max_players == 4);
+    fresh(nullptr, 0, 0, nullptr);  // nobody hosting: we host
+    c->session_name.set_text("  ");
+    c->host();
+    EXPECT(boxes.size() == 1 && boxes[0] == 0x2aa && !znet::session().open);
+    c->session_name.set_text("Mine");
+    c->max_players.select(2);  // 4 players
+    c->host();
+    EXPECT(znet::session().open && znet::is_host() && znet::session().desc.name == "Mine" &&
+           znet::session().desc.max_players == 4 && znet::session().desc.user[1] == mech3::kGameVersion);
+    EXPECT(g->want == 2);
+    engine.network_set(0);
+    app.exit_instance();
+    mech3::set_app(nullptr);
+  }
+  znet::session() = znet::Session{};
+  mech3::reset_states();
+  reset_process_state();
+  mech3::options() = mech3::Options{};
+}
+
 // routed type at any length. Each bad one stops at the edge; nothing crashes.
 TEST(net_hostile_peer_c1m1_headless) {
   if (!have_game()) return;
@@ -14690,7 +14796,7 @@ TEST(known_unported_keys_name_their_reason) {
                         "0x00576d90", "0x00576da0", "0x00576dc0", "0x00558070", "0x005a8390", "0x005a84c0",
                         "0x005a7e10", "0x005a7f90", "0x00576c50", "0x00535ed0", "0x004f8f60", "0x00537520",
                         "0x00519e50", "0x00526510", "0x005578f0", "0x00557b30", "0x00575f70", "0x00576c60",
-                        "0x00516f00", "0x00526780", "0x00557b10", "0x005646d0", "0x00493260",
+                        "0x00516f00", "0x00526780", "0x00557b10", "0x005646d0",
                         "0x00495f90", "0x0049bd80"}) {
     const char* why = mech3::GameEngine::known_unported(k);
     EXPECT(why != nullptr);
@@ -14700,7 +14806,7 @@ TEST(known_unported_keys_name_their_reason) {
            w.size() > 20);
     ++n;
   }
-  EXPECT(n == 46);  // 0x00586ce0, 0x00586c20, 0x00588930, 0x0046ef70, 0x0046f160 ported (multiplayer-port.md pieces 1, 2, 6a)
+  EXPECT(n == 45);  // 0x00586ce0, 0x00586c20, 0x00588930, 0x0046ef70, 0x0046f160 ported (multiplayer-port.md pieces 1, 2, 6a), 0x00493260 (9b)
   for (const char* gap : {"0x00579ea0", "0x004f9fa0", "0x004fa0b0", "0x00479be0", "0x0051a300",
                           "[[0x0060861c]+0x14]", "0x004f3430", "0x005799f0", "0x0051d0c0",
                           "0x00556210", "game.vt", "0x00414000", "0x0047abe0", "0x004f8f50",

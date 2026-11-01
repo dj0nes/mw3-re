@@ -541,6 +541,11 @@ class Engine : public zgame::AppHooks {
   virtual void network_set(int32_t on) { unported("0x0047fc40", {on}); }  // the app's network on or off
   virtual void network_leave() { unported("0x0046d100", {}); }  // the network session closed (the quit box's OK)
   virtual void multiplayer_switch(Handle state) { unported("0x0049cb20", {state}); }
+  // 0x0049cb00 on the Multiplayer State: the page wanted next (1 the
+  // connection screen, 2 the lobby, 3 the new team) and whether it starts over.
+  virtual void multiplayer_page(Handle state, int32_t page, uint8_t reenter) {
+    unported("0x0049cb00", {state, static_cast<uint32_t>(page), reenter});
+  }
   // 0x00494920 on the first multiplayer screen with the pilot, then the
   // second's +0x15058 (the pilot) and +0x116ec (its multiplayer game).
   virtual void multiplayer_take_pilot(Handle first, Handle second) {

@@ -38,7 +38,7 @@ bool join_session(const std::string& address, const char* name) {
 
 // Mech3.exe 1.2 @ 0x005881f0
 const std::vector<Connection>& connections() {
-  static const std::vector<Connection> kOne = {{"LAN / Internet (UDP)", 0}};
+  static const std::vector<Connection> kOne = {{"LAN / Internet (UDP)", 2}};
   return kOne;
 }
 
@@ -95,6 +95,15 @@ int32_t open_join(const GameInfo& info) {
   if (!s.transport->join(s.games[static_cast<size_t>(info.index)].address)) return kErrGeneric;
   s.open = true, s.desc = s.transport->session_desc();
   return kOk;
+}
+
+void close_session() {
+  Session& s = session();
+  if (!s.open) return;
+  if (s.transport) s.transport->close();
+  s.open = false, s.desc = SessionDesc{}, s.host_id = 0;
+  s.local.reset();
+  clear_lists();
 }
 
 // Mech3.exe 1.2 @ 0x00586ce0
@@ -355,6 +364,16 @@ struct Hub::Impl::End : Transport {
   }
   bool is_host(uint32_t who) const override { return who && who == hub->host_id; }
   SessionDesc session_desc() const override { return hub->desc; }
+  // The search finds the hub's game, if one is hosted ("loopback" to join).
+  int32_t find_sessions(const std::string&, std::vector<FoundGame>* out) override {
+    out->clear();
+    if (!hub->hosted) return kOk;
+    FoundGame g;
+    g.desc = hub->desc, g.address = "loopback";
+    for (const auto& e : hub->ends) g.players += e->id != 0 ? 1 : 0;
+    out->push_back(g);
+    return kOk;
+  }
   bool host(const SessionDesc& d) override {
     if (hub->hosted || opened) return false;
     hub->hosted = opened = true;

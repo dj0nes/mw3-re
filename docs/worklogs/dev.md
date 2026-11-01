@@ -2610,4 +2610,6 @@ Assigned after 8b2 merged (fd3f05f). The lead asked for a section stepped at bot
   aim and the ground (multiplayer-port.md, 8d).
 - Piece 9's plan accepted (multiplayer-port.md); 9a done: zNetwork's
   connections, the search over the transport, its answers checked.
-- Next: 9b, the connection screen.
+- 9b done: the connection screen (multiplayer-port.md, 9b). The search's
+  amplification guards (the lead's review of 9a) went in before it.
+- Next: 9c, internet hosting (UPnP, the addresses, the copy button).

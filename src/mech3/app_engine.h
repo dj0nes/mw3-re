@@ -56,6 +56,11 @@ struct Platform {
   platform::Settings* settings = nullptr;  // the registry's stand-in (settings.md); none: nothing saved
   uint32_t ram_mb = 4096;               // the machine's memory, for detail.zrd's RAM_KB
   int window_width = 1280, window_height = 960;  // the window made for the 640x480 game
+  // FIX (A): DirectPlay's instance (0x00586ba0) is our transport, made when
+  // the multiplayer screens switch the network on and given up when off;
+  // none: no network (the menus' MULTIPLAYER finds nothing).
+  std::function<znet::Transport*()> network_open;
+  std::function<void()> network_close;
 };
 
 class ActionGame;
@@ -393,6 +398,10 @@ class GameEngine : public Engine {
   }
   // The mission's network start and end (piece 5).
   void multiplayer_launch_prep() override;  // 0x0046ceb0
+  void network_set(int32_t on) override;    // 0x0047fc40
+  void multiplayer_switch(Handle state) override;  // 0x0049cb20
+  void multiplayer_page(Handle state, int32_t page, uint8_t reenter) override;  // 0x0049cb00
+  void multiplayer_take_pilot(Handle first, Handle second) override;  // 0x00494920
   void network_leave() override;            // 0x0046d100
   uint32_t activate_running_copy() override { return 1; }
   uint32_t register_window_class() override { return 1; }
@@ -414,6 +423,9 @@ class GameEngine : public Engine {
   const char* message_format(int32_t id, const char* arg) override;
   const char* message_format_n(int32_t id, int32_t n) override;
   uint32_t message_box(int32_t a, int32_t caption, int32_t text, int32_t arg = 0) override;
+  // Ours, for the tests: answers message_box's boxes in their place (the box's
+  // own loop runs up to 100,000 frames).
+  std::function<uint32_t(int32_t style, int32_t caption, int32_t text)> on_message_box;
   uint32_t game_message_box(int32_t style, int32_t caption, const std::string& text);  // 0x004ac150
   void pump_events();                // FIX (A): the window's events, inside the box's loop
   ztwod::MessageBox* message_box_open() const { return box_; }  // the box being answered, or null
@@ -618,6 +630,7 @@ class GameEngine : public Engine {
   // The 2D buffer at the canvas (w x h), the viewport, the window at the 3D frame (video_open, video_set_mode).
   void screen_size(int32_t w, int32_t h, int32_t frame_w, int32_t frame_h);
   Platform p_;
+  bool network_on_ = false;  // the app's +0x1bd (0x0047fc40)
   std::string command_line_;
   bool video_opened_ = false;
   std::map<std::string, uint32_t> counts_;

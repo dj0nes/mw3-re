@@ -37,7 +37,8 @@ struct FoundGame {
 // entry (0x00586ea0, 0x00587680) and what a host asks for (0x00586f60,
 // 0x00587370). The words are the session's dwUser1..4: the host sets bit 0
 // of the first, the second is the game's version ([0x005e55e8], checked
-// by the join), the fourth 3 in a game that cannot be joined.
+// by the join), the fourth 2 in a game in progress and 3 in a locked one
+// (which cannot be joined: 0x00494510's lines, 0x00495410).
 struct GameInfo {
   uint32_t user[4] = {};    // +0x00..+0x0c
   int32_t index = 0;        // +0x10  the game list's entry to join
@@ -199,11 +200,11 @@ bool join_session(const std::string& address, const char* name);
 uint32_t create_player(const char* name);
 
 // The service providers (0x005881f0, EnumConnections into [0x007307c8]):
-// ours one by design, TCP/IP's kind 0 over our transport (IPX, modem and
+// ours one by design, TCP/IP's kind 2 over our transport (IPX, modem and
 // serial are gone, not listed; multiplayer-port.md, piece 9's plan).
 struct Connection {
   std::string name;
-  int32_t kind = 0;  // +0x10: 0 TCP/IP (an address), 1 IPX, 2 modem, 3 serial
+  int32_t kind = 2;  // +0x10: 0 modem, 1 IPX, 2 TCP/IP (an address), 3 serial (0x004949f0's switch)
 };
 const std::vector<Connection>& connections();
 // 0x00586ff0: the games' search through the connection (its address in
@@ -218,6 +219,9 @@ bool game_info(int32_t index, GameInfo* out);
 // local player is made after (create_player).
 int32_t open_host(const GameInfo& info);
 int32_t open_join(const GameInfo& info);
+// Ours: the session joined left (its local player not made yet), zNetwork
+// still up for another search (the connection screen's name in use).
+void close_session();
 
 bool active();          // 0x00586ce0: up, with a session or a lobby's
 uint32_t local_id();    // 0x00586d10: the local player's id, 0 without one

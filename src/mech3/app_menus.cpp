@@ -40,6 +40,7 @@
 #include "mech3/salvage_screen.h"
 #include "mech3/pilot.h"
 #include "mech3/pilot_menu.h"
+#include "mech3/mp_connect.h"
 
 namespace mech3 {
 
@@ -379,6 +380,8 @@ Handle GameEngine::construct(uint32_t ctor, std::initializer_list<Arg> args) {
       menu_states_[h] = new PilotState(*this, h);
       return h;
     }
+    case 0x493260:  // the Multiplayer State's first screen, new(0x13b04): the connection
+      return screen(0x13b04, [](GameEngine& e, Handle s) -> MenuScreen* { return new ConnectScreen(e, s); });
     case 0x488bc0:  // the Action State's screen, new(0x17730)
       return screen(0x17730, [](GameEngine& e, Handle s) -> MenuScreen* { return new ActionScreen(e, s); });
     case 0x48a6c0:
@@ -1230,4 +1233,70 @@ zimg::Texture* GameEngine::map_image(Handle map) {
   auto* m = static_cast<MissionMap*>(object_of(map));
   return m ? m->image : nullptr;
 }
+}  // namespace mech3
+
+namespace mech3 {
+
+// Mech3.exe 1.2 @ 0x0047fc40: the app's network on or off. On: zNetwork up
+// (0x00586ba0; FIX (A): on the platform's transport, not DirectPlay's
+// instance), unless it is already (a --host or --join start's); the lobby
+// launch's set-up (+0x19c) is not ported. Off: the network game ended
+// (0x0046d100), zNetwork down (0x00586c20), the transport given up.
+void GameEngine::network_set(int32_t on) {
+  if (on) {
+    if (network_on_) return;
+    if (!znet::session().initialised && p_.network_open)
+      if (znet::Transport* t = p_.network_open()) znet::initialise(t);
+    network_on_ = true;
+    return;
+  }
+  if (!network_on_) return;
+  net_end();
+  znet::shutdown();
+  if (p_.network_close) p_.network_close();
+  network_on_ = false;
+}
+
+// Mech3.exe 1.2 @ 0x0049cb20: the Multiplayer State's page shown as wanted
+// (1 the connection screen, 2 the lobby, 3 the new team), each told when
+// it starts over (+0x19): the connection screen forgets its kind
+// (0x004949d0), the lobby's (0x00497720) and the new team's (0x0049c2c0)
+// come with their pieces.
+void GameEngine::multiplayer_switch(Handle state) {
+  auto it = menu_states_.find(state);
+  auto* g = it == menu_states_.end() ? nullptr : dynamic_cast<GameMenuState*>(it->second);
+  if (!g) return Engine::multiplayer_switch(state);
+  if (g->want == 1) {
+    g->screen_ = g->screens[0];
+    if (g->x19)
+      if (auto* c = dynamic_cast<ConnectScreen*>(screen_of(g->screens[0]))) c->forget_kind();
+  } else if (g->want == 2) {
+    g->screen_ = g->screens[1];
+    if (g->x19) unported("0x00497720", {g->screens[1]});
+  } else if (g->want == 3) {
+    g->screen_ = g->screens[2];
+    if (g->x19) unported("0x0049c2c0", {g->screens[1]});
+  }
+  if (!quiet && g->page != g->want) std::printf("mw3: multiplayer page %d\n", static_cast<int>(g->want));  // ours
+  g->page = g->want;
+}
+
+// Mech3.exe 1.2 @ 0x0049cb00
+void GameEngine::multiplayer_page(Handle state, int32_t page, uint8_t reenter) {
+  auto it = menu_states_.find(state);
+  auto* g = it == menu_states_.end() ? nullptr : dynamic_cast<GameMenuState*>(it->second);
+  if (!g) return Engine::multiplayer_page(state, page, reenter);
+  g->want = page;
+  g->x19 = reenter;
+}
+
+// Mech3.exe 1.2 @ 0x00494920 on the connection screen with the pilot; the
+// lobby's pilot and game (+0x15058, +0x116ec) come with the lobby.
+void GameEngine::multiplayer_take_pilot(Handle first, Handle second) {
+  Pilot* p = current_pilot();
+  if (auto* c = dynamic_cast<ConnectScreen*>(screen_of(first))) c->take_pilot(p ? handle_of(p) : 0, p ? p->name : nullptr);
+  else Engine::multiplayer_take_pilot(first, second);
+  if (second) unported("lobby.take_pilot", {second});
+}
+
 }  // namespace mech3
