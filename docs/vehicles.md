@@ -1620,10 +1620,14 @@ by camera mode, a car's steering (0x4a20d0: the turn into the heading
 reversing); the speed step 0x4a2b10; the move on the horizontal plane;
 then the four platform points' ground (0x4a2190), the highest taken plus
 an offset (+0x88 of the motion block, likely `mode_alt`), pitch and roll 0:
-a level sled glued above the ground. A developer's fly camera.
+a level sled glued above the ground. Not a fly camera (an earlier guess
+here): its controls are a small AI that drives it along the editor's paths,
+and the view goes onto it when debug command 0x9a opens Zipper's Battlesport
+game editor (docs/editor.md).
 
-Not ported (Owen 2026-10-23): both go in at the end, behind a debug key,
-as our addition (CHANGES.md then).
+Not ported yet: Owen (2026-10-31) wants the editor and the stealth exactly
+as the original had them, behind `--debug-camera`; the map and the sittings
+are docs/editor.md.
 
 ## Why 2.1 waits for the AI (2026-10-21)
 
