@@ -245,7 +245,7 @@ struct RunHooks {
   int32_t (*segment)(const Vec3f3* from, const Vec3f3* to, HitList* out) = nullptr;
   void (*ground)(const Vec3f3* at, HitList* out) = nullptr;        // 0x004eda10: byte 0 1 = found, +0x14 the height
   // The network.
-  int32_t (*net_gate)(WeaponDef* def, int32_t* net_id) = nullptr;  // [0x0072fcac]: 0 refuses the shot
+  int32_t (*net_gate)(WeaponDef* def, int32_t* net_id) = nullptr;  // [0x0072fcac]: 0 refuses the shot (Mech3.exe never sets it)
   void (*net_detonated)(WeaponDef* def, const Vec3f3* at, Handle owner) = nullptr;  // [0x0072fcb4]
 };
 RunHooks& run_hooks();

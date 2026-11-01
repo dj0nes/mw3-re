@@ -644,8 +644,73 @@ Then the two-process and soak tests over the whole flow, menus included.
   `test_mech_net_end.py` (500 ends identical; a break caught) and
   `net_game_over_reaches_the_main_menu_c1m1_headless` (in a running c1m1
   the end fades to the Multi-Exit State and the main menu, the mission
-  cleaned up; a break caught). The soak test of the plan waits for the
-  lobby (pieces 9-11), which starts real games.
+  cleaned up; a break caught). A network game's main menu goes on to the
+  Multiplayer State in the same frame (piece 8b found it).
+- **Piece 8b** (2026-11-01): the soak test, before the lobby, through a
+  debug start (ours, docs/program.md): `--mission c1mp1` with `--host` or
+  `--join` launches a network game (type 3, the map's `readermp1`) with a
+  stand-in game (no kill limit) and a stand-in lobby (each player its own
+  team, its start by id, kills and deaths kept as the lobby would);
+  `--net-wait N` holds the start until N players are in, `--net-minutes M`
+  sets the clock, `--net-drive SEED` drives the pilot (the throttle up held,
+  turned toward the nearest remote mech and firing when it is ahead within
+  400 m, a turn and a straight walk out of anything it walks into, and every
+  two minutes a kill staged on itself credited to the nearest remote mech:
+  hits that land are far too few to kill in a soak), `--net-soak` prints a
+  line each half second (the wall clock, memory, the mission clock, its
+  own mech and every remote one), the scores at the end, and quits.
+  `sdl_network_soak_four_players` (mw3sdltests, `MW3_SOAK=1`,
+  `MW3_SOAK_MINUTES`, default 30; `MW3_SOAK_DIR` keeps the logs): four
+  hidden processes under `nice` on loopback, 5% loss and 80 ms each way;
+  each exits cleanly after the game's end on the clock, memory within 10%
+  (the last tenth's median against the second tenth's), each sees the three
+  others at the end, every remote mech within 5 m (95th percentile) of its
+  owner's own track at the same moment (interpolated between its lines;
+  deaths and respawns left out), the four score tables alike and not empty.
+  The plan's counters of guaranteed messages and the convergence after the
+  shim is off are left to the lobby's two-process test (piece 11). Found
+  and fixed on the way: two players joining at once (ours, piece 4's
+  transport): the second's welcome was made before the first had a player,
+  and the host told only players already made of a new one, so the two
+  never met; the host's answer to a player's creation (kId) now lists the
+  players made since (`net_enet_two_joining_at_once_meet`, failing before).
+- **Piece 8c** (2026-11-01, the lead's review): a peer's packet is
+  untrusted over the internet; the exe trusted DirectPlay's peers. FIX (A)
+  (fixes.md): a crater on a ground past the material table is dropped, and
+  0x00536070 answers none past the table; an effect record's name is ended
+  at its 32nd byte and its nodes (its own, a connector's one or two) must be
+  -1 or live (0x004fe1d0 answers null for any negative index, as the exe:
+  `saved_node` says so too); a state's shots stop at the message's end; a
+  posture's kind outside 1..9 queues nothing. `net_hostile_peer_c1m1_headless`
+  sends each of them, then 3000 random messages of every routed type at
+  any length. The handlers still to come (chat text, names, the lobby's
+  lists, pieces 9-14) take the same care: sizes, NUL-ended strings, indices.
+- **Piece 8d** (2026-11-01, the soak's find): the pilot's respawn. The
+  dead list (0x0041e220) asks the pilot's game's 0x0046dde0 once the pilot
+  has been dead 7.1 s; the port's hook (`dead_calls().respawn`) was never
+  set, so a dead pilot stayed dead (a soak's four mechs were all down from
+  its second minute). Ported: 0x0046dde0 (`net_pilot_respawn`, set by
+  net_start and cleared by net_end): respawn off (+0x8c) clears +0x8e and
+  gives the view camera 4; on, the pilot's mech is made again (0x004783c0,
+  `program_pilot_set_mech`: the place, the facing, the team and the fire
+  mode kept, 0x004148c0 `mech_rebuild` in place, its loadout again
+  0x00414430, the view back in its mode, the HUD reset, powered up), its
+  team, unlimited ammo (+0x8d), the options (0x0040cb30), the cockpit's
+  explosion reset, the "remote_N" start farthest from the nearest remote
+  mech (0x0046e030, the squared flat distance), the lobby slot's spread,
+  the place, 0x12, the sensor range, the objectives again (0x00491050,
+  `Missions::objectives_again`), the force feedback. In the exe the
+  stealth object takes the view while the mech is made again, so the
+  weapons' adding asks no HUD of it; the port's target is none meanwhile
+  (the stealth object is not made). Tests: `test_mech_net_respawn.py`
+  (1500 respawns identical, 323 with respawn off; a break caught),
+  `net_pilot_respawns_c1mp1_headless` (both branches in c1mp1), and the
+  census in a network game, `program_hooks_set_in_a_network_game_headless`:
+  every hook hook_allow.txt lets be null for "multiplayer:" must be set
+  there (it fails with the respawn's hook unset). It found two such
+  entries wrong: [0x0060c0c8] (the quicksand veto) and [0x0072fcac] (the
+  shot gate) are read, null-checked, and never written by Mech3.exe, now
+  "never set:".
 
 ## Open
 

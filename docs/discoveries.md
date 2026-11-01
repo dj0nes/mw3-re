@@ -1199,6 +1199,13 @@ From the network code (network-messages.md).
   a second with 2-4 players, down to 3 with 8; the tables stop at 8 players.
 - **Craters are shared.** The host checks each crater and sends it to everyone,
   so the terrain damage matches on every screen.
+- **You come back where the enemy is not.** In a game with respawn on, a
+  destroyed mech returns 7.1 seconds after it fell, repaired and rearmed
+  with its own loadout, at whichever of the map's starting points
+  (`remote_0` to `remote_15`) is farthest from the nearest other player's
+  mech, measured on the ground's plane (height does not count), then nudged
+  by your slot in the lobby. With respawn off you stay down and the view
+  switches to camera 4 to watch the rest of the game.
 
 ## Graphics
 

@@ -5,7 +5,7 @@
 SceneWalk.pre	no effect: [0x005ea510] holds an empty default
 SceneWalk.post	no effect: [0x005ea514] holds an empty default
 CraterState.veto	multiplayer: [0x0060bf88], the network game's 0x0046fd30
-CraterState.quicksand_veto	multiplayer: [0x0060c0c8], set by the network game
+CraterState.quicksand_veto	never set: [0x0060c0c8] is read (0x00502110, null-checked) but nothing in Mech3.exe writes it, a network game included (piece 8d's census)
 CraterHooks.write_record	no effect: the craters' records written only into a save that hooks it; none in the program
 Hooks.load	fallback: unset runs the port (0x00556740)
 Hooks.find_texture	fallback: unset runs the port (0x00518220)
@@ -132,7 +132,7 @@ WeatherHooks.draw	fallback: unset runs the port
 WeatherHooks.reload	fallback: unset runs the port
 WeatherHooks.flush	fallback: unset runs the port
 HitState.pre_hit	no effect: [0x009a17a4] is only ever zeroed by the exe (0x005837c1)
-RunHooks.net_gate	multiplayer: [0x0072fcac], the network game's shot gate (0 refuses)
+RunHooks.net_gate	never set: [0x0072fcac] is read (0x00585010, null-checked) but nothing in Mech3.exe writes it, a network game included (piece 8d's census)
 CockpitSoundCalls.find	fallback: unset runs the port (0x0056f6f0)
 CockpitSoundCalls.play	fallback: unset runs the port (0x004e6d80(s, 0; volume, 0, -1))
 CockpitSoundCalls.stop	fallback: unset runs the port (0x0056e9f0)

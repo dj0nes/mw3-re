@@ -18,6 +18,8 @@
 #include <cstdio>
 #include <cstring>
 #include <unordered_set>
+#include <algorithm>
+#include <map>
 #include <memory>
 #include <string>
 
@@ -27,6 +29,7 @@
 #include "gamez/zclass/object3d.h"
 #include "gamez/zmath/zmth_matrix.h"
 #include "gamez/zmodel/gmod_matl.h"
+#include "gamez/zeffect/zeff_anim_save.h"
 #include "gamez/zclass/class.h"
 #include "gamez/zclass/cls_util.h"
 #include "gamez/zclass/list.h"
@@ -415,8 +418,10 @@ class WiredLaunch : public LaunchHooks {
   void multiplayer(Handle) override {  // 0x0046da80 on the pilot
     NetLaunchGame g;
     Mech* m = launched_mech();
-    if (m && g_launch_game && g_launch_game(&g) && g.loadout)
-      net_launch_player(*m, g.loadout->packed(), g.skin, g.unlimited_ammo, g.outside_view);
+    if (m && g_launch_game && g_launch_game(&g)) {
+      if (!g.loadout) g.loadout = m->config;  // a debug start's game has no slot loadout: the mech's own
+      if (g.loadout) net_launch_player(*m, g.loadout->packed(), g.skin, g.unlimited_ammo, g.outside_view);
+    }
   }
   // The Instant Action (and multiplayer) launch's pilot save: the file opened
   // (0x00478ce0), its header (0x004794f0) and record (vt+0x04) written, closed.
@@ -955,7 +960,7 @@ void wire_net(bool on) {
   NetCalls& nc = net_calls();
   const NetCalls kept = nc;  // the force feedback's are app_force.cpp's
   nc = NetCalls{};
-  nc.ff_stop = kept.ff_stop, nc.ff_spawn = kept.ff_spawn;
+  nc.ff_stop = kept.ff_stop, nc.ff_spawn = kept.ff_spawn, nc.ff_respawn = kept.ff_respawn;
   nc.game_clear = kept.game_clear;  // the pilot's side's
   nc.game = kept.game, nc.game_time = kept.game_time, nc.clock_left = kept.clock_left, nc.clock_on = kept.clock_on;
   nc.set_clock_left = kept.set_clock_left, nc.exit_fade = kept.exit_fade;
@@ -980,6 +985,11 @@ void wire_net(bool on) {
     delete m;
   };
   nc.view_outside = [] { program_view_set_camera(1); };  // 0x0040ae70(1)
+  // The pilot's respawn's (0x0046dde0, piece 8d; net_start sets the dead list's call of it).
+  nc.pilot_set_mech = [](Mech&, int32_t roster) { program_pilot_set_mech(roster); };  // 0x004783c0
+  nc.view_camera = [](int32_t id) { program_view_set_camera(id); };                 // 0x0040ae70
+  nc.options_apply = [] { program_options_apply(); };                                // 0x0040cb30
+  nc.objectives_again = [] { program_objectives_again(); };                          // 0x00491050
   nc.pilot_save = [] {  // 0x00478ce0, the header, vt+0x04, the handle closed (0x004707c0's)
     program_pilot_file(0);
     if (program_pilot_file(1)) program_pilot_file(2);
@@ -997,7 +1007,7 @@ void wire_net(bool on) {
     const NetMech* t = v ? net_mech_of(v) : nullptr;
     return t ? t->owner : 0;
   };
-  nc.sensor_range = [](NetMech& m) { m.set_sensor_range(g_w.handle_of(g_w.engine, &m), m.sensor_range); };
+  nc.sensor_range = [](Mech& m) { m.set_sensor_range(g_w.handle_of(g_w.engine, &m), m.sensor_range); };
   nc.world_add = [](NetMech& m) {  // [0x00608c84] vt+0x00
     if (zcls::Node* w = world_hooks().world) zcls::node_add_child(w, zn(m.node));
   };
@@ -1075,13 +1085,195 @@ void net_set_game_access(const NetGameAccess& a) {
   nc.game = []() -> NetGameFields* {
     static NetGameFields f;
     if (!g_game_access.fields ||
-        !g_game_access.fields(&f.players, &f.clock_next, &f.end_time, &f.end_state, &f.kills, &f.deaths, &f.score_limit))
+        !g_game_access.fields(&f.players, &f.clock_next, &f.end_time, &f.end_state, &f.kills, &f.deaths, &f.score_limit,
+                              &f.flags))
       return nullptr;
     return &f;
   };
   nc.game_time = a.game_time, nc.clock_left = a.clock_left, nc.clock_on = a.clock_on;
   nc.set_clock_left = a.set_clock_left;
   nc.exit_fade = a.exit_fade;
+}
+
+namespace {
+struct DebugScore {
+  int32_t kills = 0, deaths = 0;
+};
+std::map<uint32_t, DebugScore> g_debug_scores;
+}  // namespace
+
+void program_net_debug_lobby() {
+  NetCalls& c = net_calls();
+  g_debug_scores.clear();
+  c.team_of = [](uint32_t p) { return p; };
+  c.start_of = [](uint32_t p) -> int32_t {
+    int32_t rank = 1;
+    for (const auto& r : znet::lists().players) rank += r->id < p;
+    return rank;
+  };
+  c.lobby_suicide = [](uint32_t p) { ++g_debug_scores[p].deaths; };
+  c.lobby_kill = [](uint32_t p) { ++g_debug_scores[p].kills; };
+  c.lobby_kills = [](uint32_t p) { return g_debug_scores[p].kills; };
+  c.lobby_deaths = [](uint32_t p) { return g_debug_scores[p].deaths; };
+  c.lobby_scores = [](uint32_t* out, int32_t cap) {
+    int32_t n = 0;
+    for (const auto& r : znet::lists().players) {
+      if (n >= cap) break;
+      const DebugScore& d = g_debug_scores[r->id];
+      out[3 * n] = r->id, out[3 * n + 1] = static_cast<uint32_t>(d.kills), out[3 * n + 2] = static_cast<uint32_t>(d.deaths);
+      ++n;
+    }
+    return n;
+  };
+  c.lobby_set_kills = [](uint32_t p, uint32_t v) { g_debug_scores[p].kills = static_cast<int32_t>(v); };
+  c.lobby_set_deaths = [](uint32_t p, uint32_t v) { g_debug_scores[p].deaths = static_cast<int32_t>(v); };
+}
+
+uint32_t program_net_drive(int cmd, double t, uint32_t seed) {
+  // The throttle up (0x18) held throughout (THROTTLE0's 0x24 is a key's
+  // callback, not polled, and with ThrottleConst off a let-go throttle eases
+  // back to zero). Turned (left 2, right 3) toward the nearest remote mech in
+  // play, the trigger (TRIGGER1, 0x3d) held while it is ahead within 400 m;
+  // inside 120 m, or with none, turns of a few seconds by the seed. Walking
+  // into something (under 3 m in 3 s): a turn by the seed's side for 1.5 s,
+  // then straight on for 3.5 s.
+  if (cmd == 0x18) return 1u;
+  if (cmd != 2 && cmd != 3 && cmd != 0x3d) return 0;
+  Mech* me = launched_mech();
+  float p[3] = {}, f[3] = {}, best = 1e30f, to[2] = {};
+  if (me) mech_world_position(me, p), mech_forward(me, f);
+  static float s_was[2] = {};
+  static double s_was_t = -1, s_free_at = -1;
+  if (t < s_was_t) s_was_t = s_free_at = -1;  // a new game
+  if (t >= s_free_at && (s_was_t < 0 || t - s_was_t > 3.0)) {
+    if (s_was_t >= 0 && std::hypot(p[0] - s_was[0], p[2] - s_was[1]) < 3.0f) s_free_at = t + 5.0;
+    s_was[0] = p[0], s_was[1] = p[2], s_was_t = s_free_at > t ? s_free_at : t;
+  }
+  if (t < s_free_at) return t < s_free_at - 3.5 && cmd == (seed % 2 ? 2 : 3) ? 1u : 0u;
+  for (NetMech* m : net_game().mechs) {
+    if (!me || (m->state.flags >> 1 & 1)) continue;
+    float q[3];
+    mech_world_position(m, q);
+    const float d = std::hypot(q[0] - p[0], q[2] - p[2]);
+    if (d < best) best = d, to[0] = q[0] - p[0], to[1] = q[2] - p[2];
+  }
+  if (best < 1e29f && best > 120.0f) {
+    const float side = f[2] * to[0] - f[0] * to[1];  // > 0: the target to the left
+    const float ahead = (f[0] * to[0] + f[2] * to[1]) / best;
+    const float cos_aim = std::sqrt(f[0] * f[0] + f[2] * f[2]) > 0 ? ahead / std::sqrt(f[0] * f[0] + f[2] * f[2]) : 0;
+    if (cmd == 2) return side > 0 && cos_aim < 0.99f ? 1u : 0u;
+    if (cmd == 3) return side <= 0 && cos_aim < 0.99f ? 1u : 0u;
+    return best < 400.0f && cos_aim > 0.95f ? 1u : 0u;
+  }
+  const double phase = std::fmod(t + seed % 7, 10.0);
+  if (cmd == 2) return phase < 3.0 ? 1u : 0u;
+  if (cmd == 3) return phase >= 7.0 ? 1u : 0u;
+  return best < 1e29f && std::fmod(t + seed % 3, 7.0) < 2.0 ? 1u : 0u;
+}
+
+// Mech3.exe 1.2 @ 0x004783c0 (ECX the pilot [0x0060861c], its mech +0x14):
+// the pilot's mech made again as `roster` where it stands, facing as it
+// did: its team and the weapons' fire mode (kept in the pilot's +0x80) kept,
+// its own loadout again for its own roster (0x00414430), the view taken off
+// it and put back in the mode it had (1 without a view), the level of
+// detail -1 (0x0041e9e0), the HUD reset when it is the view's, then powered
+// up from down. The stealth object's view attach (vt+0x108 on [0x00609a2c])
+// takes the view's target ([0x005f4c8c]+0x64) off the mech while it is made
+// again, so its weapons' adding asks no HUD of it: here the target is none
+// (the stealth object is not made) until the mech's own attach.
+void player_clear_60b56c();  // mech3/player.h ([0x0060b56c] = 0), not includable with mech.h
+namespace {
+int32_t g_pilot_fire_mode = 0;  // the pilot's +0x80
+}  // namespace
+void program_pilot_set_mech(int32_t roster) {
+  Mech* m = world().mission_player;
+  if (!m) return;
+  const int32_t cam = program_view() ? program_view_camera_id() : 1;
+  float pos[3];
+  mech_world_position(m, pos);
+  const float yaw = std::atan2(m->forward.x, -m->forward.z);
+  Config* cfg = m->pilot && roster == m->pilot->roster ? m->config : nullptr;
+  const uint32_t team = m->team;
+  if (const auto* wm = static_cast<const WeaponManager*>(m->ammo)) g_pilot_fire_mode = wm->mode;
+  char name[64] = {};
+  if (const char* n = entity_name(g_w.handle_of(g_w.engine, m))) std::snprintf(name, sizeof name, "%s", n);  // vt+0xa4
+  world().player = nullptr, weapon_world().player = nullptr;  // the stealth's vt+0x108
+  mech_rebuild(*m, roster, name);  // 0x004148c0
+  m->place(pos, yaw);              // 0x004161c0
+  m->allies = team & ~1u, m->team = team, m->enemies = ~m->allies & ~1u;
+  player_clear_60b56c();
+  program_view_attach(*m);  // vt+0x108
+  world().player = m, weapon_world().player = m;  // the view's target again
+  mech_configure(*m, cfg);  // 0x00414430
+  if (program_view()) {
+    program_view_look(2);     // +0x58 vt+0x10
+    program_view_set_camera(cam);  // 0x0040ae70
+  }
+  m->detail = static_cast<uint32_t>(-1);  // 0x0041e9e0
+  if (m == program_view_target())
+    if (auto* hud = static_cast<Hud*>(program_mech_hud(m))) hud->reset();  // 0x00430aa0, 0x0043be10
+  m->powered_down = true;
+  m->hud_saved = 1;
+  m->power(0);  // 0x0041cc30
+  if (auto* wm = static_cast<WeaponManager*>(m->ammo)) wm->mode = g_pilot_fire_mode;
+}
+
+bool program_net_running() { return net_game().running; }
+bool program_pilot_alive(float* health, float pos[3]) {
+  Mech* m = world().mission_player;
+  if (!m) return false;
+  *health = mech_health(m);
+  mech_world_position(m, pos);
+  return m->active && m->anim_state != 10;
+}
+
+bool program_net_staged_kill() {
+  Mech* me = launched_mech();
+  if (!me || !me->active || me->anim_state == 10) return false;
+  float p[3], q[3], best = 300.0f;
+  mech_world_position(me, p);
+  me->attacker = nullptr;
+  for (NetMech* m : net_game().mechs) {
+    if (m->state.flags >> 1 & 1) continue;
+    mech_world_position(m, q);
+    const float d = std::hypot(q[0] - p[0], q[2] - p[2]);
+    if (d < best) best = d, me->attacker = m;
+  }
+  return mech_hit_part(me, 6, 1.0e6f);  // the head
+}
+
+std::string program_net_soak_line() {
+  char buf[128];
+  std::string s;
+  Mech* me = launched_mech();
+  float p[3] = {0, 0, 0};
+  if (me) mech_world_position(me, p);
+  float f[3] = {0, 0, 0};
+  if (me) mech_forward(me, f);
+  std::snprintf(buf, sizeof buf, "me %u %.2f %.2f %.2f %d heat %.2f %x anim %d facing %.2f %.2f health %.3f", znet::local_id(),
+                p[0], p[1], p[2], me && me->active && me->anim_state != 10 ? 1 : 0, me ? me->heat : 0.0f,
+                me ? me->heat_state : 0u, me ? me->anim_state : 0, f[0], f[2], me ? mech_health(me) : 0.0f);
+  s = buf;
+  for (NetMech* m : net_game().mechs) {
+    mech_world_position(m, p);
+    std::snprintf(buf, sizeof buf, "; sees %u %.2f %.2f %.2f %d", m->owner, p[0], p[1], p[2], (m->state.flags >> 1 & 1) ? 0 : 1);
+    s += buf;
+  }
+  return s;
+}
+
+std::string program_net_scores() {
+  std::string s;
+  char buf[64];
+  std::vector<uint32_t> ids;  // by id: each machine lists them as it heard of them
+  for (const auto& r : znet::lists().players) ids.push_back(r->id);
+  std::sort(ids.begin(), ids.end());
+  for (uint32_t id : ids) {
+    const DebugScore& d = g_debug_scores[id];
+    std::snprintf(buf, sizeof buf, "%s%u:%d/%d", s.empty() ? "" : " ", id, d.kills, d.deaths);
+    s += buf;
+  }
+  return s;
 }
 
 bool program_net_game_over() {
@@ -1169,6 +1361,117 @@ bool program_net_mech_check(NetMechSeen* out) {
   out->after_leave = static_cast<int32_t>(net_game().mechs.size());
   net_end();
   out->handlers_after = static_cast<int32_t>(znet::session().handlers.size() - before);
+  znet::shutdown();
+  return true;
+}
+
+bool program_net_hostile_check(NetHostileSeen* out) {
+  Mech* me = launched_mech();
+  if (!me || !me->config || !me->pilot) return false;
+  znet::Hub hub;
+  znet::session() = znet::Session{};
+  znet::initialise(hub.endpoint());
+  if (!znet::host_session(znet::SessionDesc{}, "Host")) return false;
+  znet::Transport* b = hub.endpoint();
+  if (!b->join("loopback") || b->create_player("Bob", "Bob") != 2) return false;
+  const std::vector<uint32_t> p = me->config->packed();
+  const uint32_t n = p[0] & 0xffff;
+  std::vector<uint8_t> rec(n + 0xc, 0);
+  const int32_t head[3] = {2, 0, me->pilot->roster};
+  std::memcpy(rec.data(), head, 0xc);
+  std::memcpy(rec.data() + 0xc, p.data(), n);
+  b->set_data(false, 2, rec.data(), static_cast<uint32_t>(rec.size()));
+  znet::poll(-1);
+  net_start();
+  float at[3];
+  mech_world_position(me, at);
+  at[0] += 30.0f;
+  uint8_t state[0x40] = {0x0f, 0, 0x40, 0};
+  std::memcpy(state + 4, at, 12);
+  auto send = [&](const void* m, size_t size) {
+    b->send(1, m, static_cast<uint32_t>(size), true, nullptr);
+    znet::poll(-1);
+  };
+  send(state, sizeof state);
+  NetMech* m = net_mech(2);
+  if (m) {
+    out->made = 1;
+    NetCalls& c = net_calls();
+    const NetCalls kept = c;
+    static int32_t s_craters, s_effects, s_fires;
+    static char s_last31;
+    c.crater_make = [](const zwep::CraterOrder*) -> int32_t { return ++s_craters, 1; };
+    c.log_has = [](const zeff::AnimLogRecord* r) { return ++s_effects, s_last31 = r->name[0x1f], true; };
+    c.fire = [](NetMech&, uint32_t, uint32_t, int32_t) { ++s_fires; };
+    // The crater (0x19, from the host's side: made and resent unless bit 7).
+    auto crater = [&](uint32_t material) {
+      uint8_t q[0x1c] = {0x19, 0, 0x1c, 0};
+      std::memcpy(q + 8, &material, 4);
+      const float r = 5.0f;
+      std::memcpy(q + 0xc, at, 12), std::memcpy(q + 0x18, &r, 4);
+      send(q, sizeof q);
+    };
+    s_craters = 0;
+    crater(static_cast<uint32_t>(zmod::materials().capacity));
+    crater(0x7fffffffu);
+    out->craters_bad = s_craters;
+    s_craters = 0;
+    crater(0);
+    out->craters_good = s_craters;
+    // The effect (0x1a): the record after the header.
+    auto effect = [&](int32_t type, int32_t node, uint32_t arg0, bool long_name) {
+      uint8_t q[0x54] = {0x1a, 0, 0x54, 0};
+      zeff::AnimLogRecord r;
+      r.type = type, r.node = node, r.args[0] = arg0, r.args[4] = static_cast<uint32_t>(-1);
+      std::memset(r.name, 'A', long_name ? sizeof r.name : 4);
+      std::memcpy(q + 4, &r, sizeof r);
+      send(q, sizeof q);
+    };
+    const zcls::NodePool& pool = zcls::nodes();
+    s_effects = 0;
+    effect(2, -5, 0, false);
+    effect(2, static_cast<int32_t>(pool.blocks.size()) * pool.block_size, 0, false);
+    if (pool.free_head >= 0) effect(2, pool.free_head, 0, false);
+    effect(3, -1, static_cast<uint32_t>(-7), false);
+    out->effects_bad = s_effects;
+    s_effects = 0, s_last31 = 'A';
+    effect(2, -1, 0, true);
+    out->effect_good = s_effects;
+    out->name_ended = s_effects == 1 && s_last31 == 0;
+    // A state saying 127 shots (flags bits 12..18) in a message holding 4.
+    uint8_t shots[0x40] = {0x0f, 0, 0x40, 0};
+    std::memcpy(shots + 4, at, 12);
+    const uint32_t f = 127u << 12;
+    std::memcpy(shots + 0x38, &f, 4);
+    s_fires = 0;
+    send(shots, sizeof shots);
+    out->fires = s_fires;
+    // Postures (0x17) of no action.
+    const size_t before = m->actions.size();
+    for (int32_t kind : {1000, -3, 10}) {
+      uint8_t q[8] = {0x17, 0, 8, 0};
+      std::memcpy(q + 4, &kind, 4);
+      send(q, sizeof q);
+    }
+    out->actions_queued = static_cast<int32_t>(m->actions.size() - before);
+    c = kept;
+    // Every routed type, any length to 0x60, random bytes: none may crash. The
+    // game's clock (0x11) and a leave are left out: they end what is tested.
+    static const uint16_t kTypes[] = {0xf, 0x10, 0x12, 0x13, 0x14, 0x16, 0x17, 0x18, 0x19, 0x1a, 0x1b, 0x1f, 0x21};
+    uint32_t seed = 12345;
+    auto next = [&seed] { return seed = seed * 1103515245u + 12345u, seed >> 8; };
+    for (int i = 0; i < 3000; ++i) {
+      std::vector<uint8_t> q(next() % 0x61);
+      for (uint8_t& v : q) v = static_cast<uint8_t>(next());
+      const uint16_t type = kTypes[next() % std::size(kTypes)];
+      if (q.size() >= 2) q[0] = static_cast<uint8_t>(type), q[1] = static_cast<uint8_t>(type >> 8);
+      if (q.size() >= 4 && next() % 2) q[2] = static_cast<uint8_t>(q.size()), q[3] = 0;
+      if (q.size() >= 2) send(q.data(), q.size()), ++out->fuzzed;
+    }
+  }
+  b->close();
+  znet::poll(-1);
+  net_end();
   znet::shutdown();
   return true;
 }

@@ -33,6 +33,7 @@ bool program_cheated();                          // [0x00609994]: a cheat used t
 struct HudReport {
   int weapons = 0, lines = 0, named = 0, bracketed = 0, lock = 0;
   int mfd_armor_most = 0, mfd_armor_w = 0;  // the MFD's armor display (mode 3), laid out for the mech
+  int mfd_bar_full[11] = {}, mfd_bar_height[11] = {};  // each bar's filled height and its whole (W35)
   float lock_timer = 0.0f;
   int target_hidden = 0, shape_hidden = 0, rx = 0, ry = 0, apex_y = 0, base_y = 0;  // TARGET and the reticle
   float shape_x = 0.0f;

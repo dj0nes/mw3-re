@@ -7,6 +7,7 @@
 #include <cstring>
 #include <filesystem>
 #include <cctype>
+#include <cmath>
 #include <chrono>
 #include <csignal>
 #include <thread>
@@ -16,6 +17,7 @@
 #include <sys/wait.h>
 #include <fstream>
 #endif
+#include <set>
 #include <string>
 #include <vector>
 
@@ -2550,6 +2552,198 @@ TEST(sdl_two_processes_host_and_join) {
   // Whoever leaves first, the other sees it; the host gone, Bob hosts (the
   // lowest id left, DPSYS_HOST, his 0xd to himself).
   EXPECT(has(hl, "player 2 (Bob) left") || (has(jl, "player 1 (Ann) left") && has(jl, "player 2 (Bob) is the host")));
+}
+#endif
+
+#if !defined(_WIN32)  // posix_spawn, waitpid, kill
+// The soak test (docs/multiplayer-port.md, piece 8b), MW3_SOAK=1 only: four
+// hidden mw3 under nice on loopback in a network game on c1mp1, a host and
+// three joiners, each driving its mech (walk, turn, fire), under 5% loss and
+// 80 ms each way, for MW3_SOAK_MINUTES (30) on the game's clock. Each prints
+// where its own mech and every remote one are each half second. Checked: no
+// crash and a clean game over on the clock in all four; memory not growing
+// (the last tenth's against the second's); every remote mech tracked within
+// a few metres of its owner's own track at the same time; the four score
+// tables alike, with the staged kills in them.
+TEST(sdl_network_soak_four_players) {
+  const char* on = std::getenv("MW3_SOAK");
+  if (!on || std::strcmp(on, "1") != 0) return;
+  const std::string install = MW3_GAME_DIR;
+  std::error_code ec;
+  if (!std::filesystem::exists(install + "/zbd/mechlib.zbd", ec)) return;
+  const int minutes = std::getenv("MW3_SOAK_MINUTES") ? std::atoi(std::getenv("MW3_SOAK_MINUTES")) : 30;
+  // MW3_SOAK_DIR keeps the four logs there (the test's own folder goes at its end).
+  const std::string dir = std::getenv("MW3_SOAK_DIR") ? std::getenv("MW3_SOAK_DIR") : std::string(MW3_TEST_TMP) + "/sdl_net_soak";
+  std::filesystem::remove_all(dir, ec);
+  auto spawn = [&](std::vector<std::string> args, const std::string& log) {
+    std::vector<std::string> a = {"/usr/bin/nice", "-n", "15", MW3_BIN};
+    a.insert(a.end(), args.begin(), args.end());
+    std::vector<char*> argv;
+    for (std::string& x : a) argv.push_back(x.data());
+    argv.push_back(nullptr);
+    posix_spawn_file_actions_t fa;
+    posix_spawn_file_actions_init(&fa);
+    posix_spawn_file_actions_addopen(&fa, 1, log.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    posix_spawn_file_actions_adddup2(&fa, 1, 2);
+    pid_t pid = 0;
+    if (posix_spawn(&pid, argv[0], &fa, nullptr, argv.data(), environ) != 0) pid = -1;
+    posix_spawn_file_actions_destroy(&fa);
+    return pid;
+  };
+  auto read = [](const std::string& path) {
+    std::string text;
+    if (std::FILE* f = std::fopen(path.c_str(), "r")) {
+      char buf[4096];
+      for (size_t n; (n = std::fread(buf, 1, sizeof buf, f)) > 0;) text.append(buf, n);
+      std::fclose(f);
+    }
+    return text;
+  };
+  setenv("MW3_NET_LOSS", "0.05", 1);
+  setenv("MW3_NET_DELAY", "80", 1);
+  auto args = [&](int n, const std::string& net) {
+    std::filesystem::create_directories(dir + "/p" + std::to_string(n), ec);
+    std::vector<std::string> v = {"--install", install, "--no-launcher", "--hidden", "--nosound", "--net-bind", "127.0.0.1",
+                                  "--write-dir", dir + "/p" + std::to_string(n), "--mission", "c1mp1", "--net-wait", "4",
+                                  "--net-minutes", std::to_string(minutes), "--net-drive", std::to_string(n), "--net-soak",
+                                  "--net-name", "P" + std::to_string(n)};
+    if (net.empty()) v.insert(v.end(), {"--host", "--net-port", "0"});
+    else v.insert(v.end(), {"--join", net});
+    return v;
+  };
+  std::vector<pid_t> pids = {spawn(args(1, ""), dir + "/p1.log")};
+  std::string port;
+  for (int i = 0; i < 400 && port.empty(); ++i) {
+    const std::string log = read(dir + "/p1.log");
+    const size_t at = log.find("hosting on port ");
+    if (at != std::string::npos) port = log.substr(at + 16, log.find(' ', at + 16) - at - 16);
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+  }
+  EXPECT(!port.empty());
+  for (int n = 2; n <= 4 && !port.empty(); ++n) pids.push_back(spawn(args(n, "127.0.0.1:" + port), dir + "/p" + std::to_string(n) + ".log"));
+  unsetenv("MW3_NET_LOSS");
+  unsetenv("MW3_NET_DELAY");
+  // All four to their end, the game's clock and five minutes more at most.
+  std::vector<int> status(pids.size(), -1);
+  const auto until = std::chrono::steady_clock::now() + std::chrono::minutes(minutes + 5);
+  for (size_t left = pids.size(); left > 0 && std::chrono::steady_clock::now() < until;) {
+    left = 0;
+    for (size_t i = 0; i < pids.size(); ++i) {
+      if (pids[i] <= 0 || status[i] != -1) continue;
+      int st = 0;
+      if (waitpid(pids[i], &st, WNOHANG) == pids[i]) status[i] = st;
+      else ++left;
+    }
+    if (left) std::this_thread::sleep_for(std::chrono::seconds(1));
+  }
+  for (size_t i = 0; i < pids.size(); ++i)
+    if (pids[i] > 0 && status[i] == -1) {
+      kill(pids[i], SIGKILL);
+      waitpid(pids[i], &status[i], 0);
+      std::printf("  player %zu still running at the end: killed\n", i + 1);
+    }
+  // Each one's lines: its own place by time, what it saw of the others, its
+  // memory, its scores.
+  struct Seen { long long t; uint32_t id; float x, z; };
+  struct Own { long long t; float x, z; int alive; };
+  struct Log { uint32_t id = 0; std::vector<Own> own; std::vector<Seen> seen; std::vector<size_t> rss; std::string scores; std::set<uint32_t> last_seen; };
+  std::vector<Log> logs(pids.size());
+  for (size_t i = 0; i < pids.size(); ++i) {
+    const std::string text = read(dir + "/p" + std::to_string(i + 1) + ".log");
+    Log& L = logs[i];
+    for (size_t at = 0; (at = text.find("mw3: soak ", at)) != std::string::npos;) {
+      const size_t end = text.find('\n', at);
+      const std::string line = text.substr(at, end - at);
+      at = end;
+      if (line.rfind("mw3: soak game over, scores ", 0) == 0) {
+        L.scores = line.substr(28);
+        continue;
+      }
+      long long t = 0;
+      size_t kb = 0;
+      float clock = 0, x, y, z;
+      unsigned id;
+      int alive, used = 0;
+      if (std::sscanf(line.c_str(), "mw3: soak %lld rss %zu clock %f shots %*d me %u %f %f %f %d%n", &t, &kb, &clock, &id, &x, &y,
+                      &z, &alive, &used) < 8)
+        continue;
+      L.id = id, L.rss.push_back(kb), L.own.push_back({t, x, z, alive});
+      // The others seen at the end: the last line with 2 s left (in the last
+      // seconds the end's unload takes the mechs).
+      const bool counted = clock >= 2.0f;
+      if (counted) L.last_seen.clear();
+      for (size_t p = line.find("; sees ", used); p != std::string::npos; p = line.find("; sees ", p + 1)) {
+        unsigned who;
+        int active;
+        if (std::sscanf(line.c_str() + p, "; sees %u %f %f %f %d", &who, &x, &y, &z, &active) != 5) continue;
+        if (counted) L.last_seen.insert(who);
+        if (active) L.seen.push_back({t, who, x, z});
+      }
+    }
+  }
+  // The owner's place at time t, between its two lines (null: none, or a
+  // death or respawn within a second of it).
+  auto owner_at = [&](uint32_t id, long long t, float out[2]) {
+    for (const Log& L : logs) {
+      if (L.id != id) continue;
+      for (size_t k = 1; k < L.own.size(); ++k) {
+        const Own &a = L.own[k - 1], &b = L.own[k];
+        if (b.t < t) continue;
+        if (a.t > t || !a.alive || !b.alive || std::hypot(b.x - a.x, b.z - a.z) > 30.0f) return false;
+        if (k < 3 || k + 2 >= L.own.size() || !L.own[k - 2].alive || !L.own[k + 1].alive) return false;
+        const float f = b.t == a.t ? 0.0f : static_cast<float>(t - a.t) / static_cast<float>(b.t - a.t);
+        out[0] = a.x + (b.x - a.x) * f, out[1] = a.z + (b.z - a.z) * f;
+        return true;
+      }
+    }
+    return false;
+  };
+  bool clean = true, over = true, tracked = true, memory = true;
+  for (size_t i = 0; i < pids.size(); ++i) {
+    Log& L = logs[i];
+    const bool exited = WIFEXITED(status[i]) && WEXITSTATUS(status[i]) == 0;
+    clean &= exited;
+    over &= !L.scores.empty();
+    std::vector<float> err;
+    for (const Seen& s : L.seen) {
+      float o[2];
+      if (owner_at(s.id, s.t, o)) err.push_back(std::hypot(s.x - o[0], s.z - o[1]));
+    }
+    std::sort(err.begin(), err.end());
+    const float p95 = err.empty() ? 1e9f : err[std::min(err.size() - 1, err.size() * 95 / 100)];
+    const float median = err.empty() ? 1e9f : err[err.size() / 2];
+    // Memory: the median of the last tenth's lines against the second tenth's (the first: the load).
+    float growth = 1e9f;
+    const size_t n = L.rss.size();
+    if (n >= 20) {
+      auto med = [&](size_t from, size_t to) {
+        std::vector<size_t> v(L.rss.begin() + static_cast<long>(from), L.rss.begin() + static_cast<long>(to));
+        std::sort(v.begin(), v.end());
+        return static_cast<float>(v[v.size() / 2]);
+      };
+      growth = med(n * 9 / 10, n) / med(n / 10, n * 2 / 10) - 1.0f;
+    }
+    std::printf("  player %zu (id %u): %s, %zu lines, sees %zu others at the end, tracking median %.2f m p95 %.2f m over %zu, "
+                "memory %+.1f%% (%zu KB at the end), scores \"%s\"\n",
+                i + 1, L.id, exited ? "exited" : "did not exit cleanly", n, L.last_seen.size(), median, p95, err.size(),
+                growth * 100.0f, n ? L.rss.back() : 0, L.scores.c_str());
+    tracked &= L.last_seen.size() == pids.size() - 1 && err.size() >= 20 && p95 < 5.0f;
+    memory &= growth < 0.10f;
+  }
+  EXPECT(clean);
+  EXPECT(over);
+  EXPECT(tracked);
+  EXPECT(memory);
+  bool alike = !logs.empty();
+  for (const Log& L : logs) alike &= L.scores == logs[0].scores;
+  EXPECT(alike);
+  // The staged kills (one each two minutes) reached the table: some kill or death in it.
+  int tally = 0;
+  for (size_t at = 0; !logs.empty() && (at = logs[0].scores.find(':', at)) != std::string::npos; ++at) {
+    int k = 0, d = 0;
+    if (std::sscanf(logs[0].scores.c_str() + at, ":%d/%d", &k, &d) == 2) tally += k + d;
+  }
+  EXPECT(tally > 0);
 }
 #endif
 

@@ -22,7 +22,7 @@ every box here is ticked:
       .zip (nested too), .7z; maps it and installs without the player
       unpacking anything.
 - [x] The software renderer no longer offered anywhere in the menus.
-- [ ] Every row in `docs/playtest.md` closed: fixed, by design or the
+- [x] Every row in `docs/playtest.md` closed: fixed, by design or the
       original's, none open.
 - [x] The community-reported problems (`docs/community-issues.md`) each
       have a verdict (Owen, 2026-10-31: items 9 and 12 kept as the original).

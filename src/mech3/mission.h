@@ -309,6 +309,7 @@ struct Missions {
   bool begin();                            // 0x0048f400
   void check_cheats();                     // 0x00491d20
   void update(float dt);                   // 0x0048f470
+  void objectives_again();                 // 0x00491050: a network game's, at a respawn
   void play_voice();                       // 0x0048f630
   void ask_voice(Handle sound, float priority);  // 0x0048f6c0
   void complete();                         // 0x0048f740
