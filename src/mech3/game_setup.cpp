@@ -170,7 +170,12 @@ Result install_from_source(const source::Found& found, const std::string& out_di
     r.cancelled = s.failure == Staged::kCancelled;
     switch (s.failure) {
       case Staged::kCancelled: r.summary = "The installation was cancelled. Nothing was changed."; break;
-      case Staged::kNoSpace: r.summary = "There is not enough free space to install the game: " + s.error + "."; break;
+      case Staged::kNoSpace: {
+        const uint64_t more = s.space_needed > s.space_free ? s.space_needed - s.space_free : 0;
+        r.summary = "There is not enough free space for the game: about " + mb(std::min<uint64_t>(more, uint64_t{1} << 50)) +
+                    " more is needed on the disk that holds " + s.space_where + ". Free some space and try again.";
+        break;
+      }
       case Staged::kCannotWrite:
         r.summary = "The game could not be written: " + s.error + ". Is the disk full, or the folder read-only?";
         break;

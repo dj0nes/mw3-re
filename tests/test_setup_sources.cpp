@@ -280,6 +280,11 @@ TEST(setup_map_finds_the_game_inside_archives) {
   Found e = mech3::source::map_source(
       temp_file("pm.zip", write_archive("zip", {{"pm/disc.zip", write_archive("zip", {{"PM.iso", pm_iso}})}})));
   EXPECT(e.game == Found::kPiratesMoon && e.summary.find("comes later") != std::string::npos);
+  // The look stopped from its progress (SETUP's CANCEL): nothing found, said so.
+  int asked = 0;
+  Found s = mech3::source::map_source(temp_file("stop.zip", write_archive("zip", redump(iso, "Stop"))),
+                                      [&](double, const std::string&) { return ++asked < 2; });
+  EXPECT(s.cancelled && s.kind == Found::kNothing && asked == 2);
   // No game at all.
   Found f = mech3::source::map_source(temp_file("other.zip", write_archive("zip", {{"notes.txt", "x"}, {"data/a.bin", "abc"}})));
   EXPECT(f.kind == Found::kNothing && !f.summary.empty());

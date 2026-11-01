@@ -1,5 +1,6 @@
 #pragma once
 #include <cstdint>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -38,12 +39,18 @@ struct Found {
   bool raw = false;
   std::string summary;         // what to tell the player
   std::string detail;          // what was read, for the log
+  bool cancelled = false;      // the look was stopped (MapProgress)
 };
+
+// The share of the picked file read so far (0..1, an archive's) and the
+// entry being looked at; false stops the look (map_source then finds nothing,
+// `cancelled` set).
+using MapProgress = std::function<bool(double fraction, const std::string& entry)>;
 
 // Walks `path` (a folder, a file, an archive) and says what it holds. Reads
 // archives forward once; a disc image inside one is read up to its installer
 // header (DATA1.HDR, about 200 MB in on the MW3 disc) and no further.
-Found map_source(const std::string& path);
+Found map_source(const std::string& path, const MapProgress& progress = nullptr);
 
 // Plain words for a game found, for the player.
 std::string game_words(const Found& f);

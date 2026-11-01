@@ -64,6 +64,7 @@ struct Pass {
     std::error_code ec;
     const fs::space_info sp = fs::space(dir, ec);
     if (ec || size < 0 || sp.available >= static_cast<uint64_t>(size) + g_spare) return true;
+    s.space_needed = static_cast<uint64_t>(size) + g_spare, s.space_free = sp.available, s.space_where = dir.string();
     return fail(Staged::kNoSpace, "not enough free space in " + dir.string() + ": " +
                                       std::to_string((static_cast<uint64_t>(size) + g_spare) >> 20) + " MB needed, " +
                                       std::to_string(sp.available >> 20) + " MB free");

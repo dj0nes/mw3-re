@@ -150,3 +150,46 @@ zip (a long run).
      absolute check, no drive check, backslashes not separators, the
      resolved-path check always true, no space check before the first write,
      no clean-up on failure, no marker, the reserved fields not cleared.
+4. Sitting 4 (2026-10-31): the setup screen and the start (launcher.md).
+   POINT TO YOUR GAME (the finder first while no game is found, then the
+   file picker), A FOLDER INSTEAD, SEARCH AGAIN (the finder, then a disc in
+   a drive); the pick looked at on the worker (`map_source` now takes a
+   `MapProgress`: the share of the picked file read, a stop between entries
+   and every 4 MB inside one), INSTALL / BACK under its summary, then
+   `install_from_source` with the bar and CANCEL. A plain `mw3` start goes
+   straight into the game when an install is found, else to the setup
+   screen alone and on into the game once installed (`LauncherOptions::
+   setup_only`); `--launcher` for the launcher's main screen until the
+   split. Checks: `MW3_START_ONLY` (where the start goes, no further),
+   `MW3_LAUNCHER_PICK` (a pick as if from the dialog, INSTALL pressed);
+   `sdl_program_plain_start_goes_straight_in_or_to_setup` (an install found:
+   no launcher; --launcher: its screen; none: the setup screen; none and a
+   disc's files picked: installed, mw3.cfg's install= written, on into the
+   game); the look stopped from its progress (nothing found, `cancelled`).
+   Breaks, each failing its test: the plain start always to the launcher,
+   the setup-only start not going on after an install (first a hang: the
+   pick case now has a 30 s frame cap so it fails instead), the look's stop
+   ignored. On the PC: the setup tests pass and a plain start goes straight
+   in (the finder found Owen's own install there, so the setup-only start
+   was checked on the Mac).
+
+## What the player is told
+
+Every refusal and failure SETUP can meet, in the words shown (the status
+box, red; the technical reason in mw3.log only):
+
+| case | words |
+| --- | --- |
+| nothing found in what was picked | "No MechWarrior 3 was found in that. Point to your installed game, your disc, a disc image, or the file you downloaded." (without libarchive: "... your disc or a disc image (.iso or .cue).") |
+| nothing found by the search | "No MechWarrior 3 was found on this computer, nor a disc in a drive. Point to your game: the disc, a disc image, or the file you downloaded." |
+| Pirate's Moon | "This is MechWarrior 3: Pirate's Moon. Its support comes later: point to MechWarrior 3 itself." |
+| an unsafe archive | "Nothing was installed: a file in X is named to go outside the game's folder, so it is not trusted." |
+| not enough space | "There is not enough free space for the game: about N MB more is needed on the disk that holds FOLDER. Free some space and try again." |
+| a damaged or cut-short archive | "Part of X could not be read, so nothing was installed. The file may be damaged or incomplete." |
+| cannot write | "The game could not be written: ... Is the disk full, or the folder read-only?" |
+| the install folder holds other files | "The folder F already has other files in it. Choose an empty folder." |
+| cancelled (the look) | "Stopped. Nothing was changed." |
+| cancelled (the install) | "The installation was cancelled. Nothing was changed." |
+| a disc that is not MW3's (no installer data) | "That does not look like the MechWarrior 3 disc: it has no MechWarrior 3 installer data on it." |
+| a disc that reads badly | "Part of the disc could not be read correctly, so nothing was installed. Clean the disc and try again, or make a new image of it." |
+| an installed copy of another version | installed, with "Some of its files are not the ones on the MechWarrior 3 1.0 disc, so this may be another release or a modified copy. It may still play." |

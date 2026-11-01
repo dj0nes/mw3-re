@@ -26,6 +26,8 @@ struct Staged {
   std::string music_dir;  // a cue's audio tracks, trackNN.wav
   int files = 0, movies = 0, music = 0;
   uint64_t bytes = 0;
+  uint64_t space_needed = 0, space_free = 0;  // kNoSpace: bytes, on the disk that holds space_where
+  std::string space_where;
   std::vector<std::string> log;
 };
 

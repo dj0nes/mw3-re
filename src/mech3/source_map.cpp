@@ -254,6 +254,27 @@ std::vector<CueTrack> parse_cue(const std::string& text) {
 struct Walk {
   Found best;
   std::string detail;
+  MapProgress progress;
+  ArchiveReader* top = nullptr;  // the picked file's reader: its place for the fraction
+  uint64_t top_size = 1;
+  bool stopped = false;
+  bool go(const std::string& entry) {
+    if (stopped) return false;
+    if (progress && !progress(top ? std::min(1.0, static_cast<double>(top->position()) / top_size) : 0.0, entry))
+      stopped = true;
+    return !stopped;
+  }
+  // `read` asking go() every 4 MB: a stop ends the stream.
+  ArchiveReader::ReadFn watched(ArchiveReader::ReadFn read, const std::string& entry) {
+    auto since = std::make_shared<uint64_t>(0);
+    return [this, read, entry, since](uint8_t* buf, size_t n) -> int64_t {
+      if ((*since += n) >= (4u << 20)) {
+        *since = 0;
+        if (!go(entry)) return -1;
+      }
+      return read(buf, n);
+    };
+  }
   void consider(const Found& f) {
     // MechWarrior 3 over Pirate's Moon over nothing; an installed copy over a disc.
     auto rank = [](const Found& x) {
@@ -277,7 +298,7 @@ void walk_archive(ArchiveReader& r, const std::string& path, const std::vector<S
   std::vector<std::pair<std::string, std::vector<CueTrack>>> cues;  // their folder, their tracks
   std::vector<std::pair<std::string, Found>> images;                // the data tracks found, by entry
   ArchiveReader::Entry e;
-  while (r.next(&e)) {
+  while (r.next(&e) && w.go(e.path)) {
     if (e.dir) continue;
     const std::string l = lower(e.path), base = base_of(l);
     if (base == "reader.zbd" && ends(dir_of(l), "zbd/")) {
@@ -306,7 +327,7 @@ void walk_archive(ArchiveReader& r, const std::string& path, const std::vector<S
       const std::vector<uint8_t> b = read_whole(r, 1u << 20);
       cues.emplace_back(dir_of(e.path), parse_cue(std::string(b.begin(), b.end())));
     } else if (ends(base, ".iso") || ends(base, ".bin") || ends(base, ".img")) {
-      const ImageInfo info = read_image(r.entry_stream());
+      const ImageInfo info = read_image(w.watched(r.entry_stream(), e.path));
       if (!info.image) continue;
       Found f;
       std::string why = "it has no installer data";
@@ -322,7 +343,7 @@ void walk_archive(ArchiveReader& r, const std::string& path, const std::vector<S
       images.emplace_back(e.path, f);
     } else if (archive_name(base) && depth < 4) {
       ArchiveReader inner;
-      if (!inner.open_stream(r.entry_stream())) continue;
+      if (!inner.open_stream(w.watched(r.entry_stream(), e.path))) continue;
       std::vector<Step> next = steps;
       Step s;
       s.entry = e.path;
@@ -356,8 +377,9 @@ std::string game_words(const Found& f) {
   return s + ".";
 }
 
-Found map_source(const std::string& path) {
+Found map_source(const std::string& path, const MapProgress& progress) {
   Walk w;
+  w.progress = progress;
   std::error_code ec;
   fs::path p(path);
   if (fs::is_regular_file(p, ec) && lower(p.filename().string()) == "mech3.exe") p = p.parent_path();
@@ -406,12 +428,19 @@ Found map_source(const std::string& path) {
       // Anything else: an archive, perhaps.
       ArchiveReader r;
       if (r.open_file(ps)) {
+        w.top = &r, w.top_size = std::max<uint64_t>(1, fs::file_size(p, ec));
         walk_archive(r, ps, {}, 0, w);
         if (!r.error().empty()) w.detail += "  " + r.error() + "\n";
       } else {
         w.detail += "  not an archive this reads: " + r.error() + "\n";
       }
     }
+  }
+  if (w.stopped) {
+    Found f;
+    f.path = ps, f.cancelled = true, f.detail = w.detail;
+    f.summary = "Stopped. Nothing was changed.";
+    return f;
   }
   Found f = w.best;
   f.path = ps;
