@@ -119,24 +119,47 @@ reversing); the speed step 0x004a2b10 (ported); the move on the horizontal
 plane; then the four platform points' ground (0x004a2190), the highest plus
 +0x88 of the motion block, pitch and roll 0: a level sled above the ground.
 
-## The port, in sittings (agreed 2026-10-31; after SETUP and the launcher)
+## The port, in sittings (agreed 2026-10-31; scope set by Owen 2026-11-01)
 
 About 140 unported functions for S1..S6 and about 200 (5,500 lines of
 pseudocode) for the vehicle editor.
 
+**For v1.0: S1 to S4**, the stealth object and the view on it.
+
 1. **S1** The stealth vehicle 0x004a4de0 with 0x004a55c0, 0x005a84c0, its
-   controls 0x004ae270, 0x004ae3c0, 0x004ae6b0, 0x004ae850; made at every
-   mission load, deleted at the unload. Tests: construct and read; the
-   program makes it in c1m1.
+   controls 0x004ae270, 0x004ae3c0, 0x004ae6b0, 0x004ae850 (its mode switch
+   0x00401050 a stub until S3); made at every mission load, as the
+   original's "Creating Stealth" does, deleted at the unload. Tests:
+   construct and read against the original; the program makes it in c1m1;
+   the full suites and the campaign runs as the proof that play does not
+   change, with the mission load time before and after.
 2. **S2** BASIC: 0x004a1d90, 0x004a1f00, 0x004a20d0, 0x004a2000,
-   0x004a2190; differential tests on random states.
-3. **S3** The controls' modes 0..4 and their helpers; differential tests.
-4. **S4** The editor shell: the panel, 0x0040e6a0, 0x0040e7b0, 0x0040e7d0,
-   the frame 0x0040e4b0, the exit 0x0040e7f0, the entry 0x0040e430 with its
-   command map (0x9c traced), the camera save and restore; F11 under
-   `--debug-camera`. Test: F11 over c1m1, the view on the stealth, the rows
-   shown, EXIT gives the view back; without the flag nothing.
+   0x004a2190; differential tests on random states and the real worlds'
+   ground.
+3. **S3** The controls' modes 0..4 (0x00401050, 0x00401100, 0x00401940,
+   0x00401400, 0x00401500, 0x00401680, 0x00401c30, 0x00401e30) and their
+   helpers (0x00401ab0, 0x00401bf0, 0x00401f50, 0x004abcf0); differential
+   tests.
+4. **S4** The entry 0x0040e430 and the exit 0x0040e7f0 for the camera: its
+   command map (0x9b, 0x9c), the camera on the stealth and the camera
+   mode's save and restore (0x0040f880, 0x0040f890, 0x0040f8b0); the key
+   under `--debug-camera` / `debugcamera=1` only (F11, unless the default
+   keymap binds F11 in play: then a key nothing uses), no keys of ours
+   besides, the mission running on as in the original. The panel and its
+   main menu (0x0040e270, 0x0040e6a0, 0x0040e7b0, 0x0040e7d0, the frame
+   0x0040e4b0) too if the row object draws with primitives already ported:
+   EDIT AI NETS and EDIT VEHICLES then say "not ported yet" in the log only,
+   EXIT works; if the panel needs new HUD primitives it waits, and the key
+   toggles the camera alone. Test: the key over c1m1 puts the view on the
+   stealth and gives it back; without the flag, nothing.
+
+**After v1.0, with Pirate's Moon** (its zainetedit.cpp changed: 35 changed
+functions, 85 new; ported once with both versions side by side):
+
 5. **S5, S6** The AI net editor: 0x00402d60, 0x0040e120, 0x00403690, the
-   handlers above, the tree view; Save Changes to the write dir (FIX (A)).
+   handlers above, the tree view; Save Changes to the write dir (FIX (A)),
+   saying on screen where it saved; typed fields (names, numbers) bounded
+   like any input.
 6. **S7** The vehicle editor mapped (0x004b80f0's object, its screens and
-   what each control edits), then its own sittings (likely 3 to 5).
+   what each control edits and writes, to which file; every save to the
+   write dir), then its own sittings (likely 3 to 5), named from that map.
