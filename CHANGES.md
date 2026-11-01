@@ -586,3 +586,4 @@ Known quirks the rebuild deliberately keeps:
 - The multiplayer lobby shows the host its internet and LAN addresses, with a click to copy, as the connection screen does.
 - The multiplayer lobby takes game settings only from the host, and checks them before use.
 - A locked multiplayer game turns away players who try to join it, instead of only greying out its Join button.
+- With bug fixes on, locking a multiplayer game with "Use stock 'Mechs" keeps the stock loadout a player chose instead of resetting it to the mech's first.

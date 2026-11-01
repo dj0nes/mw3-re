@@ -1233,7 +1233,7 @@ From the network code (network-messages.md).
 - **"Use stock 'Mechs" resets everyone's loadout on the lock** to the
   mech's first stock loadout, even a player who chose another stock one:
   the game compares the player's copy of the loadout with the stock list's
-  own and never finds it.
+  own and never finds it. (The rebuild keeps the chosen one with bug fixes on.)
 - **The host is warned about an endless game.** Locking with no kill limit
   and no time limit asks first: "No time limit. No score limit. Game has
   no logical conclusion."

@@ -3941,11 +3941,18 @@ TEST(net_lobby_rules_join_headless) {
   if (!stock || stock->configs.size() < 2) return;
   r.game.slot.mech = fits;
   r.game.slot.set_config(stock->configs[1]);
+  zfix::options().bugs = false;  // the exe's
   m = rules(1 | 4 | 0x20, 0x100, 5, 10, 40);
   bob->send(0, m.data(), m.size(), true, nullptr);
   znet::poll(-1);
   EXPECT(r.l->locked == 1 && r.game.slot.mech == fits && r.game.slot.config && stock->configs[0]->name &&
          std::string(r.game.slot.config->name) == stock->configs[0]->name);
+  // FIX (bug) on: the chosen stock loadout kept.
+  zfix::options().bugs = true;
+  r.game.slot.set_config(stock->configs[1]);
+  r.l->lock_mech();
+  EXPECT(r.game.slot.config && stock->configs[1]->name && std::string(r.game.slot.config->name) == stock->configs[1]->name);
+  zfix::options() = zfix::Options{};
   EXPECT((r.game.rules.flags & 0x20) == 0 && r.game.rules.weight == 40);  // the block keeps the lock as it was
 }
 

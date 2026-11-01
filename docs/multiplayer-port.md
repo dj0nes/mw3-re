@@ -954,7 +954,7 @@ Ours, in three pieces:
   tons in (marked), a slot mech over the limit becomes the heaviest within
   it with its first stock loadout; with STOCK on a loadout not one of the
   mech's stock ones becomes the first, and the slot's is always a copy, so
-  always (a candidate, fixes.md). Ours: a locked game turns a joiner away
+  always: FIX (bug) behind `zfix bugs` (the lead), found by name instead. Ours: a locked game turns a joiner away
   at the door (ENet's kHello). The test hook sees message_box3 too
   (`last_box_text`). Tests: `net_lobby_rules_host_headless` (the messages
   and their fields, a change sent, the add-on refusal with the names, the

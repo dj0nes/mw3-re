@@ -9,6 +9,7 @@
 #include "gamez/znetwork/znet_dplay.h"
 #include "gamez/znetwork/znet_session.h"
 #include "gamez/zreader/zreader.h"
+#include "gamez/zutil/zfix.h"
 #include "gamez/zutil/zutl_msgdll.h"
 #include "gamez/zutil/zutl_zar.h"
 #include "mech3/pilot.h"
@@ -757,7 +758,7 @@ void LobbyScreen::lock() {
 // loadout; one within keeps its loadout, given the first stock one when it
 // has none, or with STOCK on when it is not one of the mech's stock
 // loadouts. The slot's loadout is its own copy, never one of the list's,
-// so with STOCK on it always becomes the first (multiplayer-port.md 11b).
+// so with STOCK on the exe always made it the first (multiplayer-port.md 11b).
 void LobbyScreen::lock_mech() {
   if (!game) return;
   Engine& e = engine();
@@ -797,10 +798,16 @@ void LobbyScreen::lock_mech() {
   }
   if (!stock) return;
   const ConfigList* l = e.mech_loadouts(slot.mech);
-  int32_t at = -1;  // 0x00425b70
+  int32_t at = -1;  // 0x00425b70: by pointer, which the slot's copy never is
+  // FIX (bug): a chosen stock loadout kept, found by its name (fixes.md).
+  const bool by_name = zfix::options().bugs && slot.config->name;
   if (l)
     for (size_t i = 0; i < l->configs.size(); ++i)
-      if (l->configs[i] == slot.config) at = static_cast<int32_t>(i);
+      if (by_name ? l->configs[i]->name && std::strcmp(l->configs[i]->name, slot.config->name) == 0
+                  : l->configs[i] == slot.config) {
+        at = static_cast<int32_t>(i);
+        if (by_name) break;
+      }
   if (l && at >= 0 && at <= l->count - 1) return;
   slot.set_config(first(slot.mech));
 }
