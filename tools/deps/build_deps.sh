@@ -1,7 +1,8 @@
 #!/bin/bash
 # The libraries the release bundles, built from their official release
 # sources (Owen, 2026-10-30; docs/deps.md): SDL3, SDL3_ttf (with FreeType,
-# built in), SDL3_sound and a minimal LGPL FFmpeg for mw3import. Each
+# built in), SDL3_sound, a minimal LGPL FFmpeg for mw3import, and libarchive
+# with zlib and liblzma (static, for SETUP's "Point to your game"). Each
 # tarball is pinned by its sha256 (checked against the release's own
 # signature when the pin was made, docs/deps.md); a download that does not
 # match is refused.
@@ -27,6 +28,9 @@ PINS=(
   "SDL3_ttf-3.2.2.tar.gz|https://github.com/libsdl-org/SDL_ttf/releases/download/release-3.2.2/SDL3_ttf-3.2.2.tar.gz|63547d58d0185c833213885b635a2c0548201cc8f301e6587c0be1a67e1e045d"
   "SDL3_sound-3.2.0.tar.gz|https://github.com/icculus/SDL_sound/releases/download/v3.2.0/SDL3_sound-3.2.0.tar.gz|3348f3ecc653e21f2b7ed8e409f07c67b179fbbfba3b99c85698e6e5d7b5924c"
   "ffmpeg-8.1.2.tar.xz|https://ffmpeg.org/releases/ffmpeg-8.1.2.tar.xz|464beb5e7bf0c311e68b45ae2f04e9cc2af88851abb4082231742a74d97b524c"
+  "zlib-1.3.1.tar.gz|https://github.com/madler/zlib/releases/download/v1.3.1/zlib-1.3.1.tar.gz|9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23"
+  "xz-5.8.1.tar.xz|https://github.com/tukaani-project/xz/releases/download/v5.8.1/xz-5.8.1.tar.xz|0b54f79df85912504de0b14aec7971e3f964491af1812d83447005807513cd9e"
+  "libarchive-3.7.9.tar.xz|https://www.libarchive.org/downloads/libarchive-3.7.9.tar.xz|ed8b5732e4cd6e30fae909fb945cad8ff9cb7be5c6cdaa3944ec96e4a200c04c"
 )
 
 sha256() { if command -v sha256sum >/dev/null; then sha256sum "$1" | cut -d' ' -f1; else shasum -a 256 "$1" | cut -d' ' -f1; fi; }
@@ -38,7 +42,7 @@ for p in "${PINS[@]}"; do
   got="$(sha256 "$DL/$name")"
   if [ "$got" != "$sum" ]; then echo "$name: sha256 $got, pinned $sum: refused" >&2; exit 1; fi
 done
-echo "sources: all five match their pins"
+echo "sources: all ${#PINS[@]} match their pins"
 
 rm -rf "$WORK" "$PREFIX"
 mkdir -p "$WORK" "$PREFIX"
@@ -127,4 +131,27 @@ else
   ff_build "$PREFIX" --enable-pic --extra-ldflags='-Wl,-rpath,$$ORIGIN' ${asm[@]+"${asm[@]}"}
 fi
 echo "built FFmpeg"
+
+# SETUP's archives (docs/setup-sources.md): libarchive reading zip, 7z, RAR4/5,
+# tar and ISO 9660, with zlib (deflate) and liblzma (7z's LZMA/LZMA2, xz);
+# all three static and position-independent, linked into the programs, so the
+# packages carry no more libraries. No crypto, XML, bzip2, zstd, LZ4 or iconv:
+# none of the game's sources needs them.
+unpack zlib-1.3.1.tar.gz
+cmake_build "$WORK/src/zlib-1.3.1" -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DCMAKE_POSITION_INDEPENDENT_CODE=ON -DZLIB_BUILD_EXAMPLES=OFF
+rm -f "$PREFIX"/lib/libz*.dylib "$PREFIX"/lib/libz.so*  # the static one only
+echo "built zlib"
+unpack xz-5.8.1.tar.xz
+cmake_build "$WORK/src/xz-5.8.1" -DBUILD_SHARED_LIBS=OFF -DCMAKE_POSITION_INDEPENDENT_CODE=ON -DXZ_TOOL_XZ=OFF \
+  -DXZ_TOOL_XZDEC=OFF -DXZ_TOOL_LZMADEC=OFF -DXZ_TOOL_LZMAINFO=OFF -DXZ_TOOL_SCRIPTS=OFF -DXZ_DOC=OFF -DXZ_NLS=OFF
+echo "built liblzma"
+unpack libarchive-3.7.9.tar.xz
+cmake_build "$WORK/src/libarchive-3.7.9" -DBUILD_SHARED_LIBS=OFF -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+  -DENABLE_TAR=OFF -DENABLE_CPIO=OFF -DENABLE_CAT=OFF -DENABLE_UNZIP=OFF -DENABLE_TEST=OFF -DENABLE_INSTALL=ON \
+  -DENABLE_ZLIB=ON -DENABLE_LZMA=ON -DENABLE_BZip2=OFF -DENABLE_ZSTD=OFF -DENABLE_LZ4=OFF -DENABLE_LIBB2=OFF \
+  -DENABLE_OPENSSL=OFF -DENABLE_MBEDTLS=OFF -DENABLE_NETTLE=OFF -DENABLE_CNG=OFF -DENABLE_LIBXML2=OFF \
+  -DENABLE_EXPAT=OFF -DENABLE_PCREPOSIX=OFF -DENABLE_PCRE2POSIX=OFF \
+  -DENABLE_ICONV=OFF -DENABLE_ACL=OFF -DENABLE_XATTR=OFF -DENABLE_LZO=OFF
+rm -f "$PREFIX"/lib/libarchive*.dylib "$PREFIX"/lib/libarchive.so*
+echo "built libarchive"
 echo "prefix: $PREFIX"
