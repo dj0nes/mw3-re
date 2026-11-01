@@ -45,6 +45,11 @@ every box here is ticked:
       Owen has read them.
 - [ ] The players' read-mes match the build: `tools/windows/dist/README.txt`,
       `tools/macos/README.txt`, the top-level `README.md`.
+- [ ] Open since 2026-11-01: the Mac `--deps` release form
+      (`tools/macos/make_app.sh --deps`) not built since libarchive, zlib
+      and liblzma arrived: rebuild build-deps/mac (`build_deps.sh mac`),
+      build the app, and check it is universal, links them in, and carries
+      their licences in Contents/Resources/licenses.
 
 ## 2. The version
 
