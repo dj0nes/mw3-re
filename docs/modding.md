@@ -66,11 +66,14 @@ Such files in a mod are listed as ignored.
   text).
 
 **Multiplayer.** Every player's gameplay data must match. A number over the
-enabled mods' gameplay files (`mods_gameplay_hash`) is to travel in the
-lobby's player data and block a game whose players differ, naming the mods
-on each side. Strings, images, sounds, music and movies do not count, so a
-translation or a texture pack never blocks a game. (The function and its
-test are M1's; the lobby's check is in the multiplayer code, next.)
+enabled mods' gameplay files (`mods_gameplay_hash`) travels in the lobby's
+player data, with the names of the mods that count (`mods_identity`, set at
+start-up). A joiner whose number differs from the host's is sent back with
+"Your mods don't match the host's. The host uses: X. You use: Y.", and LOCK
+refuses while any player's differs, naming theirs and ours. Strings,
+images, sounds, music and movies do not count, so a translation or a
+texture pack never blocks a game; with none on either side nothing changes.
+The block's layout: multiplayer-port.md, the mods check.
 
 Tests: `test_mods.cpp` (mod.txt; the folders found; the mounts in order,
 the first winning, unusable names left out, nothing served for pilots or

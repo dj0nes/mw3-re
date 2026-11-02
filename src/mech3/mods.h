@@ -42,4 +42,15 @@ std::vector<std::string> mods_mount(const std::string& write_dir, const std::vec
 bool mod_file_is_gameplay(const std::string& rel);
 uint64_t mods_gameplay_hash(const std::string& write_dir, const std::vector<std::string>& enabled);
 
+// This program's mods as the lobby gives them to the other players: the
+// gameplay hash, and the names (mod.txt's, else the folder's) of the
+// enabled mods that change gameplay (each one's own hash not 0). Set once
+// the mods are mounted (mods_identity_set); none: 0 and no names.
+struct ModsIdentity {
+  uint64_t hash = 0;
+  std::vector<std::string> names;
+};
+ModsIdentity& mods_identity();
+void mods_identity_set(const std::string& write_dir, const std::vector<std::string>& enabled);
+
 }  // namespace mech3

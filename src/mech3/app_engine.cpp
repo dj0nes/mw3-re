@@ -433,6 +433,14 @@ uint32_t GameEngine::message_box3(int32_t a, int32_t caption, int32_t text, cons
   return game_message_box(a, caption, zutl::format_message(text, {s1, s2, s3}));
 }
 
+uint32_t GameEngine::message_box_plain(int32_t a, int32_t caption, const std::string& text) {
+  if (on_message_box) {
+    last_box_text = text;
+    return on_message_box(a, caption, 0);
+  }
+  return game_message_box(a, caption, text);
+}
+
 Handle GameEngine::joy_state() { return handle_of(zin::joy_state()); }
 float GameEngine::source_value(int32_t src, Handle joy) {
   return mech3::source_value(src, static_cast<const platform::JoyState*>(object_of(joy)), nullptr);

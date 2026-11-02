@@ -111,6 +111,7 @@
 #include "mech3/pilot.h"
 #include "mech3/mp_connect.h"
 #include "mech3/mp_lobby.h"
+#include "mech3/mods.h"
 #include "gamez/zutil/zutl_zar.h"
 #include "gamez/znetwork/znet_session.h"
 #include "mech3/briefing.h"
@@ -3680,9 +3681,11 @@ TEST(net_lobby_screen_headless) {
     // The worlds: UNAVAILABLE, the eight, then c3's two add-ons; ours in our data.
     EXPECT(l->worlds.count() == 11 && l->worlds.value_at(1) == 0x100 && l->worlds.value_at(8) == 0x203);
     EXPECT(l->worlds.value_at(9) == 0x302 && l->worlds.value_at(10) == 0x402 && l->worlds.selected_value() == 0x100);
-    uint32_t mine[8] = {}, size = sizeof mine;
-    EXPECT(znet::get_player_data(1, mine, &size) && size == 0x18);
+    // Then our mods block: "MODS", the hash (0 with none), no names.
+    uint32_t mine[16] = {}, size = sizeof mine;
+    EXPECT(znet::get_player_data(1, mine, &size) && size == 0x28);
     EXPECT(mine[0] == 1 && mine[1] == 1 && mine[2] == 0 && mine[3] == 2 && mine[4] == 0x302 && mine[5] == 0x402);
+    EXPECT(mine[6] == 0x53444f4d && mine[7] == 0 && mine[8] == 0 && mine[9] == 0);
     // A step past the last world wraps over UNAVAILABLE (0x00496880).
     l->worlds.select(10);
     l->worlds.step(1);
@@ -4005,6 +4008,109 @@ TEST(net_lobby_rules_host_headless) {
   std::printf("  locked at 50 tons: mech %d, %d mechs in the store\n", r.game.slot.mech, mechs);
 }
 
+// The mods check (ours; dev 2's M1 mods): a player's lobby data carries its
+// gameplay mods' hash and names after the add-on worlds. LOCK is refused
+// while any player's hash is not the host's, the names in the message; a
+// joiner whose hash is not the host's is turned back with both sides' names.
+// The same hash, or 0 on both sides (string-only mods), changes nothing.
+namespace {
+std::vector<uint32_t> lobby_data_with_mods(uint64_t hash, std::initializer_list<const char*> names) {
+  std::vector<uint32_t> d = {1, 1, 2, 0, 0, 0x53444f4d, static_cast<uint32_t>(hash), static_cast<uint32_t>(hash >> 32),
+                             static_cast<uint32_t>(names.size())};
+  for (const char* n : names) {
+    const std::string s = n;
+    d.push_back(static_cast<uint32_t>(s.size()));
+    for (size_t k = 0; k < s.size(); k += 4) {
+      uint32_t w = 0;
+      for (size_t b = 0; b < 4 && k + b < s.size(); ++b) w |= static_cast<uint32_t>(static_cast<uint8_t>(s[k + b])) << (8 * b);
+      d.push_back(w);
+    }
+  }
+  return d;
+}
+}  // namespace
+
+TEST(net_lobby_mods_check_headless) {
+  if (!have_game()) return;
+  mech3::ModsIdentity& mine = mech3::mods_identity();
+  // The host: Bob with other mods, then the same.
+  {
+    LobbyRig r("net_mods_host_write");
+    EXPECT(r.l != nullptr);
+    if (!r.l) return;
+    mine = mech3::ModsIdentity{0x1111222233334444ull, {"Big Guns"}};
+    znet::SessionDesc d;
+    d.name = "Mine", d.max_players = 4, d.user[1] = mech3::kGameVersion;
+    EXPECT(znet::host_session(d, "Ann"));
+    znet::Transport* bob = r.hub.endpoint();
+    EXPECT(bob->join("loopback") && bob->create_player("Bob", "Bob") == 2);
+    std::vector<uint32_t> other = lobby_data_with_mods(0x5555666677778888ull, {"Clan Pack"});
+    bob->set_data(false, 2, other.data(), static_cast<uint32_t>(other.size() * 4));
+    znet::poll(-1);
+    r.enter();
+    mech3::g_lobby_dirty = 1;
+    r.l->update(0.1f);
+    r.boxes.clear();
+    r.l->lock();
+    const std::string refused = r.engine->last_box_text;
+    std::printf("  LOCK with other mods: \"%s\" (locked %d)\n", refused.c_str(), r.l->locked);
+    EXPECT(!r.l->locked && refused.find("Bob uses: Clan Pack.") != std::string::npos &&
+           refused.find("You use: Big Guns.") != std::string::npos);
+    std::vector<uint32_t> same = lobby_data_with_mods(0x1111222233334444ull, {"Big Guns"});
+    bob->set_data(false, 2, same.data(), static_cast<uint32_t>(same.size() * 4));
+    znet::poll(-1);
+    r.l->lock();
+    std::printf("  LOCK with the same mods: locked %d\n", r.l->locked);
+    EXPECT(r.l->locked == 1);
+  }
+  // String-only mods on both sides: hash 0, no names.
+  {
+    LobbyRig r("net_mods_zero_write");
+    if (!r.l) return;
+    mine = mech3::ModsIdentity{};
+    znet::SessionDesc d;
+    d.name = "Mine", d.max_players = 4, d.user[1] = mech3::kGameVersion;
+    EXPECT(znet::host_session(d, "Ann"));
+    znet::Transport* bob = r.hub.endpoint();
+    EXPECT(bob->join("loopback") && bob->create_player("Bob", "Bob") == 2);
+    std::vector<uint32_t> zero = lobby_data_with_mods(0, {});
+    bob->set_data(false, 2, zero.data(), static_cast<uint32_t>(zero.size() * 4));
+    znet::poll(-1);
+    r.enter();
+    r.l->lock();
+    std::printf("  LOCK with string-only mods on both sides: locked %d\n", r.l->locked);
+    EXPECT(r.l->locked == 1);
+  }
+  // A joiner: the host Bob with other mods turns us back; the same lets us stay.
+  for (const bool differ : {true, false}) {
+    LobbyRig r(differ ? "net_mods_join_write" : "net_mods_join_same_write");
+    if (!r.l) return;
+    mine = mech3::ModsIdentity{0x1111222233334444ull, {"Big Guns"}};
+    znet::Transport* bob = r.hub.endpoint();
+    znet::SessionDesc d;
+    d.name = "Bob's", d.max_players = 4, d.user[1] = mech3::kGameVersion;
+    EXPECT(bob->host(d) && bob->create_player("Bob", "Bob") == 1);
+    std::vector<uint32_t> hosts = differ ? lobby_data_with_mods(0x5555666677778888ull, {"Clan Pack", "Night Ops"})
+                                         : lobby_data_with_mods(0x1111222233334444ull, {"Big Guns"});
+    bob->set_data(false, 1, hosts.data(), static_cast<uint32_t>(hosts.size() * 4));
+    EXPECT(znet::join_session("loopback", "Ann") && znet::local_id() == 2);
+    const uint8_t host_msg[4] = {0x0d, 0, 4, 0};
+    bob->send(0, host_msg, 4, true, nullptr);
+    znet::poll(-1);
+    r.boxes.clear();
+    r.engine->last_box_text.clear();
+    r.enter();
+    r.l->update(0.1f);
+    std::printf("  joining %s: \"%s\"\n", differ ? "a host with other mods" : "a host with the same mods",
+                r.engine->last_box_text.c_str());
+    if (differ)
+      EXPECT(r.engine->last_box_text == "Your mods don't match the host's. The host uses: Clan Pack, Night Ops. You use: Big Guns.");
+    else
+      EXPECT(r.engine->last_box_text.empty() && r.l->mods_checked == 1);
+  }
+  mine = mech3::ModsIdentity{};
+}
+
 // A joiner's rules (piece 11b): the host's 0x20 shown and the boxes not
 // ours; a world we lack UNAVAILABLE; the lock taken (our mech fitted, the
 // block and CRC kept); a rules message from another player or cut short
@@ -4100,7 +4206,7 @@ TEST(net_lobby_start_host_headless) {
   znet::poll(-1);
   r.enter();
   auto my_state = [] {
-    uint32_t w[8] = {}, size = sizeof w;
+    uint32_t w[32] = {}, size = sizeof w;
     return znet::get_player_data(1, w, &size) ? static_cast<int32_t>(w[2]) : -1;
   };
   r.l->ready_box.set_checked(1);

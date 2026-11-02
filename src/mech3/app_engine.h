@@ -325,6 +325,7 @@ class GameEngine : public Engine {
   float source_value(int32_t src, Handle joy) override;  // 0x0042fea0: mech3::source_value
   uint32_t message_box3(int32_t a, int32_t caption, int32_t text, const char* s1, const char* s2,
                         const char* s3) override;
+  uint32_t message_box_plain(int32_t a, int32_t caption, const std::string& text) override;
   void credits_restart(Handle screen) override;
   void pilot_state_set_mode(Handle state, int32_t mode) override;
   void action_open(Handle screen) override;

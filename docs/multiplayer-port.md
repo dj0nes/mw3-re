@@ -1267,6 +1267,19 @@ Ours, in three pieces:
   at 0. The briefing is one block on its widened map, as every briefing.
   Test: `menus_wide_spread_by_their_groups_headless`'s multiplayer line.
   Breaks caught: the backdrop moved, the lobby's table missing.
+- **The mods check** (the lead, 2026-11-01; ours, no original): each
+  player's kind-1 lobby data gains a block after its max(5, 4 + worlds)
+  words: "MODS" (0x53444f4d), the gameplay hash's low and high words, the
+  count (at most 16) and each name as a length (at most 64) and its bytes,
+  four to a word. A reader reads it only as far as the data goes, the count and
+  lengths capped (no block: hash 0, no names), so an original's data reads
+  as no mods.
+  The joiner checks the host's data once after entering (its box, then back
+  to the connection screen, as a refused add-on map); LOCK compares every
+  player's with ours before the add-on world check. Same hash or 0 on both:
+  no change. Test: `net_lobby_mods_check_headless` (refused at join and at
+  lock with both sides' names; equal hashes and two string-only mods pass).
+  Breaks caught: the joiner's check off, LOCK's check off.
 
 ## Open
 

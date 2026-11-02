@@ -1,4 +1,5 @@
 #include "mech3/mp_lobby.h"
+#include "mech3/mods.h"
 
 #include <cctype>
 #include <iterator>
@@ -25,6 +26,7 @@ uint8_t g_lobby_dirty = 0;  // [0x006099cc]
 uint8_t g_lobby_back = 0;   // [0x006099c8]
 
 namespace {
+constexpr uint32_t kModsMark = 0x53444f4d;  // "MODS": our block in a player's lobby data (the mods check)
 LobbyScreen* g_lobby = nullptr;  // [0x006099d4]
 int32_t g_order_next = 1;        // [0x005e7920]
 
@@ -98,6 +100,39 @@ void add_team(uint32_t id, uint32_t, bool, const char* name, void*) {
   g->lobby_teams.push_back(std::move(t));
 }
 }  // namespace
+
+// The block (enter's): untrusted, read only as far as the data goes, at most
+// 16 names of 64 bytes, control characters '?'. A player without one (no
+// mods block): hash 0.
+bool LobbyScreen::mods_of(const std::vector<uint32_t>& d, uint64_t* hash, std::vector<std::string>* names) {
+  *hash = 0;
+  names->clear();
+  if (d.size() < 4 || d[0] != 1) return false;
+  const size_t worlds = d[3] < 64 ? d[3] : 64;
+  size_t at = std::max<size_t>(5, 4 + worlds);
+  if (at + 4 > d.size() || d[at] != kModsMark) return true;
+  *hash = static_cast<uint64_t>(d[at + 1]) | static_cast<uint64_t>(d[at + 2]) << 32;
+  const uint32_t count = std::min<uint32_t>(d[at + 3], 16);
+  at += 4;
+  for (uint32_t k = 0; k < count && at < d.size(); ++k) {
+    const uint32_t len = std::min<uint32_t>(d[at++], 64);
+    std::string n;
+    for (uint32_t b = 0; b < len && at + b / 4 < d.size(); ++b) {
+      const char c = static_cast<char>(d[at + b / 4] >> (8 * (b % 4)) & 0xff);
+      n += static_cast<unsigned char>(c) < 0x20 || c == 0x7f ? '?' : c;
+    }
+    at += (len + 3) / 4;
+    names->push_back(n);
+  }
+  return true;
+}
+
+std::string LobbyScreen::mods_text(const std::vector<std::string>& names) {
+  if (names.empty()) return "no gameplay mods";
+  std::string t;
+  for (const std::string& n : names) t += (t.empty() ? "" : ", ") + n;
+  return t;
+}
 
 LobbyScreen* lobby_screen() { return g_lobby; }
 
@@ -271,6 +306,26 @@ void LobbyScreen::enter() {
     }
   }
   if (data.size() < 5) data.resize(5);
+  // Ours (the mods check): after the add-on worlds, "MODS", the gameplay
+  // hash (low, high), the gameplay mods' names (a count, then each one's
+  // length and its bytes, four a word). The exe's readers stop at the worlds.
+  {
+    const ModsIdentity& mods = mods_identity();
+    data.push_back(kModsMark);
+    data.push_back(static_cast<uint32_t>(mods.hash));
+    data.push_back(static_cast<uint32_t>(mods.hash >> 32));
+    data.push_back(static_cast<uint32_t>(std::min<size_t>(mods.names.size(), 16)));
+    for (size_t i = 0; i < mods.names.size() && i < 16; ++i) {
+      const std::string cut = mods.names[i].substr(0, 64);
+      data.push_back(static_cast<uint32_t>(cut.size()));
+      for (size_t k = 0; k < cut.size(); k += 4) {
+        uint32_t w = 0;
+        for (size_t b = 0; b < 4 && k + b < cut.size(); ++b) w |= static_cast<uint32_t>(static_cast<uint8_t>(cut[k + b])) << (8 * b);
+        data.push_back(w);
+      }
+    }
+  }
+  mods_checked = 0;
   znet::set_player_data(me, data.data(), static_cast<uint32_t>(data.size() * 4));
   // KILLS_LIST: 1, 5, 10, 20, 40 (doubled with teams) and unlimited (100).
   const int32_t unit = team ? 2 : 1;
@@ -343,6 +398,22 @@ void LobbyScreen::update(float dt) {
     refresh_lists();
     refresh_buttons();
     g_lobby_dirty = 0;
+  }
+  // Ours (the mods check): a joiner whose gameplay mods differ from the
+  // host's is turned back, once the host's data says what they are.
+  if (!mods_checked && !znet::is_host() && znet::session().open) {
+    uint64_t theirs = 0;
+    std::vector<std::string> their_names;
+    if (mods_of(player_data(znet::session().host_id), &theirs, &their_names)) {
+      mods_checked = 1;
+      const ModsIdentity& mine = mods_identity();
+      if (theirs != mine.hash) {
+        cursor_obj.erase();
+        engine().message_box_plain(0x30, 0x2a8, "Your mods don't match the host's. The host uses: " + mods_text(their_names) +
+                                                     ". You use: " + mods_text(mine.names) + ".");
+        g_lobby_back = 1;
+      }
+    }
   }
   if (start_pending) start();
   if ((reach_timer -= dt) <= 0.0f) {
@@ -739,6 +810,23 @@ void LobbyScreen::world_changed() {
 void LobbyScreen::lock() {
   Engine& e = engine();
   cursor_obj.erase();
+  // Ours (the mods check): every player's gameplay mods the host's, as the
+  // add-on world below, with their names.
+  if (game) {
+    const ModsIdentity& mine = mods_identity();
+    std::string lines;
+    for (auto& p : game->lobby_players) {
+      if (p->id == znet::local_id()) continue;
+      uint64_t theirs = 0;
+      std::vector<std::string> names;
+      mods_of(player_data(p->id), &theirs, &names);
+      if (theirs != mine.hash) lines += p->name + " uses: " + mods_text(names) + ". ";
+    }
+    if (!lines.empty()) {
+      e.message_box_plain(0, 0x1e3, "Every player needs the same mods. " + lines + "You use: " + mods_text(mine.names) + ".");
+      return;
+    }
+  }
   const int32_t w = worlds.selected_value();
   if ((w >> 8) > 2 && game) {
     std::string names;

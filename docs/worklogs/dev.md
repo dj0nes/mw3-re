@@ -2661,4 +2661,6 @@ Assigned after 8b2 merged (fd3f05f). The lead asked for a section stepped at bot
 - The census's three (the player's death, a destroyed weapon's voices, a
   network kill's box refill), the lobby's address lines at 16:9, the
   briefing's first frame after its widening.
+- The mods check in the lobby (dev 2's M1 merged in; modding.md,
+  multiplayer-port.md, the mods check), on mac4/mods-check.
 - Next: the lead's.

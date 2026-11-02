@@ -157,4 +157,23 @@ uint64_t mods_gameplay_hash(const std::string& write_dir, const std::vector<std:
   return any ? h : 0;
 }
 
+ModsIdentity& mods_identity() {
+  static ModsIdentity id;
+  return id;
+}
+
+void mods_identity_set(const std::string& write_dir, const std::vector<std::string>& enabled) {
+  ModsIdentity& id = mods_identity();
+  id = ModsIdentity{};
+  id.hash = mods_gameplay_hash(write_dir, enabled);
+  if (id.hash == 0) return;
+  const std::vector<ModInfo> found = mods_found(write_dir);
+  for (const std::string& want : enabled) {
+    if (mods_gameplay_hash(write_dir, {want}) == 0) continue;  // strings, images, sounds only
+    const auto it = std::find_if(found.begin(), found.end(), [&](const ModInfo& m) { return m.folder == want; });
+    const std::string name = it != found.end() && !it->name.empty() ? it->name : want;
+    if (std::find(id.names.begin(), id.names.end(), name) == id.names.end()) id.names.push_back(name);
+  }
+}
+
 }  // namespace mech3

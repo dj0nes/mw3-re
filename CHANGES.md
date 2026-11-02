@@ -599,3 +599,4 @@ Known quirks the rebuild deliberately keeps:
 - A locked multiplayer game turns away players who try to join it, instead of only greying out its Join button.
 - With bug fixes on, locking a multiplayer game with "Use stock 'Mechs" keeps the stock loadout a player chose instead of resetting it to the mech's first.
 - Mods: folders of game data in the settings folder's mods\ folder, enabled in mw3.cfg (mod=NAME, in order), sit in front of the game's files; a mod's loose .zrd replaces one entry of a reader archive. A mod can never replace a player's pilots, loadouts, controls or settings, and with no mods enabled nothing changes (docs/modding.md).
+- A multiplayer game needs every player's gameplay mods to match: a player joining with other mods is told which mods the host uses and which they use, and LOCK OPTIONS names the player whose mods differ. Text, image, sound and music mods never count.

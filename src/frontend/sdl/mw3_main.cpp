@@ -698,6 +698,7 @@ int main(int argc, char** argv) {
   // The 1.2 patch's files, imported (ours: patch_import.h), over the install's.
   const std::string patch_dir = a.write_dir.empty() ? std::string() : a.write_dir + "/patch12";
   // The enabled mods, in front of the patch and the install (docs/modding.md).
+  mech3::mods_identity_set(a.write_dir, a.mods);  // for the lobby: the gameplay mods every player must share
   if (!a.mods.empty())
     for (const std::string& line : mech3::mods_mount(a.write_dir, a.mods, {patch_dir, a.install}))
       std::printf("mw3: %s\n", line.c_str());
