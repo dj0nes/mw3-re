@@ -2744,3 +2744,19 @@ Assigned after 8b2 merged (fd3f05f). The lead asked for a section stepped at bot
 - Open for the lead: after the notes' OK nothing offers ADD FROM MY DISC
   again (no Setup); the first-run import of the write dir's movies has no
   unit test (mw3-only code).
+
+## W47: the menu music under the campaign's movie (2026-11-02)
+
+- Headless: Campaign, a pilot, ACCEPT; the CD looped through fmv.zrd's
+  "campaign" movie (played from the campaign GameMenuState, which has no
+  screen for shell_resume to reactivate) and stopped at the Load state (the
+  main menu's end, 0x485780). The original's code does the same: its CD
+  stops are 0x47fa10, 0x481fc0, 0x485780, 0x4ac290, 0x590bd0 and
+  play_sounds 0x59ef60 (stop_sounds is only called with 0); its movie code
+  uses MCI only for MPEGVideo. In 1999 the drive reading the movie stopped
+  the audio.
+- FIX (A): GameEngine's movie hooks pause the CD music under a movie and
+  resume it after (only the movie that paused it, only while still
+  paused); the attract movie's own pause left alone. Test and two breaks.
+- Note: between the movie's end and the Load state the music resumes for
+  about a frame before the main menu's end stops it.

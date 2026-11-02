@@ -16,6 +16,7 @@
 #include "gamez/zimage/zimg_library.h"
 #include "gamez/zrender/zrndr_blur.h"
 #include "gamez/zsound/zsnd.h"
+#include "gamez/zsound/zsnd_cd.h"
 #include "gamez/ztwod/twod_host.h"
 #include "mech3/app_engine.h"
 #include "mech3/app_movie.h"
@@ -399,17 +400,36 @@ int32_t GameEngine::movie_load(Handle m, const char* file, const char* name) {
   auto* s = static_cast<zfmv::Script*>(object_of(m));
   return s ? s->load(file, name) : -1;
 }
+// FIX (A), playtest W47: the original's movies came off the disc, and a CD
+// drive reading them stopped its own audio, so the menu music never played
+// under the campaign's movie (the code itself never stops it there). A
+// movie pauses the CD music while it plays; it comes back after, unless
+// something stopped it meanwhile (the main menu's end, 0x00485780). The
+// attract movie pauses it itself first (0x00482330) and is left to that.
 void GameEngine::movie_play(Handle m) {
-  if (auto* s = static_cast<zfmv::Script*>(object_of(m))) s->play();
+  auto* s = static_cast<zfmv::Script*>(object_of(m));
+  if (!s) return;
+  const int mode = zsnd_cd::state().mode;
+  if (!movie_paused_cd_ && mode >= zsnd_cd::Once && zsnd_cd::pause()) movie_paused_cd_ = m, movie_cd_mode_ = mode;
+  s->play();
+}
+void GameEngine::movie_cd_resume(Handle m) {
+  if (!m || m != movie_paused_cd_) return;
+  movie_paused_cd_ = 0;
+  zsnd_cd::resume(movie_cd_mode_);  // only while still paused
 }
 uint32_t GameEngine::movie_playing(Handle m) {
   auto* s = static_cast<zfmv::Script*>(object_of(m));
-  return s && s->playing();
+  const bool on = s && s->playing();
+  if (!on) movie_cd_resume(m);
+  return on;
 }
 void GameEngine::movie_stop(Handle m, int32_t all) {
   if (auto* s = static_cast<zfmv::Script*>(object_of(m))) s->stop(all != 0);
+  movie_cd_resume(m);
 }
 void GameEngine::movie_delete(Handle m) {
+  movie_cd_resume(m);
   auto* s = static_cast<zfmv::Script*>(object_of(m));
   forget_object(s);
   delete s;

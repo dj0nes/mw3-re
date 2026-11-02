@@ -565,6 +565,11 @@ class GameEngine : public Engine {
   uint32_t movie_playing(Handle m) override;
   void movie_stop(Handle m, int32_t all) override;
   void movie_delete(Handle m) override;
+  // FIX (A), playtest W47: the CD music paused under a movie, resumed after
+  // (the movie whose play paused it, the mode it played in).
+  Handle movie_paused_cd_ = 0;
+  int movie_cd_mode_ = 0;
+  void movie_cd_resume(Handle m);
   Handle wait_new(int32_t steps, int32_t passes) override;
   void wait_start() override;
   uint32_t wait_poll() override;
