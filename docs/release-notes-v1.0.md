@@ -1,0 +1,135 @@
+# MechWarrior 3 Rebuild 1.0 (DRAFT)
+
+Draft for Owen to edit and approve before anything is published. Not
+tagged, not released. The packages are built from the tagged commit
+(docs/release.md).
+
+---
+
+**An unofficial fan rebuild of MechWarrior 3 for today's computers:
+Windows 10 and 11, macOS and Linux.** The original game's program
+(patch 1.2) was taken apart and rewritten function by function in C++,
+most of it checked against the original running in an emulator. It plays
+the way MechWarrior 3 always did, minus the bugs and the problems it has
+on modern machines, with no Wine, DirectX wrappers, DDrawCompat or
+dgVoodoo. It is a personal learning project: free, not sold, and not
+affiliated with or endorsed by Microsoft or MicroProse. MechWarrior is a
+trademark of Microsoft.
+
+**No game files are included. You need your own MechWarrior 3**: an
+installed copy (1.0 or 1.2), the disc, or a disc image.
+
+## What 1.0 is
+
+1.0 is MechWarrior 3 complete: the whole single-player game (the
+campaign, Instant Action, training, the mech lab, the briefings, the HUD
+and the movies) and multiplayer, by the original's own logic. Pirate's
+Moon, the expansion, is next, as a game of its own beside this one.
+
+## Getting started
+
+| | Download | |
+|---|---|---|
+| Windows | `MW3-Rebuild-Setup-1.0.exe` | An installer (a `.zip` of the same files is there too). |
+| Mac | `MW3-Rebuild-1.0-mac.dmg` | Drag the app to Applications. |
+| Linux | `MW3-Rebuild-1.0-x86_64.AppImage` | Make it executable and run it. |
+
+Start **MechWarrior 3**. It finds your install by itself; if it cannot,
+its SETUP screen takes whatever you have and sets the game up from it.
+The Mac app is not signed by Apple: the first time, right-click it and
+choose **Open**. Windows SmartScreen may warn about an unknown publisher:
+**More info**, then **Run anyway**. The README has the rest.
+
+## New since the playtest builds
+
+- **Multiplayer.** The original's network games, up to 8 players, over
+  the internet or a local network, Windows, Mac and Linux together. Games
+  on your local network show up by themselves; join any other by its
+  address. Hosting opens the game's port (UDP 27930) on your router by
+  itself when the router allows it, shows the address to give your
+  friends with a click to copy, and says in plain words what to do when
+  the internet cannot reach you (a port to forward, a second router, or a
+  provider that blocks hosting). The in-game chat, the briefing, the way
+  back to the lobby, teams and the scores all work as they did.
+  Escape in a match shows the quit box the original never drew, without
+  stopping play; a player who leaves disappears for the others at once;
+  a match keeps running in the background.
+- **Mac and Linux downloads**, beside Windows: a disc image for the Mac,
+  an AppImage for Linux.
+- **The launcher**, installed as "MechWarrior 3": the rebuild's front
+  screen. It starts the game and closes as soon as the game is on screen.
+- **SETUP from anything you have**: an installed copy, the disc, an
+  `.iso`, a `.cue` with its `.bin` files (the music comes too), or the
+  file you downloaded (`.zip`, `.7z`, `.rar`, even a zip inside a zip).
+  Nothing needs unpacking by hand, and no Windows or original installer
+  is needed.
+- **1.0 plays as 1.2**: the 1.2 patch's changes are made as 1.0's data
+  loads, so a 1.0 copy needs no patch. Your files are not changed.
+- **16:9 everywhere**: the missions, menus, mech lab, briefings and
+  multiplayer screens use the whole width of a wide screen, and the
+  movies keep their shape (the intro and the ending fill the width, the
+  4:3 movies are centred). The movies also play smoothly with their
+  sound.
+- **Mods**: folders of your own game data (textures, sounds, text,
+  missions, new worlds and multiplayer maps) in a `mods` folder, turned
+  on in `mw3.cfg`. A broken mod file is refused and named in the log
+  instead of crashing the game, and `mw3 --check-mod FOLDER` checks a mod
+  before you play it. In multiplayer every player needs the same gameplay
+  mods, and the game says whose differ. How to make one: docs/modding.md.
+- **More bug fixes**, all listed in plain words in CHANGES.md. To play
+  exactly as the original did: `--original`, or `bugfixes=0` in
+  `mw3.cfg`.
+- **For the curious**: `--debug-camera` and Shift+F12 in a mission open
+  the game editor the original carries but never lets you reach, with
+  its free-flying camera.
+
+## Known open items
+
+- **Mac: the mouse in a window.** On one Mac, in a windowed mission, a
+  click paused the cursor and did not fire (the keyboard's fire key
+  worked), and an earlier build fired about a second late. Not
+  reproduced on our other test runs; fullscreen and the keyboard are not
+  affected. If you see it, please report it with `mw3.log`.
+- **Multiplayer: the mech lab from the lobby** once listed no mechs in a
+  live match. Not reproduced since; if you see it, a report helps.
+- Pirate's Moon is not supported yet.
+
+## Reporting bugs
+
+Open an issue on the project's GitHub page. Please attach `mw3.log` from
+the settings folder (the README says where it is on each system), or
+`mw3.old.log` if you started the game again after the problem; say what
+you did, what happened, and whether `--original` does the same.
+
+## Checksums
+
+SHA-256 of each download (to be filled in from the built packages):
+
+```
+<sha256>  MW3-Rebuild-Setup-1.0.exe
+<sha256>  MW3-Rebuild-1.0-win64.zip
+<sha256>  MW3-Rebuild-1.0-mac.dmg
+<sha256>  MW3-Rebuild-1.0-x86_64.AppImage
+```
+
+## Licences
+
+The rebuild is under the MIT licence. Its libraries (SDL3, SDL3_ttf,
+FreeType, SDL3_sound, ENet, miniupnpc, libarchive, zlib, liblzma, miniz,
+pl_mpeg, and a
+minimal LGPL build of FFmpeg for the movie converter) and their licences
+are listed in `THIRD-PARTY.txt` in each download, with their licence
+files.
+
+---
+
+## Notes for Owen (not part of the release text)
+
+- The two open items are W40 and W42 in docs/playtest.md; drop either
+  that is closed by release day.
+- The package file names follow the README's Download table; check them
+  against what the packaging scripts actually produce, and fill in the
+  checksums from those files.
+- The library list in Licences should match each package's
+  THIRD-PARTY.txt; check it when the packages are built.
+- docs/release.md's v1.0 checklist decides when the tag is cut.

@@ -2664,4 +2664,9 @@ Assigned after 8b2 merged (fd3f05f). The lead asked for a section stepped at bot
 - The mods check in the lobby (dev 2's M1 merged in; modding.md,
   multiplayer-port.md, the mods check), on mac4/mods-check; with M2
   merged, the lobby's add-on scan on to the mod worlds.
+- M3's share (modding.md): the texture and image libraries, the sounds and
+  interp.zbd's scripts bounded, with --check-mod looking inside them
+  (mac4/bounded-tex).
+- W40's probe (mac4/w40): --fire-probe in any Core game, the mouse's
+  capture, focus and buttons; Owen's run pending.
 - Next: the lead's.

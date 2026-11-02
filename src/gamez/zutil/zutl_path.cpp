@@ -156,6 +156,23 @@ std::string find(const char* path) {
   return is_file(h) ? h : std::string{};  // relative to the working directory, as before
 }
 
+std::vector<std::string> find_all(const char* path) {
+  std::vector<std::string> out;
+  const std::string h = host(path);
+  if (h.empty()) return out;
+  if (absolute(h)) {
+    if (is_file(h)) out.push_back(h);
+    return out;
+  }
+  if (!g_mounts.write.empty() && is_file(join(g_mounts.write, h))) out.push_back(join(g_mounts.write, h));
+  for (const std::string& dir : g_mounts.read) {
+    if (!g_mounts.mods.empty() && is_mod_dir(dir) && !mod_may_serve(h)) continue;
+    const std::string p = join(dir, h);
+    if (is_file(p) && std::find(out.begin(), out.end(), p) == out.end()) out.push_back(p);
+  }
+  return out;
+}
+
 bool exists(const char* path) { return !find(path).empty(); }
 
 std::string write_path(const char* path) {

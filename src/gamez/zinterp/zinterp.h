@@ -33,6 +33,9 @@ struct ScriptFile {
   bool text = false;
   bool eof = false;                // _IOEOF (FILE +0x0c bit 0x10)
   bool err = false;                // _IOERR (bit 0x20)
+  long end = -1;                   // ours (docs/modding.md, M3): an archived script's end
+  std::string what;                // ours: "<archive>: script <name>", for its log line
+  bool cut = false;                // ours: a line past `end` ended it
 };
 
 struct Macro {                     // 8 bytes in the exe: {name, value}
@@ -49,6 +52,8 @@ struct Include {                   // 0x0c bytes: the parent file while a `sourc
   ScriptFile* file;
   long pos;
   uint8_t binary;
+  long end = -1;                   // ours (M3): the parent's own end, the archive shared
+  std::string what;
 };
 
 struct ArchiveEntry {              // 0x80 bytes
@@ -93,6 +98,8 @@ struct Interp {                    // 0xbc bytes; MW3's subclass adds +0xbc
   uint32_t version = 0;            // +0x88
   int32_t entry_count = 0;         // [+0x8c]
   std::vector<ArchiveEntry> dir;   // +0x90
+  long archive_size = -1;          // ours (M3): bounds the scripts
+  std::string archive_where;       // ours: the archive's file as the player has it
   uint8_t binary = 0;              // +0x94  reading the archive
   ScriptFile* file = nullptr;      // +0x98  the file being run
   std::vector<Include> includes;   // +0x9c, count +0xa0

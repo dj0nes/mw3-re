@@ -5,6 +5,7 @@
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
 #include <random>
 #include <string>
 #include <vector>
@@ -16,6 +17,8 @@
 #include "gamez/zsiscript/si_script.h"
 #include "gamez/zutil/zutl_zar.h"
 #include "mech3/mech_anim.h"
+#include "mech3/mods.h"
+#include "gamez/zutil/zutl_path.h"
 
 namespace {
 namespace fs = std::filesystem;
@@ -238,4 +241,60 @@ TEST(bounded_anim_fuzz_never_crashes) {
   zeff::anim_set_zbd_path(copy.c_str());
   EXPECT(zeff::anim_read_zbd() == -1 && zeff::anim().defs == nullptr);
   zeff::anim_free_all();
+}
+
+// A mod's motion.zbd with one motion cut short (docs/modding.md, M3): the
+// motion comes from the next copy (the install's), read whole; with no
+// other copy it is refused. Every other motion is the mod's own.
+TEST(bounded_motion_falls_back_to_the_next_copy) {
+  const std::string install = MW3_GAME_DIR;
+  std::error_code ec;
+  if (!fs::exists(install + "/zbd/motion.zbd", ec)) return;
+  const zutl::Mounts saved = zutl::mounts();
+  const std::string wd = std::string(MW3_TEST_TMP) + "/motion_fallback";
+  fs::remove_all(wd, ec);
+  fs::create_directories(wd + "/mods/brokenwalk/zbd", ec);
+  std::ofstream(wd + "/mods/brokenwalk/mod.txt") << "name=Broken walk\n";
+  std::vector<Entry> all = read_all(install + "/zbd/motion.zbd");
+  size_t walk_frames = 0;
+  for (Entry& e : all)
+    if (e.name == "madcat_walk") e.data.resize(e.data.size() / 2);  // cut short: refused
+  write_all(wd + "/mods/brokenwalk/zbd/motion.zbd", all);
+  auto load = [&](bool with_install, const char* name, uint32_t* frames) {
+    zutl::mounts() = zutl::Mounts{};
+    zutl::set_write_dir(wd);
+    mech3::mods_mount(wd, {"brokenwalk"}, {install});
+    if (with_install) zutl::mount(install);
+    bool ok = false;
+    if (mech3::open_motions("zbd\\motion.zbd")) {
+      zsis::Script s;
+      ok = mech3::load_motion(s, name);
+      *frames = ok ? s.frame_count : 0;
+      mech3::script_free_parts(s);
+      mech3::close_motions();
+    }
+    return ok;
+  };
+  uint32_t frames = 0, whole = 0;
+  {  // the install's own, for the frame count
+    zutl::mounts() = zutl::Mounts{};
+    zutl::mount(install);
+    if (mech3::open_motions("zbd\\motion.zbd")) {
+      zsis::Script s;
+      if (mech3::load_motion(s, "madcat_walk")) whole = s.frame_count;
+      mech3::script_free_parts(s);
+      mech3::close_motions();
+    }
+  }
+  (void)walk_frames;
+  EXPECT(whole > 0);
+  EXPECT(load(true, "madcat_walk", &frames) && frames == whole);   // the install's copy
+  EXPECT(!mech3::motion_broken("madcat_walk"));
+  EXPECT(!load(false, "madcat_walk", &frames));                    // no other copy: refused
+  EXPECT(mech3::motion_broken("madcat_walk"));                     // broken, so the mech is refused
+  EXPECT(load(false, "madcat_run", &frames) && frames > 0);        // the mod's own others
+  // Missing from every copy (the shipped data has no elemental_limp): not
+  // broken, so the Elemental keeps the exe's null limp and is not refused.
+  EXPECT(!load(true, "elemental_limp", &frames) && !mech3::motion_broken("elemental_limp"));
+  zutl::mounts() = saved;
 }

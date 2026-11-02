@@ -1,19 +1,24 @@
 #include "mech3/mods.h"
 
 #include <algorithm>
+#include <cstdio>
 #include <cstring>
 #include <cctype>
 #include <cerrno>
 #include <cstdlib>
 #include <filesystem>
+#include <functional>
 #include <fstream>
 #include <sstream>
 
 #include "gamez/zclass/cls_mechlib.h"
 #include "gamez/zeffect/zeff_anim_init.h"
+#include "gamez/zimage/zimg_library.h"
+#include "gamez/zinterp/zinterp.h"
 #include "gamez/zmodel/gmod_const.h"
 #include "gamez/zreader/zreader.h"
 #include "gamez/zsiscript/si_script.h"
+#include "gamez/zsound/zsnd.h"
 #include "gamez/zutil/zutl_path.h"
 #include "gamez/zutil/zutl_zar.h"
 #include "mech3/mission.h"
@@ -278,6 +283,64 @@ std::vector<std::string> mods_apply_strings(std::map<int32_t, std::string>& text
   return log;
 }
 
+namespace {
+// --check-mod's look inside a texture or image library (rimage, rtexture*,
+// rmechtex*): its table, then every texture through the bounded load (M3).
+void check_texture_library(const std::string& host, const std::string& rel, int* entries,
+                           const std::function<void(const std::string&)>& error) {
+  const zimg::State saved = zimg::state();
+  zimg::state() = zimg::State{};
+  const std::string folder = fs::path(host).parent_path().string() + "/";
+  zimg::state().dir = folder.c_str();
+  zimg::Library lib{};
+  std::snprintf(lib.name, sizeof lib.name, "%s", fs::path(host).filename().string().c_str());
+  if (!zimg::open(lib) || !lib.entries) {
+    error(rel + ": not a texture library the game can read (its table)");
+  } else {
+    for (int i = 0; i < lib.header.texture_count; ++i) {
+      ++*entries;
+      char name[32];
+      std::memcpy(name, lib.entries[i].name, sizeof name);
+      if (zimg::Texture* t = zimg::load(lib, name)) zimg::free_texture(t);
+      else error(rel + ": texture " + name + " cannot be read");
+    }
+  }
+  zimg::close(lib);
+  std::free(lib.entries);
+  for (uint16_t* p : zimg::state().palettes) std::free(p);
+  zimg::state() = saved;
+}
+
+// interp.zbd: its directory, then every script's lines within its bytes.
+void check_interp(const std::string& host, const std::string& rel, int* entries,
+                  const std::function<void(const std::string&)>& error) {
+  zint::Interp in;
+  in.search_path = fs::path(host).parent_path().string();
+  if (!zint::open_archive(in, fs::path(host).filename().string().c_str())) {
+    error(rel + ": not a script archive the game can read (its header or directory)");
+    return;
+  }
+  std::vector<char> buf(0x1000);
+  for (int32_t i = 0; i < in.entry_count; ++i) {
+    ++*entries;
+    const std::string name = in.dir[i].name;
+    zint::ScriptFile* f = zint::archive_find(in, name.c_str());
+    if (!f) {
+      error(rel + ": script " + name + " cannot be read (its offset)");
+      continue;
+    }
+    in.binary = 1;
+    for (int n = 0; n < 1000000 && zint::read_line(in, f, buf.data()); ++n) {
+      std::free(in.line);
+      in.line = nullptr;
+    }
+    if (f->cut) error(rel + ": script " + name + " has a line past its end");
+  }
+  std::fclose(in.archive.f);
+  in.archive.f = nullptr;
+}
+}  // namespace
+
 std::vector<std::string> mod_check(const std::string& dir, const std::string& install, int* errors) {
   std::vector<std::string> out;
   *errors = 0;
@@ -327,6 +390,19 @@ std::vector<std::string> mod_check(const std::string& dir, const std::string& in
     out.push_back(rel + (install.empty() ? "" : over ? ": replaces the game's" : ": added"));
     const std::string host = (fs::path(dir) / rel).generic_string();
     const std::string name = low.substr(low.rfind('/') == std::string::npos ? 0 : low.rfind('/') + 1);
+    // Not zar archives (M3): the texture and image libraries, the scripts.
+    if (name == "rimage.zbd" || name.rfind("rtexture", 0) == 0 || name.rfind("rmechtex", 0) == 0) {
+      if (name.size() > 4 && name.compare(name.size() - 4, 4, ".zbd") == 0) {
+        ++archives;
+        check_texture_library(host, rel, &entries, error);
+        continue;
+      }
+    }
+    if (name == "interp.zbd") {
+      ++archives;
+      check_interp(host, rel, &entries, error);
+      continue;
+    }
     if (name.size() > 4 && name.compare(name.size() - 4, 4, ".zbd") == 0) {
       zutl_zar::Archive a;
       zutl_zar::init(a);
@@ -379,6 +455,20 @@ std::vector<std::string> mod_check(const std::string& dir, const std::string& in
         else out.push_back("  " + std::to_string(zeff::anim().def_count()) + " animations read (bound to the world in play)");
         zeff::anim_free_all();
         zeff::anim() = zeff::AnimState{};
+        continue;
+      }
+      if (name.rfind("sounds", 0) == 0) {  // every sound through the bounded WAV read (M3)
+        zutl_zar::Archive sa;
+        zutl_zar::init(sa);
+        if (zutl_zar::open(sa, host.c_str())) {
+          for (const std::string& e : names) {
+            ++entries;
+            zsnd::Wave w;
+            w.path = e;
+            if (!zsnd::wave_read_archive(w, sa)) error(rel + ": sound " + e + " cannot be read");
+          }
+        }
+        zutl_zar::destroy(sa);
         continue;
       }
       if (name.rfind("reader", 0) != 0) {  // the reader archives' entries: through the bounded reader

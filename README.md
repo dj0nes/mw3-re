@@ -13,7 +13,7 @@ Microsoft or MicroProse.
 
 **No game files are included.** You need your own copy of MechWarrior 3.
 
-> This is a playtest. Expect bugs, and please [report them](#reporting-a-bug).
+> Found a bug? Please [report it](#reporting-a-bug).
 
 ## What you need
 
@@ -30,7 +30,7 @@ Microsoft or MicroProse.
   - macOS 12 or later, Apple silicon or Intel;
   - Linux, x86-64, with your distribution's Vulkan driver.
 
-Pirate's Moon and multiplayer are not supported yet.
+Pirate's Moon is not supported yet.
 
 ## Download
 
@@ -87,8 +87,8 @@ is not MechWarrior 3) it says so in plain words and changes nothing.
 - **The launcher**, installed as "MechWarrior 3" (the main and desktop
   shortcut on Windows, the Mac's "MechWarrior 3.app", the Linux desktop
   entry), is the rebuild's own front screen: the games, and SETUP with the
-  same buttons. It starts the game and closes once the game is on screen
-  (if the game fails to start, it stays and says so). The game also has
+  same buttons. It starts the game and closes as soon as the game's first
+  frame is on screen (if the game fails to start, it stays and says so). The game also has
   its own Start-menu entry on Windows, "MechWarrior 3 (no launcher)", and
   `mw3` starts it directly anywhere.
 - On the first start it also tells you anything worth knowing about your
@@ -116,8 +116,51 @@ installed copy does not have. Two ways to get it back:
 - In a window, press and release **Ctrl+Alt** to free the mouse; click in
   the window to take it back.
 - Gamepads work as they did on Windows 98, and force feedback becomes rumble.
-- On a widescreen the menus use the whole width too. For the original's 4:3
-  menus, put `widemenus=0` in `mw3.cfg` (or start with `--no-wide-menus`).
+- On a widescreen every screen uses the whole width: the missions, the
+  menus, the mech lab, the briefings and the multiplayer screens. For the
+  original's 4:3 menus, put `widemenus=0` in `mw3.cfg` (or start with
+  `--no-wide-menus`).
+- The movies keep their shape on a wide screen: the intro and the ending,
+  whose black bars were part of the picture, fill the screen's width; the
+  4:3 movies are centred with black sides.
+
+### Multiplayer
+
+**Multiplayer** on the main menu plays the original's network games over
+the internet or a local network, up to 8 players. DirectPlay, which the
+original used, is gone from modern systems, so the rebuild has its own
+connection (UDP); IPX, modem and serial play are gone with it. Everyone
+plays the rebuild, on any mix of Windows, Mac and Linux.
+
+- **On a local network**, games show up on the connection screen by
+  themselves as soon as it opens.
+- **Joining by address**: type the host's address (`203.0.113.7`, or
+  `203.0.113.7:27930` for another port) and press **Find Game** or
+  Enter.
+- **Hosting**: **Host Setup**, then **Host**. The game opens its UDP port,
+  27930, on your router by UPnP when the router allows it, and closes it
+  again when you stop. The connection screen and the lobby show the
+  address to give your friends (click it to copy) and your LAN address.
+  When the internet cannot reach you, the screen says why and what to do:
+  - "forward UDP 27930 on your router to host": no router answered, so set
+    up the port forward by hand in your router's settings;
+  - "Could not open the port": the router refused UPnP; forward the port
+    by hand;
+  - "Another router stands in front of yours": a second router (often the
+    provider's modem) sits between yours and the internet; forward UDP
+    27930 on that one too, or use a VPN such as Tailscale;
+  - "Your internet provider blocks hosting": your provider shares one
+    internet address between many customers (carrier-grade NAT), so no
+    one can reach you from outside. Play on a LAN, or over a VPN such as
+    Tailscale; joining other people's games still works.
+- **Leaving a match**: Escape shows "Are you sure you want to quit?". With
+  bug fixes on (below) the match goes on while it is up, so you can still
+  move and fire; **Y** leaves
+  for the main menu, **N** or Escape closes the box. The others see you
+  leave at once. A match also keeps running when its window is in the
+  background, so your 'Mech is never a frozen target.
+- **Mods** must match: a player whose gameplay mods differ from the host's
+  is told which mods each side uses.
 
 ### Bug fixes, and playing exactly like the original
 
@@ -130,6 +173,18 @@ plan around are kept. Every change is listed in plain words in
 To play exactly as the original did, turn the fixes off: start with
 `--original`, or put the line `bugfixes=0` in `mw3.cfg` (in the folder
 below). The changes the game needs to run on a modern computer stay on.
+
+## Mods
+
+The rebuild loads mods: folders of game data in a `mods` folder inside the
+settings folder (below), laid out like the game's own files, each with a
+short `mod.txt`. A mod can change textures, sounds, text, missions and the
+game's data files, or add new worlds and maps; it never touches your
+install or your pilots. List them in `mw3.cfg` (`mod=NAME`, one a line) to
+turn them on; `mw3 --mods` lists what it found, and `mw3 --check-mod
+FOLDER` reads a mod as the game would and says what it would refuse. With
+no mods turned on, nothing changes. How to make one:
+[docs/modding.md](docs/modding.md).
 
 ## Where your saves and settings go
 
@@ -169,6 +224,13 @@ A few:
   and take 7 seconds to arrive.
 - Pilot files track hidden Instant Action and multiplayer stats that the
   game never shows.
+
+**For the curious:** start with `--debug-camera` (or put `debugcamera=1`
+in `mw3.cfg`) and press **Shift+F12** in a mission to open the game editor
+the original carries but never lets you reach: its menu over the mission,
+and the view on the invisible "stealth" camera, flown with the movement
+keys. Shift+F12 again puts the view back on your 'Mech. It is a developer's
+tool, as it was in 1999: expect rough edges.
 
 ## Building from source
 
