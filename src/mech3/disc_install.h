@@ -3,6 +3,7 @@
 #include <cstdio>
 #include <functional>
 #include <string>
+#include <system_error>
 #include <vector>
 
 // Installing MechWarrior 3 straight from its disc (ours, not original code;
