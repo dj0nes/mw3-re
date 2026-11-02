@@ -255,6 +255,31 @@ and vtable offsets. Each module's tests are made to run on PM when that
 module is ported for PM (step 1 onwards), with the PM version beside the
 MW3 one.
 
+## Does PM need MW3? (Owen, 2026-11-02)
+
+No. PM's exe looks for nothing of MW3's, and the PM disc alone makes a
+complete install (game/pm). What the exe reaches outside its folder:
+
+- The registry: `HKLM\SOFTWARE\MicroProse\MechWarrior 3 EP1\<version>`
+  (its own key: `InstallOptions` 0x5b9330, the settings 0x4826e0), and
+  `HKLM\Software\Zipper\MechWarrior3\<version>\RunDir` (0x4852f0), the
+  developer's key both games carry (protection.md section 1's RunDir; no
+  installer writes it).
+- The disc check 0x4854e0: `data.tag` on any CD-ROM drive (scanner
+  0x5967c0). MW3's disc has a `DATA.TAG` too (both are InstallShield
+  discs), so the original took an MW3 disc for PM's. MW3's own check looks
+  for `video\c1.avi`. Not ported (the trap list, protection.md).
+- A file not found where named is looked for on the CD-ROM drives
+  (0x5c9bb0 through 0x5968d0): the movies, as MW3's.
+- The search paths are relative to the run folder (`zbd`, and
+  `..\data\...` from the developer's tree).
+
+The port: mw3pm mounts its own install and its write dir only (and mods),
+names stay inside them (`zutl::Mounts::confined`, path-guard), and none of
+the ported PM readers names an MW3 path. The check to repeat once mw3pm
+loads data (step 1's end): a run with only game/pm mounted reaches the
+menus and a mission, and the log shows no file outside it.
+
 ## The data formats against mech3ax
 
 mech3ax reads PM (`GameType::PM`). Checked against the PM install's files:
