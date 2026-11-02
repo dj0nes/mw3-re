@@ -4146,10 +4146,10 @@ TEST(sdl_program_movies_keep_their_shape_on_a_wide_screen) {
   EXPECT(sa && a[0] <= 8 && a[2] >= 1911 && a[1] >= 40 && a[3] <= 1040);
   // C1M1 at the screen's height, 1440 wide in the middle: black sides.
   EXPECT(sb && b[0] >= 230 && b[2] <= 1690 && b[1] <= 30 && b[3] >= 1050);
-  // Measured once, kept in the write dir.
+  // The shipped movies' shapes are the table's: none measured, none written.
   std::ifstream cache(dir + "/movie-shapes.txt");
   const std::string text((std::istreambuf_iterator<char>(cache)), std::istreambuf_iterator<char>());
-  EXPECT(text.find("intro/") != std::string::npos && text.find("c1/") != std::string::npos);
+  EXPECT(text.find("intro/") == std::string::npos && text.find("c1/") == std::string::npos);
 }
 #endif
 #endif

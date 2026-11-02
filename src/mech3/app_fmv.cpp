@@ -31,24 +31,10 @@ namespace {
 constexpr uint32_t kVidsType = 0x73646976;  // 'vids'
 constexpr const char* kShapesFile = "movie-shapes.txt";  // in the write dir (ours, docs/fmv.md section 8)
 
-// A movie's file name, lower case, without its folder or extension.
-std::string movie_name(const std::string& path) {
-  std::string n = path;
-  std::replace(n.begin(), n.end(), '\\', '/');
-  if (const size_t s = n.rfind('/'); s != std::string::npos) n.erase(0, s + 1);
-  if (const size_t d = n.rfind('.'); d != std::string::npos) n.erase(d);
-  for (char& c : n) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-  std::replace(n.begin(), n.end(), ' ', '_');
-  return n;
-}
-
 class GameFmvHost : public zfmv::Host {
  public:
   explicit GameFmvHost(GameEngine* e) : e_(e) {}
-  ~GameFmvHost() override {
-    stop_ = true;
-    if (scan_.joinable()) scan_.join();
-  }
+  ~GameFmvHost() override { shapes_.reset(); }  // its measuring thread stopped first
   uint32_t unported(const char* key, std::initializer_list<zgame::Arg> args) override {
     return e_->unported(key, args);
   }
@@ -190,6 +176,7 @@ class GameFmvHost : public zfmv::Host {
     auto it = streams_.find(stream);
     if (it == streams_.end()) return;
     if (decoding_ == it->second.get()) decoding_ = nullptr;
+    if (it->second->video) shapes().play_end();
     if (it->second->remote && vfw()) {
       std::lock_guard<std::mutex> g(vfw_mu_);
       vfw()->release(it->second->remote);
@@ -297,80 +284,30 @@ class GameFmvHost : public zfmv::Host {
     while (p.rfind("./", 0) == 0) p.erase(0, 2);
     return zutl::find(p.c_str());
   }
-  // The movies' shapes (movie_shape.h, docs/fmv.md section 8): measured
-  // once per movie on a thread of their own, kept in the write dir. A movie
-  // played before its shape is known shows its whole frame up to the first
-  // shape change after it is (never mid-shot).
-  struct Shape {
-    bool ready = false;
-    std::vector<MovieShapeRun> runs;
-  };
-  struct Play {
-    std::string key;
-    MovieShapePlay shape;
-  };
-  void shapes_load() {
-    if (shapes_loaded_) return;
-    shapes_loaded_ = true;
-    std::ifstream f(zutl::write_path(kShapesFile));
-    for (std::string line, key; std::getline(f, line);) {
-      std::vector<MovieShapeRun> runs;
-      if (line.empty() || line[0] == '#' || !movie_shape_parse(line, &key, &runs)) continue;
-      shapes_[key] = Shape{true, runs};
-    }
+  // The movies' shapes (movie_shape.h, docs/fmv.md section 8): the shipped
+  // ones from the table, others measured on a thread of their own while no
+  // movie plays (never slowing one), kept in the write dir.
+  MovieShapeStore& shapes() {
+    if (!shapes_) shapes_ = std::make_unique<MovieShapeStore>(zutl::write_path(kShapesFile));
+    return *shapes_;
   }
-  void shapes_save(const std::string& key, const std::vector<MovieShapeRun>& runs) {
-    const std::string path = zutl::write_path(kShapesFile);
-    std::ifstream in(path);
-    const bool fresh = !in.good();
-    in.close();
-    std::ofstream out(path, std::ios::app);
-    if (!out) return;
-    if (fresh) out << "# The movies' shapes on a wide screen, measured once each (docs/fmv.md section 8).\n";
-    out << movie_shape_line(key, runs) << "\n";
-  }
-  // A picture stream opened: its key (name, frames, size); scanned unless known.
+  // A picture stream opened: its key (name, frames, size); measured unless known.
   void shape_open(Open& o, const std::string& source, bool remote) {
     int32_t w = 0, h = 0;
     if (o.format.size() >= 12) std::memcpy(&w, &o.format[4], 4), std::memcpy(&h, &o.format[8], 4);
-    h = h < 0 ? -h : h;
-    o.shape_key = movie_name(source) + "/" + std::to_string(o.info.length) + "/" + std::to_string(w) + "x" + std::to_string(h);
+    o.shape_key = movie_shape_key(source, o.info.length, w, h);
     play_ = Play{o.shape_key, {}};
-    std::lock_guard<std::mutex> g(shapes_mu_);
-    shapes_load();
-    if (shapes_.count(o.shape_key)) return;
-    if (scanning_) return;  // one at a time: this one plays whole, measured on a later play
-    if (scan_.joinable()) scan_.join();
-    shapes_[o.shape_key] = Shape{};
-    scanning_ = true;
-    const std::string key = o.shape_key;
     const int32_t fps = o.info.scale ? static_cast<int32_t>(o.info.rate / o.info.scale) : 15;
-    scan_ = std::thread([this, key, source, remote, fps] {
-      std::vector<MovieFrameScan> frames;
-      int32_t fw = 0, fh = 0;
-      const bool ok = remote ? scan_remote(source, &frames, &fw, &fh) : scan_imported_movie(source, &frames, &fw, &fh, &stop_);
-      std::vector<MovieShapeRun> runs;
-      if (ok) runs = movie_shape_runs(frames, fw, fh, fps);
-      std::lock_guard<std::mutex> g(shapes_mu_);
-      if (ok && !runs.empty()) {
-        shapes_[key] = Shape{true, runs};
-        shapes_save(key, runs);
-        std::printf("mw3: movie %s measured: %s\n", key.c_str(), movie_shape_line("", runs).c_str() + 1);
-      } else {
-        shapes_.erase(key);
-      }
-      scanning_ = false;
-    });
-    if (e_->movie_shape_first) {
-      shapes_mu_.unlock();
-      scan_.join();
-      shapes_mu_.lock();
-    }
+    shapes().open(o.shape_key, fps, [this, source, remote](const MovieScanGate& gate, std::vector<MovieFrameScan>* f,
+                                                           int32_t* fw, int32_t* fh) {
+      return remote ? scan_remote(source, gate, f, fw, fh) : scan_imported_movie(source, f, fw, fh, gate);
+    }, e_->movie_shape_first);
   }
   // Every frame through the helper (its own stream, under the helper's lock).
-  bool scan_remote(const std::string& host, std::vector<MovieFrameScan>* out, int32_t* w, int32_t* h) {
+  bool scan_remote(const std::string& host, const MovieScanGate& gate, std::vector<MovieFrameScan>* out, int32_t* w,
+                   int32_t* h) {
     platform::VideoForWindows* v = vfw();
-    if (!v) return false;
+    if (!v || !gate()) return false;  // not even opened while a movie plays
     uint32_t id = 0;
     std::vector<uint8_t> in;
     zfmv::AviStreamInfo info;
@@ -403,7 +340,7 @@ class GameFmvHost : public zfmv::Host {
     std::vector<uint16_t> px(ok ? static_cast<size_t>(pitch / 2) * fh : 0);
     std::vector<uint8_t> chunk(info.suggested_buffer ? info.suggested_buffer : 1u << 20);
     for (int32_t f = 0; ok && f < len; ++f) {
-      if (stop_) ok = false;
+      if (!gate()) ok = false;
       std::lock_guard<std::mutex> g(vfw_mu_);
       if (!ok || v->read(id, f, 1, chunk.data(), static_cast<int32_t>(chunk.size())) != 0) {
         ok = false;
@@ -422,25 +359,21 @@ class GameFmvHost : public zfmv::Host {
   }
   // The rows of the playing movie's frame `f` to show, or -1 for its whole frame.
   void frame_rows(int32_t f, int32_t* top, int32_t* bottom) {
-    std::lock_guard<std::mutex> g(shapes_mu_);
-    auto it = shapes_.find(play_.key);
-    const bool ready = it != shapes_.end() && it->second.ready;
     int16_t t = 0, b = 0;
-    if (play_.shape.rows(ready ? &it->second.runs : nullptr, f, &t, &b)) *top = t, *bottom = b;
+    if (shapes().rows(play_.key, &play_.shape, f, &t, &b)) *top = t, *bottom = b;
   }
   GameEngine* e_;
   std::map<Handle, std::unique_ptr<Open>> streams_;
   Open* decoding_ = nullptr;
   mutable std::mutex vfw_mu_;  // the helper's calls: the player's and the shape scan's
-  std::mutex shapes_mu_;
-  std::map<std::string, Shape> shapes_;
-  bool shapes_loaded_ = false;
-  bool scanning_ = false;
-  std::atomic<bool> stop_{false};
-  std::thread scan_;
+  struct Play {
+    std::string key;
+    MovieShapePlay shape;
+  };
   Play play_;
   const zimg::Texture* shown_image_ = nullptr;  // the movie's picture drawn last, and its frame
   int32_t shown_frame_ = -1;
+  std::unique_ptr<MovieShapeStore> shapes_;  // last: its thread uses the members above
 };
 
 std::unique_ptr<GameFmvHost> g_host;
