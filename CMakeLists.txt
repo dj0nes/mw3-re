@@ -272,6 +272,7 @@ add_library(mw3core STATIC
   src/mech3/app_fmv.cpp
   src/mech3/app_movie.cpp
   src/mech3/movie_shape.cpp
+  src/mech3/movie_shape_table.cpp
   src/mech3/mods.cpp
   third_party/pl_mpeg/pl_mpeg.c
   src/mech3/app_mission.cpp

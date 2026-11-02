@@ -10,11 +10,13 @@
 //               the movie player's arithmetic reads (fmv_stream.cpp).
 //
 //   mw3import [--install DIR] [--write-dir DIR] [--only NAME] [--missing]
-//             [--cue DISC.cue [--music-only]]
+//             [--cue DISC.cue [--music-only]] [--shapes]
 //
 // --missing: only the movies without a .fmv yet (mw3's first run asks for
 // these, following the "progress K N" lines). --cue: the disc image's CD
-// audio as music\trackNN.wav too (platform/cue_audio.h).
+// audio as music\trackNN.wav too (platform/cue_audio.h). --shapes: then
+// every movie made measured as the program would (movie_shape.h), a
+// "shape <line>" each, for tools/analysis/movie_shapes.py's table.
 //
 // Needs FFmpeg's libavformat, libavcodec, libswscale and libavutil (Indeo 5
 // decoding and the MPEG-1 encoder); built only when they are found.
@@ -30,6 +32,7 @@
 
 #include <SDL3/SDL.h>
 
+#include "mech3/app_movie.h"
 #include "platform/cue_audio.h"
 
 extern "C" {
@@ -297,7 +300,7 @@ int main(int argc, char** argv) {
 #ifndef MW3_VERSION
 #define MW3_VERSION "unknown"
 #endif
-  bool missing = false, music_only = false;
+  bool missing = false, music_only = false, shapes = false;
   for (int i = 1; i < argc; ++i) {
     const std::string s = argv[i];
     if (s == "--version") {  // the build and the FFmpeg it runs on (its configuration: the libraries in it)
@@ -311,10 +314,11 @@ int main(int argc, char** argv) {
     else if (s == "--cue" && i + 1 < argc) cue = argv[++i];
     else if (s == "--missing") missing = true;
     else if (s == "--music-only") music_only = true;
+    else if (s == "--shapes") shapes = true;
     else {
       std::fprintf(stderr,
                    "usage: mw3import [--install DIR] [--write-dir DIR] [--only NAME] [--missing]\n"
-                   "                 [--cue DISC.cue [--music-only]] [--version]\n");
+                   "                 [--cue DISC.cue [--music-only]] [--shapes] [--version]\n");
       return 2;
     }
   }
@@ -382,5 +386,10 @@ int main(int argc, char** argv) {
     std::printf("progress %zu %zu %s\n", k + 1, todo.size(), name.c_str());
   }
   std::printf("mw3import: %d movies into %s%s\n", made, dst.string().c_str(), failed ? ", some failed" : "");
+  for (size_t k = 0; shapes && k < todo.size(); ++k) {
+    const std::string line = mech3::measure_imported_movie((dst / todo[k].second).string());
+    if (line.empty()) std::fprintf(stderr, "mw3import: %s: not measured\n", todo[k].second.c_str()), ++failed;
+    else std::printf("shape %s\n", line.c_str());
+  }
   return failed ? 1 : 0;
 }
