@@ -595,3 +595,4 @@ Known quirks the rebuild deliberately keeps:
 - On a Mac the numeric keypad types digits in text fields (an IP address on the connection screen); a Mac has no Num Lock, which the game needed on.
 - A locked multiplayer game turns away players who try to join it, instead of only greying out its Join button.
 - With bug fixes on, locking a multiplayer game with "Use stock 'Mechs" keeps the stock loadout a player chose instead of resetting it to the mech's first.
+- On a wide screen the movies keep their shape: the intro and the ending movie, whose black bars are part of the picture, fill the screen's width; the 4:3 movies and the logo screens are centred with black sides (they were stretched a third too wide). Measured once per movie from the pictures and kept in movie-shapes.txt in the settings folder.

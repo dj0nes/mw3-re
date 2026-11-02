@@ -23,7 +23,8 @@
 //   --movie NAME         debug start playing one fmv.zrd block (INTRO, c1m2 ...); with
 //                        --nosound on a clock stepping 1/60 s each poll, so each
 //                        frame is shown once (--shot F --shot-frame N: the movie's
-//                        N-th frame, numbered from 1);
+//                        N-th frame, numbered from 1); a movie's shape on a wide
+//                        screen measured before its first frame (docs/fmv.md section 8);
 //                        the movies are the importer's (mw3import), in the write dir
 //   --shot FILE.bmp      save frame N (--shot-frame N, default 30) and quit; hides the window
 //     --shot-any         count every frame shown (the fade's too), not only the 3D scene's

@@ -270,6 +270,7 @@ add_library(mw3core STATIC
   src/mech3/force_feedback.cpp
   src/mech3/app_fmv.cpp
   src/mech3/app_movie.cpp
+  src/mech3/movie_shape.cpp
   third_party/pl_mpeg/pl_mpeg.c
   src/mech3/app_mission.cpp
   src/mech3/app_hook_census.cpp
@@ -536,6 +537,7 @@ add_executable(mw3tests
   tests/test_controls_cfg.cpp
   tests/test_pilot_names.cpp
   tests/test_program.cpp
+  tests/test_movie_shape.cpp
   tests/test_hooks.cpp
   tests/place_survey.cpp
 )

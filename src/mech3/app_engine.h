@@ -567,10 +567,16 @@ class GameEngine : public Engine {
   void wait_start() override;
   uint32_t wait_poll() override;
   void wait_end() override;
-  void fmv_stretch(zimg::Texture* image, int32_t left, int32_t top, int32_t right, int32_t bottom);
+  // Ours on a wide buffer (docs/fmv.md section 8): rows `src_top`..`src_bottom`
+  // of the image (-1: all of it) kept in their shape over the whole buffer.
+  void fmv_stretch(zimg::Texture* image, int32_t left, int32_t top, int32_t right, int32_t bottom, int32_t src_top = -1,
+                   int32_t src_bottom = -1);
   struct MovieStats {  // ours, for checking: the PLAYAVI frames drawn, the last one, its movie's length
     int drawn = 0, last = -1, length = 0;
   } movie_stats;
+  // Ours (docs/fmv.md section 8): a movie's shape measured before its first
+  // frame instead of beside it (the --movie debug start's, for its shots).
+  bool movie_shape_first = false;
   // The Direct3D frame: zvid's lock (0x00576d00 / 0x00576d60), scene nesting
   // (0x00579af0 / 0x00579b10), the quad ([0x0072f3ec]) and the finish (0x00558610).
   // 0x0040f8d0: the message panel's slide, then the view target's HUD data update.

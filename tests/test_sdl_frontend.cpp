@@ -36,6 +36,7 @@
 #include "frontend/sdl/sdl_twod_host.h"
 #include "frontend/sdl/sdl_vfw.h"
 #include "mech3/app_movie.h"
+#include "mech3/movie_shape.h"
 #include "gamez/zinterp/zinterp.h"
 #include "gamez/zimage/zimg_library.h"
 #include "gamez/zutil/zfix.h"
@@ -3662,6 +3663,106 @@ TEST(sdl_program_launcher_starts_mechwarrior_1989) {
   EXPECT(text.find("MechWarrior (1989) port at " + port) != std::string::npos);
   EXPECT(text.find("MechWarrior (1989) exited (0)") != std::string::npos);
   EXPECT(args == dir + "/game|" + dir + "/wd/mw1/captures|" + dir + "/wd/mw1/saves");
+}
+#endif
+
+#if !defined(_WIN32)  // posix_spawn (ours, not on Windows)
+// The movies on a wide screen (W1, docs/fmv.md section 8): INTRO, C4WIN and
+// a 4:3 briefing imported (mw3import, FFmpeg), their shapes measured from the
+// pictures (INTRO letterboxed throughout; C4WIN letterboxed, then its 4:3
+// ending; C1M1 4:3), then hidden 1920x1080 shots on a 16:9 screen mode:
+// INTRO across the whole width with bars above and below, C1M1 at the
+// screen's height with black sides. Skipped without FFmpeg in the importer.
+namespace {
+// The lit box (any channel over 24) of a 32-bit BMP: left, top, right, bottom.
+bool bmp_lit_box(const std::string& path, int* w, int* h, int box[4]) {
+  std::FILE* f = std::fopen(path.c_str(), "rb");
+  if (!f) return false;
+  std::vector<uint8_t> d;
+  uint8_t buf[65536];
+  for (size_t n; (n = std::fread(buf, 1, sizeof buf, f)) > 0;) d.insert(d.end(), buf, buf + n);
+  std::fclose(f);
+  if (d.size() < 54 || d[0] != 'B' || d[1] != 'M' || d[28] != 32) return false;
+  auto u32 = [&](size_t at) { return static_cast<uint32_t>(d[at] | d[at + 1] << 8 | d[at + 2] << 16 | d[at + 3] << 24); };
+  const uint32_t off = u32(10);
+  *w = static_cast<int32_t>(u32(18));
+  const int32_t sh = static_cast<int32_t>(u32(22));
+  *h = std::abs(sh);
+  if (static_cast<size_t>(off) + static_cast<size_t>(*w) * *h * 4 > d.size()) return false;
+  box[0] = *w, box[1] = *h, box[2] = -1, box[3] = -1;
+  for (int y = 0; y < *h; ++y)
+    for (int x = 0; x < *w; ++x) {
+      const size_t i = off + (static_cast<size_t>(y) * *w + x) * 4;
+      if (std::max({d[i], d[i + 1], d[i + 2]}) <= 24) continue;
+      const int row = sh > 0 ? *h - 1 - y : y;  // bottom up unless the height is negative
+      box[0] = std::min(box[0], x), box[2] = std::max(box[2], x);
+      box[1] = std::min(box[1], row), box[3] = std::max(box[3], row);
+    }
+  return true;
+}
+}  // namespace
+
+TEST(sdl_program_movies_keep_their_shape_on_a_wide_screen) {
+  const std::string install = MW3_GAME_DIR;
+  std::error_code ec;
+  if (!std::filesystem::exists(MW3_IMPORT_BIN, ec) || !std::filesystem::exists(install + "/video/INTRO.AVI", ec)) return;
+  const std::string dir = std::string(MW3_TEST_TMP) + "/wide_movies";
+  std::filesystem::remove_all(dir, ec);
+  std::filesystem::create_directories(dir, ec);
+  for (const char* name : {"intro", "c4win", "c1m1", "c1"}) {  // c1m1's block plays c1 first
+    const pid_t pid = spawn_bin(MW3_IMPORT_BIN, {"--install", install, "--write-dir", dir, "--only", name},
+                                dir + "/import-" + name + ".log");
+    int status = 0;
+    if (pid > 0) waitpid(pid, &status, 0);
+  }
+  if (!std::filesystem::exists(dir + "/video/intro.fmv", ec)) return;  // no FFmpeg in this importer
+  // The shapes, measured.
+  auto runs_of = [&](const char* name) {
+    std::vector<mech3::MovieFrameScan> f;
+    int32_t w = 0, h = 0;
+    if (!mech3::scan_imported_movie(dir + "/video/" + name, &f, &w, &h)) return std::vector<mech3::MovieShapeRun>{};
+    return mech3::movie_shape_runs(f, w, h, 15);
+  };
+  const auto intro = runs_of("intro"), c4win = runs_of("c4win"), c1m1 = runs_of("c1m1");
+  std::printf("shapes: %s | %s | %s\n", mech3::movie_shape_line("intro", intro).c_str(),
+              mech3::movie_shape_line("c4win", c4win).c_str(), mech3::movie_shape_line("c1m1", c1m1).c_str());
+  // INTRO: 640x320 inside its frame (rows 80..400, give or take the
+  // pictures' own edges), the whole movie one run.
+  EXPECT(intro.size() == 1 && !intro[0].whole && intro[0].top >= 70 && intro[0].top <= 90 && intro[0].bottom >= 395 &&
+         intro[0].bottom <= 410);
+  // C4WIN: letterboxed (its 640x240 picture and the taller shots beside it),
+  // then the 4:3 ending from a cut about 68 s in (frame 1020 at 15 a second).
+  EXPECT(c4win.size() == 2 && !c4win[0].whole && c4win[0].top >= 90 && c4win[0].top <= 125 && c4win[0].bottom >= 355 &&
+         c4win[0].bottom <= 385 && c4win[1].whole && c4win[1].start >= 990 && c4win[1].start <= 1050);
+  // C1M1: a 4:3 briefing, left alone.
+  EXPECT(c1m1.size() == 1 && c1m1[0].whole);
+  // The shots on a 16:9 mode (13, 1920x1080, as the graphics options save it).
+  if (std::FILE* f = std::fopen((dir + "/settings.reg").c_str(), "w")) {
+    std::fputs("Windows Registry Editor Version 5.00\n\n[HKEY_CURRENT_USER\\SOFTWARE\\MicroProse\\MechWarrior 3\\1.0]\n"
+               "\"InGameVMode\"=dword:0000000d\n", f);
+    std::fclose(f);
+  }
+  auto shot = [&](const char* movie, const char* frame, int box[4]) {
+    const std::string bmp = dir + "/" + movie + ".bmp";
+    const pid_t pid = spawn_mw3({"--write-dir", dir, "--movie", movie, "--window", "1920x1080", "--nosound", "--hidden",
+                                 "--shot", bmp, "--shot-frame", frame},
+                                dir + "/" + movie + ".log");
+    int status = 0;
+    if (pid > 0) waitpid(pid, &status, 0);
+    int w = 0, h = 0;
+    return bmp_lit_box(bmp, &w, &h, box) && w == 1920 && h == 1080;
+  };
+  int a[4] = {}, b[4] = {};
+  const bool sa = shot("INTRO", "300", a), sb = shot("c1m1", "100", b);
+  std::printf("1920x1080: INTRO lit %d..%d x %d..%d, C1M1 lit %d..%d x %d..%d\n", a[0], a[2], a[1], a[3], b[0], b[2], b[1], b[3]);
+  // INTRO across the width, black bars above and below (its 322 rows at 3x: 966 of 1080).
+  EXPECT(sa && a[0] <= 8 && a[2] >= 1911 && a[1] >= 40 && a[3] <= 1040);
+  // C1M1 at the screen's height, 1440 wide in the middle: black sides.
+  EXPECT(sb && b[0] >= 230 && b[2] <= 1690 && b[1] <= 30 && b[3] >= 1050);
+  // Measured once, kept in the write dir.
+  std::ifstream cache(dir + "/movie-shapes.txt");
+  const std::string text((std::istreambuf_iterator<char>(cache)), std::istreambuf_iterator<char>());
+  EXPECT(text.find("intro/") != std::string::npos && text.find("c1/") != std::string::npos);
 }
 #endif
 #endif
