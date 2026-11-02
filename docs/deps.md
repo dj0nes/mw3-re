@@ -1,6 +1,6 @@
 # The bundled libraries, from source
 
-`tools/deps/build_deps.sh mac|linux` builds the libraries the releases
+`tools/deps/build_deps.sh mac|linux|win` builds the libraries the releases
 bundle from their official release tarballs (Owen, 2026-10-30: universal
 arm64 + x86_64 for macOS 12 and later on the Mac, and on Linux), into
 `build-deps/<platform>/prefix`. `JOBS=4` caps the parallel jobs (the
@@ -65,3 +65,14 @@ What is built:
   (2026-11-02): FFmpeg keeps its whole configure line in each library
   (`avutil_configuration()`), and a real prefix put the build folder, with
   the user name, into the release packages (release.md, Privacy).
+- **Windows** (`build_deps.sh win`, 2026-11-02): FFmpeg only, the same
+  tarball and options, cross-built for x86_64 with Homebrew's `mingw-w64`
+  14.0.0_3 (GCC 16.2.0, binutils' `dlltool` for the MSVC import `.lib`s),
+  targeting the UCRT (the DLLs import the `api-ms-win-crt-*` sets, KERNEL32
+  and bcrypt; no msvcrt). Windows threads (`--enable-w32threads`), libgcc
+  linked in (`-static-libgcc`), no x86 assembly (no nasm). mingw-w64 keeps
+  `clock_gettime` and `nanosleep` in `libwinpthread-1.dll`, so the script
+  turns both off in FFmpeg's `config.h` after configure: avutil then uses
+  Windows' clock (`GetSystemTimeAsFileTime`) and `Sleep`. The script
+  refuses a DLL that imports anything else. Replaces BtbN's "latest"
+  LGPL v3 build (docs/windows.md).

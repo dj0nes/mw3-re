@@ -575,3 +575,19 @@ works alongside it; stay out of its files.
   run jobs attached, never nohup.
 - Then the README for players, docs/building.md, docs/release.md. Queue
   empty: waiting for Owen's playtest or a merge problem.
+
+## 2026-11-02 (night): v1.0 release checks
+
+- Packages from 19a68f71, then a2340931, on all three platforms. FFmpeg's
+  configure line carried the build folder (Mac, Linux): `--prefix=/ffbuild`
+  with DESTDIR; `check_paths.py` / `check_dist.ps1` fail a package on a
+  local path or the user's name.
+- The PC copy is a git checkout now (a bundle, reset), so its packages carry
+  the commit; logs and scripts stay in build-win\.
+- The motion fallback refused the shipped Elemental (no elemental_limp):
+  only a broken motion, or a step or walk in no copy, refuses a mech now.
+  Campaign runs before reporting anything that touches loading or play.
+- Windows FFmpeg: BtbN's "latest" (LGPL v3, ~50 libraries, zvbi's GPL-2
+  files) replaced by `build_deps.sh win` (mingw-w64, the same configure line
+  as Mac/Linux; clock_gettime/nanosleep off to drop libwinpthread). INTRO
+  and C1M1 converted alike (wav/fmv identical, m1v same frames, PSNR 53/66 dB).

@@ -9,12 +9,15 @@
 #
 #   tools/deps/build_deps.sh mac     universal (arm64, x86_64), macOS 12 and later
 #   tools/deps/build_deps.sh linux   this machine's architecture
+#   tools/deps/build_deps.sh win     FFmpeg only, for Windows x64, cross-built
+#                                    with mingw-w64 (the PC takes the rest
+#                                    from their official Windows releases)
 #
 # Out: build-deps/<platform>/prefix (include, lib, lib/cmake, lib/pkgconfig),
 # which tools/macos/make_app.sh and the Linux build take as CMAKE_PREFIX_PATH.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
-PLATFORM="${1:?mac or linux}"
+PLATFORM="${1:?mac, linux or win}"
 ROOT="$PWD/build-deps"
 DL="$ROOT/downloads"
 PREFIX="$ROOT/$PLATFORM/prefix"
@@ -63,6 +66,7 @@ cmake_build() {  # source dir, then its options
   cmake --install "$src/_build" >/dev/null
 }
 
+if [ "$PLATFORM" != win ]; then
 unpack SDL3-3.4.12.tar.gz
 # Linux: XTest only feeds synthetic input; without its headers SDL refuses
 # to configure X11 (docs/linux.md).
@@ -91,6 +95,7 @@ unpack SDL3_sound-3.2.0.tar.gz
 cmake_build "$WORK/src/SDL3_sound-3.2.0" -DSDLSOUND_BUILD_SHARED=ON -DSDLSOUND_BUILD_STATIC=OFF \
   -DSDLSOUND_BUILD_TEST=OFF -DSDLSOUND_BUILD_DOCS=OFF
 echo "built SDL3_sound"
+fi
 
 # FFmpeg: only what mw3import uses (the AVI demuxer, the Indeo 5 decoder,
 # the MPEG-1 video encoder and muxer, swscale, the file protocol), LGPL 2.1,
@@ -109,7 +114,15 @@ ff_build() {  # staging dir (the tree lands in <dir>/ffbuild), then extra config
   local b="$WORK/ffmpeg-build-$(basename "$dst")"
   rm -rf "$b" "$dst" && mkdir -p "$b"
   (cd "$b" && "$WORK/src/ffmpeg-8.1.2/configure" --prefix=/ffbuild "${FFMPEG_OPTS[@]}" "$@" >/dev/null &&
-     make -j "$JOBS" >/dev/null && make install DESTDIR="$dst" >/dev/null)
+     ff_config_edit && make -j "$JOBS" >/dev/null && make install DESTDIR="$dst" >/dev/null)
+}
+# mingw-w64 has clock_gettime and nanosleep only in libwinpthread-1.dll:
+# without them avutil uses Windows' own clock and Sleep, and the DLLs load
+# only system DLLs (docs/deps.md).
+ff_config_edit() {
+  [ "$PLATFORM" = win ] || return 0
+  sed -i.orig -e 's/^#define HAVE_CLOCK_GETTIME 1$/#define HAVE_CLOCK_GETTIME 0/' \
+    -e 's/^#define HAVE_NANOSLEEP 1$/#define HAVE_NANOSLEEP 0/' config.h
 }
 ff_pc() {  # the staged .pc files into PREFIX, pointed at it
   mkdir -p "$PREFIX/lib/pkgconfig"
@@ -131,6 +144,25 @@ if [ "$PLATFORM" = mac ]; then
     if [ -L "$f" ]; then cp -P "$f" "$PREFIX/lib/$n"; else lipo -create "$f" "$WORK/ffmpeg-x86_64/ffbuild/lib/$n" -output "$PREFIX/lib/$n"; fi
   done
   ff_pc "$WORK/ffmpeg-arm64"
+elif [ "$PLATFORM" = win ]; then
+  # Windows x64 with mingw-w64's GCC (its UCRT), Windows threads, libgcc
+  # linked in, no x86 assembly (no nasm here). The layout is a shared build's
+  # (include\, lib\*.lib, bin\*.dll), as CMake takes it from deps\ffmpeg-*shared*.
+  ff_build "$WORK/ffmpeg-win64" --target-os=mingw32 --arch=x86_64 --cross-prefix=x86_64-w64-mingw32- \
+    --enable-cross-compile --disable-x86asm --enable-w32threads --extra-ldflags=-static-libgcc
+  st="$WORK/ffmpeg-win64/ffbuild"
+  mkdir -p "$PREFIX/bin" "$PREFIX/lib"
+  cp -R "$st/include" "$PREFIX/"
+  cp "$st"/bin/*.dll "$PREFIX/bin/"
+  cp "$st"/bin/*.lib "$PREFIX/lib/"   # dlltool's import libraries, which MSVC links
+  cp "$WORK/src/ffmpeg-8.1.2/COPYING.LGPLv2.1" "$WORK/src/ffmpeg-8.1.2/LICENSE.md" "$PREFIX/"
+  # Each DLL loads only Windows' own (KERNEL32, bcrypt, the UCRT's
+  # api-ms-win-crt-*) and the other FFmpeg DLLs: no libgcc or winpthread.
+  for f in "$PREFIX"/bin/*.dll; do
+    other=$(x86_64-w64-mingw32-objdump -p "$f" | awk '/DLL Name:/{print $3}' |
+            grep -viE '^(kernel32|bcrypt)\.dll$|^api-ms-win-crt-|^(avutil|avcodec|avformat|swscale)-[0-9]+\.dll$' || true)
+    [ -z "$other" ] || { echo "$(basename "$f") loads $other: refused" >&2; exit 1; }
+  done
 else
   # Without nasm FFmpeg's x86 assembly is left out (the Indeo decoder a little slower).
   asm=(); command -v nasm >/dev/null || asm=(--disable-x86asm)
@@ -140,6 +172,7 @@ else
   ff_pc "$WORK/ffmpeg-native"
 fi
 echo "built FFmpeg"
+if [ "$PLATFORM" = win ]; then echo "prefix: $PREFIX"; exit 0; fi
 
 # SETUP's archives (docs/setup-sources.md): libarchive reading zip, 7z, RAR4/5,
 # tar and ISO 9660, with zlib (deflate) and liblzma (7z's LZMA/LZMA2, xz);
