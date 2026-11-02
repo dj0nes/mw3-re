@@ -14,6 +14,7 @@
 #include "gamez/zvideo/zvid_format.h"
 #include "pm/gamez/zclass/cls_zbd.h"
 #include "pm/gamez/zimage/zimg_texture.h"
+#include "pm/gamez/zmodel/gmod_const.h"
 #include "pm/gamez/zmodel/gmod_matl.h"
 #include "pm/gamez/zreader/zrdr_main.h"
 #include "pm/gamez/zutil/zutl_zar.h"
@@ -215,17 +216,18 @@ int probe_pm_zrdr_query(const char* key, uint32_t fill, uint32_t* out, char* tex
 // '|'. Out: per file the two results, then the texture table and the
 // material table (every slot; a used textured one's texture as an index),
 // then the cycles in index order. The bytes written, -1 when too small.
-int probe_pm_gamez_stack(const char* paths, int rb, int gb, int bb, uint8_t* out, int cap) {
+int probe_pm_gamez_stack(const char* paths, int rb, int gb, int bb, int with_models, uint8_t* out, int cap) {
   zvid::set_pixel_format(rb, gb, bb);
   ::zimg::TextureTable& tt = ::zimg::textures();
   tt.count = 0, tt.group = 0;
   ::zmod::materials() = ::zmod::MaterialTable{};
+  pm::zmod::models() = pm::zmod::ModelPool{};
   pm::zcls::ZbdState& z = pm::zcls::zbd_state();
   z = pm::zcls::ZbdState{};
   std::string b;
   auto put = [&](const void* p, size_t n) { b.append(static_cast<const char*>(p), n); };
   std::string all = paths;
-  int32_t unresolved = 1 << 30;
+  int32_t unresolved = 1 << 30, m_unread = 1 << 30;
   for (size_t at = 0; at <= all.size();) {
     size_t bar = all.find('|', at);
     if (bar == std::string::npos) bar = all.size();
@@ -248,7 +250,15 @@ int probe_pm_gamez_stack(const char* paths, int rb, int gb, int bb, uint8_t* out
     const int32_t before = ::zmod::materials().capacity;
     if (tex >= 0) mat = pm::zmod::read_materials(f);
     if (mat < 0) unresolved = before;  // a failed read's materials keep the file's indices
+    int32_t mod = 0;
+    if (with_models && tex >= 0 && mat >= 0) {
+      std::fseek(f, e.get(0x18), SEEK_SET);
+      const int32_t mbefore = pm::zmod::models().capacity;
+      mod = pm::zmod::read_models(f, mat);
+      if (mod < 0) m_unread = mbefore;  // a failed read's slots: their headers only
+    }
     put(&tex, 4), put(&mat, 4);
+    if (with_models) put(&mod, 4);
     std::fclose(f);
     z.file = nullptr, z.current = -1, z.own_textures = false;
     if (tex < 0 || mat < 0) break;
@@ -283,6 +293,44 @@ int probe_pm_gamez_stack(const char* paths, int rb, int gb, int bb, uint8_t* out
     for (uint32_t k = 0; k < c->texture_count; ++k) {
       const int32_t idx = index_of(c->textures[k]);
       put(&idx, 4);
+    }
+  }
+  if (with_models) {
+    pm::zmod::ModelPool& mp = pm::zmod::models();
+    put(&mp.capacity, 4), put(&mp.count, 4), put(&mp.free_head, 4);
+    auto mat_index = [&](const ::zmod::Material* m) { return m ? t.index_of(m) : -1; };
+    for (int i = 0; i < mp.capacity; ++i) {
+      const pm::zmod::Model& m = mp.at(i);
+      put(m.header, 0x34), put(m.header + 0x48, 0x18), put(&m.link, 4);  // not the pointers
+      if (i >= m_unread) continue;
+      auto arr = [&](const void* p, int32_t n, size_t each) { if (n > 0) put(p, static_cast<size_t>(n) * each); };
+      arr(m.vertices, m.count(0x14), 12), arr(m.normals, m.count(0x18), 12), arr(m.morphs, m.count(0x1c), 12);
+      for (int32_t k = 0; k < m.count(0x20); ++k) {
+        const ::zmod::Light& l = m.lights[k];
+        put(l.raw, 0x28), put(&l.color, 2), put(l.raw + 0x30, 0x1c);
+        int32_t n;
+        std::memcpy(&n, l.raw + 0xc, 4);
+        arr(l.vertices, n, 12);
+      }
+      for (int32_t k = 0; k < m.count(0x10); ++k) {
+        const pm::zmod::Polygon& q = m.polygons[k];
+        const uint32_t n = q.flags & 0x3ff;
+        const int32_t uvs = q.file_uvs ? 1 : 0;
+        put(&q.flags, 4), put(&q.priority, 4), put(&q.material_count, 4), put(&uvs, 4), put(&q.zone_set, 4);
+        if (n) put(q.vertex_indices, n * 4);
+        if (n && (q.flags & 0x1000)) put(q.normal_indices, n * 4);
+        for (int32_t j = 0; j < q.material_count; ++j) {
+          const int32_t mi = mat_index(q.materials[j]);
+          put(&mi, 4);
+          if (q.uvs) put(q.uvs[j], n * 8);
+        }
+        put(q.colors, n * 12);
+      }
+      for (int32_t k = 0; k < m.count(0x5c); ++k) {
+        const pm::zmod::MaterialRef& r = m.refs[k];
+        const int32_t mi = mat_index(r.material), first = r.polygon ? static_cast<int32_t>(r.polygon - m.polygons) : -1;
+        put(&mi, 4), put(&r.usage_count, 4), put(&first, 4);
+      }
     }
   }
   if (static_cast<int>(b.size()) > cap) return -1;
