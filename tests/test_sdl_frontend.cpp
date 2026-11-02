@@ -650,16 +650,48 @@ TEST(sdl_window_lets_the_mouse_go) {
   EXPECT(in.mouse_state(&ms) == 0 && cx == 320 && cy == 240);
   mission = true;
   EXPECT(in.mouse_state(&ms) == 0 && in.captured());
-  // 4) The focus lost lets go; back, it stays let go until a click inside.
-  focus(false);
+  // 4) The focus lost lets go; back (ours), a held mission takes it again at
+  // once, no click needed. The click that brought it back is not the game's.
+  auto focus_at = [&](bool on, uint64_t ms_at) {
+    SDL_Event e{};
+    e.type = on ? SDL_EVENT_WINDOW_FOCUS_GAINED : SDL_EVENT_WINDOW_FOCUS_LOST;
+    e.common.timestamp = ms_at * 1000000ull;
+    pump.handle(e);
+  };
+  auto button_at = [&](bool down, uint64_t ms_at) {
+    SDL_Event e{};
+    e.type = down ? SDL_EVENT_MOUSE_BUTTON_DOWN : SDL_EVENT_MOUSE_BUTTON_UP;
+    e.button.button = SDL_BUTTON_LEFT, e.button.timestamp = ms_at * 1000000ull;
+    pump.handle(e);
+  };
+  focus_at(false, 1000);
   EXPECT(!in.captured() && in.mouse_state(&ms) == platform::Input::kInputLost);
-  focus(true);
-  EXPECT(in.acquire(platform::Input::kMouse) == 0 && !in.captured() && in.released());
+  focus_at(true, 5000);
+  EXPECT(in.acquire(platform::Input::kMouse) == 0 && in.captured() && !in.released());
   move(10, 10, 9, 9);
-  EXPECT(in.mouse_state(&ms) == 0 && ms.x == 0);
-  button(true);
+  EXPECT(in.mouse_state(&ms) == 0 && ms.x == 9);  // aims at once
+  button_at(true, 5010);  // the activating click (the system's click-through)
+  EXPECT(in.mouse_state(&ms) == 0 && !ms.buttons[0]);
+  button_at(false, 5100);
+  EXPECT(in.mouse_state(&ms) == 0 && !ms.buttons[0]);
+  button_at(true, 6000);  // the next is the game's
+  EXPECT(in.mouse_state(&ms) == 0 && ms.buttons[0]);
+  button_at(false, 6100);
+  // Back by Cmd+Tab, no click: the first click after is the game's.
+  focus_at(false, 7000), focus_at(true, 8000);
+  EXPECT(in.acquire(platform::Input::kMouse) == 0 && in.captured());
+  button_at(true, 9000);
+  EXPECT(in.mouse_state(&ms) == 0 && ms.buttons[0]);
+  button_at(false, 9100);
+  in.mouse_state(&ms);
+  // Let go by Ctrl+Alt before the focus left: back, it stays let go until a click.
+  key(SDL_SCANCODE_LCTRL, true), key(SDL_SCANCODE_LALT, true), key(SDL_SCANCODE_LALT, false), key(SDL_SCANCODE_LCTRL, false);
+  EXPECT(!in.captured() && in.released());
+  focus_at(false, 10000), focus_at(true, 11000);
+  EXPECT(in.acquire(platform::Input::kMouse) == 0 && !in.captured() && in.released());
+  button_at(true, 12000);
   EXPECT(in.captured() && in.mouse_state(&ms) == 0 && !ms.buttons[0]);
-  button(false);
+  button_at(false, 12100);
   // Fullscreen: held in the menus too, Ctrl+Alt does nothing, back from
   // away it is held again at once (as before).
   windowed = false, mission = false;

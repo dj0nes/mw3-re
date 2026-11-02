@@ -359,7 +359,13 @@ In a shown window (`windowed`: not fullscreen, not hidden):
   nor its release reaches the game (no shot). The Ctrl and Alt keys
   themselves still reach the game as keys.
 - **The pause** is a menu: it lets go; back in the mission it is held again.
-- **The focus lost** lets go (as before); back, the mission stays let go
+- **The focus lost** lets go (as before). Ours (Owen, 2026-11-02; it
+  changes "a click takes it back"): back, a mission that held the mouse
+  when the focus left takes it again at once, no click needed: the cursor
+  hidden, relative on. Before, the cursor stayed where it was and the aim
+  moved under it until a click. The click that brought the focus back
+  (a button down within 250 ms of it, `kActivationNs`) is still not the
+  game's. A mouse let go by Ctrl+Alt before the focus left stays let go
   until a click inside. Entering a mission without the focus starts let go.
 - The game's own cursor moves (SetCursorPos, `set_cursor_pos`) never move
   the player's cursor in a window.
@@ -370,9 +376,12 @@ while acquired, Ctrl+Alt nothing, the focus's return held at once.
 `sdl_window_lets_the_mouse_go` drives `SdlInput` through each path: the
 menus (absolute, the clicks), a mission, Ctrl+Alt spoiled by a key between
 and then whole, the muted motion, wheel and button, the recapturing click
-unseen and the next one seen, the pause and back, the focus lost and back,
-and fullscreen. Breaks: the click passed to the game fails 2 checks; a key
-between not spoiling the chord fails 1.
+unseen and the next one seen, the pause and back, the focus lost and back
+(held again at once, the activating click unseen and the next one seen, a
+return with no click, a Ctrl+Alt release kept), and fullscreen. Breaks: the
+click passed to the game fails 2 checks; a key between not spoiling the
+chord fails 1; no recapture with the focus fails 4, no activation guard 1,
+the Ctrl+Alt release not kept 2.
 
 ## Open
 
