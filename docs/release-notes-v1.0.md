@@ -85,11 +85,13 @@ choose **Open**. Windows SmartScreen may warn about an unknown publisher:
 
 ## Known open items
 
-- **Mac: the mouse in a window.** On one Mac, in a windowed mission, a
-  click paused the cursor and did not fire (the keyboard's fire key
-  worked), and an earlier build fired about a second late. Not
-  reproduced on our other test runs; fullscreen and the keyboard are not
-  affected. If you see it, please report it with `mw3.log`.
+- **macOS: window tools can delay the mouse button by about a second.**
+  Tools that filter mouse clicks to snap or move windows (Magnet and
+  similar) hold each press back, so in a mission the mouse fires only when
+  you let go; the keyboard is not affected. Quit the tool while you play,
+  or add MechWarrior 3 to its excluded apps. (The other half of that Mac
+  report, a mouse that never fired, was saved controls losing the mouse's
+  fire button; fixed, and controls already saved that way are mended.)
 - **Multiplayer: the mech lab from the lobby** once listed no mechs in a
   live match. Not reproduced since; if you see it, a report helps.
 - Pirate's Moon is not supported yet.
