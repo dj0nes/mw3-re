@@ -748,6 +748,23 @@ TEST(msgdll_rejects_a_file_that_is_not_a_dll) {
   EXPECT(!zutl::read_message_dll(d + "/missing.dll", dll));
 }
 
+// An absolute host path is used as it is, Windows' drive and UNC forms too:
+// "C:\\..." was taken for a game path and joined onto the write dir, so on
+// Windows a file named by its full path (a test's, --check-mod's) went
+// astray once a write dir was set.
+TEST(mounts_absolute_host_paths_stay_as_given) {
+  SavedMounts keep;
+  zutl::mounts() = zutl::Mounts{};
+  zutl::set_write_dir("wd");
+  zutl::mount("install");
+  EXPECT(zutl::write_path("C:\\Games\\x\\y.zbd") == "C:/Games/x/y.zbd");
+  EXPECT(zutl::write_path("d:/a/b.zbd") == "d:/a/b.zbd");
+  EXPECT(zutl::write_path("/tmp/c.zbd") == "/tmp/c.zbd");
+  EXPECT(zutl::write_path("\\\\server\\share\\d.zbd") == "//server/share/d.zbd");
+  EXPECT(zutl::write_path("zbd\\e.zbd") == "wd/zbd/e.zbd");  // a game path: the write dir's
+  EXPECT(zutl::host("C:\\Games\\x") == "C:/Games/x");
+}
+
 TEST(mounts_write_dir_first_then_mounts_in_order) {
   SavedMounts keep;
   const std::string d = temp_dir("mounts");
