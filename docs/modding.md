@@ -146,9 +146,46 @@ hold), strings (to the file's end), the text `.zrd` parser (an unclosed
 list), `gamez.zbd` (a bad signature, version or a cut file), the AI files,
 the mech definitions and the saved loadouts.
 
-**Not bounded yet** (M3, next sittings, one format each): `mechlib.zbd`,
-`motion.zbd`, the worlds' `anim.zbd`, the texture and image archives'
-contents, `interp.zbd`'s scripts and the sound archives. Their tables are
+**`mechlib.zbd`, bounded** (2026-11-01): the materials table and each
+model tree are read with the entry's end known (`cls_mechlib.cpp`): a count
+the bytes left cannot hold (materials, vertices, normals, morphs, polygons,
+a polygon's arrays, a node's children), a node of another class than
+object3d (the exe dereferenced null), a tree deeper than 64, or a polygon's
+vertex, normal or material index past its array refuse the tree (or the
+materials), named in the log; a refused tree is a mech without its model.
+`test_mechlib.py` still reads all 770 models, 442 materials and 57 trees as
+the original; `bounded_mechlib_reads_the_shipped_trees_whole` (57 of 57)
+and `bounded_mechlib_fuzz_never_crashes` (210 trees cut short, bytes flipped
+or words made huge, and 30 broken material tables: none crash, every one
+cut short refused; without the bound it crashes at once).
+
+**`motion.zbd`, bounded** (2026-11-01): a motion is read with its entry's
+end known (`zsis::Script::read`, `load_motion`): a frame count of 0 (the
+loop time divides by it), a frame or part count the bytes left cannot hold,
+a loop time not over 0, or a part's keys past the end refuse the motion
+(its parts freed, named in the log); a refused motion is a missing one.
+`test_motion.py` still reads all 258 as the original, each to its exact
+end; `bounded_motion_reads_the_shipped_motions_whole` (258 of 258) and
+`bounded_motion_fuzz_never_crashes` (300 copies: none crash, every one cut
+short refused; without the bound none is refused).
+
+**The worlds' `anim.zbd`, bounded** (2026-11-01; a whole file, not an
+archive): every count and size it holds (its source list, each def's
+lists, blobs and sequences, the messages) is checked against the bytes left
+in the file before anything is allocated (`zeff_anim_init.cpp`); a broken
+copy, or one cut short, is refused whole, named in the log, and the world
+has no animations (the original left what it had read in place, half
+bound). A def that cannot be bound to the scene (a lookup) still fails the
+original's way. `test_anim.py` (6 worlds and the 10 mismatched and failing
+runs), `test_anim_reset.py` and `test_anim_binder.py` as the original;
+`bounded_anim_fuzz_never_crashes` (150 copies of c1's: none crash, every one
+cut short refused; a source count of 0xfffffff0 refused before any
+allocation, where unbounded the run passes 4 GB and is stopped). What the
+anim run later makes of a garbled event stream inside a well-sized blob is
+not checked here.
+
+**Not bounded yet** (M3, dev 1's sittings): the texture and image archives' contents,
+`interp.zbd`'s scripts and the sound archives (dev 1). Their tables are
 checked (above); a mod that replaces one with broken contents can still
 crash the game, and `--check-mod` says it did not look inside.
 
@@ -157,7 +194,9 @@ into play, and exits 1 when anything would be refused, else 0. It reports:
 mod.txt; each `world=` (its `zbd\<folder>\gamez.zbd` and `<folder>.gs`)
 and `ia_world=`; every file and what it replaces in the install (mw3.cfg's
 `install=`) or adds; the player's own kind of file, ignored; every archive's
-table; every reader archive's entries through the bounded reader; every
+table; every reader archive's entries through the bounded reader; a
+`mechlib.zbd`'s materials and every tree, a `motion.zbd`'s every motion and
+an `anim.zbd`'s read through theirs; every
 loose `.zrd` through the text parser; `strings.txt`'s lines the game would
 leave out (warnings). Test: `mods_check_mod_reports_what_the_game_would_refuse`
 (a good mod with a copied reader, a loose fmv.zrd and strings: no errors; a

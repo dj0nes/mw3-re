@@ -10,6 +10,7 @@
 #include <cmath>
 #include <cstdio>
 #include <filesystem>
+#include <fstream>
 #include <functional>
 #include <map>
 #include <memory>
@@ -409,7 +410,9 @@ class Launcher {
   Install install_;
   SDL_Process* game_ = nullptr;  // mw3, started by MECHWARRIOR 3 (game_bin)
   Uint64 game_click_ = 0;
-  bool game_slow_ = false;  // no first frame within ready_wait_ms(): the status line says so
+  bool game_slow_ = false;
+  std::string game_status_;     // the game's own status line before its first frame
+  double status_read_ms_ = -1e9;  // no first frame within ready_wait_ms(): the status line says so
   std::string ready_file_;
   std::string mw1_exe_, mw1_game_;  // MechWarrior (1989): Elthial's port beside ours, the player's folder
   std::string status_;
@@ -528,7 +531,7 @@ void Launcher::start_game() {
   for (const std::string& a : args) argv.push_back(a.c_str()), line += (line.empty() ? "" : " ") + a;
   argv.push_back(nullptr);
   save_install(o_.write_dir, install_.dir);
-  game_click_ = SDL_GetTicksNS(), game_slow_ = false;
+  game_click_ = SDL_GetTicksNS(), game_slow_ = false, game_status_.clear(), status_read_ms_ = -1e9;
   // Its own stdio, none of ours: the game writes mw3.log itself, and our
   // log's pipe in its stdout would hold this program's exit until the game's.
   const SDL_PropertiesID props = SDL_CreateProperties();
@@ -560,6 +563,7 @@ void Launcher::watch_game() {
     SDL_DestroyProcess(game_);
     game_ = nullptr;
     fs::remove(ready_file_, ec);
+    fs::remove(ready_file_ + ".status", ec);
     std::printf("mw3launcher: MechWarrior 3 exited (%d) after %.1f s\n", code, ms / 1000.0);
     status_ = code == 0 ? "" : "MechWarrior 3 closed with an error (" + std::to_string(code) + "): see mw3.log.";
     status_good_ = code == 0;
@@ -571,13 +575,29 @@ void Launcher::watch_game() {
   if (fs::exists(ready_file_, ec)) {
     std::printf("mw3launcher: the game's first frame %.0f ms after MECHWARRIOR 3 was pressed: the launcher closes\n", ms);
     fs::remove(ready_file_, ec);
+    fs::remove(ready_file_ + ".status", ec);
     SDL_DestroyProcess(game_);  // let go: the game runs on
     game_ = nullptr;
     if (win_) SDL_HideWindow(win_);
     done_ = true;
     return;
   }
-  if (!game_slow_ && ms > ready_wait_ms()) {
+  // What the game says it is doing before its first frame (its first start's
+  // movie import, sdl_child.h), read four times a second: on the status line
+  // instead of the wait's.
+  if (ms - status_read_ms_ >= 250.0) {
+    status_read_ms_ = ms;
+    std::ifstream in(ready_file_ + ".status");
+    std::string line;
+    std::getline(in, line);
+    if (!line.empty() && line != game_status_) {
+      game_status_ = line;
+      std::printf("mw3launcher: the game says: %s\n", line.c_str());
+      status_ = line, status_good_ = true;
+      layout();
+    }
+  }
+  if (!game_slow_ && game_status_.empty() && ms > ready_wait_ms()) {
     game_slow_ = true;
     std::printf("mw3launcher: no first frame from the game after %.0f s: the launcher stays\n", ready_wait_ms() / 1000.0);
     status_ = "MechWarrior 3 has not shown a picture yet: still waiting (see mw3.log).", status_good_ = false;

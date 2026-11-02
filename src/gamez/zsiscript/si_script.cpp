@@ -63,11 +63,15 @@ bool Part::attach(Script* s, const Part* share) {
 
 // Mech3.exe 1.2 @ 0x005aa6d0. Flags: 8 translations, 2 velocities (never
 // in motion.zbd), 4 rotations.
-bool Part::read(std::FILE* f) {
+bool Part::read(std::FILE* f, long end) {
   zutl_zar::read_string(f, &name);
   const uint32_t n = script->frame_count + 1;
   uint32_t flags = 0;
   read4(f, &flags);
+  if (end >= 0) {  // ours: the keys within the entry
+    const uint64_t need = ((flags & 8) ? 12ull : 0) + ((flags & 2) ? 12ull : 0) + ((flags & 4) ? 16ull : 0);
+    if (std::ftell(f) > end || need * n > static_cast<uint64_t>(end - std::ftell(f))) return false;
+  }
   if (flags & 8) std::fread(translations, 1, n * 12, f);
   if (flags & 2) {
     if (!velocities) velocities = static_cast<float*>(std::malloc(n * 12));
@@ -92,13 +96,21 @@ void Script::set_loop_time(float t) {
 }
 
 // Mech3.exe 1.2 @ 0x005a9c70. Read through the archive's file, not checked.
-bool Script::read(std::FILE* f) {
+bool Script::read(std::FILE* f, long end) {
   uint32_t version = 0;
   read4(f, &version);
   if (version != kVersion) return false;
   read4(f, &loop_time);
   read4(f, &frame_count);
   read4(f, &part_count);
+  if (end >= 0) {  // ours: every part at least a name's length and its flags; a frame's keys
+    const uint64_t left = std::ftell(f) > end ? 0 : static_cast<uint64_t>(end - std::ftell(f));
+    if (frame_count == 0 || static_cast<uint64_t>(part_count) * 8 > left ||
+        static_cast<uint64_t>(frame_count) + 1 > left / 12 || !(loop_time > 0.0f)) {
+      part_count = 0;
+      return false;
+    }
+  }
   set_loop_time(loop_time);
   read4(f, &stride);
   read4(f, &mult);
@@ -106,7 +118,16 @@ bool Script::read(std::FILE* f) {
   for (uint32_t i = 0; i < part_count; ++i) {
     parts[i] = new Part;
     parts[i]->attach(this, nullptr);
-    parts[i]->read(f);
+    if (!parts[i]->read(f, end)) {  // ours: a broken copy's, all freed
+      for (uint32_t j = 0; j <= i; ++j) {
+        parts[j]->destroy();
+        delete parts[j];
+      }
+      std::free(parts);
+      parts = nullptr;
+      part_count = 0;
+      return false;
+    }
   }
   return true;
 }

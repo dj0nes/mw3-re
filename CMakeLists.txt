@@ -542,6 +542,7 @@ add_executable(mw3tests
   tests/test_editor.cpp
   tests/test_movie_shape.cpp
   tests/test_mods.cpp
+  tests/test_bounded_readers.cpp
   tests/test_hooks.cpp
   tests/place_survey.cpp
 )

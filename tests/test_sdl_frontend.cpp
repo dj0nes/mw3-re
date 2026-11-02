@@ -3845,6 +3845,9 @@ LauncherRun run_launcher_with(const std::string& name, const std::string& script
     for (size_t at; (at = body.find("READY")) != std::string::npos;)
       body.replace(at, 5, "while [ $# -gt 0 ]; do if [ \"$1\" = --ready-file ]; then : > \"$2\"; fi; shift; done");
     for (size_t at; (at = body.find("DONE")) != std::string::npos;) body.replace(at, 4, ": > \"" + done + "\"");
+    for (size_t at; (at = body.find("STATUS")) != std::string::npos;)  // the game's status line, beside the ready file
+      body.replace(at, 6, "R=; P=; for A in \"$@\"; do [ \"$P\" = --ready-file ] && R=$A; P=$A; done; "
+                          "printf 'Importing your movies (first start only): 3 of 19...' > \"$R.status\"");
     sh << "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"" << dir << "/args.txt\"\n" << body << "\n: > \"" << done << "\"\n";
   }
   std::filesystem::permissions(game, std::filesystem::perms::owner_all, ec);
@@ -3895,6 +3898,18 @@ TEST(sdl_program_launcher_stays_when_the_game_fails_or_is_slow) {
               has(slow.log, "no first frame from the game after"), has(slow.log, "the launcher closes"), slow.game_alive);
   EXPECT(slow.exited && slow.game_alive);
   EXPECT(has(slow.log, "no first frame from the game after") && has(slow.log, "the launcher closes"));
+}
+
+// The game's own status before its first frame (its first start's movie
+// import, sdl_child.h set_ready_status): on the launcher's status line in
+// place of the wait's "not shown a picture yet".
+TEST(sdl_program_launcher_shows_the_games_status) {
+  const LauncherRun r = run_launcher_with("launcher_game_status", "STATUS\nsleep 2\nREADY\nsleep 1", "500");
+  std::printf("a game importing: said %d, waited quietly %d, closed %d\n",
+              has(r.log, "the game says: Importing your movies (first start only): 3 of 19..."),
+              !has(r.log, "no first frame from the game after"), has(r.log, "the launcher closes"));
+  EXPECT(r.exited && has(r.log, "the game says: Importing your movies (first start only): 3 of 19...") &&
+         !has(r.log, "no first frame from the game after") && has(r.log, "the launcher closes"));
 }
 
 // The launcher's sounds (lead's launcher list, item 4; docs/launcher.md):
