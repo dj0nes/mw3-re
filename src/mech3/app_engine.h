@@ -569,7 +569,9 @@ class GameEngine : public Engine {
   // (the movie whose play paused it, the mode it played in).
   Handle movie_paused_cd_ = 0;
   int movie_cd_mode_ = 0;
+  const void* movie_cd_pending_ = nullptr;  // the state a resume waits on (the next pass's)
   void movie_cd_resume(Handle m);
+  void movie_cd_pending_step();
   Handle wait_new(int32_t steps, int32_t passes) override;
   void wait_start() override;
   uint32_t wait_poll() override;

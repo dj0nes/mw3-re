@@ -187,9 +187,12 @@ The original's code leaves the CD audio playing under every movie but the
 attract one (0x00482330 pauses it); on a 1999 machine the drive, reading
 the movie off the disc, stopped the audio itself. The port's movie hooks do
 it: `GameEngine::movie_play` pauses the CD music if it is playing,
-`movie_playing` turning false, `movie_stop` or `movie_delete` resume it in
-its mode (`movie_cd_resume`, only the movie that paused it, only while
-still paused). FIX (A), fixes.md.
+`movie_playing` turning false, `movie_stop` or `movie_delete` mark its
+resume (`movie_cd_resume`, only the movie that paused it), which the next
+pass's `timer_update` makes only if the game is still in the same state and
+the CD still paused (`movie_cd_pending_step`): the campaign movie's end goes
+straight on to the briefing, whose start stops the CD, so no frame of menu
+music is heard between them. FIX (A), fixes.md.
 
 ## 4. The blur passes
 

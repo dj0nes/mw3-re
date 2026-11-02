@@ -16394,8 +16394,10 @@ TEST(playtest_w40_controls_screen_accept_saves_cancel_does_not_headless) {
 // FIX (A): a movie pauses the CD music while it plays (the original's drive,
 // reading the movie off the disc, fell silent); it comes back after unless
 // stopped meanwhile: here the briefing's start (the main menu's end,
-// 0x00485780) stops it. A movie started with the CD already paused (the
-// attract movie, 0x00482330) is left alone.
+// 0x00485780) stops it; the resume waits a pass in the same state, so the
+// menu music is never heard between the movie and the briefing. A movie
+// started with the CD already paused (the attract movie, 0x00482330) is
+// left alone.
 TEST(playtest_w47_campaign_movie_pauses_the_menu_music_headless) {
   if (!have_game()) return;
   SavedMounts keep;
@@ -16414,6 +16416,8 @@ TEST(playtest_w47_campaign_movie_pauses_the_menu_music_headless) {
   mech3::Platform p;
   p.window = &window, p.alert = &alert, p.clock = &clock, p.movie_clock = &fast_movie_clock(), p.screen = &screen, p.sound = &sound, p.files = &files;
   int stage = 0, after = 0, paused_under_movie = 0, playing_under_movie = 0, stopped_at_briefing = 0;
+  int played_before_briefing = 0;  // the menu music heard again after the movie, before the briefing (a blip)
+  bool movie_seen = false;
   bool left_alone = false;
   {
     mech3::GameEngine engine(p, "mech3.exe");  // movies on
@@ -16427,7 +16431,8 @@ TEST(playtest_w47_campaign_movie_pauses_the_menu_music_headless) {
     engine.on_present = [&](int) {
       const zsnd_cd::State& cd = zsnd_cd::state();
       if (stage == 3) {
-        if (engine.movie_paused_cd_ && cd.mode == zsnd_cd::Paused) ++paused_under_movie;
+        if (engine.movie_paused_cd_ && cd.mode == zsnd_cd::Paused) ++paused_under_movie, movie_seen = true;
+        if (movie_seen && app.current() != &mech3::states().load && cd.mode >= zsnd_cd::Once) ++played_before_briefing;
         if (engine.movie_paused_cd_ && cd.mode >= zsnd_cd::Once) ++playing_under_movie;
         if (app.current() == &mech3::states().load && cd.mode == zsnd_cd::Stopped) ++stopped_at_briefing;
       }
@@ -16438,6 +16443,7 @@ TEST(playtest_w47_campaign_movie_pauses_the_menu_music_headless) {
         engine.movie_play(m);
         left_alone = engine.movie_paused_cd_ == 0;
         engine.movie_delete(m);
+        engine.movie_cd_pending_step();  // the next pass's (a held-back resume would come here)
         left_alone = left_alone && zsnd_cd::state().mode == zsnd_cd::Paused;
         zsnd_cd::state().mode = zsnd_cd::Stopped;
         const_cast<mech3::MainMenu*>(mech3::main_menu())->buttons[1].on_left_up();  // NEW CAMPAIGN
@@ -16472,9 +16478,11 @@ TEST(playtest_w47_campaign_movie_pauses_the_menu_music_headless) {
   mech3::reset_states();
   reset_process_state();
   mech3::options() = mech3::Options{};
-  std::printf("  W47: paused under the movie %d frames, playing under it %d, stopped at the briefing %d, attract's left alone %d\n",
-              paused_under_movie, playing_under_movie, stopped_at_briefing, left_alone);
+  std::printf("  W47: paused under the movie %d frames, playing under it %d, after it before the briefing %d, stopped at the "
+              "briefing %d, attract's left alone %d\n",
+              paused_under_movie, playing_under_movie, played_before_briefing, stopped_at_briefing, left_alone);
   EXPECT(stage == 4 && paused_under_movie > 0 && playing_under_movie == 0 && stopped_at_briefing > 0);
+  EXPECT(played_before_briefing == 0);
   EXPECT(left_alone);
 }
 

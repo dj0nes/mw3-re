@@ -2758,5 +2758,7 @@ Assigned after 8b2 merged (fd3f05f). The lead asked for a section stepped at bot
 - FIX (A): GameEngine's movie hooks pause the CD music under a movie and
   resume it after (only the movie that paused it, only while still
   paused); the attract movie's own pause left alone. Test and two breaks.
-- Note: between the movie's end and the Load state the music resumes for
-  about a frame before the main menu's end stops it.
+- The lead: no blip. The resume waits a pass (timer_update) and happens
+  only in the same state with the CD still paused; the test checks the
+  menu music is never heard between the movie and the briefing (break:
+  resume at once). Three breaks.
