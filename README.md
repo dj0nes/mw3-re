@@ -58,41 +58,37 @@ your install: where the original installer put it, `Program Files`,
 `C:\Games`, a Wine, Proton or Lutris copy on Linux and the Mac, or a copy it
 installed itself earlier. It says which version it found in its log.
 
-**If it finds none**, it shows only its setup screen, and once the game is
-there it goes straight on into it:
+**If it finds none**, choosing MechWarrior 3 opens a screen that finds
+your game (a plain `mw3` start shows only that screen), and once the game
+is there it goes straight on into it:
 
-- **Point to your game**: pick whatever you have, and it works out the rest.
-  - your installed MechWarrior 3 (its `Mech3.exe`, or **a folder
-    instead** for its folder);
-  - the disc, or a disc image: an `.iso`, or a `.cue` with its `.bin` files,
-    whose CD audio becomes the music;
-  - the file you downloaded: a `.zip`, `.7z` or `.rar` holding any of
-    those, even a zip inside a zip. Nothing needs unpacking by hand.
+- **Find my game** searches this computer and your disc drives first and
+  uses what it finds. If there is nothing, it asks for:
+  - **A disc image or download**: an `.iso`, a `.cue` with its `.bin`
+    files (whose CD audio becomes the music), a `.zip`, `.7z` or `.rar`
+    holding any of those (even a zip inside a zip; nothing needs unpacking
+    by hand), or your installed copy's `Mech3.exe`;
+  - **A folder**: where the game is installed, or the disc's own folder.
   It looks inside first and says what it found ("The MechWarrior 3 disc
-  version 1.0, with its music (2 CD tracks)"), then installs it into a
-  folder of the rebuild's own, with a progress bar and **Cancel**. An
-  installed copy is used where it is. No Windows and no original installer
-  needed. Pirate's Moon is recognised, but its support comes later.
-- **Search again**: looks for an install again (after you moved one), and
-  for a disc in a drive.
-- **Apply the 1.2 patch**: shown only for game data of a version the
-  rebuild does not know (a mod, or another release). Versions 1.0 and 1.2
-  need nothing: 1.0 plays as 1.2. Give it the official patch's `.zip`;
-  your install is not changed.
-- **Add the music from my disc image**: see below.
+  version 1.0, with its music (2 CD tracks)"), then copies what the game
+  needs into a folder of the rebuild's own, with a progress bar and
+  **Cancel**. An installed copy is used where it is. No Windows and no
+  original installer needed. Versions 1.0 and 1.2 both work as they are:
+  1.0 plays as 1.2. Pirate's Moon is recognised, but its support comes later.
 
 If something is wrong (not enough space, a damaged download, a file that
 is not MechWarrior 3) it says so in plain words and changes nothing.
 
-- **The launcher**, installed as "MechWarrior 3" (the main and desktop
-  shortcut on Windows, the Mac's "MechWarrior 3.app", the Linux desktop
-  entry), is the rebuild's own front screen: the games, and SETUP with the
-  same buttons. It starts the game and closes as soon as the game's first
-  frame is on screen (if the game fails to start, it stays and says so). The game also has
-  its own Start-menu entry on Windows, "MechWarrior 3 (no launcher)", and
-  `mw3` starts it directly anywhere.
-- On the first start it also tells you anything worth knowing about your
-  copy (no music yet, or game files of an unknown version).
+- **The launcher**, installed as "MechWarrior 3" (the Start-menu and
+  desktop shortcut on Windows, the Mac's "MechWarrior 3.app", the Linux
+  desktop entry), is the rebuild's own front screen: the games. It starts
+  the game and closes as soon as the game's first frame is on screen (if
+  the game fails to start, it stays and says so). `mw3` (`mw3.exe`) also
+  starts the game directly.
+- Before the first game it tells you anything worth knowing about your
+  copy: no movies (a CD-type install leaves them on the disc), no music, or
+  game files of an unknown version. **Add from my disc** there takes what
+  is missing from your disc in a drive, a disc image or the disc's folder.
 - **The movies** play from your own copy. Where they cannot be played
   directly, the rebuild converts them once, the first time (about a minute).
 
@@ -103,8 +99,8 @@ Your MechWarrior 3 files are only ever read, never changed.
 The original played its music from the CD's audio tracks, which an
 installed copy does not have. Two ways to get it back:
 
-- With a disc image (a `.cue` and its `.bin`): **SETUP > Add the music from
-  my disc image**.
+- With a disc image (a `.cue` and its `.bin`): **Add from my disc** on the
+  notes before your first game (installing from the `.cue` takes it at once).
 - Your own rip: put the tracks in the rebuild's `music` folder (below) as
   `track02.ogg`, `track03.ogg` and so on (or `.flac`, `.wav`, `.mp3`),
   numbered as on the CD.

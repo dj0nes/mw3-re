@@ -2714,3 +2714,23 @@ Assigned after 8b2 merged (fd3f05f). The lead asked for a section stepped at bot
   the controls screen's ACCEPT saved and read back, CANCEL not saved; four
   breaks (the live map written, no keep at ACCEPT, no rebuild, no repair).
 - The blink/clickthrough candidate is held on mac4/w40-candidate.
+
+## Launcher for v1.0 (2026-11-02)
+
+- Hover: only the round badges ripple; square plates light their edge in
+  amber (34e87eb4). Text: a space under a fifth of the font's size is
+  doubled (DIN Condensed, "MechWarrior 3was"; b97b76e7).
+- Rework (Owen and the lead): the games and QUIT only; a game without its
+  files opens the find screen (the explanation, FIND MY GAME: the finder and
+  the drives first, else A DISC IMAGE OR DOWNLOAD / A FOLDER; BACK). Found or
+  installed: straight into the game, through the notes when the install
+  lacks movies or music (their OK the start). The notes' ADD FROM MY DISC:
+  setup::add_from_disc (add_movies: VIDEO\*.AVI from a drive, a folder, an
+  .iso or a .cue into <write dir>/video; the music from a .cue). The game
+  finds the write dir's movies first; first_run_import converts them too.
+  Gone: Setup, Folder instead, Search again, the patch (kept unreachable).
+  The installer's no-launcher shortcut dropped.
+- Each screen logs its plates; MW3_LAUNCHER_PICK also presses the notes' OK.
+- Open for the lead: after the notes' OK nothing offers ADD FROM MY DISC
+  again (no Setup); the first-run import of the write dir's movies has no
+  unit test (mw3-only code).

@@ -50,10 +50,9 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 Source: "{#Dist}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-; The launcher is the main shortcut, named for the game; the game has its
-; own (docs/games-layout.md, launcher.md).
+; The launcher is the shortcut, named for the game; mw3.exe is installed
+; and starts alone too, but has no shortcut (Owen, 2026-11-02; launcher.md).
 Name: "{autoprograms}\MechWarrior 3"; Filename: "{app}\mw3launcher.exe"; WorkingDir: "{app}"
-Name: "{autoprograms}\MechWarrior 3 (no launcher)"; Filename: "{app}\mw3.exe"; WorkingDir: "{app}"
 Name: "{autoprograms}\MechWarrior 3 Rebuild - Read me"; Filename: "{app}\README.txt"
 Name: "{autodesktop}\MechWarrior 3"; Filename: "{app}\mw3launcher.exe"; WorkingDir: "{app}"; Tasks: desktopicon
 

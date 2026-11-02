@@ -6,6 +6,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include <functional>
 #include <cctype>
 #include <cmath>
 #include <chrono>
@@ -3682,15 +3683,23 @@ TEST(sdl_program_bugfixes_switch) {
 // either: they load as 1.2 (docs/patch12.md); only data of an unknown
 // version is told about the patch. The music is any CD track's file.
 TEST(launcher_first_start_notes) {
-  const std::vector<std::string> none = sdlfe::launcher_notes("1.2", true, "M");
-  const std::vector<std::string> v10 = sdlfe::launcher_notes("1.0", false, "M");
-  const std::vector<std::string> mix = sdlfe::launcher_notes("1.0 with 1.2 files", true, "M");
-  const std::vector<std::string> odd = sdlfe::launcher_notes("unknown", true, "M");
-  const bool counts = none.empty() && v10.size() == 1 && mix.empty() && odd.size() == 1;
+  const std::vector<std::string> none = sdlfe::launcher_notes("1.2", true, true, "M");
+  const std::vector<std::string> v10 = sdlfe::launcher_notes("1.0", false, true, "M");
+  const std::vector<std::string> mix = sdlfe::launcher_notes("1.0 with 1.2 files", true, true, "M");
+  const std::vector<std::string> odd = sdlfe::launcher_notes("unknown", true, true, "M");
+  const std::vector<std::string> cd = sdlfe::launcher_notes("1.2", true, false, "M");   // movies left on the CD
+  const std::vector<std::string> both = sdlfe::launcher_notes("1.2", false, false, "M");
+  const bool counts = none.empty() && v10.size() == 1 && mix.empty() && odd.size() == 1 && cd.size() == 1 && both.size() == 1;
   EXPECT(counts);
   if (counts) {
-    EXPECT(v10[0].find("ADD THE MUSIC") != std::string::npos && v10[0].find("rip in M as track02") != std::string::npos);
-    EXPECT(odd[0].find("neither") != std::string::npos && odd[0].find("SETUP can apply it") != std::string::npos);
+    EXPECT(v10[0].find("No music yet") != std::string::npos && v10[0].find("ADD FROM MY DISC") != std::string::npos &&
+           v10[0].find("in M as track02") != std::string::npos && v10[0].find("movies") == std::string::npos);
+    EXPECT(odd[0].find("neither") != std::string::npos && odd[0].find("patch") == std::string::npos &&
+           odd[0].find("SETUP") == std::string::npos);  // the 1.2 patch is built in now
+    EXPECT(cd[0].find("no movies") != std::string::npos && cd[0].find("ADD FROM MY DISC") != std::string::npos &&
+           cd[0].find("music") == std::string::npos);
+    EXPECT(both[0].find("no movies") != std::string::npos && both[0].find("no music") != std::string::npos &&
+           both[0].find(".cue") != std::string::npos);
   }
   const std::string dir = std::string(MW3_TEST_TMP) + "/launcher_music";
   std::error_code ec;
@@ -3777,10 +3786,13 @@ TEST(sdl_program_launcher_screens) {
     const char* hover;
     int edge_x, edge_y;
   };
-  for (const Shot& s : {Shot{"main", false, "launcher: Found MechWarrior 3", "hover MECHWARRIOR 3: ripple\n", -1, -1},
-                        Shot{"setup", true, "no MechWarrior 3 install found", "hover POINT TO YOUR GAME: edge\n", 320, 170},
+  for (const Shot& s : {Shot{"main", false, "screen main: MECHWARRIOR 3, PIRATE'S MOON, QUIT\n", "hover MECHWARRIOR 3: ripple\n", -1, -1},
+                        Shot{"setup", true, "screen find: FIND MY GAME, BACK\n", "hover FIND MY GAME: edge\n", 320, 222},
+                        Shot{"pick", true, "screen find: A DISC IMAGE OR DOWNLOAD, A FOLDER, BACK\n",
+                             "hover A DISC IMAGE OR DOWNLOAD: edge\n", 320, 222},
                         Shot{"work", false, "launcher: Found MechWarrior 3", "hover CANCEL: edge\n", 320, 372},
-                        Shot{"notes", false, "launcher: note: No music yet", "hover OK: edge\n", 320, 380}}) {
+                        Shot{"notes", false, "screen notes: ADD FROM MY DISC, OK\n", "hover ADD FROM MY DISC: edge\n", 320, 318},
+                        Shot{"disc", false, "screen notes: A DISC IMAGE, THE DISC'S FOLDER, OK\n", "hover A DISC IMAGE: edge\n", 200, 318}}) {
     const std::string bmp = dir + "/" + s.screen + ".bmp", log = dir + "/" + s.screen + ".log";
     if (s.none) setenv("MW3_FIND_INSTALL", "1", 1);
     const pid_t pid = spawn_launcher({"--write-dir", dir + (s.none ? "/wd2" : "/wd"), "--launcher-shot", bmp, "--launcher-screen", s.screen}, log);
@@ -3815,7 +3827,7 @@ TEST(sdl_program_launcher_screens) {
 }
 
 // A plain mw3 start (docs/games-layout.md): straight into the game when an
-// install is found, no launcher; with none, the SETUP screen alone, and once
+// install is found, no launcher; with none, the find screen alone, and once
 // POINT TO YOUR GAME's pick is installed, on into the game (MW3_START_ONLY
 // stops each where it would go on; MW3_LAUNCHER_PICK stands for the dialog);
 // --launcher shows the launcher's main screen.
@@ -3842,10 +3854,10 @@ TEST(sdl_program_plain_start_goes_straight_in_or_to_setup) {
   const std::string b = run({"--write-dir", dir + "/wd2", "--window", "640x480", "--nosound"}, dir + "/b.log", true);
   EXPECT(run({"--launcher", "--write-dir", dir + "/wd2"}, dir + "/b2.log") == "(failed)");
   EXPECT(b.find("launcher: Found MechWarrior 3") != std::string::npos && b.find("start only") == std::string::npos);
-  // None: the SETUP screen alone (QUIT after 20 frames: no game).
+  // None: the find screen alone (QUIT after 20 frames: no game).
   setenv("MW3_FIND_INSTALL", "1", 1);
   const std::string c = run({"--write-dir", dir + "/wd3", "--window", "640x480", "--nosound"}, dir + "/c.log");
-  EXPECT(c.find("no install found: the SETUP screen") != std::string::npos && c.find("start only") == std::string::npos);
+  EXPECT(c.find("no install found: the find screen") != std::string::npos && c.find("start only") == std::string::npos);
   // None, and a disc's files picked: looked at, installed, on into the game.
   const std::string patch = std::string(MW3_GAME_DIR) + "/../patch-1.2/MechWarrior-3_Patch_Win_EN_Patch-12-US";
   if (std::filesystem::exists(patch + "/data1.cab")) {
@@ -3856,7 +3868,7 @@ TEST(sdl_program_plain_start_goes_straight_in_or_to_setup) {
     const std::string d = run({"--write-dir", dir + "/wd4", "--window", "640x480", "--nosound"}, dir + "/d.log");
     unsetenv("MW3_LAUNCHER_PICK");
     std::printf("plain start, picked: %s\n", d.substr(d.find("is installed in") == std::string::npos ? 0 : d.find("is installed in"), 120).c_str());
-    EXPECT(d.find("no install found: the SETUP screen") != std::string::npos && d.find("is installed in") != std::string::npos &&
+    EXPECT(d.find("no install found: the find screen") != std::string::npos && d.find("is installed in") != std::string::npos &&
            d.find("mw3: start only: install " + dir + "/wd4/install") != std::string::npos &&
            std::filesystem::exists(dir + "/wd4/install/mw3-install.txt"));
     std::ifstream cfg(dir + "/wd4/mw3.cfg");
@@ -3868,7 +3880,7 @@ TEST(sdl_program_plain_start_goes_straight_in_or_to_setup) {
   unsetenv("MW3_START_ONLY");
 }
 
-// One window from the SETUP screen into the game: a plain mw3 start with no
+// One window from the find screen into the game: a plain mw3 start with no
 // install found (MW3_FIND_INSTALL), an installed copy picked
 // (MW3_LAUNCHER_PICK), hands its window over, its renderer freed, and the
 // game claims it for its GPU device instead of opening a second window and
@@ -3917,12 +3929,17 @@ struct LauncherRun {
   bool game_alive = false;  // the stand-in had not finished when it did
   bool game_finished = false;  // and finished on its own after
 };
-LauncherRun run_launcher_with(const std::string& name, const std::string& script, const char* ready_ms = nullptr) {
+// `env` set for the launcher's run only; `before` gets the test's folder
+// (its write dir is <dir>/wd) to lay out files first.
+LauncherRun run_launcher_with(const std::string& name, const std::string& script, const char* ready_ms = nullptr,
+                              const std::vector<std::pair<std::string, std::string>>& env = {},
+                              const std::function<void(const std::string&)>& before = nullptr) {
   LauncherRun out;
   const std::string dir = std::string(MW3_TEST_TMP) + "/" + name;
   std::error_code ec;
   std::filesystem::remove_all(dir, ec);
   std::filesystem::create_directories(dir + "/wd", ec);
+  if (before) before(dir);
   const std::string game = dir + "/mw3", done = dir + "/done";
   {
     std::ofstream sh(game);
@@ -3938,8 +3955,10 @@ LauncherRun run_launcher_with(const std::string& name, const std::string& script
   std::filesystem::permissions(game, std::filesystem::perms::owner_all, ec);
   setenv("MW3_GAME_BIN", game.c_str(), 1);
   if (ready_ms) setenv("MW3_LAUNCHER_READY_MS", ready_ms, 1);
+  for (const auto& [k, v] : env) setenv(k.c_str(), v.c_str(), 1);
   const pid_t pid = spawn_launcher({"--write-dir", dir + "/wd", "--launcher-play", "--window", "640x480", "--nosound", "--hidden"},
                                    dir + "/launcher.log");
+  for (const auto& [k, v] : env) unsetenv(k.c_str());
   unsetenv("MW3_LAUNCHER_READY_MS");
   unsetenv("MW3_GAME_BIN");
   int status = 0;
@@ -3983,6 +4002,53 @@ TEST(sdl_program_launcher_stays_when_the_game_fails_or_is_slow) {
               has(slow.log, "no first frame from the game after"), has(slow.log, "the launcher closes"), slow.game_alive);
   EXPECT(slow.exited && slow.game_alive);
   EXPECT(has(slow.log, "no first frame from the game after") && has(slow.log, "the launcher closes"));
+}
+
+// The launcher for v1.0 (Owen and the lead, 2026-11-02; docs/launcher.md):
+// the games and QUIT only; MECHWARRIOR 3 without its files opens the find
+// screen (FIND MY GAME, BACK; no Setup, Search, Folder or Patch); a game
+// found there starts at once, through the notes when the install lacks
+// movies or music (their ADD FROM MY DISC), the notes' OK the start.
+TEST(sdl_program_launcher_finds_the_game_then_plays) {
+  auto screen = [](const std::string& log, const char* line) { return log.find(line) != std::string::npos; };
+  const auto none = std::vector<std::pair<std::string, std::string>>{{"MW3_FIND_INSTALL", "1"}, {"MW3_LAUNCHER_FRAMES", "20"}};
+  // No install: the games, then the find screen; nothing started.
+  const LauncherRun a = run_launcher_with("launcher_v1_none", "READY\nsleep 1", nullptr, none);
+  std::printf("no install: main %d, find %d, game started %d\n", screen(a.log, "screen main: MECHWARRIOR 3, PIRATE'S MOON, QUIT\n"),
+              screen(a.log, "screen find: FIND MY GAME, BACK\n"), !a.args.empty());
+  EXPECT(a.exited && a.args.empty());
+  EXPECT(screen(a.log, "screen main: MECHWARRIOR 3, PIRATE'S MOON, QUIT\n") && screen(a.log, "screen find: FIND MY GAME, BACK\n"));
+  for (const char* gone : {"SETUP", "SEARCH AGAIN", "A FOLDER INSTEAD", "APPLY THE 1.2 PATCH", "POINT TO YOUR GAME"})
+    EXPECT(!screen(a.log, gone));
+  // Found (an installed copy picked), music there: straight into the game.
+  const auto pick = std::vector<std::pair<std::string, std::string>>{{"MW3_FIND_INSTALL", "1"}, {"MW3_LAUNCHER_PICK", MW3_GAME_DIR},
+                                                                   {"MW3_LAUNCHER_FRAMES", "1800"}};
+  const LauncherRun b = run_launcher_with("launcher_v1_music", "READY\nsleep 2", nullptr, pick, [](const std::string& d) {
+    std::filesystem::create_directories(d + "/wd/music");
+    std::ofstream(d + "/wd/music/track02.wav") << "x";
+  });
+  EXPECT(b.exited && !b.args.empty() && b.args[0] == MW3_GAME_DIR && screen(b.log, "the game's first frame"));
+  EXPECT(!screen(b.log, "screen notes:"));
+  // Found, no music: the notes first (ADD FROM MY DISC, OK), their OK the start.
+  const LauncherRun c = run_launcher_with("launcher_v1_notes", "READY\nsleep 2", nullptr, pick);
+  EXPECT(c.exited && !c.args.empty() && c.args[0] == MW3_GAME_DIR && screen(c.log, "the game's first frame"));
+  EXPECT(screen(c.log, "screen notes: ADD FROM MY DISC, OK\n") && screen(c.log, "note: No music yet"));
+  EXPECT(c.log.find("screen notes:") < c.log.find("the game's first frame"));
+  // A CD-type install (its video folder empty, the movies left on the disc):
+  // the notes say both are missing.
+  const std::string cd = std::string(MW3_TEST_TMP) + "/launcher_v1_cd_install";
+  std::error_code ec;
+  std::filesystem::remove_all(cd, ec);
+  std::filesystem::create_directories(cd + "/video", ec);
+  std::filesystem::create_directory_symlink(std::string(MW3_GAME_DIR) + "/zbd", cd + "/zbd", ec);
+  const auto pick_cd = std::vector<std::pair<std::string, std::string>>{{"MW3_FIND_INSTALL", "1"}, {"MW3_LAUNCHER_PICK", cd},
+                                                                      {"MW3_LAUNCHER_FRAMES", "1800"}};
+  const LauncherRun d = run_launcher_with("launcher_v1_cd", "READY\nsleep 2", nullptr, pick_cd);
+  std::printf("a CD-type install: notes %d, both missing %d, started %d\n", screen(d.log, "screen notes: ADD FROM MY DISC, OK\n"),
+              screen(d.log, "no movies (they stayed on the CD) and no music"), !d.args.empty());
+  EXPECT(d.exited && !d.args.empty() && d.args[0] == cd);
+  EXPECT(screen(d.log, "screen notes: ADD FROM MY DISC, OK\n") && screen(d.log, "no movies (they stayed on the CD) and no music"));
+  std::filesystem::remove_all(cd, ec);
 }
 
 // The game's own status before its first frame (its first start's movie

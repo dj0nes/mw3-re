@@ -59,6 +59,17 @@ Result apply_patch(const std::string& source, const std::string& write_dir, cons
 // A disc image's CD audio (its .cue) as music_dir/trackNN.wav.
 Result add_music(const std::string& cue, const std::string& music_dir, const ProgressFn& progress);
 
+// The disc's movies (its VIDEO\*.AVI) from a drive, the disc's folder, an
+// .iso or a .cue/.bin into `video_dir` (the write dir's video\, found before
+// the install's): for an install whose movies stayed on the CD. Written to
+// `video_dir`.new first; a cancel or a failure changes nothing.
+Result add_movies(const std::string& source, const std::string& video_dir, const ProgressFn& progress);
+
+// What an install lacks, from its disc: the movies (add_movies) when
+// `video_dir` is given, the music (add_music, a .cue only) when `music_dir` is.
+Result add_from_disc(const std::string& source, const std::string& video_dir, const std::string& music_dir,
+                     const ProgressFn& progress);
+
 // A quick look at a picked drive, folder, .iso or .cue, writing nothing:
 // whether it is the MechWarrior 3 disc (ok), its version ("1.0" by the
 // cabinet's reader.zbd, or an installed folder's), its movies and a cue's
