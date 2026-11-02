@@ -22,6 +22,11 @@ struct Mounts {
   // folders under them). A mod serves game data only, never what belongs
   // to the player (mod_may_serve).
   std::vector<std::string> mods;
+  // Ours: the game program's names come from data, mods and other players,
+  // so once it is set up a name that is absolute, holds a ':' or has a ".."
+  // part finds and writes nothing (docs/assets-layer.md). Tools and tests
+  // leave it off and pass host paths.
+  bool confined = false;
 };
 Mounts& mounts();
 

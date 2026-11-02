@@ -337,6 +337,7 @@ unusual happens.
 - A modded map whose boundary names a mission past its operation's last no longer writes past the game's list of boundaries; that one is ignored.
 - An AI pilot at a broken (NaN) position no longer reads leftover memory when the boundary looks for the way out.
 - An objective's text can no longer garble the objectives box: the original used each objective's text as a formatting pattern, so a '%' in it would have printed garbage or crashed. No text in the game has one, so nothing you see changes.
+- A file name the game reads from its data, a mod or a script (a texture, a sound, a movie, a script's `source` or file delete, a world folder) can no longer reach outside the game's folders: a name with `..`, a drive or a full path opens, writes and deletes nothing, and the log says so. The original opened whatever it was given. Nothing shipped uses such a name. Multiplayer sends worlds as numbers, which only ever name your own worlds.
 
 ## Copy protection removed
 

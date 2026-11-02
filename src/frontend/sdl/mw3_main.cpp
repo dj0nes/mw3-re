@@ -734,6 +734,7 @@ int main(int argc, char** argv) {
   if (!patch_dir.empty() && std::filesystem::is_directory(patch_dir, patch_ec)) zutl::mount(patch_dir);
   zutl::mount(a.install);
   zutl::set_write_dir(a.write_dir);
+  zutl::mounts().confined = true;  // ours: names from data and the network stay inside these folders
   std::error_code ec;
   if (!std::filesystem::exists(a.install + "/zbd/reader.zbd", ec)) {
     const std::string msg = "No MechWarrior 3 install at \"" + a.install +

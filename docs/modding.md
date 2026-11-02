@@ -132,6 +132,12 @@ an id left out, nothing without mods) and `mod_world_plays_in_instant_action_hea
 
 ## Broken files and checking a mod (M3, begun 2026-11-01)
 
+**Names stay inside the game's folders** (2026-11-02): a name a mod's files
+give (a texture, a sound, a movie, a script's `source`, a world folder) is
+looked up only inside the mounts; one with `..`, a drive or a full path
+reads, writes and deletes nothing, and the log says so
+(docs/assets-layer.md, Confined).
+
 **The reader archives' entries, bounded.** Every `reader*.zbd` entry (a
 mission's objectives, a mech's definition, the worlds' settings) is read
 through `zrdr::load` with the entry's own length known: a list whose count

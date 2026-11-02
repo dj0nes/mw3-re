@@ -27,6 +27,21 @@ developers used both to try changes without rebuilding archives.
   wins over a shipped copy.
 - Absolute host paths are used as given (tools, tests); with no mounts,
   relative paths are relative to the working directory, as before.
+- **Confined** (ours, `Mounts::confined`, set by the program once its
+  mounts are up): names come from data, mods, scripts and other players, so
+  a name that is absolute (a leading `/` or `\`), holds a `:` (a drive, a
+  Windows stream) or has a `..` part finds, opens, writes, lists and deletes
+  nothing (`find`, `find_all`, `exists`, `open`, `write_path`, `list`,
+  `find_in_mods`), logged once a name. Every game file goes through these,
+  so the one check covers the readers, textures, sounds, movies, fonts, the
+  interpreter's `source`, delete and mkdir, the pilots and saves, and mod
+  worlds. The network carries no names that reach a file: the lobby's
+  world is a number (folder index and `readermp` number, from the joiner's
+  own list; past the table `mission_dir` gives `none`); mechs and skins
+  are numbers too, and names (pilots, sessions, chat, mods) are only shown.
+  Tools and tests leave it off. Tests: `mounts_confined_names_stay_inside`,
+  `sdl_program_names_stay_inside_the_game_folders`. Outside it: the player's
+  own command line and the disc import's `.cue` (the player's files).
 
 Routed through it: the zArchive reader and writer (every `.zbd` archive,
 `reader.zbd`, `mechlib.zbd`, `motion.zbd`, `interp.zbd`, the saved
