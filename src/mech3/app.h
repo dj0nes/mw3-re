@@ -41,6 +41,7 @@ class Mech3App : public zgame::App {
   void set_defaults();                                     // 0x0047fb80
   void pick_post_intro_state(bool lobby);                  // 0x0047fed0
   void restore_video(bool hw, bool pick);                  // 0x0047fe10
+  void gpu_only();  // ours, FIX (A): a saved software renderer choice becomes the GPU's
   void set_reopen_instant_action(uint8_t a, uint8_t b);    // 0x0047fc20
   void set_reopen_training(uint8_t v);                     // 0x0047fe00
   void restart_in_lab();                                   // 0x0047ff60

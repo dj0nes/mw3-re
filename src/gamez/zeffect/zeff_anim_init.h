@@ -111,6 +111,7 @@ AnimDef* anim_next_with_callbacks(AnimDef* after);        // 0x0050b570
 Node* anim_node(const AnimDef* d);                        // 0x0050b5e0
 void anim_free(AnimDef* def, bool instances);             // 0x0050b0e0
 int32_t anim_free_all();                                  // 0x0050b380
+int32_t anim_freed_defs();  // ours: how many defs anim_free_all has freed in all (the tests)
 void anim_free_copies();                                  // 0x0050b2f0
 int32_t anim_shutdown();                                  // 0x0050b430
 int32_t anim_init();                                      // 0x00508fc0

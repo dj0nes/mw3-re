@@ -52,6 +52,8 @@ add_library(mw3core STATIC
   src/gamez/zinput/zin_cmdmap.cpp
   src/gamez/zinput/zin_joy.cpp
   src/gamez/znetwork/znet_object.cpp
+  src/gamez/znetwork/znet_session.cpp
+  src/gamez/znetwork/znet_dplay.cpp
   src/gamez/zutil/zutl_msg.cpp
   src/gamez/zutil/zutl_msgdll.cpp
   src/gamez/zutil/zutl_path.cpp
@@ -59,8 +61,18 @@ add_library(mw3core STATIC
   src/platform/reg_file.cpp
   src/platform/cue_audio.cpp
   src/mech3/data_version.cpp
+  src/mech3/patch12.cpp
+  src/mech3/patch12_edits.cpp
+  src/mech3/patch12_force.cpp
+  src/mech3/patch12_hud.cpp
+  src/mech3/patch12_text.cpp
+  src/mech3/patch12_tree.cpp
+  src/mech3/patch12_world.cpp
   src/mech3/patch_import.cpp
   src/mech3/disc_install.cpp
+  src/mech3/source_archive.cpp
+  src/mech3/source_map.cpp
+  src/mech3/source_install.cpp
   src/mech3/game_setup.cpp
   third_party/miniz/miniz_tinfl.c
   src/gamez/zutil/zutl_zar.cpp
@@ -140,6 +152,7 @@ add_library(mw3core STATIC
   src/gamez/zfmv/fmv_stream.cpp
   src/gamez/zrender/zrndr_prim2d.cpp
   src/gamez/zrender/zrndr_blit.cpp
+  src/gamez/ztwod/twod_console.cpp
   src/gamez/ztwod/twod_control.cpp
   src/gamez/ztwod/twod_dialog.cpp
   src/gamez/ztwod/twod_editbar.cpp
@@ -194,7 +207,10 @@ add_library(mw3core STATIC
   src/mech3/mech_waynet.cpp
   src/mech3/veh_controls.cpp
   src/mech3/veh_move.cpp
+  src/mech3/veh_stealth.cpp
+  src/mech3/game_editor.cpp
   src/mech3/mech_anim.cpp
+  src/mech3/mech_net.cpp
   src/mech3/mech_reader.cpp
   src/mech3/mech_salvage.cpp
   src/mech3/mech_skin.cpp
@@ -211,6 +227,9 @@ add_library(mw3core STATIC
   src/mech3/pilot_games.cpp
   src/mech3/pilot_menu.cpp
   src/mech3/action_menu.cpp
+  src/mech3/mp_connect.cpp
+  src/mech3/mp_lobby.cpp
+  src/mech3/chat_panel.cpp
   src/mech3/briefing.cpp
   src/mech3/debriefing.cpp
   src/mech3/salvage_screen.cpp
@@ -252,6 +271,8 @@ add_library(mw3core STATIC
   src/mech3/force_feedback.cpp
   src/mech3/app_fmv.cpp
   src/mech3/app_movie.cpp
+  src/mech3/movie_shape.cpp
+  src/mech3/mods.cpp
   third_party/pl_mpeg/pl_mpeg.c
   src/mech3/app_mission.cpp
   src/mech3/app_hook_census.cpp
@@ -280,6 +301,78 @@ target_include_directories(mw3core PRIVATE third_party)
 set_source_files_properties(third_party/pl_mpeg/pl_mpeg.c PROPERTIES COMPILE_OPTIONS "$<IF:$<C_COMPILER_ID:MSVC>,/w,-w>")
 # tinfl (third_party/miniz, miniz's inflate) likewise.
 set_source_files_properties(third_party/miniz/miniz_tinfl.c PROPERTIES COMPILE_OPTIONS "$<IF:$<C_COMPILER_ID:MSVC>,/w,-w>")
+# ENet (third_party/enet, MIT): the multiplayer transport (docs/multiplayer-port.md),
+# unmodified, its warnings not ours. unix.c's feature macros as its own build
+# finds them on macOS and Linux (no gethostby*_r: it falls back).
+add_library(enet STATIC
+  third_party/enet/callbacks.c third_party/enet/compress.c third_party/enet/host.c third_party/enet/list.c
+  third_party/enet/packet.c third_party/enet/peer.c third_party/enet/protocol.c third_party/enet/unix.c
+  third_party/enet/win32.c)
+target_include_directories(enet PUBLIC third_party/enet/include)
+target_compile_options(enet PRIVATE "$<IF:$<C_COMPILER_ID:MSVC>,/w,-w>")
+if(WIN32)
+  target_link_libraries(enet PUBLIC ws2_32 winmm)
+else()
+  target_compile_definitions(enet PRIVATE HAS_FCNTL=1 HAS_POLL=1 HAS_GETADDRINFO=1 HAS_GETNAMEINFO=1
+                             HAS_INET_PTON=1 HAS_INET_NTOP=1 HAS_MSGHDR_FLAGS=1 HAS_SOCKLEN_T=1)
+endif()
+# miniupnpc 2.2.8 (third_party/miniupnpc, BSD-3-Clause): the host's UDP port
+# opened on the router over UPnP (docs/multiplayer-port.md, piece 9c),
+# unmodified, its warnings not ours; its definitions as its own build sets
+# them, its miniupnpcstrings.h made from its template.
+set(_mw3_project_version "${PROJECT_VERSION}")
+set(PROJECT_VERSION 2.2.8)
+configure_file(third_party/miniupnpc/miniupnpcstrings.h.cmake ${CMAKE_BINARY_DIR}/miniupnpc/miniupnpcstrings.h)
+set(PROJECT_VERSION "${_mw3_project_version}")
+add_library(miniupnpc STATIC
+  third_party/miniupnpc/src/igd_desc_parse.c third_party/miniupnpc/src/miniupnpc.c
+  third_party/miniupnpc/src/minixml.c third_party/miniupnpc/src/minisoap.c third_party/miniupnpc/src/minissdpc.c
+  third_party/miniupnpc/src/miniwget.c third_party/miniupnpc/src/upnpcommands.c third_party/miniupnpc/src/upnpdev.c
+  third_party/miniupnpc/src/upnpreplyparse.c third_party/miniupnpc/src/upnperrors.c
+  third_party/miniupnpc/src/connecthostport.c third_party/miniupnpc/src/portlistingparse.c
+  third_party/miniupnpc/src/receivedata.c third_party/miniupnpc/src/addr_is_reserved.c)
+target_include_directories(miniupnpc PUBLIC third_party/miniupnpc/include
+                           PRIVATE third_party/miniupnpc/src ${CMAKE_BINARY_DIR}/miniupnpc)
+target_compile_definitions(miniupnpc PUBLIC MINIUPNP_STATICLIB)
+target_compile_options(miniupnpc PRIVATE "$<IF:$<C_COMPILER_ID:MSVC>,/w,-w>")
+if(WIN32)
+  target_compile_definitions(miniupnpc PRIVATE _WIN32_WINNT=0x0501 _CRT_SECURE_NO_WARNINGS _WINSOCK_DEPRECATED_NO_WARNINGS)
+  target_link_libraries(miniupnpc PUBLIC ws2_32 iphlpapi)
+else()
+  target_compile_definitions(miniupnpc PRIVATE MINIUPNPC_SET_SOCKET_TIMEOUT MINIUPNPC_GET_SRC_ADDR _BSD_SOURCE _DEFAULT_SOURCE)
+  if(APPLE)
+    target_compile_definitions(miniupnpc PRIVATE _DARWIN_C_SOURCE)
+  else()
+    target_compile_definitions(miniupnpc PRIVATE _XOPEN_SOURCE=600)
+  endif()
+endif()
+# SETUP's archives (docs/setup-sources.md): libarchive with zlib and liblzma.
+# The release's are static, from tools/deps (build_deps.sh, the PC's
+# tools/windows/build_deps_archive.cmd into deps\archive); a development
+# Mac may use Homebrew's (brew install libarchive). Without it the game
+# builds and SETUP takes folders, drives, .iso and .cue only.
+find_path(LIBARCHIVE_INCLUDE archive.h
+          HINTS "${CMAKE_SOURCE_DIR}/deps/archive/include" /opt/homebrew/opt/libarchive/include /usr/local/opt/libarchive/include)
+find_library(LIBARCHIVE_LIB NAMES archive archive_static
+             HINTS "${CMAKE_SOURCE_DIR}/deps/archive/lib" /opt/homebrew/opt/libarchive/lib /usr/local/opt/libarchive/lib)
+if(LIBARCHIVE_INCLUDE AND LIBARCHIVE_LIB)
+  target_include_directories(mw3core PUBLIC "${LIBARCHIVE_INCLUDE}")
+  target_link_libraries(mw3core PUBLIC "${LIBARCHIVE_LIB}")
+  if(LIBARCHIVE_LIB MATCHES "\\.(a|lib)$")  # static: its own libraries beside it
+    target_compile_definitions(mw3core PUBLIC LIBARCHIVE_STATIC)  # the tests write archives with it too
+    find_library(MW3_LZMA_LIB NAMES lzma liblzma HINTS "${CMAKE_SOURCE_DIR}/deps/archive/lib")
+    find_library(MW3_Z_LIB NAMES z zlibstatic zlib zs HINTS "${CMAKE_SOURCE_DIR}/deps/archive/lib")
+    target_link_libraries(mw3core PUBLIC ${MW3_LZMA_LIB} ${MW3_Z_LIB})
+    if(WIN32)
+      target_link_libraries(mw3core PUBLIC bcrypt)
+    endif()
+  endif()
+  target_compile_definitions(mw3core PUBLIC MW3_HAVE_LIBARCHIVE=1)
+  message(STATUS "libarchive: ${LIBARCHIVE_LIB}")
+else()
+  message(STATUS "libarchive not found: SETUP reads folders, drives, .iso and .cue only")
+endif()
+
 # The x87 never fuses a multiply and an add; clang does by default on arm64,
 # which rounds differently from the original (CLAUDE.md, FPU precision).
 if(NOT MSVC)
@@ -382,6 +475,7 @@ add_library(mw3probe SHARED
   tests/probe_mech_build.cpp
   tests/probe_veh_basic.cpp
   tests/probe_veh_fieldbase.cpp
+  tests/probe_veh_stealth.cpp
   tests/probe_veh_dock.cpp
   tests/probe_veh_waynet.cpp
   tests/probe_mech_repair.cpp
@@ -411,6 +505,8 @@ add_library(mw3probe SHARED
   tests/probe_gfx_flags.cpp
   tests/probe_fade.cpp
   tests/probe_fmv.cpp
+  tests/probe_znet.cpp
+  tests/probe_mech_net.cpp
   tests/probe_frame.cpp
   tests/probe_view.cpp
   tests/probe_hud.cpp
@@ -421,6 +517,7 @@ target_link_libraries(mw3probe PRIVATE mw3core)
 enable_testing()
 add_executable(mw3tests
   tests/main.cpp
+  tests/test_znet.cpp
   tests/test_cue.cpp
   tests/test_mech.cpp
   tests/test_mech_reader.cpp
@@ -434,11 +531,20 @@ add_executable(mw3tests
   tests/test_zrndr_span.cpp
   tests/test_fixes.cpp
   tests/test_lance.cpp
+  tests/test_setup_sources.cpp
+  tests/test_patch12.cpp
+  tests/test_video_device.cpp
   tests/test_resolution.cpp
   tests/test_zreader.cpp
   tests/test_controls_cfg.cpp
   tests/test_pilot_names.cpp
   tests/test_program.cpp
+  tests/test_editor.cpp
+  tests/test_movie_shape.cpp
+  tests/test_fmv_stream.cpp
+  tests/test_mods.cpp
+  tests/test_bounded_readers.cpp
+  tests/test_bounded_media.cpp
   tests/test_hooks.cpp
   tests/place_survey.cpp
 )
@@ -464,9 +570,11 @@ if(SDL3_FOUND)
     src/frontend/sdl/sdl_render3d.cpp
     src/frontend/sdl/sdl_sound.cpp
     src/frontend/sdl/sdl_vfw.cpp
+    src/frontend/sdl/net_enet.cpp
+    src/frontend/sdl/net_upnp.cpp
     src/frontend/sdl/sdl_child.cpp
   )
-  target_link_libraries(mw3sdl PUBLIC mw3core SDL3::SDL3)
+  target_link_libraries(mw3sdl PUBLIC mw3core SDL3::SDL3 enet miniupnpc)
   # Windows: the Direct3D 12 shaders (sdl_render3d.hlsl), DXIL by the
   # Windows SDK's dxc, as headers the renderer includes.
   if(WIN32)
@@ -573,6 +681,39 @@ if(SDL3_FOUND)
                          COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_RUNTIME_DLLS:mw3> $<TARGET_FILE_DIR:mw3>
                          COMMAND_EXPAND_LISTS)
     endif()
+    # The launcher (docs/launcher.md, The two programs; games-layout.md): the
+    # main icon, its own program; MECHWARRIOR 3 starts mw3 beside it.
+    add_executable(mw3launcher
+      src/frontend/sdl/launcher_main.cpp
+      src/frontend/sdl/launcher.cpp
+      src/frontend/sdl/run_log.cpp
+    )
+    target_link_libraries(mw3launcher PRIVATE mw3text mw3sdl mw3core SDL3::SDL3)
+    target_compile_definitions(mw3launcher PRIVATE MW3_VERSION="${MW3_VERSION}")
+    if(NOT MW3_PACKAGE)
+      target_compile_definitions(mw3launcher PRIVATE MW3_ASSETS_DIR="${CMAKE_SOURCE_DIR}/assets"
+                                                     MW3_GAME_DIR="${MW3_GAME_DIR}")
+    endif()
+    add_dependencies(mw3launcher mw3)
+    if(WIN32)
+      set(MW3_RC_NAME "MW3 Rebuild")
+      set(MW3_RC_FILE "mw3launcher.exe")
+      set(MW3_RC_ICON "ICON_MAIN ICON \"${CMAKE_SOURCE_DIR}/tools/windows/mw3.ico\"")
+      configure_file(tools/windows/version.rc.in ${CMAKE_BINARY_DIR}/mw3launcher.rc)
+      target_sources(mw3launcher PRIVATE ${CMAKE_BINARY_DIR}/mw3launcher.rc)
+      # No console, in every build: it is only ever a window (its log is
+      # mw3launcher.log in the write dir).
+      if(MSVC)
+        target_link_options(mw3launcher PRIVATE /SUBSYSTEM:WINDOWS /ENTRY:mainCRTStartup)
+      else()
+        target_link_options(mw3launcher PRIVATE -mwindows)
+      endif()
+      if(NOT CMAKE_VERSION VERSION_LESS 3.21)
+        add_custom_command(TARGET mw3launcher POST_BUILD
+                           COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_RUNTIME_DLLS:mw3launcher> $<TARGET_FILE_DIR:mw3launcher>
+                           COMMAND_EXPAND_LISTS)
+      endif()
+    endif()
     # The Indeo helper's stand-in for the tests (tools/indeo; the real
     # mw3indeo.exe is 32-bit Windows, built by tools/windows/build.cmd).
     add_executable(mw3indeo_fake tools/indeo/mw3indeo_fake.cpp)
@@ -580,15 +721,19 @@ if(SDL3_FOUND)
     add_executable(mw3sdltests
       tests/main.cpp
       tests/test_sdl_frontend.cpp
+      tests/test_net_enet.cpp
+      tests/test_net_upnp.cpp
     )
     target_link_libraries(mw3sdltests PRIVATE mw3text mw3sdl mw3core SDL3::SDL3)
     target_compile_definitions(mw3sdltests PRIVATE MW3_GAME_DIR="${MW3_GAME_DIR}"
                                                  MW3_TEST_TMP_ROOT="${CMAKE_BINARY_DIR}"
                                                  MW3_BIN="$<TARGET_FILE:mw3>"
+                                                 MW3_LAUNCHER_BIN="$<TARGET_FILE:mw3launcher>"
                                                  MW3_FAKE_INDEO="$<TARGET_FILE:mw3indeo_fake>"
                                                  MW3_IMPORT_BIN="$<TARGET_FILE_DIR:mw3>/mw3import")
     add_dependencies(mw3sdltests mw3indeo_fake)
     add_dependencies(mw3sdltests mw3)
+    add_dependencies(mw3sdltests mw3launcher)
     add_test(NAME mw3sdltests COMMAND mw3sdltests)
   else()
     message(STATUS "SDL3_ttf not found: mw3 is not built (brew install sdl3_ttf)")

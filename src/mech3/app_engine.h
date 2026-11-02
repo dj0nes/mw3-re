@@ -7,6 +7,8 @@
 #include <unordered_map>
 #include <vector>
 
+#include "gamez/znetwork/znet_dplay.h"
+#include "gamez/znetwork/znet_session.h"
 #include "gamez/zutil/zutl_msgdll.h"
 #include "mech3/app_hooks.h"
 #include "mech3/lab_view.h"
@@ -54,9 +56,20 @@ struct Platform {
   platform::Settings* settings = nullptr;  // the registry's stand-in (settings.md); none: nothing saved
   uint32_t ram_mb = 4096;               // the machine's memory, for detail.zrd's RAM_KB
   int window_width = 1280, window_height = 960;  // the window made for the 640x480 game
+  // FIX (A): DirectPlay's instance (0x00586ba0) is our transport, made when
+  // the multiplayer screens switch the network on and given up when off;
+  // none: no network (the menus' MULTIPLAYER finds nothing).
+  std::function<znet::Transport*()> network_open;
+  std::function<void()> network_close;
+  // Internet hosting's (ours, piece 9c): the router's UPnP as the screens
+  // see it, hosting's mapping, the clipboard.
+  std::function<Engine::NetReach()> network_reach;
+  std::function<void(bool hosting)> network_hosting;
+  std::function<void(const char* text)> copy_text;
 };
 
 class ActionGame;
+class MultiplayerGame;
 class GameEngine;
 class MenuScreen;
 class QuitBox;
@@ -69,6 +82,7 @@ void wire_fmv(GameEngine* e);            // zFMV's host (app_fmv.cpp)
 // (0x004050d0) and lines (0x00405120); none open, nothing (app_menus.cpp).
 void program_briefing_progress(float f);
 void program_briefing_line(const char* s);
+void program_mech_chat_draw(void* mech);  // app_mech.h: 0x0041ab90's chat panel
 uint32_t program_slot_count();  // the chosen pilot's campaign's slot count (0x00435180), 0 without one
 
 class GameEngine : public Engine {
@@ -99,6 +113,9 @@ class GameEngine : public Engine {
     // Action screen would set (not ported: the caller makes it). Else the
     // chosen pilot's.
     ActionGame* action = nullptr;
+    // A network debug start's game (type 3, ours: the lobby is not ported):
+    // its rules and totals; the pilot's own when it has one.
+    MultiplayerGame* multi = nullptr;
   };
   void set_launch(const Launch& l);
   // The launch's mech, loadout and skin read again from the chosen pilot's
@@ -308,6 +325,7 @@ class GameEngine : public Engine {
   float source_value(int32_t src, Handle joy) override;  // 0x0042fea0: mech3::source_value
   uint32_t message_box3(int32_t a, int32_t caption, int32_t text, const char* s1, const char* s2,
                         const char* s3) override;
+  uint32_t message_box_plain(int32_t a, int32_t caption, const std::string& text) override;
   void credits_restart(Handle screen) override;
   void pilot_state_set_mode(Handle state, int32_t mode) override;
   void action_open(Handle screen) override;
@@ -368,6 +386,7 @@ class GameEngine : public Engine {
   static const char* known_unported(const std::string& key);
   void print_unported_summary() const;
   bool quiet = false;  // no log lines (tests)
+  int lobby_entries() const { return lobby_entries_; }  // ours: the lobby's page entered this many times
 
   // The memory of modules not ported: what is poked reads back.
   uint32_t peek32(uint32_t addr) override;
@@ -377,6 +396,30 @@ class GameEngine : public Engine {
 
   // Windows (FIX (A)).
   uint32_t lobby_connection() override { return 0; }
+  // zNetwork (multiplayer-port.md piece 1): the session's checks and its end.
+  uint32_t network_lobby_active() override { return znet::active() ? 1 : 0; }  // 0x00586ce0
+  Handle lobby_session() override { return znet::local_id(); }                   // 0x00586d10
+  void network_shutdown() override { znet::shutdown(); }                         // 0x00586c20
+  const char* lobby_player_name(Handle id) override {  // 0x00588a60; an unknown player "" (the exe's null)
+    const char* n = znet::player_name(id);
+    return n ? n : "";
+  }
+  // The mission's network start and end (piece 5).
+  void multiplayer_launch_prep() override;  // 0x0046ceb0
+  void network_set(int32_t on) override;    // 0x0047fc40
+  void multiplayer_switch(Handle state) override;  // 0x0049cb20
+  void multiplayer_page(Handle state, int32_t page, uint8_t reenter) override;  // 0x0049cb00
+  void multiplayer_take_pilot(Handle first, Handle second) override;  // 0x00494920
+  void multiplayer_resume(Handle screen) override;  // 0x0049b660
+  void mech_draw_cockpit(Handle mech) override { program_mech_chat_draw(object_of(mech)); }  // 0x0041ab90
+  NetReach network_reach() override { return p_.network_reach ? p_.network_reach() : NetReach{}; }
+  void network_hosting(bool on) override {
+    if (p_.network_hosting) p_.network_hosting(on);
+  }
+  void copy_text(const char* text) override {
+    if (p_.copy_text) p_.copy_text(text);
+  }
+  void network_leave() override;            // 0x0046d100
   uint32_t activate_running_copy() override { return 1; }
   uint32_t register_window_class() override { return 1; }
   void unregister_window_class() override {}
@@ -385,6 +428,7 @@ class GameEngine : public Engine {
   uint32_t message_box_text(uint32_t hwnd, const char* text, const char* caption, uint32_t type) override;
   uint32_t focus_window() override { return hwnd_; }
   void lock_system_keys(uint32_t) override {}
+  bool run_while_inactive() override;  // ours (W45): a network game runs on while inactive
   void sleep(uint32_t ms) override;
   void remove_debug_menu(uint32_t) override {}
   void attach_debug_menu(uint32_t) override {}
@@ -397,6 +441,10 @@ class GameEngine : public Engine {
   const char* message_format(int32_t id, const char* arg) override;
   const char* message_format_n(int32_t id, int32_t n) override;
   uint32_t message_box(int32_t a, int32_t caption, int32_t text, int32_t arg = 0) override;
+  // Ours, for the tests: answers message_box's boxes in their place (the box's
+  // own loop runs up to 100,000 frames).
+  std::function<uint32_t(int32_t style, int32_t caption, int32_t text)> on_message_box;
+  std::string last_box_text;  // the test hook's: message_box3's text as formatted
   uint32_t game_message_box(int32_t style, int32_t caption, const std::string& text);  // 0x004ac150
   void pump_events();                // FIX (A): the window's events, inside the box's loop
   ztwod::MessageBox* message_box_open() const { return box_; }  // the box being answered, or null
@@ -521,15 +569,22 @@ class GameEngine : public Engine {
   void wait_start() override;
   uint32_t wait_poll() override;
   void wait_end() override;
-  void fmv_stretch(zimg::Texture* image, int32_t left, int32_t top, int32_t right, int32_t bottom);
+  // Ours on a wide buffer (docs/fmv.md section 8): rows `src_top`..`src_bottom`
+  // of the image (-1: all of it) kept in their shape over the whole buffer.
+  void fmv_stretch(zimg::Texture* image, int32_t left, int32_t top, int32_t right, int32_t bottom, int32_t src_top = -1,
+                   int32_t src_bottom = -1);
   struct MovieStats {  // ours, for checking: the PLAYAVI frames drawn, the last one, its movie's length
     int drawn = 0, last = -1, length = 0;
   } movie_stats;
+  // Ours (docs/fmv.md section 8): a movie's shape measured before its first
+  // frame instead of beside it (the --movie debug start's, for its shots).
+  bool movie_shape_first = false;
   // The Direct3D frame: zvid's lock (0x00576d00 / 0x00576d60), scene nesting
   // (0x00579af0 / 0x00579b10), the quad ([0x0072f3ec]) and the finish (0x00558610).
   // 0x0040f8d0: the message panel's slide, then the view target's HUD data update.
   void camera_update() override;
   void hud_update() override;  // 0x0040fac0: the HUD frame, its parts in the exe's order
+  void hud_draw() override;    // 0x0040e4b0: the game editor's frame (game_editor)
   Handle pilot_hud(Handle data) override;          // 0x00430aa0 on the MechData
   void hud_static(Handle hud, float dt) override;  // 0x0043cd20
   void hud_zoom_pass(Handle hud, float dt) override;  // 0x00444230: the reticle's zoom window's 3D pass
@@ -601,6 +656,8 @@ class GameEngine : public Engine {
   // The 2D buffer at the canvas (w x h), the viewport, the window at the 3D frame (video_open, video_set_mode).
   void screen_size(int32_t w, int32_t h, int32_t frame_w, int32_t frame_h);
   Platform p_;
+  bool network_on_ = false;  // the app's +0x1bd (0x0047fc40)
+  int lobby_entries_ = 0;    // ours: the lobby's entries (multiplayer_switch), for the tests
   std::string command_line_;
   bool video_opened_ = false;
   std::map<std::string, uint32_t> counts_;

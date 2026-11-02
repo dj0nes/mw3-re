@@ -811,7 +811,7 @@ void Torso::centre(int32_t how) {
 
 // Mech3.exe 1.2 @ 0x00466190
 void Torso::set_mode(int32_t m) {
-  mode = m;
+  mode = mech->remote ? 2 : m;  // the mech's vt+0x5c: the network mech's
   Sound& s = mech->servo();
   if (s) {
     if (heat_calls().stop_sound) heat_calls().stop_sound(s);

@@ -25,6 +25,10 @@
 namespace mech3 {
 
 namespace {
+int32_t g_hud_setups = 0;  // ours: Hud::setup's runs (the tests)
+}  // namespace
+
+namespace {
 constexpr int32_t kWeaponBracket = 11;  // [0x005e3a18] the bracket's half width
 constexpr int32_t kWeaponLine = 10;     // [0x005e3a1c] a weapon line's height
 }  // namespace
@@ -1722,6 +1726,7 @@ bool Hud::pos(zrdr::Node* n, const char* piece, const char* key, int32_t out[2])
 // Mech3.exe 1.2 @ 0x0043bb80: an unlisted video mode keeps +0x22e3c as it
 // is (FIX (bug) in the constructor, hud.md section 3).
 void Hud::setup(Mech* m) {
+  ++g_hud_setups;
   HudHooks& k = *g_hooks;
   if (m) mech = m;
   reader = k.load_hud_zrd();
@@ -2320,6 +2325,7 @@ void HudReticle::reset() {
 namespace {
 int32_t g_huds = 0;
 }  // namespace
+int32_t Hud::setups() { return g_hud_setups; }
 int32_t Hud::live() { return g_huds; }
 
 // Mech3.exe 1.2 @ 0x0043b860: the members' destructors do the rest.

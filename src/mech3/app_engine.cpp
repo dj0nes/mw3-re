@@ -4,6 +4,8 @@
 #include "gamez/zclass/cls_node.h"
 #include "gamez/zimage/zimg_library.h"
 #include "mech3/app_engine.h"
+#include "mech3/game_editor.h"
+#include "mech3/mods.h"
 #include "mech3/force_feedback.h"
 
 #if !defined(_WIN32)
@@ -11,6 +13,7 @@
 #endif
 #include "gamez/zfmv/fmv_script.h"
 #include "mech3/mission_map.h"
+#include "mech3/patch12.h"
 #include "mech3/app.h"
 #include "mech3/hud.h"
 #include "mech3/message_panel.h"
@@ -23,6 +26,7 @@
 #include "gamez/zeffect/zeff_anim_run.h"
 #include "mech3/mech_shade.h"
 #include "mech3/app_mech.h"
+#include "mech3/pilot.h"
 #include "mech3/app_hud.h"
 #include "mech3/options.h"
 #include "mech3/pocket_panel.h"
@@ -192,6 +196,8 @@ GameEngine::GameEngine(const Platform& p, std::string command_line)
   vp.hardware = [](void* c) { return static_cast<GameEngine*>(c)->video_mode(); };
   vp.sync = [](void* c) { static_cast<GameEngine*>(c)->sync_view(); };
   wire_view(&vp);
+  patch12::install();  // 1.0's data read as 1.2's (docs/patch12.md)
+  patch12::provide_files();  // and 1.2's added maps beside it, in the write dir
 }
 
 GameEngine::~GameEngine() {
@@ -207,6 +213,7 @@ GameEngine::~GameEngine() {
     wire_view(nullptr);
   }
   zutl::install_messages(nullptr);
+  if (!g_engine) patch12::uninstall();
 }
 
 namespace {
@@ -224,16 +231,6 @@ const std::map<std::string, const char*>& known_keys() {
       {"0x00576d90", "own: the back buffer's size, zvid's Surface (lock_3d); here only the targets' arguments"},
       {"0x00576da0", "own: the back buffer's height, the same (lock_3d)"},
       {"0x00576dc0", "own: the back buffer's pitch, the same"},
-      {"0x00586ce0", "deferred: multiplayer (a DirectPlay lobby session's flag; 0, none, as the exe without one)"},
-      {"0x00493260", "deferred: multiplayer (its first screen, made by the Multiplayer State's constructor)"},
-      {"0x00495f90", "deferred: multiplayer (its second screen)"},
-      {"0x0049bd80", "deferred: multiplayer (its third screen)"},
-      {"0x00588930", "deferred: multiplayer (DirectPlay's poll; back burner)"},
-      {"0x00586c20", "deferred: multiplayer (its shutdown)"},
-      {"0x0041ab90", "deferred: multiplayer (the chat panel at mech +0x378, made by commands 0x76 / 0x77)"},
-      {"0x004ac860", "deferred: the stealth object (its block; back burner, vehicles.md)"},
-      {"0x004a4de0", "deferred: the stealth object"},
-      {"0x0040e4b0", "deferred: developer only (the 25 lines' draw and hit test, hud.md section 20)"},
       {"vt+0x7c", "deferred: developer only (the 25 lines cleared)"},
       {"hudline.vt+0x7c", "deferred: developer only (the 25 lines cleared)"},
       {"0x0040f7f0", "deferred: developer only (the 25 lines' Arial font)"},
@@ -248,16 +245,12 @@ const std::map<std::string, const char*>& known_keys() {
       {"0x004f8f20", "no effect: zClass's two values set to their defaults (update_frame 1, frozen 0)"},
       {"0x004f3540", "no effect: [0x005ea53c] is never read"},
       {"0x00558070", "no effect: [0x008007dc] / [0x008007e0] are only written"},
-      {"0x005a84c0", "deferred: the stealth object (its name; back burner, vehicles.md)"},
       {"0x005a7e10", "own: CZAiTarget's defaults, the port's AiTarget initialisers (called with 0)"},
       {"0x005a7f90", "own: ~CZAiTarget, the port's AiTarget destructor"},
       {"0x00576c50", "own: zutl::crc32 builds its table on first use"},
       {"0x00535ed0", "no effect: the threshold is read only by the software draw 0x0053e050"},
       {"0x004f8f60", "no effect: zSave registration with flag 0; the port's classes_reset registers none either"},
       {"0x00537520", "no effect: Releases the used textures' system surfaces; the port's record is one Render3D handle"},
-      {"0x0046ef70", "no effect: a mech's network update (vt+0x158) tests the network game (0x00479480) first; a census stand-in"},
-      {"0x0046f160", "no effect: a mech's network message (vt+0x168) returns at once without [0x00605fb4] (network game running); a census stand-in"},
-      {"WeaponCalls.net_event", "no effect: a weapon's network message (vt+0x168, 0x0046f160) returns at once without [0x00605fb4]; a census stand-in"},
       {"0x00519e50", "no effect: zFont's bitmap fonts, loaded but never drawn or measured in 1.2 (only TextBase's own vtable reaches its draw, and no object keeps it; its centring needs +0x238, which nothing sets; twod.md section 4)"},
       {"0x00526510", "own: zModel's start, the port's struct initialisers; what differs is unread or set first (module-starts.md)"},
       {"0x005578f0", "own: zRender's start, the same (module-starts.md)"},
@@ -328,6 +321,11 @@ void GameEngine::print_unported_summary() const {
 }
 
 uint32_t GameEngine::peek32(uint32_t addr) {
+  // The chosen pilot's +0x6c, its game (W42's lead): from the menus, before
+  // any launch writes the stand-in game there, the pilot's current game, so
+  // a game's queries (vt+0x2c: the lab's skins, the quit box) reach it.
+  if (Pilot* p = current_pilot(); p && p->current && addr == handle_of(p) + 0x6c && !memory_.count(addr))
+    return handle_of(p->current);
   return static_cast<uint32_t>(peek8(addr)) | static_cast<uint32_t>(peek8(addr + 1)) << 8 |
          static_cast<uint32_t>(peek8(addr + 2)) << 16 | static_cast<uint32_t>(peek8(addr + 3)) << 24;
 }
@@ -368,6 +366,10 @@ uint32_t GameEngine::message_dll_load(const char* name) {
       return 0;
     }
   }
+  patch12::messages(dll_);
+  // Ours: the mods' strings.txt over the table (docs/modding.md).
+  if (!zutl::mounts().mods.empty())
+    for (const std::string& line : mods_apply_strings(dll_.text, dll_.ids)) std::printf("mw3: %s\n", line.c_str());
   zutl::install_messages(&dll_);
   return 1;
 }
@@ -419,6 +421,7 @@ void GameEngine::pump_events() {
 }
 
 uint32_t GameEngine::message_box(int32_t a, int32_t caption, int32_t text, int32_t arg) {
+  if (on_message_box) return on_message_box(a, caption, text);
   char buf[16];
   std::snprintf(buf, sizeof buf, "%d", arg);
   return game_message_box(a, caption, zutl::format_message(text, buf));
@@ -427,7 +430,19 @@ uint32_t GameEngine::message_box(int32_t a, int32_t caption, int32_t text, int32
 // 0x004ac150 with three strings (the controls screen's reassignment questions).
 uint32_t GameEngine::message_box3(int32_t a, int32_t caption, int32_t text, const char* s1, const char* s2,
                                   const char* s3) {
+  if (on_message_box) {
+    last_box_text = zutl::format_message(text, {s1, s2, s3});
+    return on_message_box(a, caption, text);
+  }
   return game_message_box(a, caption, zutl::format_message(text, {s1, s2, s3}));
+}
+
+uint32_t GameEngine::message_box_plain(int32_t a, int32_t caption, const std::string& text) {
+  if (on_message_box) {
+    last_box_text = text;
+    return on_message_box(a, caption, 0);
+  }
+  return game_message_box(a, caption, text);
 }
 
 Handle GameEngine::joy_state() { return handle_of(zin::joy_state()); }
@@ -445,6 +460,10 @@ Handle GameEngine::script_new() {
 void GameEngine::script_delete(Handle s) {
   auto* in = static_cast<zint::Interp*>(object_of(s));
   if (interp() == in) interp() = nullptr;
+  // Ours: interp.zbd, kept open since its first script (0x00596620), closed
+  // with its object (the exe's stays open to the process's end; a second
+  // app in one process, as the tests make, would leak a file each).
+  if (in && in->archive.f) std::fclose(in->archive.f), in->archive.f = nullptr;
   delete in;
 }
 
@@ -867,6 +886,7 @@ void GameEngine::hud_update() {
   if (MessagePanel* p = message_panel()) p->update(dt);  // [0x00603d7c] vt+0x24: its text
   pocket_draw(dt);                                       // 0x0046a410
 }
+void GameEngine::hud_draw() { editor_frame(); }
 Handle GameEngine::pilot_hud(Handle data) { return handle_of(program_pilot_hud(object_of(data))); }
 void GameEngine::hud_static(Handle hud, float dt) { program_hud_static(object_of(hud), dt); }
 bool program_intensity_flag() { return options().intensity_flag[0] != 0; }
@@ -878,6 +898,9 @@ void GameEngine::render_reset() {
 }
 void GameEngine::message_panel_init(Handle, Handle) { mech3::message_panel_create(); }
 void GameEngine::message_panel_free() { mech3::message_panel_destroy(); }
+// The mission's network start and end (mech_net.cpp, multiplayer-port.md piece 5).
+void GameEngine::multiplayer_launch_prep() { net_start(); }
+void GameEngine::network_leave() { net_end(); }
 void GameEngine::video_begin_3d() { zvid::lock_3d(); }
 void GameEngine::video_end_3d() { zvid::unlock_3d(); }
 void GameEngine::video_begin_scene() { zvid::scene_begin(); }
@@ -1008,6 +1031,7 @@ void GameEngine::replace_state_at(Handle state) {
 void GameEngine::fade_to_state(Handle next, uint32_t arg, int32_t direction, int32_t buffer, float seconds,
                                uint8_t r, uint8_t g, uint8_t b) {
   if (next == 0x6099a0) fade_replace(&states().end_win, arg, direction, buffer, seconds, r, g, b);
+  else if (next == 0x609848) fade_replace(&states().multi_exit, arg, direction, buffer, seconds, r, g, b);  // the quit box's (0x0048e390): a second Multi-Exit
   else if (next == states().ia_dummy.addr()) fade_replace(&states().ia_dummy, arg, direction, buffer, seconds, r, g, b);
   else Engine::fade_to_state(next, arg, direction, buffer, seconds, r, g, b);
 }
@@ -1030,4 +1054,9 @@ void GameEngine::model_set_global_light(int32_t on) { zmod::set_shadows(on); }
 void GameEngine::effects_set_level(int32_t v) { zeff::anim_set_level(v); }  // 0x00508fb0
 void GameEngine::shadows_reset() { shade_apply(); }  // 0x004e6900: the option as set
 
+}  // namespace mech3
+
+namespace mech3 {
+// W45: a network game in play runs on while the window is inactive (FIX (A)).
+bool GameEngine::run_while_inactive() { return program_net_running(); }
 }  // namespace mech3

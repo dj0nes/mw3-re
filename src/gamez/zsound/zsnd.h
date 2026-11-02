@@ -349,5 +349,18 @@ struct Wave {
 int32_t wave_parse(Wave& w);                         // 0x00574db0
 int32_t wave_read_file(Wave& w);                     // 0x00574e90
 int32_t wave_read_archive(Wave& w, zutl_zar::Archive& a);  // 0x00574f50
+// Ours (docs/modding.md, M3): both readers refuse a WAV whose samples or cue
+// points run past its bytes, or whose format no output can play (logged).
+const char* wave_broken(const Wave& w);
+
+// Ours, not the original's: a sound the archive and the loose files lack,
+// made from another sound of the same archive with its end cut (the 1.2
+// data layer, mech3/patch12.h: 1.2's renamed sounds from 1.0's own).
+struct WaveAlias {
+  std::string source;
+  float trim_end_seconds = 0;
+};
+using WaveAliasHook = bool (*)(const char* name, WaveAlias* out);
+void set_wave_alias_hook(WaveAliasHook hook);
 
 }  // namespace zsnd

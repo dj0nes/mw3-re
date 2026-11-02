@@ -196,4 +196,28 @@ int32_t MovieStream::decompress(uint16_t* out, int32_t width, int32_t height, in
   return 0;
 }
 
+bool scan_imported_movie(const std::string& base, std::vector<MovieFrameScan>* out, int32_t* w, int32_t* h,
+                         const std::atomic<bool>* stop) {
+  out->clear();
+  std::unique_ptr<MovieStream> m = MovieStream::open(base, kVids);
+  if (!m || m->info().video_format.size() < 12) return false;
+  int32_t fw = 0, fh = 0;
+  std::memcpy(&fw, &m->info().video_format[4], 4);
+  std::memcpy(&fh, &m->info().video_format[8], 4);
+  fh = fh < 0 ? -fh : fh;
+  if (fw <= 0 || fh <= 0 || fw > 4096 || fh > 4096) return false;
+  *w = fw, *h = fh;
+  const int32_t pitch = ((fw + 3) & ~3) * 2;
+  std::vector<uint16_t> px(static_cast<size_t>(pitch / 2) * fh);
+  const int32_t n = static_cast<int32_t>(m->info().video.length);
+  out->reserve(static_cast<size_t>(n > 0 ? n : 0));
+  for (int32_t f = 0; f < n; ++f) {
+    if (stop && stop->load()) return false;
+    m->read(f, 1, nullptr, 0);
+    if (m->decompress(px.data(), fw, fh, pitch, 0xf800, 0x07e0, 0x001f) != 0) return false;
+    out->push_back(movie_scan_frame(px.data(), fw, fh, pitch, 0xf800, 0x07e0, 0x001f));
+  }
+  return true;
+}
+
 }  // namespace mech3

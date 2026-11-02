@@ -13,7 +13,9 @@
 //   --assets DIR         a folder of replacement files searched first (repeatable)
 //   --write-dir DIR      where saves and settings go (default: the user's app data)
 //   --mission NAME       debug start into a mission through the Load and Core
-//                        states: c1, c1m2 (mission 2 of c1), c4b, t1 ...
+//                        states: c1, c1m2 (mission 2 of c1), c4b, t1 ...; c1mp1 a
+//                        network game on the map with --host/--join (the --net-*
+//                        soak options, multiplayer-port.md piece 8b)
 //   --fly NAME           debug start: the world alone with a free camera
 //     --variant BLOCK    the world.zrd block (default m1 or the first)
 //     --pos X Y Z, --look YAW PITCH (degrees): the camera's start
@@ -21,11 +23,14 @@
 //   --movie NAME         debug start playing one fmv.zrd block (INTRO, c1m2 ...); with
 //                        --nosound on a clock stepping 1/60 s each poll, so each
 //                        frame is shown once (--shot F --shot-frame N: the movie's
-//                        N-th frame, numbered from 1);
+//                        N-th frame, numbered from 1); a movie's shape on a wide
+//                        screen measured before its first frame (docs/fmv.md section 8);
 //                        the movies are the importer's (mw3import), in the write dir
 //   --shot FILE.bmp      save frame N (--shot-frame N, default 30) and quit; hides the window
 //     --shot-any         count every frame shown (the fade's too), not only the 3D scene's
-//   --frames N           quit after N frames of a debug start
+//   --frames N           quit after N frames shown (a debug start's; from the menus each flip counts,
+//                        a movie's at its own rate: the intro's 15 a second); also keeps the window
+//                        out of fullscreen
 //   --action-chain all|cN|cN:S  Instant Action played through, each world and scenario (ours, modes_chain.h)
 //   --campaign-chain new:N|resume:N|kills:N|retry:N  a pilot through the campaign as a player (ours,
 //                        campaign_chain.h): N missions won, shots in --write-dir
@@ -42,11 +47,13 @@
 #include <SDL3/SDL.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cstdio>
 #include <deque>
 #include <cstdlib>
 #include <cmath>
 #include <cstring>
+#include <functional>
 #include <filesystem>
 #include <map>
 #include <fstream>
@@ -70,13 +77,19 @@
 #include "frontend/sdl/sdl_sound.h"
 #include "frontend/sdl/sdl_twod_host.h"
 #include "frontend/sdl/sdl_vfw.h"
+#include "frontend/sdl/net_enet.h"
+#include "frontend/sdl/net_upnp.h"
+#include "gamez/znetwork/znet_dplay.h"
+#include "gamez/znetwork/znet_session.h"
 #include "gamez/ztwod/twod_host.h"
 #include "gamez/zeffect/zeff_anim_save.h"
 #include "gamez/zutil/zfix.h"
 #include "gamez/zutil/zutl_path.h"
 #include "mech3/app.h"
+#include "mech3/mods.h"
 #include "mech3/app_engine.h"
 #include "mech3/app_hud.h"
+#include "mech3/app_keys.h"
 #include "mech3/pilot.h"
 #include "mech3/app_mech.h"
 #include "mech3/app_vehicle.h"
@@ -123,7 +136,14 @@ struct Args {
   std::string cfg_install;  // mw3.cfg's install= (the command line's wins)
   std::string cfg_mw1_game;  // mw3.cfg's mw1_game= (ours: the launcher's MechWarrior 1989 folder)
   int wide_menus = -1, cfg_wide_menus = -1;  // --wide-menus / --no-wide-menus, mw3.cfg's widemenus= (ours)
+  bool debug_camera = false;  // --debug-camera or debugcamera=1 (ours, docs/editor.md S4): the game editor on Shift+F12
   std::vector<std::string> assets;
+  // Mods (ours, docs/modding.md): --mod NAME (repeatable, this run's list),
+  // else mw3.cfg's mod= lines, in order; --no-mods none; --mods lists them.
+  std::vector<std::string> mods, cfg_mods;
+  bool mods_given = false, no_mods = false, list_mods = false;
+  std::string check_mod;  // --check-mod DIR
+
   std::string original;  // -nofmv -seasick -cdN, passed on as the command line
   // The bug fixes (zfix bugs; fixes.md, The bug fixes switch): mw3.cfg's
   // bugfixes=0/1 (default 1), --original turns them off whatever it says.
@@ -140,10 +160,8 @@ struct Args {
   int shot_frame = 30, frames = 0, win_w = 1280, win_h = 960, fire = 0, fire_group = 0, objectives = 0;
   int click = 0, click_up = 0, shot_series = 0;
   bool no_import = false, force_import = false;  // --no-import, --import (ours: first_run_import.h)
-  bool no_launcher = false;   // --no-launcher (ours: launcher.h): a plain start straight to the game
-  std::string launcher_shot, launcher_screen = "main";  // --launcher-shot FILE [--launcher-screen NAME]
-  bool launcher_play = false;  // --launcher-play: the launcher shown, MECHWARRIOR 3 pressed at once (checks)
-  bool launcher_mw1 = false;   // --launcher-mw1: likewise MECHWARRIOR (1989), the launcher quit when it returns
+  bool no_launcher = false;   // --no-launcher (ours: launcher.h): no SETUP screen, the old dialog if there is no install
+  std::string ready_file;     // --ready-file F (ours, sdl_child.h): written at the first frame shown, for mw3launcher
   std::string vfw_helper;     // --vfw-helper EXE (ours, sdl_vfw.h): the movies' Video for Windows helper; "-" none
   std::string patch;          // --patch PATH (ours, patch_import.h): the official 1.2 patch into the write dir's overlay
   std::string install_from, install_to;  // --install-from PATH, --install-to DIR (ours, disc_install.h)
@@ -156,12 +174,45 @@ struct Args {
   int win = 0;  // --win N (ours): the mission won N frames in, by its Exit Mission
   int frame_times = 0;  // --frame-times N (ours): each frame's wall time from the N-th frame shown, summed up at the end
   int lab_mech = -1;  // --lab-mech N (ours): the lab's 3D view shows chassis N (alone: through c1m2's briefing)
-  struct Tap { int down, up, dik; };
+  struct Tap { int down, up, dik, ingame = 0; };
   std::vector<Tap> taps;  // --tap DIK@N[:M]
-  struct ClickAt { int frame, x, y, group = 0; };  // group: a wide menu's left (0), middle (1) or right (2) (ours)
+  // group: a wide menu's left (0), middle (1) or right (2); players: N > 0
+  // counts the frame from the first one the session holds N players (ours)
+  struct ClickAt { int frame, x, y, group = 0, players = 0, back = 0, ingame = 0, hover = 0; };
   std::vector<ClickAt> clicks_at;  // --click-at X,Y@N (the game's 640 x 480 pixels)
   std::string briefing;  // --briefing NAME (ours): a campaign mission's briefing, as the menus reach it
   bool walk = false;  // --walk: full throttle (THROTTLE0's key) at the start (ours)
+  // The network (ours, multiplayer-port.md piece 4, until the lobby screens):
+  // --host / --join HOST[:PORT] start a session before the game, as the
+  // player --net-name; --net-port the port (a host's default 27930, a
+  // joiner's the system's), --net-bind the address (127.0.0.1 in tests),
+  // --net-say TEXT@N a chat line to everyone at the N-th pass.
+  bool net_host = false;
+  std::string net_join, net_name = "Pilot", net_bind = "0.0.0.0", net_say;
+  int net_port = -1, net_say_at = 0;
+  // The soak test's (ours, piece 8b, until the lobby): --mission <dir>mp<N>
+  // a network game on the map; --net-wait N the start held until N players
+  // are in; --net-minutes M the game's clock; --net-drive SEED the pilot
+  // driven by a pattern; --net-soak a line of where every mech is each half
+  // second, the scores at the game's end, and a quit at the menu after it.
+  int net_wait = 0, net_minutes = 0;
+  int net_seconds = 0;  // --net-seconds: a network game the menus start lasts this long (each one)
+  int net_kill_at = 0;  // --net-kill-at S: a kill staged on the pilot S seconds (of 30 frames) into each such game
+  int blur[2] = {0, 0};  // --blur-ingame N:MS (ours, W45): inactive at game frame N, a focus back MS ms later
+  bool fire_probe = false;  // --fire-probe (ours, W40): each menu game frame, the trigger and the reloads, timed
+  int net_walk[2] = {0, 0};  // --net-walk A,B: the throttle held up from A to B seconds (of 30 frames) into each
+  long long net_drive = -1;
+  bool net_staged = true;  // --net-staged 0: the drive stages no kills
+  float net_ahead = 0;     // --net-ahead M: the pilot held M m from the nearest remote mech, facing it
+  // The multiplayer screens' (ours, for the tests on loopback, where no
+  // broadcast arrives): --net-discovery N the LAN search answered on N when
+  // hosting, --net-lan IP:PORT the search's LAN probe sent there.
+  int net_discovery = sdlfe::kDiscoveryPort;
+  std::string net_lan;
+  // --net-upnp URL: the router's description there (the tests' fake one);
+  // without it a transport bound to loopback asks no router.
+  std::string net_upnp;
+  bool net_soak = false;
   bool shot_any = false;
 };
 
@@ -170,7 +221,7 @@ void usage() {
       "mw3 [install-dir] [--install DIR | --install-from DISC|ISO|CUE [--install-to DIR]] [--assets DIR]... [--write-dir DIR] [--version]\n"
       "    [--mission NAME | --fly NAME [--variant BLOCK]] [--pos X Y Z] [--look YAW PITCH] [--vehicle-ahead M [--vehicle-hold]] [--turret-ahead M] [--mech-ahead M] [--dialog FILE NAME]\n"
       "    [--shot FILE.bmp [--shot-frame N] [--shot-any] [--shot-series K]] [--fire N [--fire-group 1..5]] [--objectives N] [--win N] [--lab-mech N]\n"
-      "    [--windowed] [--original] [--import | --no-import] [--no-launcher] [--launcher-shot FILE [--launcher-screen main|setup|work|notes]] [--launcher-play] [--launcher-mw1] [--wide-menus | --no-wide-menus] [--patch ZIP|DIR] [--vfw-helper EXE | --no-vfw-helper] [--briefing c1m2] [--click N[:M]] [--click-at X,Y@N]... [--walk] [--tap DIK@N[:M]]... [--frames N] [--frame-ms N] [--frame-times N] [--seed N] [--window WxH] [--nosound] [--hidden] [--verbose]\n"
+      "    [--windowed] [--original] [--import | --no-import] [--no-launcher] [--debug-camera] [--wide-menus | --no-wide-menus] [--mod NAME]... [--no-mods] [--mods] [--check-mod DIR] [--patch ZIP|DIR] [--vfw-helper EXE | --no-vfw-helper] [--briefing c1m2] [--click N[:M]] [--click-at X,Y@N]... [--click-players X,Y@N/P]... [--click-return X,Y@N]... [--walk] [--tap DIK@N[:M]]... [--frames N] [--frame-ms N] [--frame-times N] [--seed N] [--window WxH] [--nosound] [--hidden] [--verbose]\n"
       "    [-nofmv] [-seasick] [-cdN]\n"
       "See docs/program.md.\n");
 }
@@ -190,6 +241,10 @@ bool parse(int argc, char** argv, Args& a) {
     else if (s == "--install" && next(1)) a.install = argv[++i];
     else if (s == "--assets" && next(1)) a.assets.emplace_back(argv[++i]);
     else if (s == "--write-dir" && next(1)) a.write_dir = argv[++i];
+    else if (s == "--mod" && next(1)) a.mods.emplace_back(argv[++i]), a.mods_given = true;
+    else if (s == "--no-mods") a.no_mods = true;
+    else if (s == "--mods") a.list_mods = true;
+    else if (s == "--check-mod" && next(1)) a.check_mod = argv[++i];
     else if (s == "--mission" && next(1)) a.mission = argv[++i];
     else if (s == "--fly" && next(1)) a.mission = argv[++i], a.fly = true;
     else if (s == "--variant" && next(1)) a.variant = argv[++i];
@@ -206,6 +261,30 @@ bool parse(int argc, char** argv, Args& a) {
     else if (s == "--win" && next(1)) a.win = std::atoi(argv[++i]);
     else if (s == "--lab-mech" && next(1)) a.lab_mech = std::atoi(argv[++i]);
     else if (s == "--frames" && next(1)) a.frames = std::atoi(argv[++i]);
+    else if (s == "--host") a.net_host = true;
+    else if (s == "--join" && next(1)) a.net_join = argv[++i];
+    else if (s == "--net-name" && next(1)) a.net_name = argv[++i];
+    else if (s == "--net-port" && next(1)) a.net_port = std::atoi(argv[++i]);
+    else if (s == "--net-bind" && next(1)) a.net_bind = argv[++i];
+    else if (s == "--net-wait" && next(1)) a.net_wait = std::atoi(argv[++i]);
+    else if (s == "--net-minutes" && next(1)) a.net_minutes = std::atoi(argv[++i]);
+    else if (s == "--net-seconds" && next(1)) a.net_seconds = std::atoi(argv[++i]);
+    else if (s == "--net-kill-at" && next(1)) a.net_kill_at = std::atoi(argv[++i]);
+    else if (s == "--fire-probe") a.fire_probe = true;
+    else if (s == "--blur-ingame" && next(1)) std::sscanf(argv[++i], "%d:%d", &a.blur[0], &a.blur[1]);
+    else if (s == "--net-walk" && next(1)) std::sscanf(argv[++i], "%d,%d", &a.net_walk[0], &a.net_walk[1]);
+    else if (s == "--net-drive" && next(1)) a.net_drive = std::strtoll(argv[++i], nullptr, 10);
+    else if (s == "--net-soak") a.net_soak = true;
+    else if (s == "--net-staged" && next(1)) a.net_staged = std::atoi(argv[++i]) != 0;
+    else if (s == "--net-ahead" && next(1)) a.net_ahead = std::strtof(argv[++i], nullptr);
+    else if (s == "--net-discovery" && next(1)) a.net_discovery = std::atoi(argv[++i]);
+    else if (s == "--net-lan" && next(1)) a.net_lan = argv[++i];
+    else if (s == "--net-upnp" && next(1)) a.net_upnp = argv[++i];
+    else if (s == "--net-say" && next(1)) {
+      const std::string v = argv[++i];
+      const size_t atpos = v.rfind('@');
+      a.net_say = v.substr(0, atpos), a.net_say_at = atpos == std::string::npos ? 1 : std::atoi(v.c_str() + atpos + 1);
+    }
     else if (s == "--campaign-chain" && next(1)) a.chain = argv[++i];
     else if (s == "--action-chain" && next(1)) a.modes = argv[++i];
     else if (s == "--frame-ms" && next(1)) a.frame_ms = std::atoi(argv[++i]);
@@ -217,6 +296,31 @@ bool parse(int argc, char** argv, Args& a) {
     else if (s == "--click-at" && next(1)) {
       Args::ClickAt c{};
       if (std::sscanf(argv[++i], "%d,%d@%d", &c.x, &c.y, &c.frame) == 3) a.clicks_at.push_back(c);
+    }
+    else if (s == "--click-players" && next(1)) {  // X,Y@N/P: N frames after the session first holds P players
+      Args::ClickAt c{};
+      if (std::sscanf(argv[++i], "%d,%d@%d/%d", &c.x, &c.y, &c.frame, &c.players) == 4 && c.players > 0)
+        a.clicks_at.push_back(c);
+    }
+    else if ((s == "--tap-ingame" || s == "--hold-ingame") && next(1)) {  // DIK@N[:M] / N:M (the left button), each game's frames
+      const bool hold = s == "--hold-ingame";
+      const char* v = argv[++i];
+      const char* at = hold ? v - 1 : std::strchr(v, '@');
+      const char* c = at ? std::strchr(at + 1, ':') : nullptr;
+      if (at) a.taps.push_back({std::atoi(at + 1), c ? std::atoi(c + 1) : std::atoi(at + 1) + 1,
+                                hold ? -1 : static_cast<int>(std::strtol(v, nullptr, 0)), 1});
+    }
+    else if (s == "--hover-at" && next(1)) {  // X,Y@N: the cursor there at frame N, no click (a rollover)
+      Args::ClickAt c{};
+      if (std::sscanf(argv[++i], "%d,%d@%d", &c.x, &c.y, &c.frame) == 3) c.hover = 1, a.clicks_at.push_back(c);
+    }
+    else if (s == "--click-ingame" && next(1)) {  // X,Y@N: N frames into each game the menus start
+      Args::ClickAt c{};
+      if (std::sscanf(argv[++i], "%d,%d@%d", &c.x, &c.y, &c.frame) == 3) c.ingame = 1, a.clicks_at.push_back(c);
+    }
+    else if (s == "--click-return" && next(1)) {  // X,Y@N: N frames after each return to the lobby from a game
+      Args::ClickAt c{};
+      if (std::sscanf(argv[++i], "%d,%d@%d", &c.x, &c.y, &c.frame) == 3) c.back = 1, a.clicks_at.push_back(c);
     }
     else if (s == "--tap" && next(1)) {
       const char* v = argv[++i];
@@ -235,11 +339,9 @@ bool parse(int argc, char** argv, Args& a) {
     else if (s == "--windowed") a.windowed = true;
     else if (s == "--no-import") a.no_import = true;
     else if (s == "--no-launcher") a.no_launcher = true;
-    else if (s == "--launcher-shot" && next(1)) a.launcher_shot = argv[++i];
-    else if (s == "--launcher-play") a.launcher_play = true;
-    else if (s == "--launcher-mw1") a.launcher_mw1 = true;
-    else if (s == "--launcher-screen" && next(1)) a.launcher_screen = argv[++i];
+    else if (s == "--ready-file" && next(1)) a.ready_file = argv[++i];
     else if (s == "--wide-menus") a.wide_menus = 1;
+    else if (s == "--debug-camera") a.debug_camera = true;
     else if (s == "--no-wide-menus") a.wide_menus = 0;
     else if (s == "--original") a.play_original = true;
     else if (s == "--import") a.force_import = true;
@@ -289,11 +391,13 @@ void read_config(const std::string& dir, Args& a) {
     if (line.rfind("install=", 0) == 0) a.cfg_install = line.substr(8);
     else if (line.rfind("mw1_game=", 0) == 0) a.cfg_mw1_game = line.substr(9);
     else if (line.rfind("assets=", 0) == 0) a.assets.push_back(line.substr(7));
+    else if (line.rfind("mod=", 0) == 0) a.cfg_mods.push_back(line.substr(4));
     else if (line == "windowed=1") a.windowed = true;
     else if (line == "bugfixes=0") a.cfg_bugfixes = 0;
     else if (line == "bugfixes=1") a.cfg_bugfixes = 1;
     else if (line == "widemenus=0") a.cfg_wide_menus = 0;
     else if (line == "widemenus=1") a.cfg_wide_menus = 1;
+    else if (line == "debugcamera=1") a.debug_camera = true;
   }
 }
 
@@ -310,6 +414,39 @@ void split_mission(const std::string& name, std::string& dir, std::string& varia
 }
 
 int run(const Args& a, platform::VideoForWindows* vfw);
+
+// The network's log until the lobby screens are ported (ours, piece 4): its
+// local messages as lines, a chat's text, and the per-pass work.
+std::function<void()> g_net_pass;
+void net_log(uint32_t from, const uint8_t* m, size_t size) {
+  const uint16_t type = static_cast<uint16_t>(m[0] | m[1] << 8);
+  const char* name = znet::player_name(from);
+  const std::string who = std::to_string(from) + (name ? std::string(" (") + name + ")" : std::string());
+  switch (type) {
+    case 0x3: std::printf("mw3: network: player %s joined\n", who.c_str()); break;
+    case 0x6: std::printf("mw3: network: player %s left\n", who.c_str()); break;
+    case 0x7: std::printf("mw3: network: we were kicked out\n"); break;
+    case 0xd: std::printf("mw3: network: player %s is the host\n", who.c_str()); break;
+    case 0xc: std::printf("mw3: network: error: %.*s\n", static_cast<int>(size > 4 ? size - 5 : 0), m + 4); break;
+    case 0x1f:
+      if (size > 8) std::printf("mw3: network: player %s says \"%.*s\"\n", who.c_str(), static_cast<int>(strnlen(reinterpret_cast<const char*>(m + 8), size - 8)), m + 8);
+      break;
+    default: break;
+  }
+  std::fflush(stdout);
+}
+void net_log_handlers() {
+  for (uint16_t t : {0x3, 0x6, 0x7, 0xd, 0xc, 0x1f}) znet::on(t, &net_log);
+}
+// A chat line (0x1f: +4 the team bit, +8 the text) to everyone.
+void net_say(const std::string& text) {
+  std::vector<uint8_t> m(8 + text.size() + 1, 0);
+  const uint16_t type = 0x1f, size = static_cast<uint16_t>(m.size());
+  std::memcpy(m.data(), &type, 2);
+  std::memcpy(m.data() + 2, &size, 2);
+  std::memcpy(m.data() + 8, text.data(), text.size());
+  znet::send(m.data(), size, false, 0);
+}
 
 // --install-from (ours, disc_install.h): the disc's files into a folder of
 // our own, no Windows installer run, the patch with it when given (then not
@@ -405,14 +542,10 @@ std::vector<std::string> start_notes(const mech3::DataVersion& d, const std::str
     if (v.size() > 6) s += ", ...";
     return s;
   };
-  if (d.name == "1.0")
-    out.push_back("Your MechWarrior 3 data is version 1.0. It plays, but the rebuild is made and tested on 1.2's. " + patch);
-  else if (d.name == "1.0 with 1.2 files")
-    out.push_back("Your MechWarrior 3 data is part 1.0, part 1.2 (" + std::to_string(d.of_12) + " of " +
-                  std::to_string(d.of_10 + d.of_12) + " files patched). " + patch);
-  else if (d.name == "unknown")
+  // 1.0's data and a mix need no note: they load as 1.2 (docs/patch12.md).
+  if (d.name == "unknown")
     out.push_back("Some MechWarrior 3 files are neither version 1.0's nor 1.2's (another version or a mod): " + list(d.unknown) +
-                  ". They may not play right.");
+                  ". They may not play right. " + patch);
   else if (d.name == "incomplete")
     out.push_back("Some MechWarrior 3 files are missing from the install: " + list(d.unknown) +
                   ". Reinstall MechWarrior 3 from its disc.");
@@ -489,22 +622,66 @@ int main(int argc, char** argv) {
   else if (!a.write_dir.empty() && run_log.open(a.write_dir))
     std::printf("mw3 (MechWarrior 3 rebuild) %s, log %s\n", MW3_VERSION, run_log.path().c_str());
   if (!a.write_dir.empty()) read_config(a.write_dir, a);
+  if (!a.mods_given) a.mods = a.cfg_mods;
+  if (a.no_mods) a.mods.clear();
+  if (!a.check_mod.empty()) {  // read the mod as the game would, nothing mounted into play
+    int errors = 0;
+    const std::string install = !a.install.empty() ? a.install : a.cfg_install;
+    for (const std::string& line : mech3::mod_check(a.check_mod, install, &errors)) std::printf("%s\n", line.c_str());
+    SDL_Quit();
+    return errors ? 1 : 0;
+  }
+  if (a.list_mods) {
+    const std::vector<mech3::ModInfo> found = mech3::mods_found(a.write_dir);
+    std::printf("mw3: mods in %s/mods: %zu\n", a.write_dir.c_str(), found.size());
+    for (const mech3::ModInfo& m : found) {
+      const auto at = std::find(a.mods.begin(), a.mods.end(), m.folder);
+      std::printf("  %s: %s%s%s\n", m.folder.c_str(), m.error.empty() ? (m.name + " " + m.version).c_str() : m.error.c_str(),
+                  at == a.mods.end() ? "" : ", enabled #", at == a.mods.end() ? "" : std::to_string(at - a.mods.begin() + 1).c_str());
+    }
+    SDL_Quit();
+    return 0;
+  }
   // Every play-changing bug fix off with --original or bugfixes=0 (ours; the
   // platform fixes that let it run stay on: fixes.md, The bug fixes switch).
   zfix::options().bugs = !a.play_original && a.cfg_bugfixes != 0;
   // The menus' 16:9 (a display choice, kept by --original): the command
   // line's, else mw3.cfg's widemenus=, else on.
   zfix::options().wide_menus = a.wide_menus >= 0 ? a.wide_menus != 0 : a.cfg_wide_menus != 0;
+  mech3::app_key_calls().debug_camera = a.debug_camera;
+  if (a.debug_camera) std::printf("mw3: --debug-camera: the game editor on Shift+F12 (docs/editor.md)\n");
   if (!zfix::options().bugs)
     std::printf("mw3: bug fixes off (%s): the original's play\n", a.play_original ? "--original" : "bugfixes=0 in mw3.cfg");
-  // The launcher (ours: launcher.h, docs/launcher.md): a player's plain
-  // start shows it first; checks, shots, debug starts and a named install
-  // or source go straight on.
+  // The launcher (ours: launcher.h, docs/launcher.md, games-layout.md): a
+  // player's plain start goes straight into the game when an install is
+  // found, else to the SETUP screen alone and on into the game once there is
+  // one (the launcher's main screen is mw3launcher's). Checks, shots, debug starts and a
+  // named install or source go straight on.
   const bool player_start = !a.hidden && a.frames == 0 && a.shot.empty() && a.chain.empty() && a.modes.empty() &&
                             a.mission.empty() && !a.fly && a.dialog_file.empty() && a.movie.empty() && a.install.empty() &&
                             a.install_from.empty() && a.patch.empty() && a.original.find("-nofmv") == std::string::npos;
-  if (!a.launcher_shot.empty() || a.launcher_play || a.launcher_mw1 || (player_start && !a.no_launcher)) {
+  bool setup_only = false;
+  if (!a.ready_file.empty()) sdlfe::set_ready_file(a.ready_file);
+  if (player_start && !a.no_launcher) {
+    std::vector<std::string> more;
+#ifdef MW3_GAME_DIR
+    if (!std::getenv("MW3_FIND_INSTALL")) more.push_back(MW3_GAME_DIR);
+#endif
+    if (!a.write_dir.empty()) more.push_back(a.write_dir + "/install");  // SETUP's own
+    bool searched = false;
+    const std::string found = sdlfe::find_install(a.cfg_install, more, false, &searched);
+    if (!found.empty()) {
+      a.install = found, a.first_start = searched;
+      if (searched && !a.write_dir.empty() && sdlfe::save_install(a.write_dir, found))
+        std::printf("mw3: install %s saved to mw3.cfg\n", found.c_str());
+    } else {
+      setup_only = true;
+      std::printf("mw3: no install found: the SETUP screen\n");
+    }
+  }
+  if (setup_only) {
     sdlfe::LauncherOptions lo;
+    lo.setup_only = setup_only;
     lo.write_dir = a.write_dir, lo.cfg_install = a.cfg_install, lo.cfg_mw1_game = a.cfg_mw1_game;
 #ifdef MW3_GAME_DIR
     if (!std::getenv("MW3_FIND_INSTALL")) lo.more_installs.push_back(MW3_GAME_DIR);
@@ -512,7 +689,6 @@ int main(int argc, char** argv) {
     lo.fullscreen = !a.windowed && !a.window_given;
     lo.sound = !a.nosound;
     lo.win_w = a.win_w, lo.win_h = a.win_h;
-    lo.shot = a.launcher_shot, lo.screen = a.launcher_screen, lo.play = a.launcher_play, lo.play_mw1 = a.launcher_mw1;
     const sdlfe::LauncherChoice c = sdlfe::run_launcher(lo);
     if (c.kind != sdlfe::LauncherChoice::kPlay) {
       SDL_Quit();
@@ -520,6 +696,12 @@ int main(int argc, char** argv) {
     }
     a.install = c.install;
     a.launcher_window = c.window;
+    if (setup_only) a.first_start = true;
+  }
+  if (std::getenv("MW3_START_ONLY")) {  // checks: where a start goes, and no further
+    std::printf("mw3: start only: install %s\n", a.install.empty() ? "(none yet)" : a.install.c_str());
+    SDL_Quit();
+    return 0;
   }
   if (!a.install_from.empty() && !install_from_disc(a)) {
     SDL_Quit();
@@ -532,6 +714,11 @@ int main(int argc, char** argv) {
   for (const std::string& d : a.assets) zutl::mount(d);
   // The 1.2 patch's files, imported (ours: patch_import.h), over the install's.
   const std::string patch_dir = a.write_dir.empty() ? std::string() : a.write_dir + "/patch12";
+  // The enabled mods, in front of the patch and the install (docs/modding.md).
+  mech3::mods_identity_set(a.write_dir, a.mods);  // for the lobby: the gameplay mods every player must share
+  if (!a.mods.empty())
+    for (const std::string& line : mech3::mods_mount(a.write_dir, a.mods, {patch_dir, a.install}))
+      std::printf("mw3: %s\n", line.c_str());
   if (!a.patch.empty()) {
     const mech3::setup::Result r = mech3::setup::apply_patch(a.patch, a.write_dir, nullptr);
     if (a.verbose) std::printf("%s", r.detail.c_str());
@@ -585,7 +772,51 @@ int main(int argc, char** argv) {
   }
   if (a.force_import || (plain && !a.no_import && !vfw)) sdlfe::first_run_import(a.install, a.write_dir, a.force_import);
 
+  // The network's session, before the game (ours, piece 4).
+  std::unique_ptr<sdlfe::EnetTransport> net;
+  if (a.net_host || !a.net_join.empty()) {
+    sdlfe::NetOptions o;
+    o.bind = a.net_bind;
+    o.port = static_cast<uint16_t>(a.net_port >= 0 ? a.net_port : (a.net_host ? sdlfe::kDefaultPort : 0));
+    net = std::make_unique<sdlfe::EnetTransport>(o);
+    if (!net->ok()) {
+      std::printf("mw3: network: cannot use port %u on %s\n", o.port, o.bind.c_str());
+    } else {
+      znet::initialise(net.get());
+      net_log_handlers();
+      bool ok;
+      if (a.net_host) {
+        znet::SessionDesc d;
+        d.name = a.net_name + "'s game";
+        ok = znet::host_session(d, a.net_name.c_str());
+      } else {
+        ok = znet::join_session(a.net_join, a.net_name.c_str());
+      }
+      if (ok)
+        std::printf("mw3: network: %s on port %u as player %u (%s), the host %u\n",
+                    a.net_host ? "hosting" : ("joined " + a.net_join).c_str(), net->port(), znet::local_id(),
+                    a.net_name.c_str(), znet::session().host_id);
+      else
+        std::printf("mw3: network: %s failed\n", a.net_host ? "hosting" : ("joining " + a.net_join).c_str());
+      // --net-wait N: the start held (up to two minutes) until N players are in.
+      if (ok && a.net_wait > 0) {
+        const uint64_t until = SDL_GetTicks() + 120000;
+        while (znet::lists().players.size() < static_cast<size_t>(a.net_wait) && SDL_GetTicks() < until) {
+          znet::poll(-1);
+          SDL_Delay(10);
+        }
+        std::printf("mw3: network: %zu players in\n", znet::lists().players.size());
+      }
+      // Each pass: --net-say's line (the transport answers the LAN's search itself).
+      g_net_pass = [&a] {
+        static int passes = 0;
+        ++passes;
+        if (!a.net_say.empty() && passes == a.net_say_at) net_say(a.net_say);
+      };
+    }
+  }
   const int result = run(a, vfw.get());
+  g_net_pass = nullptr;
   vfw.reset();
   SDL_Quit();  // after every SDL object above is gone
   return result;
@@ -649,6 +880,62 @@ int run(const Args& a, platform::VideoForWindows* vfw) {
   platform::RegFile settings(a.write_dir.empty() ? std::string() : a.write_dir + "/settings.reg");
   if (!a.write_dir.empty()) p.settings = &settings;
   p.ram_mb = static_cast<uint32_t>(SDL_GetSystemRAM());
+  // The multiplayer screens' transport (FIX (A): DirectPlay's instance): UDP
+  // 27930, or a port the system picks when it is taken (another game here).
+  std::unique_ptr<sdlfe::EnetTransport> menu_net;
+  std::unique_ptr<sdlfe::PortMapper> menu_upnp;  // after menu_net: gone first, the mapping removed
+  p.network_open = [&menu_net, &menu_upnp, &a]() -> znet::Transport* {
+    sdlfe::NetOptions o;
+    o.bind = a.net_bind;
+    o.port = static_cast<uint16_t>(a.net_port >= 0 ? a.net_port : sdlfe::kDefaultPort);
+    o.discovery_port = a.net_discovery;
+    menu_net = std::make_unique<sdlfe::EnetTransport>(o);
+    if (!menu_net->ok()) {
+      o.port = 0;
+      menu_net = std::make_unique<sdlfe::EnetTransport>(o);
+    }
+    if (!menu_net->ok()) {
+      menu_net.reset();
+      return nullptr;
+    }
+    if (!a.net_lan.empty()) {  // the LAN's probe to this address and port
+      const size_t colon = a.net_lan.rfind(':');
+      menu_net->lan_address = a.net_lan.substr(0, colon);
+      if (colon != std::string::npos) menu_net->search_port = static_cast<uint16_t>(std::atoi(a.net_lan.c_str() + colon + 1));
+    }
+    std::printf("mw3: network: up on UDP port %u\n", menu_net->port());
+    // Internet hosting (piece 9c): the router asked over UPnP, unless this
+    // machine is reachable on loopback alone (the tests) and no router is given.
+    const bool loopback = a.net_bind.rfind("127.", 0) == 0;
+    if (!loopback || !a.net_upnp.empty()) menu_upnp = std::make_unique<sdlfe::PortMapper>(menu_net->port(), a.net_upnp);
+    return menu_net.get();
+  };
+  p.network_close = [&menu_net, &menu_upnp] {
+    menu_upnp.reset();
+    menu_net.reset();
+  };
+  p.network_reach = [&menu_net, &menu_upnp, &a]() {
+    mech3::Engine::NetReach r;
+    r.port = menu_net ? menu_net->port() : sdlfe::kDefaultPort;
+    const std::string port = ":" + std::to_string(r.port);
+    std::string lan = a.net_bind.rfind("127.", 0) == 0 ? a.net_bind : sdlfe::local_lan_address();
+    if (menu_upnp) {
+      const sdlfe::UpnpStatus s = menu_upnp->status();
+      r.state = static_cast<int32_t>(s.state);  // the same order
+      if (!s.lan_ip.empty()) lan = s.lan_ip;
+      if (!s.public_ip.empty() && !sdlfe::unreachable_address(s.public_ip)) r.internet = s.public_ip + port;
+    } else {
+      r.state = mech3::Engine::NetReach::kNoRouter;
+    }
+    if (!lan.empty()) r.lan = lan + port;
+    return r;
+  };
+  p.network_hosting = [&menu_upnp](bool on) {
+    if (!menu_upnp) return;
+    if (on) menu_upnp->map();
+    else menu_upnp->unmap();
+  };
+  p.copy_text = [](const char* text) { SDL_SetClipboardText(text); };
 
   int result = 1;
   {
@@ -668,6 +955,7 @@ int run(const Args& a, platform::VideoForWindows* vfw) {
 
     std::unique_ptr<mech3::State> debug;
     std::unique_ptr<mech3::ActionGame> ia_game;  // --mission ia<N>: the launch's game
+    std::unique_ptr<mech3::MultiplayerGame> multi_game;  // --mission <dir>mp<N>: the launch's
     std::vector<double> frame_ms;  // --frame-times: each frame's wall time
     uint64_t frame_last = 0;
     bool launch = false, launch_done = false;
@@ -679,13 +967,30 @@ int run(const Args& a, platform::VideoForWindows* vfw) {
       // --mission ia<N>[w<W>] (ours, for measuring): Instant Action map N in
       // wave mode from wave W (1), four allies (Champions) with the player,
       // as the Action screen would set it (the AI survey's start).
+      // <dir>ia<N>[w<W>] the same on another world (c3ia2: c3's readeria2).
       int ia_map = 0, ia_wave = 1;
-      if (std::sscanf(a.mission.c_str(), "ia%dw%d", &ia_map, &ia_wave) >= 1 && ia_map > 0) {
+      const size_t ia_at = a.mission.find("ia");
+      if (ia_at != std::string::npos &&
+          std::sscanf(a.mission.c_str() + ia_at, "ia%dw%d", &ia_map, &ia_wave) >= 1 && ia_map > 0) {
         ia_game = std::make_unique<mech3::ActionGame>(nullptr);
         ia_game->mode = 2, ia_game->x6c = ia_wave, ia_game->slot.mech = 9;
         for (int i = 0; i < 4; ++i) ia_game->add(5, 1, nullptr, 0);
         l.type = 2, l.number = ia_map, l.action = ia_game.get();
-        dir = "c1";
+        dir = ia_at ? a.mission.substr(0, ia_at) : "c1";
+      } else if (const size_t mp = a.mission.rfind("mp");
+                 mp != std::string::npos && mp > 0 && mp + 2 < a.mission.size() &&
+                 a.mission.find_first_not_of("0123456789", mp + 2) == std::string::npos) {
+        // --mission <dir>mp<N> (ours, the soak test's): a network game on the
+        // map (readermp<N>), its game a stand-in with no score limit to reach.
+        if (!znet::active()) {
+          std::fprintf(stderr, "mw3: --mission %s: a network game needs --host or --join\n", a.mission.c_str());
+          return 2;
+        }
+        dir = a.mission.substr(0, mp), l.number = std::atoi(a.mission.c_str() + mp + 2);
+        multi_game = std::make_unique<mech3::MultiplayerGame>(nullptr);
+        multi_game->x70 = 1 << 30;  // the kills to win (+0x70)
+        l.type = 3, l.multi = multi_game.get();
+        mech3::program_net_debug_lobby();
       } else {
         split_mission(a.mission, dir, variant, l.number);
       }
@@ -699,7 +1004,7 @@ int run(const Args& a, platform::VideoForWindows* vfw) {
       // The mission's reader archive (mission.cpp's reader_open): c1 and c2
       // have m1..m4, c3 m1..m6, c4 m1..m3, c4b m4..m6. Without it the world
       // loads with no player and no mech.
-      const std::string reader = "zbd\\" + dir + "\\readerm" + std::to_string(l.number) + ".zbd";
+      const std::string reader = "zbd\\" + dir + (l.type == 3 ? "\\readermp" : "\\readerm") + std::to_string(l.number) + ".zbd";
       if (!ia_game && !zutl::exists(reader.c_str())) {
         std::fprintf(stderr, "mw3: --mission %s: no such mission (%s not found)\n", a.mission.c_str(), reader.c_str());
         return 2;
@@ -715,6 +1020,7 @@ int run(const Args& a, platform::VideoForWindows* vfw) {
       l.yaw = a.look[0] * 0.0174533f, l.pitch = a.look[1] * 0.0174533f;
       engine.set_launch(l);
       launch = true;
+      const bool l_type3 = l.type == 3;
       int shots = 0;
       // --fire N (ours, for checking the weapons' effects): from the N-th frame
       // shown, the fire command reads as held.
@@ -723,7 +1029,56 @@ int run(const Args& a, platform::VideoForWindows* vfw) {
         mech3::controls_calls().command = [](int cmd) {
           return zin::command(cmd) | (s_fire && cmd == 0x3d ? 1u : 0u);
         };
+      // --net-drive SEED (ours, the soak test's): the pilot's commands a pattern
+      // from the first Core frame on (app_mech.h).
+      static double s_drive_from = -1;
+      static uint32_t s_drive_seed = 0;
+      if (a.net_drive >= 0) {
+        s_drive_seed = static_cast<uint32_t>(a.net_drive);
+        mech3::controls_calls().command = [](int cmd) {
+          if (s_drive_from < 0) return zin::command(cmd);
+          return zin::command(cmd) | mech3::program_net_drive(cmd, SDL_GetTicks() / 1000.0 - s_drive_from, s_drive_seed);
+        };
+      }
+      bool net_core = false, net_over = false;
+      uint64_t net_line_at = 0;
       engine.on_present = [&, shots](int) mutable {
+        // The soak test's (ours): the clock and the drive from the first Core
+        // frame, the lines each half second, the scores at the end, the quit
+        // at the menu after it.
+        if (l_type3 && app.current() == &mech3::states().core && !net_core) {
+          net_core = true;
+          s_drive_from = SDL_GetTicks() / 1000.0;
+          if (a.net_minutes > 0) mech3::missions().clock = a.net_minutes * 60.0f, mech3::missions().clock_down = 1;
+        }
+        // --net-drive: a kill staged on the pilot every two minutes, from a
+        // minute in, staggered by the seed (the scores' traffic, the respawn).
+        static int s_kills = 0;
+        if (a.net_drive >= 0 && a.net_staged && net_core && !net_over && app.current() == &mech3::states().core &&
+            SDL_GetTicks() / 1000.0 - s_drive_from >= 60.0 + 29.0 * (a.net_drive % 4) + 120.0 * s_kills)
+          if (mech3::program_net_staged_kill()) std::printf("mw3: soak staged kill %d\n", ++s_kills);
+        if (a.net_ahead > 0 && net_core && !net_over && app.current() == &mech3::states().core)
+          mech3::program_net_hold_near(a.net_ahead);
+        if (a.net_soak && net_core && !net_over) {
+          const uint64_t now = SDL_GetTicks();
+          if (app.current() == &mech3::states().core && now >= net_line_at) {
+            net_line_at = now + 500;
+            const long long wall = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                       std::chrono::system_clock::now().time_since_epoch()).count();
+            zwep::PoolStats ps;
+            zwep::pool_stats(&ps);
+            std::printf("mw3: soak %lld rss %zu clock %.1f shots %d %s\n", wall, sdlfe::resident_kb(), mech3::missions().clock,
+                        ps.flying, mech3::program_net_soak_line().c_str());
+          }
+          // The end: the fade, the Multi-Exit State and the main menu, which
+          // goes on to the Multiplayer State (unported until piece 9) in the
+          // same frame: any state but these two (or the pause) after Core.
+          const zgame::State* st = app.current();
+          if (st != &mech3::states().core && st != &mech3::states().fade && st != &mech3::states().pause) {
+            net_over = launch_done = true;
+            std::printf("mw3: soak game over, scores %s\n", mech3::program_net_scores().c_str());
+          }
+        }
         // --verbose (ours): each state the app moves to, by name, as the menus' driver prints them.
         static const zgame::State* launch_state = nullptr;
         if (a.verbose && app.current() != launch_state) {
@@ -963,9 +1318,109 @@ int run(const Args& a, platform::VideoForWindows* vfw) {
             }
         };
         for (const Args::Tap& t : a.taps)
-          if (menu_frames == t.down || menu_frames == t.up) key(t.dik, menu_frames == t.down);
+          if (!t.ingame && (menu_frames == t.down || menu_frames == t.up)) key(t.dik, menu_frames == t.down);
         std::vector<Args::ClickAt> clicks = a.clicks_at;
         clicks.insert(clicks.end(), auto_clicks.begin(), auto_clicks.end());
+        // --net-soak (ours) in a network game the menus started: the soak's
+        // line each half second in play (who each machine sees).
+        static uint64_t s_menu_net_line_at = 0;
+        // Each game's first Core frame: --net-seconds its clock; its end: any
+        // state but Core, the fade or the pause after it.
+        static bool s_menu_in_game = false, s_menu_killed = false;
+        static int s_menu_game_from = 0;
+        const bool menu_net = a.mission.empty() && engine.launch().type == 3;
+        if (menu_net && !s_menu_in_game && app.current() == &mech3::states().core) {
+          s_menu_in_game = true;
+          s_menu_killed = false;
+          s_menu_game_from = menu_frames;
+          if (a.net_seconds > 0) mech3::missions().clock = static_cast<float>(a.net_seconds), mech3::missions().clock_down = 1;
+          if (a.net_soak) std::printf("mw3: soak menus game in\n");
+        } else if (s_menu_in_game && app.current() != &mech3::states().core && app.current() != &mech3::states().fade &&
+                   app.current() != &mech3::states().pause) {
+          s_menu_in_game = false;
+          if (a.net_soak) std::printf("mw3: soak menus game over, rss %zu\n", sdlfe::resident_kb());  // its scores: the lobby's line
+        }
+        if (a.net_ahead > 0 && s_menu_in_game && app.current() == &mech3::states().core) mech3::program_net_hold_near(a.net_ahead);
+        // --net-walk: THROTTLE_UP (0x18) held in its window; let go, the
+        // throttle eases back to 0 (ThrottleConst off) and the mech stops.
+        static bool s_walk = false;
+        static bool s_walk_hooked = false;
+        s_walk = a.net_walk[1] > a.net_walk[0] && s_menu_in_game && menu_frames >= s_menu_game_from + 30 * a.net_walk[0] &&
+                 menu_frames < s_menu_game_from + 30 * a.net_walk[1];
+        if (a.net_walk[1] > a.net_walk[0] && !s_walk_hooked) {
+          s_walk_hooked = true;
+          mech3::controls_calls().command = [](int cmd) { return zin::command(cmd) | (s_walk && cmd == 0x18 ? 1u : 0u); };
+        }
+        // --tap-ingame and --hold-ingame: keys and the left button by each game's frames.
+        for (const Args::Tap& t : a.taps) {
+          const int f = s_menu_in_game ? menu_frames - s_menu_game_from : -1;
+          if (!t.ingame || (f != t.down && f != t.up)) continue;
+          if (t.dik >= 0) {
+            key(t.dik, f == t.down);
+          } else {
+            SDL_Event ev{};
+            ev.type = f == t.down ? SDL_EVENT_MOUSE_BUTTON_DOWN : SDL_EVENT_MOUSE_BUTTON_UP;
+            ev.button.button = SDL_BUTTON_LEFT;
+            ev.button.down = f == t.down;
+            SDL_PushEvent(&ev);
+          }
+        }
+        // --blur-ingame: the app deactivated as a lost focus does (without
+        // --frames' stays_active), and an SDL timer's focus event back, which
+        // must arrive whether frames run or not.
+        if (a.blur[1] > 0 && s_menu_in_game && menu_frames - s_menu_game_from == a.blur[0]) {
+          std::printf("mw3: blur at wall %lld\n", static_cast<long long>(std::chrono::duration_cast<std::chrono::milliseconds>(
+                                                         std::chrono::system_clock::now().time_since_epoch()).count()));
+          app.on_window_activate(0);
+          SDL_AddTimer(static_cast<Uint32>(a.blur[1]), [](void*, SDL_TimerID, Uint32) -> Uint32 {
+            SDL_Event ev{};
+            ev.type = SDL_EVENT_WINDOW_FOCUS_GAINED;
+            SDL_PushEvent(&ev);
+            return 0;
+          }, nullptr);
+        }
+        // --net-soak: the objectives box's lines while shown (F12), once a second.
+        if (a.net_soak && s_menu_in_game && app.current() == &mech3::states().core && (menu_frames - s_menu_game_from) % 30 == 0) {
+          const std::string box = mech3::program_hud_objectives_text();
+          if (!box.empty()) std::printf("mw3: soak menus box: %s\n", box.c_str());
+        }
+        if (a.fire_probe && s_menu_in_game && app.current() == &mech3::states().core) {
+          int32_t trig = 0;
+          float reload = 0;
+          if (mech3::program_pilot_fire_probe(&trig, &reload))
+            std::printf("mw3: fire probe frame %d ms %llu buttons %u trigger %d reload %.3f\n", menu_frames,
+                        static_cast<unsigned long long>(SDL_GetTicks()), input.mouse_buttons, trig, reload);
+        }
+        if (a.net_kill_at > 0 && s_menu_in_game && !s_menu_killed && app.current() == &mech3::states().core &&
+            menu_frames >= s_menu_game_from + 30 * a.net_kill_at) {
+          s_menu_killed = true;
+          if (mech3::program_net_staged_kill()) std::printf("mw3: soak menus staged kill\n");
+        }
+        if (a.net_soak && menu_net && app.current() == &mech3::states().core &&
+            static_cast<uint64_t>(menu_frames) >= s_menu_net_line_at) {
+          s_menu_net_line_at = static_cast<uint64_t>(menu_frames) + 15;  // half a second of game time
+          const long long wall = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                     std::chrono::system_clock::now().time_since_epoch()).count();
+          std::printf("mw3: soak menus clock %.1f rss %zu wall %lld %s\n", mech3::missions().clock, sdlfe::resident_kb(), wall,
+                      mech3::program_net_soak_line().c_str());
+        }
+        // --click-players: the first frame each player count was reached.
+        static int s_players_at[9] = {-1, -1, -1, -1, -1, -1, -1, -1, -1};
+        const size_t held = znet::session().open ? znet::lists().players.size() : 0;
+        for (size_t n = 1; n <= held && n < 9; ++n)
+          if (s_players_at[n] < 0) s_players_at[n] = menu_frames;
+        for (Args::ClickAt& c : clicks)
+          if (c.players > 0) c.frame = c.players < 9 && s_players_at[c.players] >= 0 ? s_players_at[c.players] + c.frame : -100;
+        // --click-return: from the frame the lobby was last entered after a game.
+        static int s_entries = 0, s_back_at = -1;
+        if (engine.lobby_entries() != s_entries) {
+          s_entries = engine.lobby_entries();
+          if (s_entries >= 2) s_back_at = menu_frames;
+        }
+        for (Args::ClickAt& c : clicks)
+          if (c.back) c.frame = s_back_at >= 0 ? s_back_at + c.frame : -100;
+        for (Args::ClickAt& c : clicks)
+          if (c.ingame) c.frame = s_menu_in_game ? s_menu_game_from + c.frame : -100;
         for (const Args::ClickAt& c : clicks) {
           // The cursor put on the point (zInput's 0x0051b440, the game's
           // 640 x 480 about its centre), then the press and the release.
@@ -982,7 +1437,7 @@ int run(const Args& a, platform::VideoForWindows* vfw) {
             const float px = static_cast<float>(c.x + ox), py = static_cast<float>(c.y + oy);
             zin::mouse_set((px - dw / 2) / (dw / 2), (py - dh / 2) / (dh / 2));
           }
-          if (menu_frames == c.frame + 1 || menu_frames == c.frame + 2) {
+          if (!c.hover && (menu_frames == c.frame + 1 || menu_frames == c.frame + 2)) {
             SDL_Event ev{};
             ev.type = menu_frames == c.frame + 1 ? SDL_EVENT_MOUSE_BUTTON_DOWN : SDL_EVENT_MOUSE_BUTTON_UP;
             ev.button.button = SDL_BUTTON_LEFT;
@@ -1092,7 +1547,11 @@ int run(const Args& a, platform::VideoForWindows* vfw) {
       }
 
       sdlfe::SdlPump pump(&input, &app);
-      if (clock.frame_ms) pump.each_pass = [&] { clock.frame(); };
+      if (clock.frame_ms || g_net_pass)
+        pump.each_pass = [&] {
+          if (clock.frame_ms) clock.frame();
+          if (g_net_pass) g_net_pass();
+        };
       // Ours: Alt+Enter, and the game's sounds silent while the window is away.
       pump.toggle_fullscreen = [&] { window.switch_fullscreen(!window.fullscreen()); };
       if (auto* s = dynamic_cast<sdlfe::SdlSoundOutput*>(sound.get())) pump.focus_changed = [s](bool on) { s->set_focused(on); };

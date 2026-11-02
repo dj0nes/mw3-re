@@ -40,6 +40,10 @@ class Stream {
   // 0x0059aaf0: shows the frame for `frame` (or, with sound, for the play
   // cursor); the next frame's number, 0 once past the last.
   int32_t frame(int32_t frame);
+  // Ours (the movies' judder, fmv.md section 5): the frame the playing
+  // sound has reached, refilling as the cursor moves; -1 when no streamed
+  // sound drives the picture or it is not started.
+  int32_t sound_frame() { return audio_ok && streamed && !first ? audio_frame() : -1; }
 
   zimg::Texture image{};          // +0x00  the decoded picture
   std::vector<uint16_t> pixels;   // +0x10  its 16-bit pixels

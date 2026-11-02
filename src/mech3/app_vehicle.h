@@ -9,10 +9,22 @@
 // program). Pointers stay void* here: mech.h's Handle is not app_mission's.
 namespace mech3 {
 
+struct Vehicle;
+
 void wire_vehicles(const MechWiring* w);  // from wire_mech_build; null: the defaults again
 bool is_program_vehicle(const void* p);   // made by the mission start, still alive
 uint8_t program_vehicle_active(const void* p);  // its +0x08 (zEntity's active flag)
 void* program_vehicle_create(void* ctl, const char* type, const char* name);  // 0x004ac320
+// The stealth object (veh_stealth.h): its controls (0x004ac860(0xa1c) and
+// 0x004a51b0), the object over them (0x004a4de0), the one made ([0x00609a2c]).
+void* program_stealth_controls();
+void* program_stealth_create(void* ctl);
+void* program_stealth();
+void program_stealth_frame(float dt);  // its vt+0x34 (0x004a1040) from the player's tick
+// The view letting go of a vehicle (its vt+0x104): the stealth's turns its
+// overlay off (0x004a50d0); a mech's and others', nothing.
+void program_vehicle_view_detached(Vehicle& v);
+bool program_vehicle_sensed(const void* v);  // zEntity +0x09: the entity walk runs it
 void* program_field_base_create(void* ctl, const char* type, const char* name);  // 0x004589d0
 bool program_is_field_base(const void* v);  // vt+0xf0 / vt+0xf4: itself (0x004d2a70), else 0
 void* program_campaign();                   // app_menus.cpp: the pilot's campaign (0x00479440), null without one
@@ -31,6 +43,14 @@ void program_mission_waynet_clear();
 void program_mcb_waynet_free();
 void* program_mcb_waynet();
 void* program_mission_waynet();
+// Mech3.exe 1.2 @ 0x00490950: the mobile bases' stations in a network game
+// (ALLOW MOBILE BASES) on the mission's waynet; how many were made.
+int32_t program_mp_stations(void* waynet);
+// [0x00479480]+0xa8: the network game's ALLOW MOBILE BASES (app_mission's).
+void program_set_mp_mobile_bases(bool (*fn)());
+// For the tests: the mission waynet's element i, its label and place; false
+// for one without a place.
+bool program_mission_point(int32_t i, const char** label, float pos[3]);
 // The mcbwaynet's points (count, without the default behaviour at 0) and the
 // dock's point after a request: its label and place; false without one.
 int32_t program_mcb_points();

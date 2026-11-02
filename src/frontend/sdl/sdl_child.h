@@ -15,9 +15,22 @@ namespace sdlfe {
 SDL_Process* start_child(const char* const* args);
 
 // With no console (Windows: the package build, or a double-click start),
-// stdout and stderr into `write_dir`/mw3.log, the start before's kept as
-// mw3.old.log. False (nothing changed) with a console or elsewhere.
+// stdout and stderr into `write_dir`/<name>.log, the start before's kept as
+// <name>.old.log. False (nothing changed) with a console or elsewhere.
 // Here, not in mw3_main.cpp: <windows.h>'s near/far macros break game headers.
-bool log_to_file(const std::string& write_dir);
+bool log_to_file(const std::string& write_dir, const std::string& name = "mw3");
+
+// The launcher's signal that the game is on screen (docs/launcher.md, The
+// two programs): mw3 --ready-file PATH writes PATH once its first frame is
+// shown, and the launcher hides then, so there is no moment with neither.
+void set_ready_file(const std::string& path);
+void mark_ready();  // the first call writes it; later ones do nothing
+// What the game is doing before its first frame, for the launcher's status
+// line (PATH.status beside the ready file); "" removes it. Nothing without
+// --ready-file.
+void set_ready_status(const std::string& text);
+
+// The process's resident memory in KB (the soak test's lines); 0 where unknown.
+size_t resident_kb();
 
 }  // namespace sdlfe

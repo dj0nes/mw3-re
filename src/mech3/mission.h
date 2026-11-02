@@ -1,4 +1,5 @@
 #pragma once
+#include <vector>
 #include <cstdint>
 #include <string>
 
@@ -21,6 +22,11 @@ using zgame::Handle;
 // Mech3.exe 1.2 @ 0x00484c50: a mission's directory by index (c1, c2, c3, c4,
 // c4b, t1, lab, dev1, dev2; "none" past them).
 const char* mission_dir(int32_t index);
+// Ours (docs/modding.md): the worlds mods declare (world= in mod.txt), the
+// folders from index 9 on, after the original's nine; and the count of all.
+std::vector<std::string>& mod_worlds();
+int32_t mission_dir_count();
+int32_t mission_dir_index(const char* dir);  // any case; -1 when no world has it
 
 // The calls out of mission.cpp, by the original's address.
 class MissionHooks : public zgame::Unported {
@@ -309,6 +315,7 @@ struct Missions {
   bool begin();                            // 0x0048f400
   void check_cheats();                     // 0x00491d20
   void update(float dt);                   // 0x0048f470
+  void objectives_again();                 // 0x00491050: a network game's, at a respawn
   void play_voice();                       // 0x0048f630
   void ask_voice(Handle sound, float priority);  // 0x0048f6c0
   void complete();                         // 0x0048f740

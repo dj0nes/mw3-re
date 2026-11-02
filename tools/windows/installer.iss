@@ -50,12 +50,15 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 Source: "{#Dist}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{autoprograms}\MechWarrior 3 Rebuild"; Filename: "{app}\mw3.exe"; WorkingDir: "{app}"
+; The launcher is the main shortcut, named for the game; the game has its
+; own (docs/games-layout.md, launcher.md).
+Name: "{autoprograms}\MechWarrior 3"; Filename: "{app}\mw3launcher.exe"; WorkingDir: "{app}"
+Name: "{autoprograms}\MechWarrior 3 (no launcher)"; Filename: "{app}\mw3.exe"; WorkingDir: "{app}"
 Name: "{autoprograms}\MechWarrior 3 Rebuild - Read me"; Filename: "{app}\README.txt"
-Name: "{autodesktop}\MechWarrior 3 Rebuild"; Filename: "{app}\mw3.exe"; WorkingDir: "{app}"; Tasks: desktopicon
+Name: "{autodesktop}\MechWarrior 3"; Filename: "{app}\mw3launcher.exe"; WorkingDir: "{app}"; Tasks: desktopicon
 
 [Run]
-Filename: "{app}\mw3.exe"; Description: "{cm:LaunchProgram,MechWarrior 3 Rebuild}"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\mw3launcher.exe"; Description: "{cm:LaunchProgram,MechWarrior 3}"; Flags: nowait postinstall skipifsilent
 
 [UninstallDelete]
 ; Only what the installer put in {app}; %APPDATA%\MicroProse\MechWarrior 3 stays.

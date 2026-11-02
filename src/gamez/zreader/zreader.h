@@ -98,4 +98,14 @@ Node* parse_text(std::FILE* file);
 // mounts). nullptr if not found.
 Node* load(const char* path);
 
+// Ours, not the original's: called by load() with each tree read from an
+// archive, the archive's path as opened and the entry's name, before the
+// caller sees it (the 1.2 data layer, mech3/patch12.h). Null: nothing.
+using LoadHook = void (*)(const char* archive, const char* entry, Node* root);
+void set_load_hook(LoadHook hook);
+// Ours too: asked by load() for an entry no archive and no loose file has; a
+// tree it returns is the caller's, as a read one would be. Null: nothing.
+using MissingHook = Node* (*)(const char* entry);
+void set_missing_hook(MissingHook hook);
+
 }  // namespace zrdr

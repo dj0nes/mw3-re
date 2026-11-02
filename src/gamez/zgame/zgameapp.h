@@ -39,14 +39,14 @@ enum class Command : int { Pop = 1, Push = 2, Replace = 3 };  // command +0x4
 class AppHooks : public Unported {
  public:
   virtual void timer_update();                                  // 0x00575a00, ported: ztimer::update
-  virtual void network_poll(int32_t a, uint8_t b) {             // 0x00588930, zNetwork
-    unported("0x00588930", {static_cast<uint32_t>(a), b});
-  }
+  virtual void network_poll(int32_t a, uint8_t b);              // 0x00588930, ported: znet::poll
   virtual void cd_notify(uint32_t status, uint32_t device);     // 0x00572bf0, ported: zsnd_cd::notify
   // The frame window's OnActivate (0x00590c00) around the app's (de)activation.
   virtual void input_unacquire() { unported("0x0051b050", {}); }    // zInput, release the devices
   virtual void input_acquire() { unported("0x0051b080", {}); }      // zInput, take them back
   virtual void video_restore_window() { unported("0x00579f20", {}); }  // zVideo, OpenIcon if minimised
+  // Ours (W45): run on while inactive (a network game), else the original's wait.
+  virtual bool run_while_inactive() { return false; }
 };
 
 class App {

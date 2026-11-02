@@ -159,6 +159,7 @@ void vehicle_base(Vehicle& v);  // 0x004aeb00: the base every vehicle and mech s
 // matrix and its two markers.
 void vehicle_set_node(Vehicle& v, Handle node);
 void mech_construct(Mech& m,MechData* data, MechControls* ctl, Config* cfg, const char* name);  // 0x004149f0
+void mech_rebuild(Mech& m, int32_t roster, const char* name);  // 0x004148c0: made again in place
 bool mech_model(Mech& m, const char* name);   // 0x00415b00
 bool mech_parts(Mech& m);                     // 0x00415e40
 void mech_motions(Mech& m);                   // 0x00415ca0

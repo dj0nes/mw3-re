@@ -122,6 +122,11 @@ struct Hooks : m3::VehBasicHooks {
     unported("vt+0x18", {ref(&v), zgame::bits(pos[0]), zgame::bits(pos[1]), zgame::bits(pos[2])});
   }
   float frame_inv_dt() override { return zgame::from_bits(probe_app::call("peek32", {0x5e8114})); }
+  int32_t view_camera_id() override {  // [0x005f4c8c]+0x58 +0x04, read as the exe reads it
+    const uint32_t view = probe_app::call("peek32", {0x5f4c8c});
+    const uint32_t cam = view ? probe_app::call("peek32", {view + 0x58}) : 0;
+    return cam ? static_cast<int32_t>(probe_app::call("peek32", {cam + 4})) : 0;
+  }
   // The readout's: the controls' slots keyless (as the test's stubs), the
   // node's name and the camera's zones read back, the position by its call.
   int32_t controls_dynamics(m3::VehicleControls&) override { return static_cast<int32_t>(unported("ctl.vt+0x20", {})); }
@@ -615,6 +620,17 @@ void probe_vf_extra(const float* f, const uint32_t* u) {
 void probe_vf_more(uint32_t frozen, float yaw) {
   g_dv->controls->frozen = frozen, g_dv->controls->angles.y = yaw;
   for (float& q : g_dv->orientation) q = 0.0f;  // the test's block starts zeroed
+}
+// BASIC (editor.md S2): mode_alt, then its step 0x004a1d90 (0), steering
+// 0x004a20d0 (1), panning 0x004a2000 (2), ground 0x004a1f00 (3).
+void probe_vb_basic_alt(float alt) { g_dv->controls->motion.mode_alt = alt; }
+void probe_vb_basic_run(int which) {
+  switch (which) {
+    case 0: m3::vehicle_basic_step(*g_dv); break;
+    case 1: m3::vehicle_basic_steer(*g_dv); break;
+    case 2: m3::vehicle_basic_pan(*g_dv); break;
+    default: m3::vehicle_basic_ground(*g_dv); break;
+  }
 }
 void probe_vf_run(int which) {
   if (which == 0) m3::vehicle_track_step(*g_dv);

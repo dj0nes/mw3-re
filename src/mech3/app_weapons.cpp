@@ -168,7 +168,13 @@ void wire_weapons(uint32_t (*log)(const char* key)) {
   };
   c.node_destroy = [](Handle n) { zcls::node_delete(zn(n)); };
   c.mech_sound = [](int32_t i) { cockpit_sound_play(i, 1.0f); };  // 0x0041e770
-  c.destroyed_sounds = [](Handle, Handle) { unported("0x004e6dc0"); };
+  // 0x004e6dc0 (1.0, 0, 0, -1.0, 0): the weapon's name and "destroyed" voices,
+  // each through 0x00571cc0 (no place, volume 1, no fade). Their names in
+  // the message panel only with [0x0060b878], which nothing sets.
+  c.destroyed_sounds = [](Handle name, Handle destroyed) {
+    for (Handle h : {name, destroyed})
+      if (h) zsnd::play_fading(static_cast<zsnd::Object*>(h), nullptr, 1.0f, nullptr, -1.0f, 0);
+  };
   c.voice_destroyed = [](int32_t) { unported("0x004853d0"); };
   c.vehicle_entity = [](Handle v) { return v; };                                          // vt+0x2c: itself
   c.vehicle_velocity = [](Handle v) { return reinterpret_cast<const Vec3f*>(&mech_of(v)->velocity); };
@@ -446,7 +452,7 @@ void wire_weapons(uint32_t (*log)(const char* key)) {
   // vt+0x58: 0x0040bae0 (0) for the mech, the basic vehicle, the field base
   // and the turret; only a network game's classes answer otherwise.
   wc.owner_x58 = [](Handle) -> int32_t { return 0; };
-  collide_calls().remote = [](Mech&) { return false; };
+  collide_calls().remote = [](Mech& m) { return m.remote; };  // a network mech's (vt+0x5c)
   // The vehicle builder's (0x004b4660) firepoint lookups.
   wc.node_find = [](Handle node, const char* name) -> Handle {  // 0x004eb0d0
     return zcls::node_find(static_cast<zcls::Node*>(node), name);

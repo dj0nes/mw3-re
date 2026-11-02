@@ -1,7 +1,8 @@
 # The macOS app
 
 `tools/macos/make_app.sh` makes the release for Mac players:
-`build-mac/dist/MechWarrior 3 Rebuild.app` and
+`build-mac/dist/MechWarrior 3.app` (the app as installed: CFBundleName and
+the display name "MechWarrior 3") and
 `build-mac/dist/MW3-Rebuild-<git describe>-mac.dmg`. Run from the repo root.
 The release form is `tools/macos/make_app.sh --deps` (after
 `tools/deps/build_deps.sh mac`, docs/deps.md): universal (arm64, x86_64),
@@ -12,7 +13,9 @@ THIRD-PARTY.txt describes the `--deps` build.
 
 - A package build (`-DMW3_PACKAGE=ON`, Release, its own tree
   `build-mac-pkg/`): no development copy of the game compiled in.
-- `Contents/MacOS/mw3`; every library outside the system, followed through
+- `Contents/MacOS/mw3launcher`, the app's executable (the launcher,
+  launcher.md, The two programs), and `Contents/MacOS/mw3`, the game it
+  starts; every library outside the system, followed through
   the ones those load, copied into `Contents/Frameworks` and every
   reference rewritten to `@rpath/<name>`, with the rpath
   `@executable_path/../Frameworks`. The script stops if any reference is

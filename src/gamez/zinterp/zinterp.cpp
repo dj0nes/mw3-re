@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <cerrno>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
@@ -221,7 +222,7 @@ int stat_mtime(const char* name, int32_t* mtime) {
 // 0x005763b0 with the search path from 0x00576100: the name's file part in
 // each directory of the path, else the name as given. FIX (A): through the
 // mounts; the engine-wide default path (0x0072eebc) is not consulted.
-std::FILE* open_on_path(const std::string& dirs, const char* name, const char* mode) {
+std::FILE* open_on_path(const std::string& dirs, const char* name, const char* mode, std::string* found = nullptr) {
   char fname[256], ext[256];
   crt::msvc_splitpath_name(name, fname, ext);
   size_t start = 0;
@@ -234,15 +235,19 @@ std::FILE* open_on_path(const std::string& dirs, const char* name, const char* m
       if (path.back() != '\\') path += '\\';
       path += fname;
       path += ext;
-      if (zutl::exists(path.c_str())) return zutl::open(path.c_str(), mode);
+      if (zutl::exists(path.c_str())) {
+        if (found) *found = zutl::find(path.c_str());
+        return zutl::open(path.c_str(), mode);
+      }
     }
     start = end + 1;
   }
+  if (found) *found = zutl::find(name);
   return zutl::open(name, mode);
 }
 
 void includes_push(Interp& in, ScriptFile* f, long pos, uint8_t binary) {  // 0x00595da0
-  in.includes.push_back({f, pos, binary});
+  in.includes.push_back({f, pos, binary, f->end, f->what});
 }
 
 const Include* includes_pop(Interp& in, Include* out) {  // 0x00595e20
@@ -460,6 +465,15 @@ bool read_line(Interp& in, ScriptFile* f, char* line) {
     // FIX (trap): a short read leaves the exe's size as the FILE pointer, and
     // a damaged size is malloc'd as it is; both end the script here.
     if (std::fread(&size, 4, 1, f->f) != 1 || size > 0x100000) size = 0;
+    // Ours (docs/modding.md, M3): a line past the script's end ends it, said.
+    if (size != 0 && f->end >= 0) {
+      const long at = std::ftell(f->f);
+      if (at < 0 || at + 4 > f->end || static_cast<long>(size) > f->end - at - 4) {
+        std::printf("mw3: %s is broken (a line past its end), read up to it\n", f->what.c_str());
+        size = 0;
+        f->cut = true;
+      }
+    }
     if (size == 0) {
       in.argc = 0;
       in.line = nullptr;
@@ -578,6 +592,7 @@ bool source(Interp& in, const char* name) {
   if (includes_pop(in, &top)) {
     in.file = top.file;
     std::fseek(top.file->f, top.pos, SEEK_SET);
+    top.file->end = top.end, top.file->what = top.what;  // ours (M3)
     in.binary = top.binary;
     return r;
   }
@@ -706,10 +721,14 @@ bool check_args(Interp& in, uint32_t count, int32_t cls, Node* node) {
 // any script whose mtime differs from the archive's rejects the whole archive.
 bool open_archive(Interp& in, const char* name) {
   if (in.archive.f) return true;
-  std::FILE* f = open_on_path(in.search_path, name, "rb");
+  std::string where;
+  std::FILE* f = open_on_path(in.search_path, name, "rb", &where);
   in.archive = ScriptFile{};
   in.archive.f = f;
   if (!f) return false;
+  std::fseek(f, 0, SEEK_END);  // ours (M3): the scripts' bound
+  const long size = std::ftell(f);
+  std::fseek(f, 0, SEEK_SET);
   uint32_t head[2];
   int32_t count = 0;
   bool ok = std::fread(head, 8, 1, f) == 1 && head[0] == 0x08971119 && head[1] == 7 &&
@@ -730,10 +749,13 @@ bool open_archive(Interp& in, const char* name) {
       if (stat_mtime(dir[i].name, &mtime) == 0 && dir[i].timestamp != mtime) ok = false;
     }
     if (ok) {
+      for (ArchiveEntry& e : dir) e.name[sizeof e.name - 1] = 0;  // ours (M3): _stricmp stays in the name
       in.magic = head[0];
       in.version = head[1];
       in.entry_count = count;
       in.dir = std::move(dir);
+      in.archive_size = size;
+      in.archive_where = where.empty() ? name : where;
       return true;
     }
   }
@@ -755,8 +777,22 @@ ScriptFile* archive_find(Interp& in, const char* name) {
   if (idx == -1) return nullptr;
   int32_t mtime;
   if (stat_mtime(name, &mtime) == 0 && static_cast<double>(mtime) - in.dir[idx].timestamp > 0) return nullptr;
+  // Ours (docs/modding.md, M3): a script starts past the directory and runs
+  // to the next one's start or the file's end; one outside the file is not
+  // the archive's (the exe seeks there and reads what it finds).
+  const long start = in.dir[idx].offset, table = 12 + static_cast<long>(in.entry_count) * 0x80;
+  if (in.archive_size >= 0 && (start < table || start >= in.archive_size)) {
+    std::printf("mw3: %s: script %s is broken (its offset past the file), not read\n", in.archive_where.c_str(), in.dir[idx].name);
+    return nullptr;
+  }
+  long end = in.archive_size;
+  for (int32_t i = 0; i < in.entry_count; ++i)
+    if (in.dir[i].offset > start && in.dir[i].offset < end) end = in.dir[i].offset;
   if (std::fseek(in.archive.f, in.dir[idx].offset, SEEK_SET) != 0) return nullptr;
   in.archive.eof = in.archive.err = false;
+  in.archive.end = end;
+  in.archive.cut = false;
+  in.archive.what = in.archive_where + ": script " + in.dir[idx].name;
   return &in.archive;
 }
 

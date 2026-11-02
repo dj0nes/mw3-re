@@ -1,6 +1,7 @@
 #include "mech3/app_vehicle.h"
 
 #include <algorithm>
+#include <cstdio>
 #include <cstring>
 #include <set>
 
@@ -35,6 +36,10 @@
 #include "mech3/veh_basic_object.h"
 #include "mech3/veh_controls.h"
 #include "mech3/veh_move.h"
+#include "mech3/veh_stealth.h"
+#include "mech3/game_editor.h"
+#include "mech3/zrdraiv.h"
+#include "gamez/zreader/zreader.h"
 #include "mech3/weapon.h"
 #include "mech3/zai_brain.h"
 
@@ -49,11 +54,20 @@ namespace {
 MechWiring g_w;
 std::vector<Vehicle*> g_order;        // the same, as made
 std::set<const Vehicle*> g_vehicles;  // the program's, this mission's
+Stealth* g_stealth = nullptr;         // [0x00609a2c], made at each mission load (veh_stealth)
 zcls::Node* zn(Handle h) { return static_cast<zcls::Node*>(h); }
 
 struct WiredVehicles : VehBasicHooks {
   uint32_t unported(const char* key, std::initializer_list<zgame::Arg> args) override {
     return g_w.unported ? g_w.unported(g_w.engine, key, args) : 0;
+  }
+  int32_t view_camera_id() override { return program_view_camera_id(); }  // [0x005f4c8c]+0x58 +0x04
+  void view_attach(BasicVehicle& v, CameraMode* mode) override {  // 0x0040adf0 on [0x005f4c8c]
+    program_view_attach_vehicle(v, static_cast<void*>(&v), mode);
+  }
+  void no_ai_controls(const char* type, const char* name) override {
+    std::printf("mw3: vehicle %s (%s) has no AI controls: its own (0x004ae270) are not ported\n", name ? name : "?",
+                type ? type : "?");
   }
   // A new vehicle's address: a freed object's handle forgotten (WiredBuild's on_new).
   void on_new(uint32_t, const void* p) override {
@@ -197,10 +211,12 @@ WiredWaynets g_waynets;
 // left, the radio, an entity's team and its controls' hit; the dock's
 // clock, places, the player's view, the mech at rest and the effects. The
 // scripts' loose-file path is not read here (load_motion takes motion.zbd's).
+bool (*g_mp_mobile_bases)() = nullptr;
 struct WiredFieldBases : FieldBaseHooks {
   uint32_t unported(const char* key, std::initializer_list<zgame::Arg> args) override {
     return g_w.unported ? g_w.unported(g_w.engine, key, args) : 0;
   }
+  bool mp_repairs() override { return g_mp_mobile_bases ? g_mp_mobile_bases() : FieldBaseHooks::mp_repairs(); }
   void on_new(uint32_t, const void* p) override {  // as WiredBuild's
     if (g_w.forget_object) g_w.forget_object(g_w.engine, p);
   }
@@ -314,12 +330,70 @@ void wire_vehicle_collisions() {
     return v ? v->transform : nullptr;
   };
 }
+// The stealth object's calls out (veh_stealth.h): the ports.
+struct WiredStealth : StealthHooks {
+  uint32_t unported(const char* key, std::initializer_list<zgame::Arg> args) override {
+    return g_w.unported ? g_w.unported(g_w.engine, key, args) : 0;
+  }
+  void on_new(uint32_t, const void* p) override {
+    if (g_w.forget_object) g_w.forget_object(g_w.engine, p);
+  }
+  Handle object3d_create() override { return zcls::object3d_create(); }  // 0x004fb740
+  zrdr::Node* reader_load(const char* file) override { return zrdr::load(file); }
+  zrdr::Node* reader_find(zrdr::Node* node, const char* key) override { return node ? zrdr::find(node, key) : nullptr; }
+  void reader_free(zrdr::Node* root) override {
+    if (root) zrdr::free_node(root);
+  }
+  ai::AivRecord* aiv = nullptr;
+  void aiv_open() override { aiv = new ai::AivRecord; }  // 0x004e0490
+  bool aiv_named(const char* name, float pos[3], float* yaw) override {  // 0x004e0680
+    ai::AivRecord* r = aiv ? aiv->read_named(name) : nullptr;
+    if (!r) return false;
+    for (int i = 0; i < 3; ++i) pos[i] = r->get<float>(0x08 + 4 * i);
+    *yaw = r->get<float>(0x14);
+    return true;
+  }
+  void aiv_close() override { delete aiv, aiv = nullptr; }  // 0x004e04f0
+  // The overlay's readout (0x004a56b0) and its off (0x0040fb50(0)) write and
+  // clear the debug lines ([0x005fc848]), never shown in the release (hud.md
+  // section 20): nothing here.
+  void readout(StealthLayer&) override {}
+  void layer_off() override {}
+  // The pick's point is read only by the editors after v1.0 (S5 on).
+  void reticle_pick(ztwod::Image&) override {}
+};
+WiredStealth g_stealth_hooks;
+
+// The game editor's views (game_editor.h): onto the stealth object
+// ([0x00609a2c] vt+0x108, 0x004acd90); ours, at its exit, back onto the
+// pilot's mech (its vt+0x108, 0x0041ce30).
+struct WiredEditor : EditorHooks {
+  uint32_t unported(const char* key, std::initializer_list<zgame::Arg> args) override {
+    return g_w.unported ? g_w.unported(g_w.engine, key, args) : 0;
+  }
+  void view_on_stealth() override {
+    if (g_stealth) vehicle_view_attach(*g_stealth);
+  }
+  void view_on_pilot() override {
+    if (void* m = mech_mission_player()) program_view_attach(*static_cast<Mech*>(m));
+  }
+};
+WiredEditor g_editor_hooks;
 }  // namespace
+
+void* program_stealth_controls() { return static_cast<VehicleControls*>(new StealthControls); }  // 0x004ac860(0xa1c), 0x004a51b0(1)
+void* program_stealth_create(void* ctl) {
+  g_stealth = stealth_create(static_cast<StealthControls*>(static_cast<VehicleControls*>(ctl)));
+  return static_cast<BasicVehicle*>(g_stealth);
+}
+void* program_stealth() { return g_stealth ? static_cast<BasicVehicle*>(g_stealth) : nullptr; }
 
 void wire_vehicles(const MechWiring* w) {
   if (!w) {
     g_w = MechWiring{};
     set_veh_basic_hooks(nullptr);
+    set_stealth_hooks(nullptr);
+    set_editor_hooks(nullptr);
     set_veh_controls_hooks(nullptr);
     set_field_base_hooks(nullptr);
     set_field_cut_hooks(nullptr);
@@ -329,6 +403,8 @@ void wire_vehicles(const MechWiring* w) {
   }
   g_w = *w;
   set_veh_basic_hooks(&g_hooks);
+  set_stealth_hooks(&g_stealth_hooks);
+  set_editor_hooks(&g_editor_hooks);
   set_veh_controls_hooks(&g_controls);
   set_field_base_hooks(&g_field_bases);
   set_field_cut_hooks(&g_field_cut);
@@ -528,6 +604,48 @@ bool program_nav_waynet_delete(void* o) {
 bool program_is_nav_waynet(void* o) { return g_navs.count(static_cast<Waynet*>(o)) != 0; }
 uint8_t program_nav_waynet_frame(void* w, void* vehicle) { return static_cast<Waynet*>(w)->frame(vehicle); }
 void program_waynet_icons_free() { waynet_icons_free(); }
+void program_set_mp_mobile_bases(bool (*fn)()) { g_mp_mobile_bases = fn; }
+
+bool program_mission_point(int32_t i, const char** label, float pos[3]) {
+  auto* w = static_cast<Waynet*>(program_mission_waynet());
+  WaynetPoint* p = w && i >= 0 && i < w->count() ? as_point(w->elem(i)) : nullptr;
+  if (!p || !p->position()) return false;
+  *label = p->label_or_null();
+  for (int k = 0; k < 3; ++k) pos[k] = p->position()[k];
+  return true;
+}
+
+// Mech3.exe 1.2 @ 0x00490950: at each point of the mission's waynet a copy of
+// the world's mfb_station01 (0x004f9af0(.., 0, 0)), added to the world,
+// placed there, named mfb_station_04 on and shown; the point's label (+0x2c)
+// the station's name, which the dock asks by (mech_fieldbase). Every element
+// of a built waynet is a point with a place (the emulator on the shipped
+// waynet_mp files); one without would be passed over (the exe would read
+// through null).
+int32_t program_mp_stations(void* waynet) {
+  auto* w = static_cast<Waynet*>(waynet);
+  if (!w) return 0;
+  zcls::Node* station = static_cast<zcls::Node*>(zcls::list_find_by_name(6, "mfb_station01"));
+  if (!station) return 0;
+  int32_t n = 4, made = 0;
+  for (int32_t i = 0; i < w->count(); ++i) {
+    auto* b = dynamic_cast<ai::Behaviour*>(w->elem(i));
+    const float* at = b ? b->position() : nullptr;  // vt+0x18
+    if (!at) continue;
+    zcls::Node* copy = zcls::tree_copy(station, 0, 0);
+    if (!copy) continue;
+    char name[32];
+    std::snprintf(name, sizeof name, "mfb_station_%02d", n++);
+    if (zcls::Node* world = world_hooks().world) zcls::node_add_child(world, copy);  // [0x00608c84] vt+0
+    zcls::object3d_set_translation(copy, at[0], at[1], at[2]);
+    zcls::node_set_name(copy, name);
+    zcls::node_set_active(copy, 1);
+    if (WaynetPoint* p = as_point(w->elem(i))) p->label = name, p->has_label = true;
+    ++made;
+  }
+  return made;
+}
+
 // The mission waynet's selected element for the radar: [0x00609980]'s
 // 0x0058b060 by its +0x20. FIX (bug): only a point with a place; the exe
 // reads the default behaviour's +0x0c and its null place (the MFB picking's
@@ -640,6 +758,16 @@ void* program_vehicle_target(void* v) { return static_cast<ai::AiTarget*>(&bv(v)
 void program_vehicle_hit_an_ally(void* v, void* victim) {
   if (auto* c = dynamic_cast<ai::AiVehicleControls*>(bv(v).controls)) c->hit_an_ally(victim);
 }
+// The stealth object's frame from the player's tick while the view is on it
+// (0x004a1160: vt+0x34, 0x004a5050, called straight, not through the entity
+// walk's +0x09 test).
+void program_stealth_frame(float dt) {
+  if (g_stealth) stealth_frame(*g_stealth, dt);
+}
+// Mech3.exe 1.2 @ 0x004a50d0 (the stealth's vt+0x104): its overlay off.
+void program_vehicle_view_detached(Vehicle& v) {
+  if (g_stealth && &v == static_cast<Vehicle*>(g_stealth) && g_stealth->layer) g_stealth->layer->set_active(0);
+}
 void program_vehicle_frame(void* v, float dt) {
   if (!bv(v).x09) return;
   if (bv(v).field_base) return field_base_frame(*static_cast<FieldBase*>(v), dt);
@@ -661,6 +789,7 @@ bool program_vehicle_sees(void* v, uint32_t self) {
   return !b || b->sees_target(self);
 }
 void program_vehicle_set_sensed(void* v, bool on) { bv(v).x09 = on; }
+bool program_vehicle_sensed(const void* v) { return static_cast<const Vehicle*>(v)->x09; }
 void program_vehicle_sense_refresh(void* v) { bv(v).engine.release(); }
 void program_vehicle_engine_play(void* v, const float pos[3]) { bv(v).engine.play(pos, nullptr, 0); }
 uint8_t program_vehicle_active(const void* p) { return static_cast<const Vehicle*>(p)->active ? 1 : 0; }
@@ -703,6 +832,13 @@ float program_vehicle_damage(void* v, float amount) {
   return bv(v).controls->health / bv(v).controls->health_max;
 }
 bool program_vehicle_free(void* v) {
+  if (v && v == program_stealth()) {  // 0x004a4fa0(1); made before the mission's vehicles, not among them
+    stealth_delete(g_stealth), g_stealth = nullptr;
+    g_vehicles.erase(static_cast<Vehicle*>(v));
+    g_order.erase(std::remove(g_order.begin(), g_order.end(), static_cast<Vehicle*>(v)), g_order.end());
+    if (g_w.forget_object) g_w.forget_object(g_w.engine, v);
+    return true;
+  }
   if (!is_program_vehicle(v)) return false;
   // FIX (bug): a vehicle still glowing (alive at the mission's end) gives
   // zWeapon's light back first; the exe returns it only at the death
@@ -716,8 +852,19 @@ bool program_vehicle_free(void* v) {
   if (g_w.forget_object) g_w.forget_object(g_w.engine, v);
   return true;
 }
-void program_vehicles_forget() { g_vehicles.clear(), g_order.clear(); }
-std::vector<void*> program_vehicles() { return {g_order.begin(), g_order.end()}; }
+void program_vehicles_forget() {
+  g_vehicles.clear(), g_order.clear();
+  if (g_stealth) {  // made by the world's load, before the mission's vehicles: it stays the world's
+    g_vehicles.insert(static_cast<Vehicle*>(static_cast<BasicVehicle*>(g_stealth)));
+    g_order.push_back(static_cast<Vehicle*>(static_cast<BasicVehicle*>(g_stealth)));
+  }
+}
+std::vector<void*> program_vehicles() {  // the mission's: the world's stealth object apart
+  std::vector<void*> out;
+  for (Vehicle* v : g_order)
+    if (!g_stealth || v != static_cast<Vehicle*>(static_cast<BasicVehicle*>(g_stealth))) out.push_back(v);
+  return out;
+}
 bool describe_vehicle(const void* p, VehicleSummary* out) {
   if (!is_program_vehicle(p)) return false;
   const auto* v = static_cast<const BasicVehicle*>(p);

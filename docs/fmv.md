@@ -249,6 +249,39 @@ samples read, less two halves, or three just after the first half's refill,
 plus the cursor's samples) x fps / the sample rate, unsigned: with the cursor
 still at 0 on the first poll after the start the frame is huge, the end.
 
+Fixed (bug), the cursor at 0 after a wrap (2026-11-02): with the second half
+next to fill, the exe counts a cursor of exactly 0 as still in the second
+half, so the frame is a whole buffer back (30 frames at 15 a second) until
+the cursor moves on. Video for Windows reports the sound's suggested buffer
+as an exact second (INTRO 88,200 bytes a half, C1M2 22,050; the AVI headers
+the importer copies say 88,216 and 22,054), so the two halves are exactly
+2 s: a sound device's cursor in 10 ms steps (220.5 samples at 22,050 Hz,
+200 to a lap) and the `--movie --nosound` debug clock both land on 0 at each
+wrap. Through the Indeo helper (Windows' default) a frame from 2 s before
+was shown every 2 s; the debug run drew INTRO's 2737 frames 2828 times. With
+`bugs` on, a cursor at 0 after the first lap reads as the first half
+(`fmv_stream.cpp` audio_frame; the start keeps the exe's reading).
+`fmv_sound_cursor_at_zero_after_a_wrap_keeps_the_frame` (20 s of 10 ms
+steps on exact-second halves: never back with, 29 frames back without); on
+the PC through the helper INTRO now draws 2737, c1m2 475. `MW3_MOVIE_TRACE`
+prints the buffer's size.
+
+**The beat** (ours, W38): the step (0x00599de0) asks for a frame only when
+its own clock's frame changes, and with sound the stream answers the sound's
+frame. The two 15 fps clocks start on the same step, so each ask falls on the
+sound's own frame change; with a play cursor that moves in its device's
+periods (WASAPI 10 ms, CoreAudio 23 ms; DirectSound's likewise) the ask lands
+just before or after it in a regular beat. Owen's PC, the intro: one frame in
+three repeated and one skipped, through the Indeo helper and the converted
+files alike, the whole movie long. FIX (bug), behind `bugs`: with a streamed
+sound the step asks for the sound's frame each time it runs and shows a frame
+once the sound reaches it (`Stream::sound_frame`), from the clock's frame 1 (a
+cursor still at 0 just after the start reads as the end). Test:
+`sdl_intro_follows_its_sound_without_a_beat` (SDL's dummy driver at 441 frames).
+`MW3_MOVIE_TRACE=1` logs each new frame's clock frame, frame shown, skips, the
+gap, the decode and the flip, the Indeo helper's start-up and slow calls, and
+the sound device's period.
+
 The refill (0x0059ac40): the buffer's part locked (0x00575550), the samples
 read into it at +0x1dc, which then moves on; unlocked (0x00575600). Quirk
 kept: a lock that wraps (two pieces) moves the count by the first piece's
@@ -391,3 +424,64 @@ Against FFmpeg's own decode of INTRO.AVI the shots are 37 to 42 dB (the 16-bit
 display format and MPEG-1 at quantiser 2), each closest to the AVI's frame
 after the one asked for: the catch-up's key frame one ahead (INTRO's frames
 are all key frames).
+
+## 8. The movies on a wide screen (ours, 2026-11-01)
+
+The original's screen was always 4:3. With the wide menus (`widemenus`,
+kept by `--original` like the menus themselves) the movies play on the
+menus' wide canvas (853x480 at 16:9), where 0x005773e0's stretch over the
+whole target drew every 640x480 movie and still image a third too wide.
+`GameEngine::fmv_stretch`, over the whole of a buffer wider than 4:3, keeps
+the picture's shape instead: centred at the buffer's height with black
+sides, or, for a movie stretch whose black bars are baked into its frame,
+its picture rows at the buffer's width with bars above and below. The logo
+screens (SPLASH's stills) are drawn the first way. A 4:3 buffer (no wide
+menus, an in-game mode up to 10) is drawn as the original drew it.
+
+**The shapes, measured** (`mech3/movie_shape`), not known by name:
+
+- Each frame's lit rows (a row whose mean luma is over 20) and an 8x6 grid
+  of its mean luma.
+- Shots: a new one where the grid's mean change from the frame before is
+  over 28 (a scene change) and where black frames start or end.
+- Runs, from the first shot (which starts at frame 0): a shot joins the run
+  before it while their rows together still have bars of at least 8 rows
+  above and below and are no more than 7/8 of the height (letterboxed), or
+  while both are not letterboxed (whole); otherwise a new run starts at that
+  shot, at the movie's own cut. Black shots join whatever is on.
+- A letterboxed run shorter than 2 s is shown whole (no shape for a moment).
+  A run's rows are its frames' together, so nothing lit is ever cropped off.
+  At the buffer's width the scale is the same for every letterboxed run (the
+  buffer's width over 640): runs differ only in which black rows show.
+
+Measured on 1.2's movies (the importer's): INTRO is one letterboxed run,
+rows 79..400 (its 640x320 picture and the MPEG's edges); C4WIN is
+letterboxed, rows 98..378, to frame 1022 (its 640x240 picture, a framed
+inset of 568x283 at about 54 to 62 s and a taller shot before it, all
+fitting), then whole for its last 4 s (the Mad Cat, a 4:3 picture in a
+vignette); the other 31 (the campaign's and the operations' and missions'
+briefings, ATTRACT) are 4:3 throughout and are shown whole.
+
+**When.** A movie stream opened (AVIStreamOpenFromFileA through the host,
+the helper's or the importer's) with no shape known starts a measuring
+thread of its own: its own stream of the same file decoded frame by frame
+(the importer's MovieStream, or the helper's Video for Windows under the
+helper's lock, which the player's calls take too), about 700 frames a
+second here (INTRO 3.7 s, C4WIN 1.5 s). The result goes into the write
+dir's `movie-shapes.txt`, a line a movie: `<name>/<frames>/<w>x<h>` and its
+runs (`0:79-400`, `1022:whole`), read at the next start. Until a movie's
+shape is known its frames are whole; a play that started so stays whole up
+to the first run start after the shape is known (`MovieShapePlay`), so the
+picture changes size only at a cut, at once, never mid-shot. One movie is
+measured at a time; another opened meanwhile plays whole and is measured on
+a later play. The `--movie` debug start measures first, so its shots are the
+final look.
+
+Tests: `test_movie_shape.cpp` (a frame's rows from 565 and 555 pixels, the
+runs on made-up movies: a black start, a full-frame shot at a cut and
+without one, a short letterboxed stretch, bars too thin, a picture too tall;
+the play's rule; the cache's lines) and, with FFmpeg in the importer,
+`sdl_program_movies_keep_their_shape_on_a_wide_screen` (INTRO, C4WIN and
+C1M1 imported and measured; 1920x1080 shots on mode 13: INTRO lit across
+0..1919 between rows 132 and 965, C1M1 at 238..1678 across the full height;
+the shapes kept in the write dir).

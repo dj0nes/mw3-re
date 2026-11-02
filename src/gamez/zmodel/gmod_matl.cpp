@@ -35,9 +35,11 @@ int32_t MaterialTable::index_of(const Material* m) const {
   return -1;
 }
 
-// Mech3.exe 1.2 @ 0x00536070. No upper bound check.
+// Mech3.exe 1.2 @ 0x00536070. FIX (A): one past the table is no material
+// (the exe had no upper bound; a peer's crater can name any index, fixes.md).
 Material* take_material(int32_t index) {
-  if (index < 0) return nullptr;
+  const MaterialTable& t = g_table;
+  if (index < 0 || index >= t.capacity || index / kMaterialBlock >= static_cast<int32_t>(t.blocks.size())) return nullptr;
   Material& m = g_table.at(index);
   m.flags |= 0x10;
   return &m;

@@ -21,6 +21,7 @@ struct State {
 
 State& state();
 void set_clock(platform::Clock* clock);
+uint32_t ticks_ms();  // timeGetTime as the clock gives it (ours: 0 without one)
 
 void init();                       // 0x005759a0, the clock's start (zGameApp start, 0x00480570)
 void update();                     // 0x00575a00, once per frame from zGameApp::Run

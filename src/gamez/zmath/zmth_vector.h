@@ -40,6 +40,7 @@ void quat_scale(const Quat& q, float f, Quat& out);
 void quat_normalize(const Quat& q, Quat& out);           // 0x00525500: bit-trick square root
 void quat_mul(const Quat& a, const Quat& b, Quat& out);  // 0x005255d0: a b
 void quat_exp(const Vec3& v, Quat& out);                 // 0x00525900: (cos |v|, sin |v| v / |v|)
+void quat_log(const float q[4], float out[3]);           // 0x005259c0: its inverse
 // The rotation turning unit `from` onto unit `to` through their half vector;
 // opposite vectors take a turn about a perpendicular in the xy plane.
 void quat_between(const float from[3], const float to[3], float q[4]);  // 0x00525a50

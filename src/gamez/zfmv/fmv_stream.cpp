@@ -1,9 +1,12 @@
 #include "gamez/zfmv/fmv_stream.h"
 
 #include <algorithm>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
 
 #include "gamez/zfmv/fmv_script.h"
+#include "gamez/zutil/zfix.h"
 #include "gamez/zvideo/zvid_ddd3d.h"
 
 namespace zfmv {
@@ -134,6 +137,8 @@ void Stream::open_audio() {
     fill_second = true;
     audio_ok = true;
     read = block ? half / block : 0;
+    if (std::getenv("MW3_MOVIE_TRACE"))  // ours, for diagnosis
+      std::printf("mw3: movie trace: sound buffer 2 x %u bytes, %u Hz, block %u\n", half, rd32(wave, 4), block);
     return;
   }
   half = static_cast<uint32_t>(h.avi_length(audio)) * block;
@@ -214,7 +219,14 @@ int32_t Stream::audio_frame() {
   const uint32_t played = cursor / block;
   uint32_t base;
   if (fill_second) {
-    if (cursor > 0 && cursor < half) {
+    // FIX (bug): a cursor at exactly 0 has wrapped into the first half, but
+    // the exe read it as still in the second and gave a frame a whole buffer
+    // back. Video for Windows gives INTRO's sound an exact second a half, so
+    // a device's 10 ms steps land on 0 at each wrap: a frame from 2 s before
+    // flashed every 2 s (docs/fmv.md section 5). The start (only the first
+    // half read) keeps the exe's reading.
+    const bool wrapped = cursor == 0 && zfix::options().bugs && read > half_samples;
+    if ((cursor > 0 || wrapped) && cursor < half) {
       refill(half, half);
       fill_second = false;
       base = read - 2 * half_samples;

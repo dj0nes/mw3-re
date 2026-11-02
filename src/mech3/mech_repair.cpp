@@ -110,7 +110,7 @@ bool Mech::repair(float dt) {
     h.hud_weapons_refresh(h.hud(*this));
     h.hud_reset(h.viewed(*this) ? h.hud(*this) : nullptr);
   }
-  x680 = 0x1fe;
+  net_damaged = 0x1fe;  // every part's damage with the next network state
   return true;
 }
 

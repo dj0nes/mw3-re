@@ -12,47 +12,52 @@ trademark of Microsoft.
 This is a playtest build: expect bugs, and please report them (below).
 
 It contains no part of the game. You need your own MechWarrior 3: an
-installed copy (version 1.2 is best; 1.0 plays), or the disc or a disc
-image. Pirate's Moon is not supported yet.
+installed copy (version 1.2 is best; 1.0 plays), the disc, a disc image or a
+download of one (.zip, .7z, .rar). Pirate's Moon is not supported yet.
 
 Installing
 ----------
 Run MW3-Rebuild-Setup.exe and start "MechWarrior 3 Rebuild" from the Start
-menu or the desktop. (Or, from the zip: unzip this folder anywhere (not
-inside your MechWarrior 3 folder) and run mw3.exe.)
+menu or the desktop: the launcher, which finds your game, sets it up and
+starts it. "MechWarrior 3" in the Start menu goes straight into the game.
+(Or, from the zip: unzip this folder anywhere (not inside your MechWarrior 3
+folder) and run mw3launcher.exe, or mw3.exe for the game alone.)
 
 On the first start:
 - It looks for your MechWarrior 3 install (where the original installer put
   it, then Program Files\MicroProse\MechWarrior 3 and usual folders such as
-  C:\Games\MechWarrior3). If none is found, it asks you to choose Mech3.exe
-  in your MechWarrior 3 folder. The folder is remembered. You can also name
-  it:  mw3.exe "C:\path\to\MechWarrior 3"
-- Only a disc or a disc image (.iso, or .cue with its .bin), nothing
-  installed? Install from it with:
-      mw3.exe --install-from "D:\"          (the disc's drive)
-      mw3.exe --install-from "C:\path\to\MechWarrior3.iso"
-  A .cue also gives the music. Add --patch (below) to patch it too.
-- It names the data version it found. With 1.0's data it says so once:
-  the official 1.2 patch is better, and the rebuild reads it without
-  running its installer. Start once with:
-      mw3.exe --patch "C:\path\to\the patch.zip"
-  (the ZIP the patch came in, or its unpacked folder). Your install is not
-  changed; the patched files go to the saves folder below.
+  C:\Games\MechWarrior3) and, when it finds one, goes straight into the
+  game. The folder is remembered. You can also name it:
+      mw3.exe "C:\path\to\MechWarrior 3"
+- If it finds none, it shows its setup screen. POINT TO YOUR GAME takes
+  whatever you have: your installed copy's Mech3.exe (or A FOLDER INSTEAD),
+  the disc or a disc image (.iso, or .cue with its .bin files, whose CD
+  audio becomes the music), or the file you downloaded (.zip, .7z or .rar,
+  even a zip inside a zip; nothing to unpack by hand). It says what it
+  found, installs it into a folder of its own with a progress bar and
+  Cancel, then goes on into the game. SEARCH AGAIN looks again, and for a
+  disc in a drive. Pirate's Moon is recognised; its support comes later.
+- It names the data version it found. Version 1.0 plays as 1.2: the
+  rebuild makes the 1.2 patch's changes itself as the data loads, without
+  changing your files. Only data of another version (or a mod) is offered
+  the official patch (APPLY THE 1.2 PATCH on the setup screen, or start once
+  with  mw3.exe --patch "C:\path\to\the patch.zip").
 - The movies play through the Indeo 5 codec in your own install, by the
   small helper mw3indeo.exe. If that cannot play them, mw3import.exe
   converts them once instead, with a progress window (about a minute). The
   game runs without movies if both fail.
 
-No install? Install from the disc
----------------------------------
-You do not need the disc's own installer. With the disc in the drive (or a
-disc image: a .iso, or a .cue with its .bin files):
+From the command line
+---------------------
+The same install without the setup screen:
 
     mw3.exe --install-from D:\ --patch "C:\path\to\the 1.2 patch.zip"
 
-copies the game into a folder of its own (in the settings folder below, or
+copies the game from the disc (or a .iso, or a .cue with its .bin files)
+into a folder of its own (in the settings folder below, or
 --install-to "C:\Games\MechWarrior 3") and remembers it. --patch is
-optional and makes it 1.2. From a .cue, its CD audio becomes the music too.
+optional: the disc's 1.0 plays as 1.2 without it. From a .cue, its CD audio
+becomes the music too.
 
 Music
 -----

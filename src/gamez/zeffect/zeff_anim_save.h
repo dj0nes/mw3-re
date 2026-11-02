@@ -46,6 +46,15 @@ AnimLogRecord* log_connector_at(AnimDef* def, zcls::Node* node, zcls::Node* from
                                 zcls::Node* to, const float* to_pos);      // 0x0050cf40
 AnimLogRecord* log_reset(AnimDef* def, zcls::Node* node);               // 0x0050d0f0
 
+// The network's (0x1a, multiplayer-port.md piece 7b): a record's size as
+// sent, whether it is kept (bit 0) and sent (bit 1), whether one like it is
+// logged.
+int32_t log_record_size(const AnimLogRecord* r);  // 0x0050ca20
+uint32_t log_flags(const AnimLogRecord* r);       // 0x0050d200
+bool log_has(const AnimLogRecord* r);             // 0x0050b680
+// The network's hook and the serials' top byte (the network game's 0xc).
+void log_set_net(void (*fn)(AnimLogRecord* rec), uint32_t tag);  // 0x0050d1d0
+
 // The log's accessors and its replay, as the savegame uses them.
 void log_clear();                  // 0x0050b640: the count to 0
 int32_t log_count();               // 0x0050b6f0

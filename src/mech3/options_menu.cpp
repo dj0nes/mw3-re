@@ -228,10 +228,11 @@ void TextureCycle::rebuild(int32_t dev) {
 }
 
 // Mech3.exe 1.2 @ 0x004394d0: InstallOptions 0xff00 offers the software
-// renderer, 0xff the cards.
+// renderer, 0xff the cards. FIX (A): the software renderer is not ported (the
+// GPU draws everything, docs/render.md), so it is not offered.
 void DeviceCycle::after_bind() {
   CycleButton::after_bind();
-  if (e_.install_options(0xff00)) add_item(e_.message(0x4d), -1);
+  if (e_.install_options(0xff00) && e_.software_renderer()) add_item(e_.message(0x4d), -1);
   if (!e_.install_options(0xff)) return;
   const uint32_t n = e_.video_device_count();
   for (uint32_t i = 0; i < n; ++i) {

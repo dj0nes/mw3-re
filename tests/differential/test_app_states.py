@@ -412,6 +412,17 @@ IGNORE = [(0x608c88, 0x608f6c), (0x608f6c, 0x608fb0), (0x6040b0, 0x6040b4),
           (0x5f4c98, 0x5f4d50), (LAB, LAB + 0x94)]
 
 
+def box_inside_2d(log, box):
+    """The one departure, FIX (A) (playtest W44/W46, docs/fixes.md): the hardware
+    path's frame updates the quit box (vt+0) inside its 2D pass with the HUD,
+    before 0x00576d60 ends it; the exe's comes just after, when the port's 2D
+    layer is already over the frame, so nothing drew it."""
+    for i in range(len(log) - 1):
+        if log[i] == ('0x00576d60', ()) and log[i + 1][0] == 'vt+0x0' and log[i + 1][1][:1] == (box,):
+            log[i], log[i + 1] = log[i + 1], log[i]
+            return
+
+
 def run_case(probe, name, paddr, eaddr, ecx, args, seed, verbose=False):
     t = Trace()
     w = build_world(seed, t, name)
@@ -458,6 +469,8 @@ def run_case(probe, name, paddr, eaddr, ecx, args, seed, verbose=False):
     probe.probe_app_set_callback(rep.callback())
     pret = ctypes.c_uint32(0)
     exited = probe.probe_states_call(paddr, parg, parg2, ctypes.byref(pret))
+    if paddr in (0x481f70, 0x481e70):
+        box_inside_2d(t.log, w.emu.r32(STATES[5] + 0x20))
     ok = compare(f'{name} (seed {seed})', t.log, rep.log)
     q = (ctypes.c_uint32 * 48)()
     nq = probe.probe_states_queue(q, 16)

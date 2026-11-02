@@ -158,6 +158,12 @@ They run inside the original main loop, after the original start-up.
   level (not a cave's roof: playtest S7), and turned to face it
   each frame, to watch a mech up close (its damage decals with `--fire`,
   damage-decals.md). The mission's opening camera still runs first.
+- `--debug-camera` (ours; `debugcamera=1` in mw3.cfg): Shift+F12 opens
+  Zipper's Battlesport game editor over the mission (debug command 0x9a,
+  which the exe binds to no key; F11 stays the lancemate command screen):
+  the view on the stealth object, flown with the movement keys, and the
+  editor's menu; Shift+F12 again or EXIT GAME EDIT closes it and (ours)
+  puts the view back on the player's mech. docs/editor.md S4.
 - `--original` (ours): every play-changing bug fix off (zfix bugs), as
   `bugfixes=0` in mw3.cfg; it wins over the file (fixes.md, The bug fixes
   switch).
@@ -171,12 +177,18 @@ They run inside the original main loop, after the original start-up.
   mounted in front of the install on this start and every later one. A
   source without all of 1.2's files writes nothing and mw3 exits with the
   reason.
+- `--mod NAME` (repeatable), `--no-mods`, `--mods` (ours, docs/modding.md):
+  this run's mods in order instead of mw3.cfg's `mod=` lines, none, or the
+  mods found and enabled listed (then it quits).
+- `--check-mod DIR` (ours, docs/modding.md): the mod at DIR read as the game
+  would read it, nothing mounted into play; the report printed, exit 1 when
+  anything would be refused.
 - `--shot FILE.bmp [--shot-frame N] [--shot-any]` saves frame N (default 30;
   with `--shot-any` every frame shown counts, the fade's too) of either
   and quits, with the window hidden; `--shot-series K` also the K frames
   before it.
 - For checking (ours, from 2026-10-25): `--tap DIK@N[:M]` presses a key as
-  an SDL event; `--click-at X,Y@N` (the plain start) clicks at a game pixel;
+  an SDL event; `--click-at X,Y@N` (the plain start) clicks at a game pixel (`--click-players X,Y@N/P` N frames after the network session first holds P players, for two processes in one lobby; `--click-return X,Y@N` N frames after each return to the lobby from a game; `--net-seconds S` each menu-started network game's clock, `--net-kill-at S` a kill staged on the pilot S seconds of 30 frames into each, `--net-ahead M` the pilot held M m from the other mech there too, `--net-walk A,B` the throttle up held from A to B seconds into each; `--hover-at X,Y@N` the cursor there with no click (a rollover, W41), `--click-ingame X,Y@N`, `--tap-ingame DIK@N[:M]` and `--hold-ingame N:M` (the left button held) by each such game's frames; `--fire-probe` each game frame's buttons, trigger and weapons' reloads (a beam firing counts 100), with the wall time (W40); `--blur-ingame N:MS` the app deactivated at game frame N as a lost focus, the focus back MS ms later by a timer (W45); the soak lines' `wall` (epoch ms) and each seen mech's `heard` (ms since its last state); with `--net-soak` the shown objectives box's lines each second (`soak menus box:`); the lobby's line on coming back from the lab (`lobby back from the lab, mech N`); with `--net-soak` the "soak menus" lines each 15 frames, rss, each mech's gait slot and arms' aims included, and each lobby entry's scores);
   `--click N:M`, `--walk`, `--fire-group G`, `--objectives N` in a mission;
   `--briefing c1m2` (the plain start) saves a pilot "Briefing" whose newest
   campaign stands at that mission and clicks CAMPAIGN, the pilot and ACCEPT,
@@ -431,9 +443,11 @@ apart. Everything else is a real gap and stays listed.
 - `--frame-times N` (ours, for measuring; performance.md): from the N-th
   frame shown, each frame's wall time (present to present), summed up at
   the end: mean, median, p95, p99, max.
-- `--mission ia<N>[w<W>]` (ours, for measuring): Instant Action map N in
-  wave mode from wave W, four Champions with the player, as the Action
-  screen would set it (the AI survey's start).
+- `--mission [<world>]ia<N>[w<W>]` (ours, for measuring): Instant Action
+  map N in wave mode from wave W, four Champions with the player, as the
+  Action screen would set it (the AI survey's start); on c1 without a
+  world, else on it (`c3ia2`: c3's readeria2; 2026-11-01, for the editor S1
+  sweep, vehicles.md).
 - `--seed N` (ours): every srand the game does from the time of day
   (0x00501ab0, 0x00508fc0, 0x0049aca0) takes N instead
   (`crt::rand_fixed_seed`). With `--frame-ms` a run repeats line for line:

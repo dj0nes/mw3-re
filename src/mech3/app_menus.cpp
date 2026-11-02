@@ -40,6 +40,8 @@
 #include "mech3/salvage_screen.h"
 #include "mech3/pilot.h"
 #include "mech3/pilot_menu.h"
+#include "mech3/mp_connect.h"
+#include "mech3/mp_lobby.h"
 
 namespace mech3 {
 
@@ -172,6 +174,7 @@ struct Stretch {
   int32_t at;          // the column repeated, out to the right group
   int32_t from_y = 0;  // from this row down
   bool to_middle = false;  // the part right of `at` goes to the middle group, not the right
+  int32_t at2 = -1;        // a second column: `at`..`at2` to the middle group, past `at2` to the right
 };
 struct ScreenGroups {
   uint32_t ctor;  // the screen's constructor (GameEngine::construct)
@@ -220,6 +223,19 @@ const std::vector<ScreenGroups>& screen_groups() {
       {0x4289a0, {{0, 70, 1, 71, kLeft}}, {{0, 70, 431, 100, 0, true}}},
       // The salvage screen: one block on the debriefing's circuit board.
       {0x47d3b0, {}, {}, 0, 256, 160},
+      // The connection screen: NET NAME, SESSIONS, CANCEL and JOIN left;
+      // CONNECT, HOST SETUP and HOST right; the boxes' lines (one 610x345
+      // overlay) lengthened at column 300, which only the two links cross.
+      {0x493260, {{0, 0, 330, 480, kLeft}, {330, 0, 640, 480, kRight}}, {{0, 0, 610, 300}}},
+      // The lobby: GAME SETUP left, SCORES and CHAT in the middle, PLAYER
+      // SETUP right; along the bottom CANCEL and LOCK OPTIONS left, MECHLAB
+      // in the middle, I AM READY and START right. The columns' lines (one
+      // 640x480 overlay) widen the middle column at 202 and 412, inside its
+      // two dividers.
+      {0x495f90,
+       {{0, 400, 280, 480, kLeft}, {280, 400, 400, 480, kCentre}, {400, 400, 640, 480, kRight},
+        {0, 0, 200, 400, kLeft}, {415, 0, 640, 400, kRight}},
+       {{0, 0, 640, 202, 0, false, 412}}},
   };
   return k;
 }
@@ -253,7 +269,8 @@ void GameEngine::widen_screen(MenuScreen* s, uint32_t ctor) {
     // opens (prepare), already the canvas's width: left where they are.
     auto* lsp = dynamic_cast<LoadSavePopupScreen*>(s);
     auto* axp = dynamic_cast<AxisPopupScreen*>(s);
-    if ((lsp && o == &lsp->backdrop) || (axp && o == &axp->background)) continue;
+    auto* team = dynamic_cast<TeamScreen*>(s);  // the new team's dialog's: the same (0x00579500(2) as it enters)
+    if ((lsp && o == &lsp->backdrop) || (axp && o == &axp->background) || (team && o == &team->backdrop)) continue;
     if (im && !stretched && (right - left >= 600 || (img_w >= 600 && img_w <= 640))) {
       widen_background(*im, extra, table ? table->inset : 0, table ? table->shade0 : 150, table ? table->shade1 : 60);
       continue;
@@ -292,8 +309,14 @@ void GameEngine::widen_screen(MenuScreen* s, uint32_t ctor) {
     const int32_t off = a == kLeft ? 0 : a == kRight ? extra : extra / 2;
     if (im && im->image && table)
       for (const Stretch& st : table->stretches)
-        if (left == st.x && top == st.y && im->image->width == st.w)
-          stretch_image(*im, st.at, st.from_y, (st.to_middle ? extra / 2 : extra) - off);
+        if (left == st.x && top == st.y && im->image->width == st.w) {
+          if (st.at2 >= 0) {  // the right column first, so `at` still stands where it was
+            stretch_image(*im, st.at2, st.from_y, extra - extra / 2);
+            stretch_image(*im, st.at, st.from_y, extra / 2 - off);
+          } else {
+            stretch_image(*im, st.at, st.from_y, (st.to_middle ? extra / 2 : extra) - off);
+          }
+        }
     if (off) moves.push_back({o, o->get_x(), o->get_y(), off});
   }
   for (const bool controls : {true, false})
@@ -304,7 +327,19 @@ void GameEngine::widen_screen(MenuScreen* s, uint32_t ctor) {
       // its set_pos (0x0048b220) would add the bar's place again: moved as
       // an image, its label (on the list) by itself.
       if (auto* eb = dynamic_cast<ShellEditBar*>(m.o)) eb->ztwod::Image::set_pos(m.x + m.off, m.y);
-      else m.o->set_pos(m.x + m.off, m.y);
+      else if (auto* sb = dynamic_cast<SlideButton*>(m.o)) {
+        // Its set_pos (0x0042a400) puts the ripple at the image's centre, but
+        // a baked button (FastMenu) or one not yet shown has no image then:
+        // the ripple went to the corner (playtest W41). The ripple and its
+        // reach are carried by the offset, as placed at the bind.
+        const int32_t rx = sb->ripple.get_x(), ry = sb->ripple.get_y();
+        const ztwod::Rect reach = sb->reach;
+        sb->set_pos(m.x + m.off, m.y);
+        sb->ripple.set_pos(rx + m.off, ry);
+        sb->reach = {reach.left + m.off, reach.top, reach.right + m.off, reach.bottom};
+      } else {
+        m.o->set_pos(m.x + m.off, m.y);
+      }
       auto* pl = dynamic_cast<ztwod::PolyLine*>(m.o);  // its points are where it draws (0x005a38f0)
       if (pl && !dynamic_cast<ztwod::Shape*>(pl) && !dynamic_cast<ztwod::Caret*>(pl))
         for (int32_t i = 0; i < pl->count; ++i) pl->pts[i][0] += m.off;
@@ -320,6 +355,13 @@ void GameEngine::widen_screen(MenuScreen* s, uint32_t ctor) {
       auto* cb = dynamic_cast<ztwod::CheckButton*>(m.o);  // its rect is BOUNDS as read (a list box's rows)
       if (cb && cb->bounds.right > cb->bounds.left) cb->bounds.left += m.off, cb->bounds.right += m.off;
     }
+  // Ours: the lobby's two address lines (piece 9c), under CANCEL and LOCK at
+  // 640, go to the middle column's band under the chat bar, which the width
+  // leaves room for (at 640 they would cross MECHLAB).
+  if (auto* l = dynamic_cast<LobbyScreen*>(s)) {
+    l->internet_line.set_pos(s->origin_x + 207 + extra / 2, s->origin_y + 379);
+    l->lan_line.set_pos(s->origin_x + 207 + extra / 2, s->origin_y + 389);
+  }
 }
 
 Handle GameEngine::construct(uint32_t ctor, std::initializer_list<Arg> args) {
@@ -379,6 +421,12 @@ Handle GameEngine::construct(uint32_t ctor, std::initializer_list<Arg> args) {
       menu_states_[h] = new PilotState(*this, h);
       return h;
     }
+    case 0x493260:  // the Multiplayer State's first screen, new(0x13b04): the connection
+      return screen(0x13b04, [](GameEngine& e, Handle s) -> MenuScreen* { return new ConnectScreen(e, s); });
+    case 0x495f90:  // its second, new(0x1505c): the lobby
+      return screen(0x1505c, [](GameEngine& e, Handle s) -> MenuScreen* { return new LobbyScreen(e, s); });
+    case 0x49bd80:  // its third, new(0x11f3c): the new team's dialog
+      return screen(0x11f3c, [](GameEngine& e, Handle s) -> MenuScreen* { return new TeamScreen(e, s); });
     case 0x488bc0:  // the Action State's screen, new(0x17730)
       return screen(0x17730, [](GameEngine& e, Handle s) -> MenuScreen* { return new ActionScreen(e, s); });
     case 0x48a6c0:
@@ -416,8 +464,9 @@ Handle GameEngine::construct(uint32_t ctor, std::initializer_list<Arg> args) {
     case 0x405230: {  // the briefing, new(0x12e6c): its section's name
       const char* name = args.size() && args.begin()->s ? args.begin()->s : "default";
       const Handle h = alloc_block(0x12e6c);
-      auto* b = new BriefingScreen(*this, name);
+      auto* b = new BriefingScreen(*this, name, false);
       widen_screen(b, ctor);  // its script's objects are made with it (read_script)
+      b->draw_first();        // its first frame once widened (the constructor's end)
       screens_[h] = {b, 0x12e6c};
       briefing_screen() = b;
       return h;
@@ -456,7 +505,10 @@ bool GameEngine::menu_vcall(Handle obj, uint32_t slot, std::initializer_list<Arg
   if (quit_box_ && obj == quit_box_at_) {  // the quit box: its frame, on or off, its deleting destructor
     *out = 0;
     switch (slot) {
-      case 0x00: quit_box_->update(zgame::from_bits(a0)); return true;
+      case 0x00:
+        quit_box_->keys();  // ours (W46)
+        if (quit_box_) quit_box_->update(zgame::from_bits(a0));
+        return true;
       case 0x04: quit_box_->set_active(static_cast<int32_t>(a0)); return true;
       case 0x08:
         delete quit_box_;
@@ -690,7 +742,7 @@ int32_t campaign_dir(const CampaignGame& c) {
 
 // The Load state from the menus: its game is the chosen pilot's (the
 // launch's stand-in filled from it; a debug start keeps its own). A
-// campaign's, training's and Instant Action's missions (not multiplayer).
+// campaign's, training's, Instant Action's and multiplayer's missions.
 void GameEngine::load_state_enter() {
   if (launch_.active && launch_.auto_launch) return;
   Pilot* p = current_pilot();
@@ -710,14 +762,27 @@ void GameEngine::load_state_enter() {
     // The Action screen's (menus.md 13): vt+0x54 the world (0x00437890), vt+0x4c
     // the ia mission (0x004378f0), vt+0x48 the world as 1..4 (0x004378b0).
     l.index = a->x74;
+    // Ours: a mod's world past the known ones (the mod since gone): c1. No
+    // world at all (-1) stays as it is: no launch, as in the original.
+    if (l.index >= 9 && l.index >= mission_dir_count()) {
+      std::printf("mw3: Instant Action's world %d is gone (a mod no longer enabled?): c1 instead\n", l.index);
+      l.index = 0;
+    }
     l.number = a->x78;
     l.op = a->x74 >= 0 && a->x74 <= 3 ? a->x74 + 1 : 0;
+  } else if (auto* m = dynamic_cast<MultiplayerGame*>(g)) {
+    // The lobby's world (0x0049b790): vt+0x54 the folder, vt+0x4c the mp
+    // number, vt+0x48 0 (0x0040bae0); UNAVAILABLE is folder -1.
+    l.index = m->x90;
+    l.number = m->x94;
+    l.op = 0;
+    l.multi = m;
   } else {
     l.index = -1;
   }
   if (l.index < 0) {
-    // Not ported (multiplayer), or no game: back to the
-    // main menu rather than a mission left from before.
+    // No game, or no world: back to the main menu rather than a
+    // mission left from before.
     unported("the Load state of this game", {l.type});
     launch_.active = false;
     replace_state(2);
@@ -731,10 +796,10 @@ void GameEngine::load_state_enter() {
 
 // The briefing's game texts (game_type, db_name, scenario_name,
 // scenario_desc: the game's vt+0x04 .. +0x10). A debug start has no pilot's
-// game: the one its launch names answers (ours). Multiplayer's stay logged.
+// game: the one its launch names answers (ours).
 const char* GameEngine::game_text(int32_t slot) {
   Pilot* p = launch_.auto_launch ? nullptr : current_pilot();
-  if (Game* g = p ? p->current : nullptr) return g->type() == kMultiplayer ? Engine::game_text(slot) : g->game_text(slot);
+  if (Game* g = p ? p->current : nullptr) return g->game_text(slot);
   if (launch_.action) return launch_.action->game_text(slot);
   if (launch_.index == 5) return TrainingGame::text_of(slot, launch_.number);  // t1
   if (slot != 0x0c) return nullptr;
@@ -1230,4 +1295,94 @@ zimg::Texture* GameEngine::map_image(Handle map) {
   auto* m = static_cast<MissionMap*>(object_of(map));
   return m ? m->image : nullptr;
 }
+}  // namespace mech3
+
+namespace mech3 {
+
+// Mech3.exe 1.2 @ 0x0047fc40: the app's network on or off. On: zNetwork up
+// (0x00586ba0; FIX (A): on the platform's transport, not DirectPlay's
+// instance), unless it is already (a --host or --join start's); the lobby
+// launch's set-up (+0x19c) is not ported. Off: the network game ended
+// (0x0046d100), zNetwork down (0x00586c20), the transport given up.
+void GameEngine::network_set(int32_t on) {
+  if (on) {
+    if (network_on_) return;
+    if (!znet::session().initialised && p_.network_open)
+      if (znet::Transport* t = p_.network_open()) znet::initialise(t);
+    network_on_ = true;
+    return;
+  }
+  if (!network_on_) return;
+  net_end();
+  znet::shutdown();
+  if (p_.network_close) p_.network_close();
+  network_on_ = false;
+}
+
+// Mech3.exe 1.2 @ 0x0049cb20: the Multiplayer State's page shown as wanted
+// (1 the connection screen, 2 the lobby, 3 the new team), each told when
+// it starts over (+0x19): the connection screen forgets its kind
+// (0x004949d0), the lobby enters (0x00497720), the new team's dialog
+// enters over the lobby (0x0049c2c0).
+void GameEngine::multiplayer_switch(Handle state) {
+  auto it = menu_states_.find(state);
+  auto* g = it == menu_states_.end() ? nullptr : dynamic_cast<GameMenuState*>(it->second);
+  if (!g) return Engine::multiplayer_switch(state);
+  if (g->want == 1) {
+    g->screen_ = g->screens[0];
+    if (g->x19)
+      if (auto* c = dynamic_cast<ConnectScreen*>(screen_of(g->screens[0]))) c->forget_kind();
+  } else if (g->want == 2) {
+    g->screen_ = g->screens[1];
+    if (g->x19)
+      if (auto* l = dynamic_cast<LobbyScreen*>(screen_of(g->screens[1]))) {
+        l->enter();
+        // Ours: each entry counted, and what the scores show (the after-game checks).
+        ++lobby_entries_;
+        if (!quiet) {
+          std::string t;
+          for (const std::string& x : l->shown_scores) t += (t.empty() ? "" : " | ") + x;
+          std::printf("mw3: lobby entered %d, scores: %s\n", lobby_entries_, t.empty() ? "none" : t.c_str());
+        }
+      }
+  } else if (g->want == 3) {
+    g->screen_ = g->screens[2];
+    if (g->x19)
+      if (auto* t = dynamic_cast<TeamScreen*>(screen_of(g->screens[2])))
+        t->enter(dynamic_cast<LobbyScreen*>(screen_of(g->screens[1])));
+  }
+  if (!quiet && g->page != g->want) std::printf("mw3: multiplayer page %d\n", static_cast<int>(g->want));  // ours
+  g->page = g->want;
+}
+
+// Mech3.exe 1.2 @ 0x0049cb00
+void GameEngine::multiplayer_page(Handle state, int32_t page, uint8_t reenter) {
+  auto it = menu_states_.find(state);
+  auto* g = it == menu_states_.end() ? nullptr : dynamic_cast<GameMenuState*>(it->second);
+  if (!g) return Engine::multiplayer_page(state, page, reenter);
+  g->want = page;
+  g->x19 = reenter;
+}
+
+// Mech3.exe 1.2 @ 0x0049cc30's: 0x00494920 on the connection screen with the
+// pilot; the lobby's pilot and its current game (+0x15058, +0x116ec; 0x00479480).
+void GameEngine::multiplayer_take_pilot(Handle first, Handle second) {
+  Pilot* p = current_pilot();
+  if (auto* c = dynamic_cast<ConnectScreen*>(screen_of(first))) c->take_pilot(p ? handle_of(p) : 0, p ? p->name : nullptr);
+  else Engine::multiplayer_take_pilot(first, second);
+  if (auto* l = dynamic_cast<LobbyScreen*>(screen_of(second))) l->take_pilot(p ? handle_of(p) : 0, p ? p->multiplayer() : nullptr);
+}
+
+// Mech3.exe 1.2 @ 0x0049b660 on the lobby: back from the mech lab.
+void GameEngine::multiplayer_resume(Handle screen) {
+  if (auto* l = dynamic_cast<LobbyScreen*>(screen_of(screen))) {
+    l->resume();
+    if (!quiet)  // ours: the mech the lab left in the game's slot (the tests)
+      if (MultiplayerGame* g = current_pilot() ? current_pilot()->multiplayer() : nullptr)
+        std::printf("mw3: lobby back from the lab, mech %d\n", static_cast<int>(g->slot.mech));
+  } else {
+    Engine::multiplayer_resume(screen);
+  }
+}
+
 }  // namespace mech3

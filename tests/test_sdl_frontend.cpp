@@ -7,6 +7,7 @@
 #include <cstring>
 #include <filesystem>
 #include <cctype>
+#include <cmath>
 #include <chrono>
 #include <csignal>
 #include <thread>
@@ -14,8 +15,10 @@
 #include <fcntl.h>
 #include <spawn.h>
 #include <sys/wait.h>
+#include <unistd.h>
 #include <fstream>
 #endif
+#include <set>
 #include <string>
 #include <vector>
 
@@ -33,6 +36,7 @@
 #include "frontend/sdl/sdl_twod_host.h"
 #include "frontend/sdl/sdl_vfw.h"
 #include "mech3/app_movie.h"
+#include "mech3/movie_shape.h"
 #include "gamez/zinterp/zinterp.h"
 #include "gamez/zimage/zimg_library.h"
 #include "gamez/zutil/zfix.h"
@@ -1697,6 +1701,29 @@ TEST(sdl_program_check_runs_never_ask_for_the_install) {
 // The window's shape (resolution.md step 2, any_resolution): the frame keeps
 // its aspect in the window, pillarboxed where they differ, and the cursor
 // and the relative mouse map through that rect, not through 640.
+// The 1.2 read-me's "you can now enter IP addresses using the numeric
+// keypad" (14c's checks): through the SDL host, zInput's characters for the
+// keypad's 1..9, 0 and '.' (DIK 0x4f..0x53). On a Mac (no Num Lock; SDL
+// reports it off) the host takes it as on, FIX (A); elsewhere they follow
+// the lock, as on Windows.
+TEST(sdl_keypad_types_an_address) {
+  sdlfe::SdlZinHost host(nullptr);
+  zin::set_host(&host);
+  static const uint32_t kPad[11] = {0x4f, 0x50, 0x51, 0x4b, 0x4c, 0x4d, 0x47, 0x48, 0x49, 0x52, 0x53};
+  std::string typed;
+  for (uint32_t k : kPad) {
+    const uint32_t c = zin::key_char(k);
+    typed += c >= 0x20 && c < 0x7f ? static_cast<char>(c) : '#';
+  }
+  zin::set_host(nullptr);
+  std::printf("keypad 1..9, 0, '.': \"%s\"\n", typed.c_str());
+#if defined(__APPLE__)
+  EXPECT(typed == "1234567890.");
+#else
+  EXPECT(typed == "1234567890." || (SDL_GetModState() & SDL_KMOD_NUM) == 0);
+#endif
+}
+
 TEST(sdl_window_shape_maps_the_mouse_through_the_frame) {
   auto near = [](float a, float b) { return std::fabs(a - b) < 0.01f; };
   float x = 0, y = 0;
@@ -1864,8 +1891,8 @@ bool bmp_shares(const std::string& path, int* w, int* h, double* lit, double* gr
   *lit = static_cast<double>(l) / n, *green = static_cast<double>(g) / n;
   return true;
 }
-pid_t spawn_mw3(const std::vector<std::string>& args, const std::string& log) {
-  std::vector<std::string> a = {MW3_BIN};
+pid_t spawn_bin(const char* bin, const std::vector<std::string>& args, const std::string& log) {
+  std::vector<std::string> a = {bin};
   a.insert(a.end(), args.begin(), args.end());
   std::vector<char*> argv;
   for (std::string& s : a) argv.push_back(s.data());
@@ -1875,9 +1902,14 @@ pid_t spawn_mw3(const std::vector<std::string>& args, const std::string& log) {
   posix_spawn_file_actions_addopen(&fa, 1, log.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
   posix_spawn_file_actions_adddup2(&fa, 1, 2);
   pid_t pid = 0;
-  const int err = posix_spawn(&pid, MW3_BIN, &fa, nullptr, argv.data(), environ);
+  const int err = posix_spawn(&pid, bin, &fa, nullptr, argv.data(), environ);
   posix_spawn_file_actions_destroy(&fa);
   return err == 0 ? pid : -1;
+}
+pid_t spawn_mw3(const std::vector<std::string>& args, const std::string& log) { return spawn_bin(MW3_BIN, args, log); }
+// mw3launcher, the launcher's own program (docs/launcher.md, The two programs).
+pid_t spawn_launcher(const std::vector<std::string>& args, const std::string& log) {
+  return spawn_bin(MW3_LAUNCHER_BIN, args, log);
 }
 }  // namespace
 
@@ -2407,6 +2439,1173 @@ TEST(sdl_movies_through_the_indeo_helper_pipe) {
   const std::vector<uint8_t> shot_files = bytes(dir + "/files.bmp"), shot_pipe = bytes(dir + "/pipe.bmp");
   EXPECT(shot_files.size() > 100000 && shot_files == shot_pipe);
 }
+
+// The intro's picture follows its sound without a beat (fmv.md section 5):
+// with the sound's play cursor moving in WASAPI's 10 ms periods (SDL's dummy
+// driver at 441 frames: no sound out, the callback on its schedule), the
+// exe's way, asking for the sound's frame only when the movie's own 15 fps
+// clock changes, repeats or skips a frame every few; with the bug fixes each
+// frame shows once (one repeat at the start, the first two steps).
+TEST(sdl_intro_follows_its_sound_without_a_beat) {
+  const std::string install = MW3_GAME_DIR;
+  std::error_code ec;
+  if (!std::filesystem::exists(MW3_IMPORT_BIN, ec) || !std::filesystem::exists(install + "/video/INTRO.AVI", ec)) return;
+  const std::string dir = std::string(MW3_TEST_TMP) + "/sdl_intro_beat";
+  std::filesystem::remove_all(dir, ec);
+  std::filesystem::create_directories(dir, ec);
+  auto run = [&](std::vector<std::string> args, const std::string& name) {
+    std::vector<char*> argv;
+    for (std::string& s : args) argv.push_back(s.data());
+    argv.push_back(nullptr);
+    const std::string log = dir + "/" + name + ".log";
+    posix_spawn_file_actions_t fa;
+    posix_spawn_file_actions_init(&fa);
+    posix_spawn_file_actions_addopen(&fa, 1, log.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    posix_spawn_file_actions_adddup2(&fa, 1, 2);
+    pid_t pid = 0;
+    int status = -1;
+    if (posix_spawn(&pid, argv[0], &fa, nullptr, argv.data(), environ) == 0) waitpid(pid, &status, 0);
+    posix_spawn_file_actions_destroy(&fa);
+    std::string text;
+    if (std::FILE* f = std::fopen(log.c_str(), "r")) {
+      char buf[4096];
+      for (size_t n; (n = std::fread(buf, 1, sizeof buf, f)) > 0;) text.append(buf, n);
+      std::fclose(f);
+    }
+    return text;
+  };
+  run({MW3_IMPORT_BIN, "--install", install, "--write-dir", dir, "--only", "intro"}, "import");
+  if (!std::filesystem::exists(dir + "/video/intro.fmv", ec)) return;  // no FFmpeg in this importer
+  const char* const kEnv[][2] = {{"SDL_AUDIO_DRIVER", "dummy"}, {"SDL_AUDIO_DEVICE_SAMPLE_FRAMES", "441"}, {"MW3_MOVIE_TRACE", "1"}};
+  for (const auto& e : kEnv) setenv(e[0], e[1], 1);
+  struct Beat {
+    int steps = 0, repeats = 0, skipped = 0;
+    bool device = false;
+  };
+  auto play = [&](bool original) {
+    std::vector<std::string> a = {MW3_BIN, "--install", install, "--write-dir", dir, "--no-launcher", "--frames", "200", "--hidden"};
+    if (original) a.push_back("--original");
+    const std::string log = run(a, original ? "original" : "fixed");
+    Beat b;
+    b.device = log.find("sound device 44100 Hz, 2 channels, 441 sample frames") != std::string::npos;
+    int last = -1;
+    for (size_t at = 0; (at = log.find("clock frame ", at)) != std::string::npos; ++at) {
+      const size_t s = log.find("shown ", at);
+      if (s == std::string::npos) break;
+      const int shown = std::atoi(log.c_str() + s + 6);
+      if (b.steps++ > 0) {
+        if (shown == last) ++b.repeats;
+        if (shown > last + 1) b.skipped += shown - last - 1;
+      }
+      last = shown;
+    }
+    return b;
+  };
+  const Beat fixed = play(false), original = play(true);
+  for (const auto& e : kEnv) unsetenv(e[0]);
+  std::printf("  the intro, 10 ms sound periods: fixed %d steps, %d repeated, %d skipped; the exe's %d steps, %d repeated, %d skipped\n",
+              fixed.steps, fixed.repeats, fixed.skipped, original.steps, original.repeats, original.skipped);
+  EXPECT(fixed.device && original.device);
+  EXPECT(fixed.steps >= 150 && fixed.repeats <= 1 && fixed.skipped == 0);
+  EXPECT(original.steps >= 150 && original.repeats + original.skipped >= 10);
+}
+
+// Two mw3 processes in a session (docs/multiplayer-port.md, piece 4): the
+// host on 127.0.0.1 and a port the system picks (parallel runs never meet,
+// loopback: no firewall prompt), its port read from its log; a joiner says
+// a line. Both see each other, the joiner learns the host from its 0xd, and
+// the host's leaving makes the joiner the host.
+TEST(sdl_two_processes_host_and_join) {
+  const std::string install = MW3_GAME_DIR;
+  std::error_code ec;
+  if (!std::filesystem::exists(install + "/zbd/mechlib.zbd", ec)) return;
+  const std::string dir = std::string(MW3_TEST_TMP) + "/sdl_net_two";
+  std::filesystem::remove_all(dir, ec);
+  std::filesystem::create_directories(dir + "/host", ec);
+  std::filesystem::create_directories(dir + "/join", ec);
+  auto spawn = [&](std::vector<std::string> args, const std::string& log) {
+    std::vector<char*> argv;
+    for (std::string& s : args) argv.push_back(s.data());
+    argv.push_back(nullptr);
+    posix_spawn_file_actions_t fa;
+    posix_spawn_file_actions_init(&fa);
+    posix_spawn_file_actions_addopen(&fa, 1, log.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    posix_spawn_file_actions_adddup2(&fa, 1, 2);
+    pid_t pid = 0;
+    if (posix_spawn(&pid, argv[0], &fa, nullptr, argv.data(), environ) != 0) pid = -1;
+    posix_spawn_file_actions_destroy(&fa);
+    return pid;
+  };
+  auto read = [](const std::string& path) {
+    std::string text;
+    if (std::FILE* f = std::fopen(path.c_str(), "r")) {
+      char buf[4096];
+      for (size_t n; (n = std::fread(buf, 1, sizeof buf, f)) > 0;) text.append(buf, n);
+      std::fclose(f);
+    }
+    return text;
+  };
+  const std::vector<std::string> common = {"--install", install, "--no-launcher", "--hidden", "--nosound", "--net-bind", "127.0.0.1"};
+  std::vector<std::string> h = {MW3_BIN, "--write-dir", dir + "/host", "--frames", "900", "--host", "--net-port", "0", "--net-name", "Ann"};
+  h.insert(h.end(), common.begin(), common.end());
+  const pid_t host = spawn(h, dir + "/host.log");
+  EXPECT(host > 0);
+  std::string port;
+  for (int i = 0; i < 200 && port.empty(); ++i) {
+    const std::string log = read(dir + "/host.log");
+    const size_t at = log.find("hosting on port ");
+    if (at != std::string::npos) port = log.substr(at + 16, log.find(' ', at + 16) - at - 16);
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+  }
+  EXPECT(!port.empty());
+  std::vector<std::string> j = {MW3_BIN, "--write-dir", dir + "/join", "--frames", "300", "--join", "127.0.0.1:" + port,
+                                "--net-name", "Bob", "--net-say", "hello from Bob@60"};
+  j.insert(j.end(), common.begin(), common.end());
+  const pid_t joiner = spawn(j, dir + "/join.log");
+  int status = 0;
+  if (joiner > 0) waitpid(joiner, &status, 0);
+  if (host > 0) waitpid(host, &status, 0);
+  const std::string hl = read(dir + "/host.log"), jl = read(dir + "/join.log");
+  auto has = [](const std::string& s, const char* what) { return s.find(what) != std::string::npos; };
+  std::printf("  host: %s, joiner: %s\n", has(hl, "player 2 (Bob) joined") ? "saw Bob" : "no Bob",
+              has(jl, "as player 2 (Bob)") ? "player 2" : "not joined");
+  // The joiner's own line comes as its player is made, before or after the
+  // host's 0xd: its "is the host" line says it either way.
+  const bool all = has(hl, "as player 1 (Ann), the host 1") && has(jl, "as player 2 (Bob)") &&
+                   has(jl, "player 1 (Ann) is the host") && has(hl, "player 2 (Bob) joined") &&
+                   has(hl, "player 2 (Bob) says \"hello from Bob\"");
+  if (!all)  // what each saw, for the failure
+    for (const std::string* l : {&hl, &jl})
+      for (size_t at = 0; (at = l->find("mw3: network", at)) != std::string::npos; ++at)
+        std::printf("  %s: %s\n", l == &hl ? "host" : "join", l->substr(at, l->find('\n', at) - at).c_str());
+  EXPECT(all);
+  // Whoever leaves first, the other sees it; the host gone, Bob hosts (the
+  // lowest id left, DPSYS_HOST, his 0xd to himself).
+  EXPECT(has(hl, "player 2 (Bob) left") || (has(jl, "player 1 (Ann) left") && has(jl, "player 2 (Bob) is the host")));
+}
+#endif
+
+#if !defined(_WIN32)  // posix_spawn, waitpid
+// The connection screen (multiplayer-port.md, piece 9b), two mw3 through the
+// menus on loopback: each goes MULTIPLAYER, makes a pilot, and lands on the
+// connection screen, connected and searching (ours: the LAN searched at
+// once). A clicks HOST; B's search finds A's game in its SESSIONS (the LAN's
+// probe to A's discovery port: no broadcast on loopback), B chooses it and
+// clicks JOIN. Both reach the lobby's page.
+TEST(sdl_two_processes_host_and_join_from_the_screens) {
+  const std::string install = MW3_GAME_DIR;
+  std::error_code ec;
+  if (!std::filesystem::exists(install + "/zbd/mechlib.zbd", ec)) return;
+  const std::string dir = std::string(MW3_TEST_TMP) + "/sdl_net_screens";
+  std::filesystem::remove_all(dir, ec);
+  std::filesystem::create_directories(dir + "/a", ec);
+  std::filesystem::create_directories(dir + "/b", ec);
+  auto spawn = [&](std::vector<std::string> args, const std::string& log) {
+    std::vector<std::string> v = {MW3_BIN};
+    v.insert(v.end(), args.begin(), args.end());
+    std::vector<char*> argv;
+    for (std::string& x : v) argv.push_back(x.data());
+    argv.push_back(nullptr);
+    posix_spawn_file_actions_t fa;
+    posix_spawn_file_actions_init(&fa);
+    posix_spawn_file_actions_addopen(&fa, 1, log.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    posix_spawn_file_actions_adddup2(&fa, 1, 2);
+    pid_t pid = 0;
+    if (posix_spawn(&pid, argv[0], &fa, nullptr, argv.data(), environ) != 0) pid = -1;
+    posix_spawn_file_actions_destroy(&fa);
+    return pid;
+  };
+  auto read = [](const std::string& path) {
+    std::string text;
+    if (std::FILE* f = std::fopen(path.c_str(), "r")) {
+      char buf[4096];
+      for (size_t n; (n = std::fread(buf, 1, sizeof buf, f)) > 0;) text.append(buf, n);
+      std::fclose(f);
+    }
+    return text;
+  };
+  // Ports of their own (parallel runs and a real game here never meet).
+  const int base = 30000 + static_cast<int>(getpid() % 2000) * 3;
+  const std::string game = std::to_string(base), lan = std::to_string(base + 1);
+  // MULTIPLAYER, a new pilot's name typed, ACCEPT (as the Instant Action check's).
+  auto menus = [](std::vector<std::string> v, std::initializer_list<const char*> name) {
+    std::vector<std::string> m = {"--click-at", "132,285@40"};
+    int at = 70;
+    for (const char* k : name) m.insert(m.end(), {"--tap", std::string(k) + "@" + std::to_string(at)}), at += 4;
+    m.insert(m.end(), {"--click-at", "470,320@100"});
+    v.insert(v.end(), m.begin(), m.end());
+    return v;
+  };
+  const std::vector<std::string> common = {"--install", install, "--no-launcher", "--hidden", "--nosound", "--net-bind",
+                                           "127.0.0.1", "--frame-ms", "33"};
+  std::vector<std::string> va = menus({"--write-dir", dir + "/a", "--net-port", game, "--net-discovery", lan,
+                                       "--click-at", "421,406@180", "--frames", "100000"}, {"0x14", "0x12", "0x1f", "0x14"});
+  va.insert(va.end(), common.begin(), common.end());
+  std::vector<std::string> vb = menus({"--write-dir", dir + "/b", "--net-port", "0", "--net-lan", "127.0.0.1:" + lan,
+                                       "--click-at", "100,143@420", "--click-at", "240,406@450", "--frames", "600"},
+                                      {"0x30", "0x12", "0x1f", "0x14"});
+  vb.insert(vb.end(), common.begin(), common.end());
+  const pid_t a = spawn(va, dir + "/a.log");
+  for (int i = 0; i < 400 && read(dir + "/a.log").find("multiplayer page 2") == std::string::npos; ++i)
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+  const pid_t b = spawn(vb, dir + "/b.log");
+  int st = 0;
+  if (b > 0) waitpid(b, &st, 0);
+  if (a > 0) kill(a, SIGTERM), waitpid(a, &st, 0);  // A hosts until B is done
+  const std::string la = read(dir + "/a.log"), lb = read(dir + "/b.log");
+  auto has = [](const std::string& t, const char* w) { return t.find(w) != std::string::npos; };
+  std::printf("  A: %s; B: %s\n", has(la, "multiplayer page 2") ? "hosting, in the lobby" : "not hosting",
+              has(lb, "multiplayer page 2") ? "joined, in the lobby" : "not joined");
+  EXPECT(has(la, "multiplayer page 1") && has(la, "multiplayer page 2"));
+  EXPECT(has(lb, "multiplayer page 1") && has(lb, "multiplayer page 2"));
+}
+#endif
+
+#if !defined(_WIN32)  // posix_spawn, waitpid
+// Two mw3 from the menus through the lobby into one game (the lead's check
+// after piece 11c): A hosts, B finds and joins it; once both are in the
+// lobby (--click-players: counted from the second player's arrival) A locks
+// and readies, B readies, A starts. Both load the lobby's world (c1) and
+// reach play; each sees the other's mech where the other says it is.
+TEST(sdl_two_processes_from_the_lobby_into_a_game) {
+  const std::string install = MW3_GAME_DIR;
+  std::error_code ec;
+  if (!std::filesystem::exists(install + "/zbd/mechlib.zbd", ec)) return;
+  const std::string dir = std::string(MW3_TEST_TMP) + "/sdl_net_lobby_game";
+  std::filesystem::remove_all(dir, ec);
+  std::filesystem::create_directories(dir + "/a", ec);
+  std::filesystem::create_directories(dir + "/b", ec);
+  auto spawn = [&](std::vector<std::string> args, const std::string& log) {
+    std::vector<std::string> v = {MW3_BIN};
+    v.insert(v.end(), args.begin(), args.end());
+    std::vector<char*> argv;
+    for (std::string& x : v) argv.push_back(x.data());
+    argv.push_back(nullptr);
+    posix_spawn_file_actions_t fa;
+    posix_spawn_file_actions_init(&fa);
+    posix_spawn_file_actions_addopen(&fa, 1, log.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    posix_spawn_file_actions_adddup2(&fa, 1, 2);
+    pid_t pid = 0;
+    if (posix_spawn(&pid, argv[0], &fa, nullptr, argv.data(), environ) != 0) pid = -1;
+    posix_spawn_file_actions_destroy(&fa);
+    return pid;
+  };
+  auto read = [](const std::string& path) {
+    std::string text;
+    if (std::FILE* f = std::fopen(path.c_str(), "r")) {
+      char buf[4096];
+      for (size_t n; (n = std::fread(buf, 1, sizeof buf, f)) > 0;) text.append(buf, n);
+      std::fclose(f);
+    }
+    return text;
+  };
+  const int base = 34000 + static_cast<int>(getpid() % 2000) * 3;
+  const std::string game = std::to_string(base), lan = std::to_string(base + 1);
+  auto menus = [](std::vector<std::string> v, std::initializer_list<const char*> name) {
+    std::vector<std::string> m = {"--click-at", "132,285@40"};
+    int at = 70;
+    for (const char* k : name) m.insert(m.end(), {"--tap", std::string(k) + "@" + std::to_string(at)}), at += 4;
+    m.insert(m.end(), {"--click-at", "470,320@100"});
+    v.insert(v.end(), m.begin(), m.end());
+    return v;
+  };
+  const std::vector<std::string> common = {"--install", install, "--no-launcher", "--hidden", "--nosound", "--net-bind",
+                                           "127.0.0.1", "--frame-ms", "33", "--net-soak"};
+  // A: HOST; with B in: LOCK OPTIONS, its OK, I AM READY, then START.
+  std::vector<std::string> va = menus({"--write-dir", dir + "/a", "--net-port", game, "--net-discovery", lan,
+                                       "--click-at", "421,406@180", "--click-players", "183,430@60/2",
+                                       "--click-players", "246,290@100/2", "--click-players", "515,446@140/2",
+                                       "--click-players", "585,418@600/2", "--frames", "2600"},
+                                      {"0x14", "0x12", "0x1f", "0x14"});
+  va.insert(va.end(), common.begin(), common.end());
+  // B: the game found, JOIN; in the lobby I AM READY (after A's lock).
+  std::vector<std::string> vb = menus({"--write-dir", dir + "/b", "--net-port", "0", "--net-lan", "127.0.0.1:" + lan,
+                                       "--click-at", "100,143@420", "--click-at", "240,406@450",
+                                       "--click-players", "515,446@300/2", "--frames", "2400"},
+                                      {"0x30", "0x12", "0x1f", "0x14"});
+  vb.insert(vb.end(), common.begin(), common.end());
+  const pid_t a = spawn(va, dir + "/a.log");
+  for (int i = 0; i < 400 && read(dir + "/a.log").find("multiplayer page 2") == std::string::npos; ++i)
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+  const pid_t b = spawn(vb, dir + "/b.log");
+  int st = 0;
+  if (b > 0) waitpid(b, &st, 0);
+  if (a > 0) waitpid(a, &st, 0);
+  const std::string la = read(dir + "/a.log"), lb = read(dir + "/b.log");
+  auto has = [](const std::string& t, const char* w) { return t.find(w) != std::string::npos; };
+  // Each "soak menus" line: our own place, then each one we see.
+  struct Seen {
+    int lines = 0, saw = 0;
+    float me[3] = {}, them[3] = {};
+  };
+  auto scan = [](const std::string& t, uint32_t other) {
+    Seen s;
+    size_t at = 0;
+    while ((at = t.find("mw3: soak menus", at)) != std::string::npos) {
+      const size_t end = t.find('\n', at);
+      const std::string line = t.substr(at, end - at);
+      at = end;
+      ++s.lines;
+      const size_t me = line.find(" me ");
+      unsigned id = 0;
+      if (me != std::string::npos) std::sscanf(line.c_str() + me, " me %u %f %f %f", &id, &s.me[0], &s.me[1], &s.me[2]);
+      const std::string key = "; sees " + std::to_string(other) + " ";
+      const size_t sees = line.find(key);
+      if (sees != std::string::npos) {
+        ++s.saw;
+        std::sscanf(line.c_str() + sees + key.size(), "%f %f %f", &s.them[0], &s.them[1], &s.them[2]);
+      }
+    }
+    return s;
+  };
+  const Seen sa = scan(la, 2), sb = scan(lb, 1);
+  std::printf("  A: %d lines in play, B seen in %d; B: %d lines, A seen in %d\n", sa.lines, sa.saw, sb.lines, sb.saw);
+  EXPECT(has(la, "multiplayer page 2") && has(lb, "multiplayer page 2"));
+  EXPECT(has(la, "Loading [ c1 ]") && has(lb, "Loading [ c1 ]") && has(la, "Ready To Launch") && has(lb, "Ready To Launch"));
+  EXPECT(sa.lines > 3 && sb.lines > 3 && sa.saw > 3 && sb.saw > 3);
+  // Standing still, each one's own place is where the other sees it.
+  EXPECT(std::fabs(sa.them[0] - sb.me[0]) < 2.0f && std::fabs(sa.them[2] - sb.me[2]) < 2.0f);
+  EXPECT(std::fabs(sb.them[0] - sa.me[0]) < 2.0f && std::fabs(sb.them[2] - sa.me[2]) < 2.0f);
+}
+#endif
+
+#if !defined(_WIN32)  // posix_spawn, waitpid
+// The 1.2 read-me's "your arms no longer flail" and "no longer run in place
+// on other players' screens" (14c's checks), between two mw3 from the menus:
+// in a game of 30 s A walks from 5 s to 15 s (--net-walk, ours: the throttle
+// up held), then lets go and slows to a stop. On B's screen A stands, walks,
+// slows and stands again: never a walking gait for long while A's place holds, and
+// A's arms never jerk (with the ping's latency read unsigned, 2^32 ms, its
+// aim's extrapolation threw them between their limits as A slowed).
+TEST(sdl_two_processes_a_walk_seen_from_the_other) {
+  const std::string install = MW3_GAME_DIR;
+  std::error_code ec;
+  if (!std::filesystem::exists(install + "/zbd/mechlib.zbd", ec)) return;
+  const std::string dir = std::string(MW3_TEST_TMP) + "/sdl_net_walk";
+  std::filesystem::remove_all(dir, ec);
+  std::filesystem::create_directories(dir + "/a", ec);
+  std::filesystem::create_directories(dir + "/b", ec);
+  auto spawn = [&](std::vector<std::string> args, const std::string& log) {
+    std::vector<std::string> v = {MW3_BIN};
+    v.insert(v.end(), args.begin(), args.end());
+    std::vector<char*> argv;
+    for (std::string& x : v) argv.push_back(x.data());
+    argv.push_back(nullptr);
+    posix_spawn_file_actions_t fa;
+    posix_spawn_file_actions_init(&fa);
+    posix_spawn_file_actions_addopen(&fa, 1, log.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    posix_spawn_file_actions_adddup2(&fa, 1, 2);
+    pid_t pid = 0;
+    if (posix_spawn(&pid, argv[0], &fa, nullptr, argv.data(), environ) != 0) pid = -1;
+    posix_spawn_file_actions_destroy(&fa);
+    return pid;
+  };
+  auto read = [](const std::string& path) {
+    std::string text;
+    if (std::FILE* f = std::fopen(path.c_str(), "r")) {
+      char buf[4096];
+      for (size_t n; (n = std::fread(buf, 1, sizeof buf, f)) > 0;) text.append(buf, n);
+      std::fclose(f);
+    }
+    return text;
+  };
+  const int base = 40000 + static_cast<int>(getpid() % 2000) * 3;
+  const std::string game = std::to_string(base), lan = std::to_string(base + 1);
+  auto menus = [](std::vector<std::string> v, std::initializer_list<const char*> name) {
+    std::vector<std::string> m = {"--click-at", "132,285@40"};
+    int at = 70;
+    for (const char* k : name) m.insert(m.end(), {"--tap", std::string(k) + "@" + std::to_string(at)}), at += 4;
+    m.insert(m.end(), {"--click-at", "470,320@100"});
+    v.insert(v.end(), m.begin(), m.end());
+    return v;
+  };
+  const std::vector<std::string> common = {"--install", install, "--no-launcher", "--hidden", "--nosound", "--net-bind",
+                                           "127.0.0.1", "--frame-ms", "33", "--net-soak", "--net-seconds", "30"};
+  std::vector<std::string> va = menus({"--write-dir", dir + "/a", "--net-port", game, "--net-discovery", lan,
+                                       "--click-at", "421,406@180", "--click-players", "183,430@60/2",
+                                       "--click-players", "246,290@100/2", "--click-players", "515,446@140/2",
+                                       "--click-players", "585,418@600/2", "--net-walk", "5,15", "--frames", "2400"},
+                                      {"0x14", "0x12", "0x1f", "0x14"});
+  va.insert(va.end(), common.begin(), common.end());
+  std::vector<std::string> vb = menus({"--write-dir", dir + "/b", "--net-port", "0", "--net-lan", "127.0.0.1:" + lan,
+                                       "--click-at", "100,143@420", "--click-at", "240,406@450",
+                                       "--click-players", "515,446@300/2", "--frames", "2400"},
+                                      {"0x30", "0x12", "0x1f", "0x14"});
+  vb.insert(vb.end(), common.begin(), common.end());
+  const pid_t a = spawn(va, dir + "/a.log");
+  for (int i = 0; i < 400 && read(dir + "/a.log").find("multiplayer page 2") == std::string::npos; ++i)
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+  const pid_t b = spawn(vb, dir + "/b.log");
+  int st = 0;
+  if (b > 0) waitpid(b, &st, 0);
+  if (a > 0) waitpid(a, &st, 0);
+  // B's lines (each half second of play): A's place, gait and arms' aims.
+  struct Seen {
+    float z = 0;
+    int gait = -1;
+    float arms[4] = {};
+  };
+  std::vector<Seen> seen;
+  const std::string lb = read(dir + "/b.log");
+  for (size_t at = 0; (at = lb.find("mw3: soak menus clock", at)) != std::string::npos;) {
+    const size_t end = lb.find('\n', at);
+    const std::string line = lb.substr(at, end - at);
+    at = end;
+    const size_t p = line.find("; sees 1 ");
+    Seen s;
+    float x, y, hp;
+    int on;
+    if (p != std::string::npos && std::sscanf(line.c_str() + p, "; sees 1 %f %f %f %d health %f gait %d arms %f %f %f %f", &x, &y,
+                                              &s.z, &on, &hp, &s.gait, &s.arms[0], &s.arms[1], &s.arms[2], &s.arms[3]) == 10)
+      seen.push_back(s);
+  }
+  // Walking in place: a walking gait through three lines (1.5 s) or more
+  // while A's place holds. (A's start, on its own screen too, is a step or
+  // two before it gets going: one or two lines.)
+  int walking = 0, in_place = 0, jerks = 0, run = 0;
+  float worst = 0;
+  for (size_t i = 7; i < seen.size(); ++i) {  // the first lines: the start's placing and the aim's slerp in
+    const bool still = std::fabs(seen[i].z - seen[i - 1].z) < 0.05f;
+    walking += seen[i].gait != 2;
+    run = still && seen[i].gait != 2 ? run + 1 : 0;
+    in_place += run >= 3;
+    for (int k = 0; k < 4; ++k) {
+      const float d = std::fabs(seen[i].arms[k] - seen[i - 1].arms[k]);
+      worst = std::max(worst, d);
+      jerks += d > 0.2f;
+    }
+  }
+  std::printf("  B's lines %zu: A walking in %d, walking in place in %d; A's arms' largest change between lines %.3f, %d over 0.2\n",
+              seen.size(), walking, in_place, worst, jerks);
+  EXPECT(seen.size() > 40 && walking > 10 && seen.back().gait == 2);
+  EXPECT(in_place == 0 && jerks == 0);
+}
+#endif
+
+#if !defined(_WIN32)  // posix_spawn, waitpid
+// Playtest W45: a network game runs on while its window is inactive (FIX (A);
+// the original waits, frozen, and the others fight a statue). B walks and is
+// deactivated for 3 s (--blur-ingame, ours: as a lost focus, the focus back
+// by a timer); B's frames go on and A sees B walk through it.
+TEST(sdl_two_processes_an_inactive_window_plays_on) {
+  const std::string install = MW3_GAME_DIR;
+  std::error_code ec;
+  if (!std::filesystem::exists(install + "/zbd/mechlib.zbd", ec)) return;
+  const std::string dir = std::string(MW3_TEST_TMP) + "/sdl_net_blur";
+  std::filesystem::remove_all(dir, ec);
+  std::filesystem::create_directories(dir + "/a", ec);
+  std::filesystem::create_directories(dir + "/b", ec);
+  auto spawn = [&](std::vector<std::string> args, const std::string& log) {
+    std::vector<std::string> v = {MW3_BIN};
+    v.insert(v.end(), args.begin(), args.end());
+    std::vector<char*> argv;
+    for (std::string& x : v) argv.push_back(x.data());
+    argv.push_back(nullptr);
+    posix_spawn_file_actions_t fa;
+    posix_spawn_file_actions_init(&fa);
+    posix_spawn_file_actions_addopen(&fa, 1, log.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    posix_spawn_file_actions_adddup2(&fa, 1, 2);
+    pid_t pid = 0;
+    if (posix_spawn(&pid, argv[0], &fa, nullptr, argv.data(), environ) != 0) pid = -1;
+    posix_spawn_file_actions_destroy(&fa);
+    return pid;
+  };
+  auto read = [](const std::string& path) {
+    std::string text;
+    if (std::FILE* f = std::fopen(path.c_str(), "r")) {
+      char buf[4096];
+      for (size_t n; (n = std::fread(buf, 1, sizeof buf, f)) > 0;) text.append(buf, n);
+      std::fclose(f);
+    }
+    return text;
+  };
+  const int base = 42000 + static_cast<int>(getpid() % 2000) * 3;
+  const std::string game = std::to_string(base), lan = std::to_string(base + 1);
+  auto menus = [](std::vector<std::string> v, std::initializer_list<const char*> name) {
+    std::vector<std::string> m = {"--click-at", "132,285@40"};
+    int at = 70;
+    for (const char* k : name) m.insert(m.end(), {"--tap", std::string(k) + "@" + std::to_string(at)}), at += 4;
+    m.insert(m.end(), {"--click-at", "470,320@100"});
+    v.insert(v.end(), m.begin(), m.end());
+    return v;
+  };
+  const std::vector<std::string> common = {"--install", install, "--no-launcher", "--hidden", "--nosound", "--net-bind",
+                                           "127.0.0.1", "--frame-ms", "33", "--net-soak", "--net-seconds", "60"};
+  std::vector<std::string> va = menus({"--write-dir", dir + "/a", "--net-port", game, "--net-discovery", lan,
+                                       "--click-at", "421,406@180", "--click-players", "183,430@60/2",
+                                       "--click-players", "246,290@100/2", "--click-players", "515,446@140/2",
+                                       "--click-players", "585,418@600/2", "--frames", "2400"},
+                                      {"0x14", "0x12", "0x1f", "0x14"});
+  va.insert(va.end(), common.begin(), common.end());
+  std::vector<std::string> vb = menus({"--write-dir", dir + "/b", "--net-port", "0", "--net-lan", "127.0.0.1:" + lan,
+                                       "--click-at", "100,143@420", "--click-at", "240,406@450",
+                                       "--click-players", "515,446@300/2", "--net-walk", "3,60",
+                                       "--blur-ingame", "200:3000", "--frames", "2400"},
+                                      {"0x30", "0x12", "0x1f", "0x14"});
+  vb.insert(vb.end(), common.begin(), common.end());
+  const pid_t a = spawn(va, dir + "/a.log");
+  for (int i = 0; i < 400 && read(dir + "/a.log").find("multiplayer page 2") == std::string::npos; ++i)
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+  const pid_t b = spawn(vb, dir + "/b.log");
+  int st = 0;
+  if (b > 0) waitpid(b, &st, 0);
+  if (a > 0) waitpid(a, &st, 0);
+  // B inactive for 3 s from the wall time it logs: its own lines go on (its
+  // frames run), and A sees B walk on through it.
+  const std::string la = read(dir + "/a.log"), lb = read(dir + "/b.log");
+  long long blur = -1;
+  if (const size_t p = lb.find("mw3: blur at wall "); p != std::string::npos) blur = std::atoll(lb.c_str() + p + 18);
+  auto lines = [](const std::string& t, auto&& each) {
+    for (size_t at = 0; (at = t.find("mw3: soak menus clock", at)) != std::string::npos;) {
+      const size_t end = t.find('\n', at);
+      const std::string line = t.substr(at, end - at);
+      at = end;
+      long long wall = 0, heard = -1;
+      float z = 0;
+      if (const size_t w = line.find(" wall "); w != std::string::npos) wall = std::atoll(line.c_str() + w + 6);
+      if (const size_t h = line.find(" heard "); h != std::string::npos) heard = std::atoll(line.c_str() + h + 7);
+      if (const size_t q = line.find("; sees "); q != std::string::npos) {
+        unsigned id;
+        float x, y;
+        std::sscanf(line.c_str() + q, "; sees %u %f %f %f", &id, &x, &y, &z);
+      }
+      each(wall, z, heard);
+    }
+  };
+  int b_during = 0;
+  lines(lb, [&](long long w, float, long long) { b_during += blur > 0 && w >= blur + 300 && w <= blur + 2700; });
+  // A's dead reckoning carries B on either way: what A last heard from B
+  // (ms) is what shows the states coming.
+  // A's clock is the stepped one (--frame-ms, faster than the wall's), so the
+  // ages are against the same span before the blur.
+  float first = 0, last = 0;
+  long long oldest = -1, before = -1;
+  bool seen = false;
+  lines(la, [&](long long w, float z, long long heard) {
+    if (blur > 0 && w >= blur - 2700 && w <= blur - 300) before = std::max(before, heard);
+    if (blur <= 0 || w < blur + 300 || w > blur + 2700) return;
+    if (!seen) first = z, seen = true;
+    last = z;
+    oldest = std::max(oldest, heard);
+  });
+  std::printf("  B inactive at %lld: its lines meanwhile %d; A saw B move %.1f m, B's last state at most %lld ms old (%lld before)\n",
+              blur, b_during, std::fabs(last - first), oldest, before);
+  EXPECT(blur > 0 && b_during >= 3);
+  EXPECT(seen && std::fabs(last - first) > 5.0f && before >= 0 && oldest >= 0 && oldest <= 3 * before + 300);
+}
+#endif
+
+#if !defined(_WIN32)  // posix_spawn, waitpid
+// Playtest W46 (and W44): Escape in a network match shows the quit box over
+// the cockpit and the match goes on under it (bug fixes on): moving and the
+// mouse's fire as normal; Escape again or N closes it, Y leaves to the main
+// menu, and the others drop the player at once (ENet's disconnect sent now).
+TEST(sdl_two_processes_leave_box_keeps_play_and_leaves) {
+  const std::string install = MW3_GAME_DIR;
+  std::error_code ec;
+  if (!std::filesystem::exists(install + "/zbd/mechlib.zbd", ec)) return;
+  const std::string dir = std::string(MW3_TEST_TMP) + "/sdl_net_leave";
+  std::filesystem::remove_all(dir, ec);
+  std::filesystem::create_directories(dir + "/a", ec);
+  std::filesystem::create_directories(dir + "/b", ec);
+  auto spawn = [&](std::vector<std::string> args, const std::string& log) {
+    std::vector<std::string> v = {MW3_BIN};
+    v.insert(v.end(), args.begin(), args.end());
+    std::vector<char*> argv;
+    for (std::string& x : v) argv.push_back(x.data());
+    argv.push_back(nullptr);
+    posix_spawn_file_actions_t fa;
+    posix_spawn_file_actions_init(&fa);
+    posix_spawn_file_actions_addopen(&fa, 1, log.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    posix_spawn_file_actions_adddup2(&fa, 1, 2);
+    pid_t pid = 0;
+    if (posix_spawn(&pid, argv[0], &fa, nullptr, argv.data(), environ) != 0) pid = -1;
+    posix_spawn_file_actions_destroy(&fa);
+    return pid;
+  };
+  auto read = [](const std::string& path) {
+    std::string text;
+    if (std::FILE* f = std::fopen(path.c_str(), "r")) {
+      char buf[4096];
+      for (size_t n; (n = std::fread(buf, 1, sizeof buf, f)) > 0;) text.append(buf, n);
+      std::fclose(f);
+    }
+    return text;
+  };
+  const int base = 46000 + static_cast<int>(getpid() % 2000) * 3;
+  const std::string game = std::to_string(base), lan = std::to_string(base + 1);
+  auto menus = [](std::vector<std::string> v, std::initializer_list<const char*> name) {
+    std::vector<std::string> m = {"--click-at", "132,285@40"};
+    int at = 70;
+    for (const char* k : name) m.insert(m.end(), {"--tap", std::string(k) + "@" + std::to_string(at)}), at += 4;
+    m.insert(m.end(), {"--click-at", "470,320@100"});
+    v.insert(v.end(), m.begin(), m.end());
+    return v;
+  };
+  const std::vector<std::string> common = {"--install", install, "--no-launcher", "--hidden", "--nosound", "--net-bind",
+                                           "127.0.0.1", "--frame-ms", "33", "--net-soak", "--net-seconds", "60"};
+  std::vector<std::string> va = menus({"--write-dir", dir + "/a", "--net-port", game, "--net-discovery", lan,
+                                       "--click-at", "421,406@180", "--click-players", "183,430@60/2",
+                                       "--click-players", "246,290@100/2", "--click-players", "515,446@140/2",
+                                       "--click-players", "585,418@600/2", "--frames", "2400"},
+                                      {"0x14", "0x12", "0x1f", "0x14"});
+  va.insert(va.end(), common.begin(), common.end());
+  std::vector<std::string> vb = menus({"--write-dir", dir + "/b", "--net-port", "0", "--net-lan", "127.0.0.1:" + lan,
+                                       "--click-at", "100,143@420", "--click-at", "240,406@450",
+                                       "--click-players", "515,446@300/2", "--net-walk", "3,60",
+                                       "--tap-ingame", "0x01@200:203", "--hold-ingame", "260:290", "--tap-ingame", "0x01@330:333",
+                                       "--tap-ingame", "0x01@400:403", "--tap-ingame", "0x31@430:433",
+                                       "--tap-ingame", "0x01@500:503", "--tap-ingame", "0x15@530:533", "--fire-probe",
+                                       "--verbose", "--frames", "2400"},
+                                      {"0x30", "0x12", "0x1f", "0x14"});
+  vb.insert(vb.end(), common.begin(), common.end());
+  const pid_t a = spawn(va, dir + "/a.log");
+  for (int i = 0; i < 400 && read(dir + "/a.log").find("multiplayer page 2") == std::string::npos; ++i)
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+  const pid_t b = spawn(vb, dir + "/b.log");
+  int st = 0;
+  if (b > 0) waitpid(b, &st, 0);
+  if (a > 0) waitpid(a, &st, 0);
+  const std::string la = read(dir + "/a.log"), lb = read(dir + "/b.log");
+  auto count = [](const std::string& t, const char* w) {
+    int n = 0;
+    for (size_t at = 0; (at = t.find(w, at)) != std::string::npos; ++at) ++n;
+    return n;
+  };
+  // B's box: up at 200 (Escape), down at 330 (Escape again), up at 400, down
+  // at 430 (N), up at 500, down at 530 (Y: the match left, the main menu).
+  const int ups = count(lb, "mw3: quit box up"), downs = count(lb, "mw3: quit box down");
+  const size_t core = lb.find("state Core State"), menu = core == std::string::npos ? core : lb.find("state Main State", core);
+  // With the box up (frames 200..330) B's mouse fires (the probe's trigger
+  // from 260) and B walks on.
+  int first = -1, fired_at = -1;
+  float z_up = 0, z_down = 0;
+  for (size_t at = 0; (at = lb.find("mw3: fire probe frame ", at)) != std::string::npos;) {
+    const size_t end = lb.find('\n', at);
+    int f = 0, trig = 0;
+    unsigned buttons = 0;
+    unsigned long long ms = 0;
+    float reload = 0;
+    std::sscanf(lb.c_str() + at, "mw3: fire probe frame %d ms %llu buttons %u trigger %d reload %f", &f, &ms, &buttons, &trig, &reload);
+    at = end;
+    if (first < 0) first = f;
+    if (fired_at < 0 && f - first >= 260 && f - first < 330 && trig && reload >= 100.0f) fired_at = f - first;
+  }
+  int line = 0;
+  for (size_t at = 0; (at = lb.find("mw3: soak menus clock", at)) != std::string::npos;) {
+    const size_t end = lb.find('\n', at);
+    const std::string l = lb.substr(at, end - at);
+    at = end;
+    float x, y, z;
+    unsigned id;
+    const size_t me = l.find(" me ");
+    if (me == std::string::npos || std::sscanf(l.c_str() + me, " me %u %f %f %f", &id, &x, &y, &z) != 4) continue;
+    ++line;  // a line each 15 frames from the game's first
+    if (line == 15) z_up = z;    // frame 210: the box up
+    if (line == 21) z_down = z;  // frame 300: still up
+  }
+  // A: B's mech gone from A's lines soon after B's Y (the disconnect at once),
+  // and A playing on.
+  int with_b = 0, after = 0;
+  bool gone = false;
+  for (size_t at = 0; (at = la.find("mw3: soak menus clock", at)) != std::string::npos;) {
+    const size_t end = la.find('\n', at);
+    const bool sees = la.substr(at, end - at).find("; sees 2 ") != std::string::npos;
+    at = end;
+    if (sees) ++with_b, gone = false;
+    else if (with_b > 0) gone = true, ++after;
+  }
+  std::printf("  B's box up %d, down %d; fired at %d with it up; walked %.1f m under it; on the main menu %d; A saw B in %d lines, "
+              "then %d without\n", ups, downs, fired_at, std::fabs(z_down - z_up), menu != std::string::npos, with_b, after);
+  EXPECT(ups == 3 && downs == 3 && menu != std::string::npos);
+  EXPECT(fired_at >= 260 && fired_at < 300 && std::fabs(z_down - z_up) > 5.0f);
+  EXPECT(with_b > 5 && gone && after > 5);
+}
+#endif
+
+#if !defined(_WIN32)  // posix_spawn, waitpid
+// The whole menu path twice over (piece 14c, the lead's check): A hosts, B
+// joins; each game lasts 20 s (--net-seconds, ours), A is held 50 m from B
+// and wrecked 8 s in (B's kill); its end goes through the Multi-Exit State
+// and the main menu back to the lobby (page 2), which shows the game's
+// scores the same on both machines; there (--click-return, from each
+// return) A locks, says OK and readies, B readies, A starts, and they play
+// again. Three games, two returns.
+TEST(sdl_two_processes_lobby_game_and_back_twice) {
+  const std::string install = MW3_GAME_DIR;
+  std::error_code ec;
+  if (!std::filesystem::exists(install + "/zbd/mechlib.zbd", ec)) return;
+  const std::string dir = std::string(MW3_TEST_TMP) + "/sdl_net_rounds";
+  std::filesystem::remove_all(dir, ec);
+  std::filesystem::create_directories(dir + "/a", ec);
+  std::filesystem::create_directories(dir + "/b", ec);
+  auto spawn = [&](std::vector<std::string> args, const std::string& log) {
+    std::vector<std::string> v = {MW3_BIN};
+    v.insert(v.end(), args.begin(), args.end());
+    std::vector<char*> argv;
+    for (std::string& x : v) argv.push_back(x.data());
+    argv.push_back(nullptr);
+    posix_spawn_file_actions_t fa;
+    posix_spawn_file_actions_init(&fa);
+    posix_spawn_file_actions_addopen(&fa, 1, log.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    posix_spawn_file_actions_adddup2(&fa, 1, 2);
+    pid_t pid = 0;
+    if (posix_spawn(&pid, argv[0], &fa, nullptr, argv.data(), environ) != 0) pid = -1;
+    posix_spawn_file_actions_destroy(&fa);
+    return pid;
+  };
+  auto read = [](const std::string& path) {
+    std::string text;
+    if (std::FILE* f = std::fopen(path.c_str(), "r")) {
+      char buf[4096];
+      for (size_t n; (n = std::fread(buf, 1, sizeof buf, f)) > 0;) text.append(buf, n);
+      std::fclose(f);
+    }
+    return text;
+  };
+  const int base = 38000 + static_cast<int>(getpid() % 2000) * 3;
+  const std::string game = std::to_string(base), lan = std::to_string(base + 1);
+  auto menus = [](std::vector<std::string> v, std::initializer_list<const char*> name) {
+    std::vector<std::string> m = {"--click-at", "132,285@40"};
+    int at = 70;
+    for (const char* k : name) m.insert(m.end(), {"--tap", std::string(k) + "@" + std::to_string(at)}), at += 4;
+    m.insert(m.end(), {"--click-at", "470,320@100"});
+    v.insert(v.end(), m.begin(), m.end());
+    return v;
+  };
+  const std::vector<std::string> common = {"--install", install, "--no-launcher", "--hidden", "--nosound", "--net-bind",
+                                           "127.0.0.1", "--frame-ms", "33", "--net-soak", "--net-seconds", "20"};
+  // A: HOST; with B in, and again after each game: LOCK OPTIONS, its OK, I AM READY, START.
+  std::vector<std::string> va = menus({"--write-dir", dir + "/a", "--net-port", game, "--net-discovery", lan,
+                                       "--click-at", "421,406@180", "--click-players", "183,430@60/2",
+                                       "--click-players", "246,290@100/2", "--click-players", "515,446@140/2",
+                                       "--click-players", "585,418@600/2", "--click-return", "183,430@100",
+                                       "--click-return", "246,290@160", "--click-return", "515,446@220",
+                                       "--click-return", "585,418@650", "--net-ahead", "50", "--net-kill-at", "8",
+                                       "--tap-ingame", "0x58@400:402",
+                                       "--frames", "4400"},
+                                      {"0x14", "0x12", "0x1f", "0x14"});
+  va.insert(va.end(), common.begin(), common.end());
+  // B: JOIN; I AM READY in the lobby, and again after each game.
+  std::vector<std::string> vb = menus({"--write-dir", dir + "/b", "--net-port", "0", "--net-lan", "127.0.0.1:" + lan,
+                                       "--click-at", "100,143@420", "--click-at", "240,406@450",
+                                       "--click-players", "515,446@300/2", "--click-return", "515,446@400",
+                                       "--frames", "4400"},
+                                      {"0x30", "0x12", "0x1f", "0x14"});
+  vb.insert(vb.end(), common.begin(), common.end());
+  const pid_t a = spawn(va, dir + "/a.log");
+  for (int i = 0; i < 400 && read(dir + "/a.log").find("multiplayer page 2") == std::string::npos; ++i)
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+  const pid_t b = spawn(vb, dir + "/b.log");
+  int st = 0;
+  if (b > 0) waitpid(b, &st, 0);
+  if (a > 0) waitpid(a, &st, 0);
+  const std::string la = read(dir + "/a.log"), lb = read(dir + "/b.log");
+  auto count = [](const std::string& t, const char* w) {
+    int n = 0;
+    for (size_t at = 0; (at = t.find(w, at)) != std::string::npos; ++at) ++n;
+    return n;
+  };
+  // "lobby entered N, scores: <line> | <line>": the scores the return shows.
+  auto scores = [](const std::string& t, int n) {
+    const std::string key = "lobby entered " + std::to_string(n) + ", scores: ";
+    const size_t at = t.find(key);
+    if (at == std::string::npos) return std::string("(none)");
+    return t.substr(at + key.size(), t.find('\n', at) - at - key.size());
+  };
+  const std::string a2 = scores(la, 2), b2 = scores(lb, 2), a3 = scores(la, 3), b3 = scores(lb, 3);
+  std::printf("  games: A %d, B %d; ended: A %d, B %d\n  after 1: %s\n  after 2: %s\n", count(la, "soak menus game in"),
+              count(lb, "soak menus game in"), count(la, "soak menus game over"), count(lb, "soak menus game over"),
+              a2.c_str(), a3.c_str());
+  EXPECT(count(la, "soak menus game in") == 3 && count(lb, "soak menus game in") == 3);
+  EXPECT(count(la, "soak menus game over") >= 2 && count(lb, "soak menus game over") >= 2);
+  EXPECT(count(la, "Loading [ c1 ]") == 3 && count(lb, "Loading [ c1 ]") == 3);
+  // Each game's scores, the same on both: B's kill of A (score, kills, suicides), A's nothing.
+  char n1[32] = {}, n2[32] = {};
+  int s1 = -1, k1 = -1, d1 = -1, s2 = -1, k2 = -1, d2 = -1;
+  std::sscanf(a2.c_str(), "%31s %d %d %d | %31s %d %d %d", n1, &s1, &k1, &d1, n2, &s2, &k2, &d2);
+  EXPECT(a2 == b2 && a3 == b3 && a2 == a3);
+  EXPECT(std::string(n1) == "best" && s1 == 1 && k1 == 1 && d1 == 0);
+  EXPECT(std::string(n2) == "test" && s2 == 0 && k2 == 0 && d2 == 0);
+  // W43: F12 in the game shows the network scores (0xdd5, its columns, a line
+  // each player), not the campaign's MISSION COMPLETE.
+  const size_t box = la.find("mw3: soak menus box: ");
+  const std::string boxed = box == std::string::npos ? "" : la.substr(box + 21, la.find('\n', box) - box - 21);
+  std::printf("  A's F12 box: %s\n", boxed.c_str());
+  EXPECT(boxed.rfind("Network Game Scores | ", 0) == 0 && boxed.find("best") != std::string::npos &&
+         boxed.find("test") != std::string::npos && boxed.find("C O M P L E T E") == std::string::npos);
+}
+#endif
+
+#if !defined(_WIN32)  // posix_spawn, waitpid
+// Playtest W42: the mech lab from the lobby listed no mechs (the lab's slots
+// had no network game's, 0x004a5270 / 0x00437800). One mw3 hosting through
+// the menus: LOCK OPTIONS and its OK, MECHLAB (the Lab State), Avatar from
+// the stockpile, ACCEPT; back in the lobby the game's slot holds the Avatar
+// (mech 1), not the stock Bushwacker (3).
+TEST(sdl_lobby_mech_lab_picks_a_mech) {
+  const std::string install = MW3_GAME_DIR;
+  std::error_code ec;
+  if (!std::filesystem::exists(install + "/zbd/mechlib.zbd", ec)) return;
+  const std::string dir = std::string(MW3_TEST_TMP) + "/sdl_lobby_lab";
+  std::filesystem::remove_all(dir, ec);
+  std::filesystem::create_directories(dir, ec);
+  const int base = 44000 + static_cast<int>(getpid() % 2000) * 3;
+  std::vector<std::string> v = {MW3_BIN, "--install", install, "--no-launcher", "--hidden", "--nosound",
+                                "--net-bind", "127.0.0.1", "--frame-ms", "33", "--write-dir", dir, "--verbose",
+                                "--net-port", std::to_string(base), "--net-discovery", std::to_string(base + 1),
+                                "--click-at", "132,285@40", "--tap", "0x14@70", "--tap", "0x12@74", "--tap", "0x1f@78",
+                                "--tap", "0x14@82", "--click-at", "470,320@100", "--click-at", "421,406@180",
+                                "--click-at", "183,430@260", "--click-at", "246,290@320", "--click-at", "329,440@380",
+                                "--click-at", "470,93@560", "--click-at", "595,460@640", "--frames", "760"};
+  std::vector<char*> argv;
+  for (std::string& x : v) argv.push_back(x.data());
+  argv.push_back(nullptr);
+  const std::string log = dir + "/out.log";
+  posix_spawn_file_actions_t fa;
+  posix_spawn_file_actions_init(&fa);
+  posix_spawn_file_actions_addopen(&fa, 1, log.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
+  posix_spawn_file_actions_adddup2(&fa, 1, 2);
+  pid_t pid = 0;
+  if (posix_spawn(&pid, argv[0], &fa, nullptr, argv.data(), environ) != 0) pid = -1;
+  posix_spawn_file_actions_destroy(&fa);
+  int st = 0;
+  if (pid > 0) waitpid(pid, &st, 0);
+  std::string text;
+  if (std::FILE* f = std::fopen(log.c_str(), "r")) {
+    char buf[4096];
+    for (size_t n; (n = std::fread(buf, 1, sizeof buf, f)) > 0;) text.append(buf, n);
+    std::fclose(f);
+  }
+  auto has = [&](const char* w) { return text.find(w) != std::string::npos; };
+  std::printf("  the lab %s; back with %s\n", has("state Lab State") ? "opened" : "not opened",
+              has("lobby back from the lab, mech 1\n") ? "the Avatar" : "not the Avatar");
+  EXPECT(has("state Lab State") && has("lobby back from the lab, mech 1\n"));
+}
+#endif
+
+#if !defined(_WIN32)  // posix_spawn, waitpid
+// The lobby's whole way to a game (multiplayer-port.md, piece 11c), one mw3
+// hosting alone through the menus: MULTIPLAYER, a pilot, HOST; in the
+// lobby LOCK OPTIONS and its OK, I AM READY, START; the Load state loads the
+// lobby's world (Beachhead, c1) and is ready to launch.
+TEST(sdl_lobby_host_alone_starts_a_game) {
+  const std::string install = MW3_GAME_DIR;
+  std::error_code ec;
+  if (!std::filesystem::exists(install + "/zbd/mechlib.zbd", ec)) return;
+  const std::string dir = std::string(MW3_TEST_TMP) + "/sdl_lobby_start";
+  std::filesystem::remove_all(dir, ec);
+  std::filesystem::create_directories(dir, ec);
+  const int base = 32000 + static_cast<int>(getpid() % 2000) * 3;
+  std::vector<std::string> v = {MW3_BIN, "--install", install, "--no-launcher", "--hidden", "--nosound",
+                                "--net-bind", "127.0.0.1", "--frame-ms", "33", "--write-dir", dir,
+                                "--net-port", std::to_string(base), "--net-discovery", std::to_string(base + 1),
+                                "--click-at", "132,285@40", "--tap", "0x14@70", "--tap", "0x12@74", "--tap", "0x1f@78",
+                                "--tap", "0x14@82", "--click-at", "470,320@100", "--click-at", "421,406@180",
+                                "--click-at", "183,430@260", "--click-at", "246,290@320", "--click-at", "515,446@380",
+                                "--click-at", "585,418@440", "--frames", "1400"};
+  std::vector<char*> argv;
+  for (std::string& x : v) argv.push_back(x.data());
+  argv.push_back(nullptr);
+  const std::string log = dir + "/out.log";
+  posix_spawn_file_actions_t fa;
+  posix_spawn_file_actions_init(&fa);
+  posix_spawn_file_actions_addopen(&fa, 1, log.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
+  posix_spawn_file_actions_adddup2(&fa, 1, 2);
+  pid_t pid = 0;
+  if (posix_spawn(&pid, argv[0], &fa, nullptr, argv.data(), environ) != 0) pid = -1;
+  posix_spawn_file_actions_destroy(&fa);
+  int st = 0;
+  if (pid > 0) waitpid(pid, &st, 0);
+  std::string text;
+  if (std::FILE* f = std::fopen(log.c_str(), "r")) {
+    char buf[4096];
+    for (size_t n; (n = std::fread(buf, 1, sizeof buf, f)) > 0;) text.append(buf, n);
+    std::fclose(f);
+  }
+  auto has = [&](const char* w) { return text.find(w) != std::string::npos; };
+  std::printf("  lobby %s, world %s, %s\n", has("multiplayer page 2") ? "reached" : "not reached",
+              has("Loading [ c1 ]") ? "c1 loading" : "not loading", has("Ready To Launch") ? "ready to launch" : "not ready");
+  EXPECT(has("multiplayer page 2") && has("Loading [ c1 ]") && has("Ready To Launch"));
+  EXPECT(!has("the Load state of this game"));
+}
+#endif
+
+#if !defined(_WIN32)  // posix_spawn, waitpid
+// Damage in a network game at a known range (multiplayer-port.md, piece 8d's
+// check of the soak's little damage): two mw3 on loopback in c1mp1, B
+// standing still, A held 40 m off facing it and firing (2 s in 7). Each
+// machine decides hits on its own mech: B's own health falls, and A's view
+// of B (its states' damaged parts) agrees with it.
+TEST(sdl_network_damage_point_blank) {
+  const std::string install = MW3_GAME_DIR;
+  std::error_code ec;
+  if (!std::filesystem::exists(install + "/zbd/mechlib.zbd", ec)) return;
+  const std::string dir = std::string(MW3_TEST_TMP) + "/sdl_net_damage";
+  std::filesystem::remove_all(dir, ec);
+  std::filesystem::create_directories(dir + "/a", ec);
+  std::filesystem::create_directories(dir + "/b", ec);
+  auto spawn = [&](std::vector<std::string> args, const std::string& log) {
+    std::vector<std::string> a = {"/usr/bin/nice", "-n", "10", MW3_BIN};
+    a.insert(a.end(), args.begin(), args.end());
+    std::vector<char*> argv;
+    for (std::string& x : a) argv.push_back(x.data());
+    argv.push_back(nullptr);
+    posix_spawn_file_actions_t fa;
+    posix_spawn_file_actions_init(&fa);
+    posix_spawn_file_actions_addopen(&fa, 1, log.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    posix_spawn_file_actions_adddup2(&fa, 1, 2);
+    pid_t pid = 0;
+    if (posix_spawn(&pid, argv[0], &fa, nullptr, argv.data(), environ) != 0) pid = -1;
+    posix_spawn_file_actions_destroy(&fa);
+    return pid;
+  };
+  auto read = [](const std::string& path) {
+    std::string text;
+    if (std::FILE* f = std::fopen(path.c_str(), "r")) {
+      char buf[4096];
+      for (size_t n; (n = std::fread(buf, 1, sizeof buf, f)) > 0;) text.append(buf, n);
+      std::fclose(f);
+    }
+    return text;
+  };
+  const std::vector<std::string> common = {"--install", install, "--no-launcher", "--hidden", "--nosound", "--net-bind",
+                                           "127.0.0.1", "--mission", "c1mp1", "--net-wait", "2", "--net-minutes", "1",
+                                           "--net-soak"};
+  std::vector<std::string> ha = {"--write-dir", dir + "/a", "--host", "--net-port", "0", "--net-name", "A", "--net-drive",
+                                 "1", "--net-staged", "0", "--net-ahead", "40"};
+  ha.insert(ha.end(), common.begin(), common.end());
+  const pid_t a = spawn(ha, dir + "/a.log");
+  std::string port;
+  for (int i = 0; i < 400 && port.empty(); ++i) {
+    const std::string log = read(dir + "/a.log");
+    const size_t at = log.find("hosting on port ");
+    if (at != std::string::npos) port = log.substr(at + 16, log.find(' ', at + 16) - at - 16);
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+  }
+  EXPECT(!port.empty());
+  std::vector<std::string> hb = {"--write-dir", dir + "/b", "--join", "127.0.0.1:" + port, "--net-name", "B"};
+  hb.insert(hb.end(), common.begin(), common.end());
+  const pid_t b = port.empty() ? -1 : spawn(hb, dir + "/b.log");
+  int st = 0;
+  if (b > 0) waitpid(b, &st, 0);
+  if (a > 0) waitpid(a, &st, 0);
+  // The last line with 2 s left on each: B's own health, and A's view of it.
+  auto last = [&](const std::string& text, float* own, float* seen) {
+    *own = *seen = -1;
+    for (size_t at = 0; (at = text.find("mw3: soak 1", at)) != std::string::npos;) {
+      const size_t end = text.find('\n', at);
+      const std::string line = text.substr(at, end - at);
+      at = end;
+      float clock = 0;
+      if (std::sscanf(line.c_str(), "mw3: soak %*lld rss %*zu clock %f", &clock) != 1 || clock < 2.0f) continue;
+      const size_t h = line.find(" health ");
+      if (h != std::string::npos) *own = std::strtof(line.c_str() + h + 8, nullptr);
+      const size_t s2 = line.find("; sees ");
+      const size_t h2 = s2 == std::string::npos ? s2 : line.find(" health ", s2);
+      if (h2 != std::string::npos) *seen = std::strtof(line.c_str() + h2 + 8, nullptr);
+    }
+  };
+  float a_own, a_sees_b, b_own, b_sees_a;
+  last(read(dir + "/a.log"), &a_own, &a_sees_b);
+  last(read(dir + "/b.log"), &b_own, &b_sees_a);
+  std::printf("  B's health: its own %.3f, as A sees it %.3f; A's own %.3f\n", b_own, a_sees_b, a_own);
+  EXPECT(b_own >= 0 && b_own < 0.95f);                 // A's shots hit B on B's machine
+  EXPECT(a_sees_b >= 0 && std::fabs(a_sees_b - b_own) < 0.02f);  // and A's view of B carries it
+  EXPECT(a_own > 0.999f);                              // B never fired
+}
+#endif
+
+#if !defined(_WIN32)  // posix_spawn, waitpid, kill
+// The soak test (docs/multiplayer-port.md, piece 8b), MW3_SOAK=1 only: four
+// hidden mw3 under nice on loopback in a network game on c1mp1, a host and
+// three joiners, each driving its mech (walk, turn, fire), under 5% loss and
+// 80 ms each way, for MW3_SOAK_MINUTES (30) on the game's clock. Each prints
+// where its own mech and every remote one are each half second. Checked: no
+// crash and a clean game over on the clock in all four; memory not growing
+// (the last tenth's against the second's); every remote mech tracked within
+// a few metres of its owner's own track at the same time; the four score
+// tables alike, with the staged kills in them.
+TEST(sdl_network_soak_four_players) {
+  const char* on = std::getenv("MW3_SOAK");
+  if (!on || std::strcmp(on, "1") != 0) return;
+  const std::string install = MW3_GAME_DIR;
+  std::error_code ec;
+  if (!std::filesystem::exists(install + "/zbd/mechlib.zbd", ec)) return;
+  const int minutes = std::getenv("MW3_SOAK_MINUTES") ? std::atoi(std::getenv("MW3_SOAK_MINUTES")) : 30;
+  // MW3_SOAK_DIR keeps the four logs there (the test's own folder goes at its end).
+  const std::string dir = std::getenv("MW3_SOAK_DIR") ? std::getenv("MW3_SOAK_DIR") : std::string(MW3_TEST_TMP) + "/sdl_net_soak";
+  std::filesystem::remove_all(dir, ec);
+  auto spawn = [&](std::vector<std::string> args, const std::string& log) {
+    std::vector<std::string> a = {"/usr/bin/nice", "-n", "15", MW3_BIN};
+    a.insert(a.end(), args.begin(), args.end());
+    std::vector<char*> argv;
+    for (std::string& x : a) argv.push_back(x.data());
+    argv.push_back(nullptr);
+    posix_spawn_file_actions_t fa;
+    posix_spawn_file_actions_init(&fa);
+    posix_spawn_file_actions_addopen(&fa, 1, log.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    posix_spawn_file_actions_adddup2(&fa, 1, 2);
+    pid_t pid = 0;
+    if (posix_spawn(&pid, argv[0], &fa, nullptr, argv.data(), environ) != 0) pid = -1;
+    posix_spawn_file_actions_destroy(&fa);
+    return pid;
+  };
+  auto read = [](const std::string& path) {
+    std::string text;
+    if (std::FILE* f = std::fopen(path.c_str(), "r")) {
+      char buf[4096];
+      for (size_t n; (n = std::fread(buf, 1, sizeof buf, f)) > 0;) text.append(buf, n);
+      std::fclose(f);
+    }
+    return text;
+  };
+  setenv("MW3_NET_LOSS", "0.05", 1);
+  setenv("MW3_NET_DELAY", "80", 1);
+  auto args = [&](int n, const std::string& net) {
+    std::filesystem::create_directories(dir + "/p" + std::to_string(n), ec);
+    std::vector<std::string> v = {"--install", install, "--no-launcher", "--hidden", "--nosound", "--net-bind", "127.0.0.1",
+                                  "--write-dir", dir + "/p" + std::to_string(n), "--mission", "c1mp1", "--net-wait", "4",
+                                  "--net-minutes", std::to_string(minutes), "--net-drive", std::to_string(n), "--net-soak",
+                                  "--net-name", "P" + std::to_string(n)};
+    if (net.empty()) v.insert(v.end(), {"--host", "--net-port", "0"});
+    else v.insert(v.end(), {"--join", net});
+    return v;
+  };
+  std::vector<pid_t> pids = {spawn(args(1, ""), dir + "/p1.log")};
+  std::string port;
+  for (int i = 0; i < 400 && port.empty(); ++i) {
+    const std::string log = read(dir + "/p1.log");
+    const size_t at = log.find("hosting on port ");
+    if (at != std::string::npos) port = log.substr(at + 16, log.find(' ', at + 16) - at - 16);
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+  }
+  EXPECT(!port.empty());
+  for (int n = 2; n <= 4 && !port.empty(); ++n) pids.push_back(spawn(args(n, "127.0.0.1:" + port), dir + "/p" + std::to_string(n) + ".log"));
+  unsetenv("MW3_NET_LOSS");
+  unsetenv("MW3_NET_DELAY");
+  // All four to their end, the game's clock and five minutes more at most.
+  std::vector<int> status(pids.size(), -1);
+  const auto until = std::chrono::steady_clock::now() + std::chrono::minutes(minutes + 5);
+  for (size_t left = pids.size(); left > 0 && std::chrono::steady_clock::now() < until;) {
+    left = 0;
+    for (size_t i = 0; i < pids.size(); ++i) {
+      if (pids[i] <= 0 || status[i] != -1) continue;
+      int st = 0;
+      if (waitpid(pids[i], &st, WNOHANG) == pids[i]) status[i] = st;
+      else ++left;
+    }
+    if (left) std::this_thread::sleep_for(std::chrono::seconds(1));
+  }
+  for (size_t i = 0; i < pids.size(); ++i)
+    if (pids[i] > 0 && status[i] == -1) {
+      kill(pids[i], SIGKILL);
+      waitpid(pids[i], &status[i], 0);
+      std::printf("  player %zu still running at the end: killed\n", i + 1);
+    }
+  // Each one's lines: its own place by time, what it saw of the others, its
+  // memory, its scores.
+  struct Seen { long long t; uint32_t id; float x, z; };
+  struct Own { long long t; float x, z; int alive; };
+  struct Log { uint32_t id = 0; std::vector<Own> own; std::vector<Seen> seen; std::vector<size_t> rss; std::string scores; std::set<uint32_t> last_seen; };
+  std::vector<Log> logs(pids.size());
+  for (size_t i = 0; i < pids.size(); ++i) {
+    const std::string text = read(dir + "/p" + std::to_string(i + 1) + ".log");
+    Log& L = logs[i];
+    for (size_t at = 0; (at = text.find("mw3: soak ", at)) != std::string::npos;) {
+      const size_t end = text.find('\n', at);
+      const std::string line = text.substr(at, end - at);
+      at = end;
+      if (line.rfind("mw3: soak game over, scores ", 0) == 0) {
+        L.scores = line.substr(28);
+        continue;
+      }
+      long long t = 0;
+      size_t kb = 0;
+      float clock = 0, x, y, z;
+      unsigned id;
+      int alive, used = 0;
+      if (std::sscanf(line.c_str(), "mw3: soak %lld rss %zu clock %f shots %*d me %u %f %f %f %d%n", &t, &kb, &clock, &id, &x, &y,
+                      &z, &alive, &used) < 8)
+        continue;
+      L.id = id, L.rss.push_back(kb), L.own.push_back({t, x, z, alive});
+      // The others seen at the end: the last line with 2 s left (in the last
+      // seconds the end's unload takes the mechs).
+      const bool counted = clock >= 2.0f;
+      if (counted) L.last_seen.clear();
+      for (size_t p = line.find("; sees ", used); p != std::string::npos; p = line.find("; sees ", p + 1)) {
+        unsigned who;
+        int active;
+        if (std::sscanf(line.c_str() + p, "; sees %u %f %f %f %d", &who, &x, &y, &z, &active) != 5) continue;
+        if (counted) L.last_seen.insert(who);
+        if (active) L.seen.push_back({t, who, x, z});
+      }
+    }
+  }
+  // The owner's place at time t, between its two lines (null: none, or a
+  // death or respawn within a second of it).
+  auto owner_at = [&](uint32_t id, long long t, float out[2]) {
+    for (const Log& L : logs) {
+      if (L.id != id) continue;
+      for (size_t k = 1; k < L.own.size(); ++k) {
+        const Own &a = L.own[k - 1], &b = L.own[k];
+        if (b.t < t) continue;
+        if (a.t > t || !a.alive || !b.alive || std::hypot(b.x - a.x, b.z - a.z) > 30.0f) return false;
+        if (k < 3 || k + 2 >= L.own.size() || !L.own[k - 2].alive || !L.own[k + 1].alive) return false;
+        const float f = b.t == a.t ? 0.0f : static_cast<float>(t - a.t) / static_cast<float>(b.t - a.t);
+        out[0] = a.x + (b.x - a.x) * f, out[1] = a.z + (b.z - a.z) * f;
+        return true;
+      }
+    }
+    return false;
+  };
+  bool clean = true, over = true, tracked = true, memory = true;
+  for (size_t i = 0; i < pids.size(); ++i) {
+    Log& L = logs[i];
+    const bool exited = WIFEXITED(status[i]) && WEXITSTATUS(status[i]) == 0;
+    clean &= exited;
+    over &= !L.scores.empty();
+    std::vector<float> err;
+    for (const Seen& s : L.seen) {
+      float o[2];
+      if (owner_at(s.id, s.t, o)) err.push_back(std::hypot(s.x - o[0], s.z - o[1]));
+    }
+    std::sort(err.begin(), err.end());
+    const float p95 = err.empty() ? 1e9f : err[std::min(err.size() - 1, err.size() * 95 / 100)];
+    const float median = err.empty() ? 1e9f : err[err.size() / 2];
+    // Memory: the median of the last tenth's lines against the second tenth's (the first: the load).
+    float growth = 1e9f;
+    const size_t n = L.rss.size();
+    if (n >= 20) {
+      auto med = [&](size_t from, size_t to) {
+        std::vector<size_t> v(L.rss.begin() + static_cast<long>(from), L.rss.begin() + static_cast<long>(to));
+        std::sort(v.begin(), v.end());
+        return static_cast<float>(v[v.size() / 2]);
+      };
+      growth = med(n * 9 / 10, n) / med(n / 10, n * 2 / 10) - 1.0f;
+    }
+    std::printf("  player %zu (id %u): %s, %zu lines, sees %zu others at the end, tracking median %.2f m p95 %.2f m over %zu, "
+                "memory %+.1f%% (%zu KB at the end), scores \"%s\"\n",
+                i + 1, L.id, exited ? "exited" : "did not exit cleanly", n, L.last_seen.size(), median, p95, err.size(),
+                growth * 100.0f, n ? L.rss.back() : 0, L.scores.c_str());
+    tracked &= L.last_seen.size() == pids.size() - 1 && err.size() >= 20 && p95 < 5.0f;
+    memory &= growth < 0.10f;
+  }
+  EXPECT(clean);
+  EXPECT(over);
+  EXPECT(tracked);
+  EXPECT(memory);
+  bool alike = !logs.empty();
+  for (const Log& L : logs) alike &= L.scores == logs[0].scores;
+  EXPECT(alike);
+  // The staged kills (one each two minutes) reached the table: some kill or death in it.
+  int tally = 0;
+  for (size_t at = 0; !logs.empty() && (at = logs[0].scores.find(':', at)) != std::string::npos; ++at) {
+    int k = 0, d = 0;
+    if (std::sscanf(logs[0].scores.c_str() + at, ":%d/%d", &k, &d) == 2) tally += k + d;
+  }
+  EXPECT(tally > 0);
+}
 #endif
 
 #if !defined(_WIN32)  // posix_spawn (ours, not on Windows)
@@ -2446,18 +3645,19 @@ TEST(sdl_program_bugfixes_switch) {
 #if !defined(_WIN32)
 // The launcher's first-start notes (lead's launcher list, item 5): the
 // data's version and the music, in the launcher's words (SETUP's buttons);
-// nothing to say for 1.2 data with music. The music is any CD track's file.
+// nothing to say for 1.2 data with music. 1.0's data and a mix need no note
+// either: they load as 1.2 (docs/patch12.md); only data of an unknown
+// version is told about the patch. The music is any CD track's file.
 TEST(launcher_first_start_notes) {
   const std::vector<std::string> none = sdlfe::launcher_notes("1.2", true, "M");
   const std::vector<std::string> v10 = sdlfe::launcher_notes("1.0", false, "M");
   const std::vector<std::string> mix = sdlfe::launcher_notes("1.0 with 1.2 files", true, "M");
   const std::vector<std::string> odd = sdlfe::launcher_notes("unknown", true, "M");
-  const bool counts = none.empty() && v10.size() == 2 && mix.size() == 1 && odd.size() == 1;
+  const bool counts = none.empty() && v10.size() == 1 && mix.empty() && odd.size() == 1;
   EXPECT(counts);
   if (counts) {
-    EXPECT(v10[0].find("version 1.0") != std::string::npos && v10[0].find("SETUP can apply it") != std::string::npos);
-    EXPECT(v10[1].find("ADD THE MUSIC") != std::string::npos && v10[1].find("rip in M as track02") != std::string::npos);
-    EXPECT(mix[0].find("part 1.0, part 1.2") != std::string::npos && odd[0].find("neither") != std::string::npos);
+    EXPECT(v10[0].find("ADD THE MUSIC") != std::string::npos && v10[0].find("rip in M as track02") != std::string::npos);
+    EXPECT(odd[0].find("neither") != std::string::npos && odd[0].find("SETUP can apply it") != std::string::npos);
   }
   const std::string dir = std::string(MW3_TEST_TMP) + "/launcher_music";
   std::error_code ec;
@@ -2504,7 +3704,7 @@ TEST(sdl_program_launcher_screens) {
                         Shot{"work", false, "launcher: Found MechWarrior 3"}, Shot{"notes", false, "launcher: note: No music yet"}}) {
     const std::string bmp = dir + "/" + s.screen + ".bmp", log = dir + "/" + s.screen + ".log";
     if (s.none) setenv("MW3_FIND_INSTALL", "1", 1);
-    const pid_t pid = spawn_mw3({"--write-dir", dir + (s.none ? "/wd2" : "/wd"), "--launcher-shot", bmp, "--launcher-screen", s.screen}, log);
+    const pid_t pid = spawn_launcher({"--write-dir", dir + (s.none ? "/wd2" : "/wd"), "--launcher-shot", bmp, "--launcher-screen", s.screen}, log);
     if (s.none) unsetenv("MW3_FIND_INSTALL");
     int status = 0;
     EXPECT(pid > 0 && waitpid(pid, &status, 0) == pid && WIFEXITED(status) && WEXITSTATUS(status) == 0);
@@ -2529,30 +3729,187 @@ TEST(sdl_program_launcher_screens) {
   }
 }
 
-// One window from the launcher into the game (lead's launcher list, item
-// 2): PLAY (--launcher-play presses MECHWARRIOR 3 at once) hands the
-// launcher's window over, its renderer freed, and the game claims it for
-// its GPU device instead of opening a second window; the main menu draws
-// in it (--shot of the game's frame).
+// A plain mw3 start (docs/games-layout.md): straight into the game when an
+// install is found, no launcher; with none, the SETUP screen alone, and once
+// POINT TO YOUR GAME's pick is installed, on into the game (MW3_START_ONLY
+// stops each where it would go on; MW3_LAUNCHER_PICK stands for the dialog);
+// --launcher shows the launcher's main screen.
+TEST(sdl_program_plain_start_goes_straight_in_or_to_setup) {
+  const std::string dir = std::string(MW3_TEST_TMP) + "/plain_start";
+  std::error_code ec;
+  std::filesystem::remove_all(dir, ec);
+  for (const char* d : {"/wd", "/wd2", "/wd3", "/wd4", "/disc"}) std::filesystem::create_directories(dir + d, ec);
+  auto run = [&](const std::vector<std::string>& args, const std::string& log, bool launcher = false) {
+    const pid_t pid = launcher ? spawn_launcher(args, log) : spawn_mw3(args, log);
+    int status = 0;
+    const bool ok = pid > 0 && waitpid(pid, &status, 0) == pid && WIFEXITED(status) && WEXITSTATUS(status) == 0;
+    std::ifstream f(log);
+    return ok ? std::string((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>()) : std::string("(failed)");
+  };
+  setenv("MW3_START_ONLY", "1", 1);
+  setenv("MW3_LAUNCHER_FRAMES", "20", 1);
+  // An install found: straight in.
+  const std::string a = run({"--write-dir", dir + "/wd", "--window", "640x480", "--nosound"}, dir + "/a.log");
+  EXPECT(a.find("mw3: start only: install ") != std::string::npos && a.find("(none yet)") == std::string::npos &&
+         a.find("launcher:") == std::string::npos);
+  // The launcher's main screen is mw3launcher's (quit after 20 frames), and
+  // mw3 knows no --launcher any more.
+  const std::string b = run({"--write-dir", dir + "/wd2", "--window", "640x480", "--nosound"}, dir + "/b.log", true);
+  EXPECT(run({"--launcher", "--write-dir", dir + "/wd2"}, dir + "/b2.log") == "(failed)");
+  EXPECT(b.find("launcher: Found MechWarrior 3") != std::string::npos && b.find("start only") == std::string::npos);
+  // None: the SETUP screen alone (QUIT after 20 frames: no game).
+  setenv("MW3_FIND_INSTALL", "1", 1);
+  const std::string c = run({"--write-dir", dir + "/wd3", "--window", "640x480", "--nosound"}, dir + "/c.log");
+  EXPECT(c.find("no install found: the SETUP screen") != std::string::npos && c.find("start only") == std::string::npos);
+  // None, and a disc's files picked: looked at, installed, on into the game.
+  const std::string patch = std::string(MW3_GAME_DIR) + "/../patch-1.2/MechWarrior-3_Patch_Win_EN_Patch-12-US";
+  if (std::filesystem::exists(patch + "/data1.cab")) {
+    std::filesystem::copy_file(patch + "/data1.hdr", dir + "/disc/DATA1.HDR", ec);
+    std::filesystem::copy_file(patch + "/data1.cab", dir + "/disc/DATA1.CAB", ec);
+    setenv("MW3_LAUNCHER_FRAMES", "1800", 1);  // about 30 s: a launcher that never goes on quits and fails, not hangs
+    setenv("MW3_LAUNCHER_PICK", (dir + "/disc").c_str(), 1);
+    const std::string d = run({"--write-dir", dir + "/wd4", "--window", "640x480", "--nosound"}, dir + "/d.log");
+    unsetenv("MW3_LAUNCHER_PICK");
+    std::printf("plain start, picked: %s\n", d.substr(d.find("is installed in") == std::string::npos ? 0 : d.find("is installed in"), 120).c_str());
+    EXPECT(d.find("no install found: the SETUP screen") != std::string::npos && d.find("is installed in") != std::string::npos &&
+           d.find("mw3: start only: install " + dir + "/wd4/install") != std::string::npos &&
+           std::filesystem::exists(dir + "/wd4/install/mw3-install.txt"));
+    std::ifstream cfg(dir + "/wd4/mw3.cfg");
+    const std::string text((std::istreambuf_iterator<char>(cfg)), std::istreambuf_iterator<char>());
+    EXPECT(text.find("install=" + dir + "/wd4/install") != std::string::npos);
+  }
+  unsetenv("MW3_FIND_INSTALL");
+  unsetenv("MW3_LAUNCHER_FRAMES");
+  unsetenv("MW3_START_ONLY");
+}
+
+// One window from the SETUP screen into the game: a plain mw3 start with no
+// install found (MW3_FIND_INSTALL), an installed copy picked
+// (MW3_LAUNCHER_PICK), hands its window over, its renderer freed, and the
+// game claims it for its GPU device instead of opening a second window and
+// shows a frame in it (--ready-file's line); then stopped.
 TEST(sdl_program_launcher_window_goes_on_to_the_game) {
   const std::string dir = std::string(MW3_TEST_TMP) + "/launcher_play";
   std::error_code ec;
   std::filesystem::remove_all(dir, ec);
-  std::filesystem::create_directories(dir + "/wd", ec);
-  const std::string bmp = dir + "/menu.bmp", log = dir + "/play.log";
-  const pid_t pid = spawn_mw3({"--write-dir", dir + "/wd", "--launcher-play", "--window", "1280x960", "--nosound", "--shot", bmp,
-                               "--shot-frame", "40", "--shot-any"}, log);
-  int status = 0;
-  EXPECT(pid > 0 && waitpid(pid, &status, 0) == pid && WIFEXITED(status) && WEXITSTATUS(status) == 0);
-  std::ifstream f(log);
-  const std::string text((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+  std::filesystem::create_directories(dir + "/wd/music", ec);
+  std::ofstream(dir + "/wd/music/track02.wav") << "x";  // music there: no first-start notes box (modal) before the window
+  const std::string log = dir + "/play.log";
+  setenv("MW3_FIND_INSTALL", "1", 1);
+  setenv("MW3_LAUNCHER_PICK", MW3_GAME_DIR, 1);
+  const pid_t pid = spawn_mw3({"--write-dir", dir + "/wd", "--window", "1280x960", "--nosound", "--no-import", "--ready-file", dir + "/ready"}, log);
+  unsetenv("MW3_LAUNCHER_PICK");
+  unsetenv("MW3_FIND_INSTALL");
+  std::string text;
+  for (int i = 0; i < 600 && pid > 0; ++i) {  // up to a minute for the game's first frame
+    std::ifstream f(log);
+    text.assign((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+    if (text.find("(the launcher told)") != std::string::npos || waitpid(pid, nullptr, WNOHANG) == pid) break;
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  }
+  if (pid > 0) kill(pid, SIGKILL), waitpid(pid, nullptr, 0);  // SDL makes SIGTERM a quit event a modal box ignores
   const bool handed = text.find("launcher: its window goes on to the game") != std::string::npos;
   const bool took = text.find("the game took the launcher's window") != std::string::npos;
-  SDL_Surface* img = SDL_LoadBMP(bmp.c_str());
-  std::printf("launcher play: handed %d, taken %d, the menu's frame %dx%d\n", handed, took, img ? img->w : 0, img ? img->h : 0);
-  EXPECT(handed && took && img && img->w > 0);
+  const bool shown = text.find("(the launcher told)") != std::string::npos && std::filesystem::exists(dir + "/ready");
+  std::printf("setup into the game: handed %d, taken %d, a frame shown %d\n", handed, took, shown);
+  if (!(handed && took && shown)) std::printf("%s\n", text.substr(text.size() > 1500 ? text.size() - 1500 : 0).c_str());
+  EXPECT(handed && took && shown);
   EXPECT(text.find("the menu's sounds") == std::string::npos);  // --nosound: none
-  if (img) SDL_DestroySurface(img);
+}
+
+// mw3launcher starts the game as its own program (docs/launcher.md, The two
+// programs): MECHWARRIOR 3 (--launcher-play) runs MW3_GAME_BIN, here a
+// stand-in with the install and this start's options, as `script` says
+// (it keeps its arguments; READY writes the ready file, DONE its end's
+// mark, which it also writes when it reaches the script's end). The launcher ends at
+// the game's first frame and leaves it running (Owen, 2026-11-01); a game
+// that ends first or is slow leaves it up. Hidden, without sound.
+namespace {
+struct LauncherRun {
+  std::string log;
+  std::vector<std::string> args;
+  bool exited = false;      // the launcher's process ended, with 0
+  bool game_alive = false;  // the stand-in had not finished when it did
+  bool game_finished = false;  // and finished on its own after
+};
+LauncherRun run_launcher_with(const std::string& name, const std::string& script, const char* ready_ms = nullptr) {
+  LauncherRun out;
+  const std::string dir = std::string(MW3_TEST_TMP) + "/" + name;
+  std::error_code ec;
+  std::filesystem::remove_all(dir, ec);
+  std::filesystem::create_directories(dir + "/wd", ec);
+  const std::string game = dir + "/mw3", done = dir + "/done";
+  {
+    std::ofstream sh(game);
+    std::string body = script;
+    for (size_t at; (at = body.find("READY")) != std::string::npos;)
+      body.replace(at, 5, "while [ $# -gt 0 ]; do if [ \"$1\" = --ready-file ]; then : > \"$2\"; fi; shift; done");
+    for (size_t at; (at = body.find("DONE")) != std::string::npos;) body.replace(at, 4, ": > \"" + done + "\"");
+    for (size_t at; (at = body.find("STATUS")) != std::string::npos;)  // the game's status line, beside the ready file
+      body.replace(at, 6, "R=; P=; for A in \"$@\"; do [ \"$P\" = --ready-file ] && R=$A; P=$A; done; "
+                          "printf 'Importing your movies (first start only): 3 of 19...' > \"$R.status\"");
+    sh << "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"" << dir << "/args.txt\"\n" << body << "\n: > \"" << done << "\"\n";
+  }
+  std::filesystem::permissions(game, std::filesystem::perms::owner_all, ec);
+  setenv("MW3_GAME_BIN", game.c_str(), 1);
+  if (ready_ms) setenv("MW3_LAUNCHER_READY_MS", ready_ms, 1);
+  const pid_t pid = spawn_launcher({"--write-dir", dir + "/wd", "--launcher-play", "--window", "640x480", "--nosound", "--hidden"},
+                                   dir + "/launcher.log");
+  unsetenv("MW3_LAUNCHER_READY_MS");
+  unsetenv("MW3_GAME_BIN");
+  int status = 0;
+  out.exited = pid > 0 && waitpid(pid, &status, 0) == pid && WIFEXITED(status) && WEXITSTATUS(status) == 0;
+  out.game_alive = !std::filesystem::exists(done, ec);
+  for (int i = 0; i < 100 && !std::filesystem::exists(done, ec); ++i) std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  out.game_finished = std::filesystem::exists(done, ec);
+  std::ifstream f(dir + "/launcher.log");
+  out.log.assign((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+  std::ifstream af(dir + "/args.txt");
+  for (std::string l; std::getline(af, l);) out.args.push_back(l);
+  return out;
+}
+bool has(const std::string& text, const char* what) { return text.find(what) != std::string::npos; }
+}  // namespace
+
+TEST(sdl_program_launcher_starts_mw3_as_its_own_program) {
+  // The first frame at once, then 3 s of play: the launcher has gone by then.
+  const LauncherRun r = run_launcher_with("launcher_game", "READY\nsleep 3");
+  std::printf("launcher -> game: %zu arguments; the launcher ended %d with the game still running %d, the game ended later %d\n",
+              r.args.size(), r.exited, r.game_alive, r.game_finished);
+  const std::string dir = std::string(MW3_TEST_TMP) + "/launcher_game";
+  EXPECT(r.args.size() == 9 && r.args[0] == MW3_GAME_DIR && r.args[1] == "--write-dir" && r.args[2] == dir + "/wd" &&
+         r.args[3] == "--window" && r.args[4] == "640x480" && r.args[5] == "--nosound" && r.args[6] == "--hidden" &&
+         r.args[7] == "--ready-file");
+  EXPECT(r.exited && r.game_alive && r.game_finished);
+  EXPECT(has(r.log, "the game's first frame") && has(r.log, "the launcher closes") && !has(r.log, "MechWarrior 3 exited"));
+}
+
+TEST(sdl_program_launcher_stays_when_the_game_fails_or_is_slow) {
+  // An error before any frame: the launcher up with its status line, until
+  // the game's end (and, with --launcher-play, quits then).
+  const LauncherRun bad = run_launcher_with("launcher_game_bad", "sleep 1\nDONE\nexit 3");
+  std::printf("a failed start: the launcher saw the exit %d, stayed %d\n", has(bad.log, "MechWarrior 3 exited (3)"),
+              !has(bad.log, "the launcher closes"));
+  EXPECT(bad.exited && has(bad.log, "MechWarrior 3 exited (3)") && !has(bad.log, "the game's first frame"));
+  // No frame within the wait (0.5 s here, 20 s in play): said, still up;
+  // the frame after it closes the launcher all the same.
+  const LauncherRun slow = run_launcher_with("launcher_game_slow", "sleep 2\nREADY\nsleep 2", "500");
+  std::printf("a slow start: said %d, then closed at the first frame %d with the game running %d\n",
+              has(slow.log, "no first frame from the game after"), has(slow.log, "the launcher closes"), slow.game_alive);
+  EXPECT(slow.exited && slow.game_alive);
+  EXPECT(has(slow.log, "no first frame from the game after") && has(slow.log, "the launcher closes"));
+}
+
+// The game's own status before its first frame (its first start's movie
+// import, sdl_child.h set_ready_status): on the launcher's status line in
+// place of the wait's "not shown a picture yet".
+TEST(sdl_program_launcher_shows_the_games_status) {
+  const LauncherRun r = run_launcher_with("launcher_game_status", "STATUS\nsleep 2\nREADY\nsleep 1", "500");
+  std::printf("a game importing: said %d, waited quietly %d, closed %d\n",
+              has(r.log, "the game says: Importing your movies (first start only): 3 of 19..."),
+              !has(r.log, "no first frame from the game after"), has(r.log, "the launcher closes"));
+  EXPECT(r.exited && has(r.log, "the game says: Importing your movies (first start only): 3 of 19...") &&
+         !has(r.log, "no first frame from the game after") && has(r.log, "the launcher closes"));
 }
 
 // The launcher's sounds (lead's launcher list, item 4; docs/launcher.md):
@@ -2570,7 +3927,9 @@ TEST(sdl_program_launcher_plays_the_menus_sounds) {
   std::filesystem::create_directories(dir + "/wd", ec);
   const std::string log = dir + "/sounds.log";
   setenv("MW3_LAUNCHER_MUTE", "1", 1);  // played at no volume (the machine may be streaming)
-  const pid_t pid = spawn_mw3({"--write-dir", dir + "/wd", "--launcher-play", "--window", "640x480", "--frames", "5"}, log);
+  setenv("MW3_LAUNCHER_FRAMES", "5", 1);
+  const pid_t pid = spawn_launcher({"--write-dir", dir + "/wd", "--window", "640x480", "--hidden"}, log);
+  unsetenv("MW3_LAUNCHER_FRAMES");
   unsetenv("MW3_LAUNCHER_MUTE");
   int status = 0;
   EXPECT(pid > 0 && waitpid(pid, &status, 0) == pid && WIFEXITED(status) && WEXITSTATUS(status) == 0);
@@ -2644,7 +4003,7 @@ TEST(sdl_program_launcher_starts_mechwarrior_1989) {
   std::filesystem::permissions(port, std::filesystem::perms::owner_all, ec);
   setenv("MW3_MW1_PORT", port.c_str(), 1);
   const std::string log = dir + "/mw1.log";
-  const pid_t pid = spawn_mw3({"--write-dir", dir + "/wd", "--launcher-mw1", "--window", "640x480", "--nosound"}, log);
+  const pid_t pid = spawn_launcher({"--write-dir", dir + "/wd", "--launcher-mw1", "--window", "640x480", "--nosound", "--hidden"}, log);
   unsetenv("MW3_MW1_PORT");
   int status = 0;
   EXPECT(pid > 0 && waitpid(pid, &status, 0) == pid && WIFEXITED(status) && WEXITSTATUS(status) == 0);
@@ -2659,6 +4018,106 @@ TEST(sdl_program_launcher_starts_mechwarrior_1989) {
   EXPECT(text.find("MechWarrior (1989) port at " + port) != std::string::npos);
   EXPECT(text.find("MechWarrior (1989) exited (0)") != std::string::npos);
   EXPECT(args == dir + "/game|" + dir + "/wd/mw1/captures|" + dir + "/wd/mw1/saves");
+}
+#endif
+
+#if !defined(_WIN32)  // posix_spawn (ours, not on Windows)
+// The movies on a wide screen (W1, docs/fmv.md section 8): INTRO, C4WIN and
+// a 4:3 briefing imported (mw3import, FFmpeg), their shapes measured from the
+// pictures (INTRO letterboxed throughout; C4WIN letterboxed, then its 4:3
+// ending; C1M1 4:3), then hidden 1920x1080 shots on a 16:9 screen mode:
+// INTRO across the whole width with bars above and below, C1M1 at the
+// screen's height with black sides. Skipped without FFmpeg in the importer.
+namespace {
+// The lit box (any channel over 24) of a 32-bit BMP: left, top, right, bottom.
+bool bmp_lit_box(const std::string& path, int* w, int* h, int box[4]) {
+  std::FILE* f = std::fopen(path.c_str(), "rb");
+  if (!f) return false;
+  std::vector<uint8_t> d;
+  uint8_t buf[65536];
+  for (size_t n; (n = std::fread(buf, 1, sizeof buf, f)) > 0;) d.insert(d.end(), buf, buf + n);
+  std::fclose(f);
+  if (d.size() < 54 || d[0] != 'B' || d[1] != 'M' || d[28] != 32) return false;
+  auto u32 = [&](size_t at) { return static_cast<uint32_t>(d[at] | d[at + 1] << 8 | d[at + 2] << 16 | d[at + 3] << 24); };
+  const uint32_t off = u32(10);
+  *w = static_cast<int32_t>(u32(18));
+  const int32_t sh = static_cast<int32_t>(u32(22));
+  *h = std::abs(sh);
+  if (static_cast<size_t>(off) + static_cast<size_t>(*w) * *h * 4 > d.size()) return false;
+  box[0] = *w, box[1] = *h, box[2] = -1, box[3] = -1;
+  for (int y = 0; y < *h; ++y)
+    for (int x = 0; x < *w; ++x) {
+      const size_t i = off + (static_cast<size_t>(y) * *w + x) * 4;
+      if (std::max({d[i], d[i + 1], d[i + 2]}) <= 24) continue;
+      const int row = sh > 0 ? *h - 1 - y : y;  // bottom up unless the height is negative
+      box[0] = std::min(box[0], x), box[2] = std::max(box[2], x);
+      box[1] = std::min(box[1], row), box[3] = std::max(box[3], row);
+    }
+  return true;
+}
+}  // namespace
+
+TEST(sdl_program_movies_keep_their_shape_on_a_wide_screen) {
+  const std::string install = MW3_GAME_DIR;
+  std::error_code ec;
+  if (!std::filesystem::exists(MW3_IMPORT_BIN, ec) || !std::filesystem::exists(install + "/video/INTRO.AVI", ec)) return;
+  const std::string dir = std::string(MW3_TEST_TMP) + "/wide_movies";
+  std::filesystem::remove_all(dir, ec);
+  std::filesystem::create_directories(dir, ec);
+  for (const char* name : {"intro", "c4win", "c1m1", "c1"}) {  // c1m1's block plays c1 first
+    const pid_t pid = spawn_bin(MW3_IMPORT_BIN, {"--install", install, "--write-dir", dir, "--only", name},
+                                dir + "/import-" + name + ".log");
+    int status = 0;
+    if (pid > 0) waitpid(pid, &status, 0);
+  }
+  if (!std::filesystem::exists(dir + "/video/intro.fmv", ec)) return;  // no FFmpeg in this importer
+  // The shapes, measured.
+  auto runs_of = [&](const char* name) {
+    std::vector<mech3::MovieFrameScan> f;
+    int32_t w = 0, h = 0;
+    if (!mech3::scan_imported_movie(dir + "/video/" + name, &f, &w, &h)) return std::vector<mech3::MovieShapeRun>{};
+    return mech3::movie_shape_runs(f, w, h, 15);
+  };
+  const auto intro = runs_of("intro"), c4win = runs_of("c4win"), c1m1 = runs_of("c1m1");
+  std::printf("shapes: %s | %s | %s\n", mech3::movie_shape_line("intro", intro).c_str(),
+              mech3::movie_shape_line("c4win", c4win).c_str(), mech3::movie_shape_line("c1m1", c1m1).c_str());
+  // INTRO: 640x320 inside its frame (rows 80..400, give or take the
+  // pictures' own edges), the whole movie one run.
+  EXPECT(intro.size() == 1 && !intro[0].whole && intro[0].top >= 70 && intro[0].top <= 90 && intro[0].bottom >= 395 &&
+         intro[0].bottom <= 410);
+  // C4WIN: letterboxed (its 640x240 picture and the taller shots beside it),
+  // then the 4:3 ending from a cut about 68 s in (frame 1020 at 15 a second).
+  EXPECT(c4win.size() == 2 && !c4win[0].whole && c4win[0].top >= 90 && c4win[0].top <= 125 && c4win[0].bottom >= 355 &&
+         c4win[0].bottom <= 385 && c4win[1].whole && c4win[1].start >= 990 && c4win[1].start <= 1050);
+  // C1M1: a 4:3 briefing, left alone.
+  EXPECT(c1m1.size() == 1 && c1m1[0].whole);
+  // The shots on a 16:9 mode (13, 1920x1080, as the graphics options save it).
+  if (std::FILE* f = std::fopen((dir + "/settings.reg").c_str(), "w")) {
+    std::fputs("Windows Registry Editor Version 5.00\n\n[HKEY_CURRENT_USER\\SOFTWARE\\MicroProse\\MechWarrior 3\\1.0]\n"
+               "\"InGameVMode\"=dword:0000000d\n", f);
+    std::fclose(f);
+  }
+  auto shot = [&](const char* movie, const char* frame, int box[4]) {
+    const std::string bmp = dir + "/" + movie + ".bmp";
+    const pid_t pid = spawn_mw3({"--write-dir", dir, "--movie", movie, "--window", "1920x1080", "--nosound", "--hidden",
+                                 "--shot", bmp, "--shot-frame", frame},
+                                dir + "/" + movie + ".log");
+    int status = 0;
+    if (pid > 0) waitpid(pid, &status, 0);
+    int w = 0, h = 0;
+    return bmp_lit_box(bmp, &w, &h, box) && w == 1920 && h == 1080;
+  };
+  int a[4] = {}, b[4] = {};
+  const bool sa = shot("INTRO", "300", a), sb = shot("c1m1", "100", b);
+  std::printf("1920x1080: INTRO lit %d..%d x %d..%d, C1M1 lit %d..%d x %d..%d\n", a[0], a[2], a[1], a[3], b[0], b[2], b[1], b[3]);
+  // INTRO across the width, black bars above and below (its 322 rows at 3x: 966 of 1080).
+  EXPECT(sa && a[0] <= 8 && a[2] >= 1911 && a[1] >= 40 && a[3] <= 1040);
+  // C1M1 at the screen's height, 1440 wide in the middle: black sides.
+  EXPECT(sb && b[0] >= 230 && b[2] <= 1690 && b[1] <= 30 && b[3] >= 1050);
+  // Measured once, kept in the write dir.
+  std::ifstream cache(dir + "/movie-shapes.txt");
+  const std::string text((std::istreambuf_iterator<char>(cache)), std::istreambuf_iterator<char>());
+  EXPECT(text.find("intro/") != std::string::npos && text.find("c1/") != std::string::npos);
 }
 #endif
 #endif

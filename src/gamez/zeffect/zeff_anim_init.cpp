@@ -1,5 +1,6 @@
 #include "gamez/zeffect/zeff_anim_init.h"
 
+#include <cstdio>
 #include <cstring>
 #include <ctime>
 #include <type_traits>
@@ -25,12 +26,24 @@ namespace zeff {
 
 namespace {
 const char kFile[] = "C:\\zipper\\GameZMech3\\zEffect\\zeff_anim_init.c";
+int32_t g_freed_defs = 0;  // ours: the defs anim_free_all has freed in all (the tests)
 AnimState g_anim;
 AnimHooks g_hooks{};
+
+// Ours (docs/modding.md, M3): the bytes left in the file, so a count or a
+// size from a broken copy is refused before it is allocated.
+long g_file_end = -1;
+bool fits(std::FILE* f, uint64_t bytes) {
+  return g_file_end < 0 || (std::ftell(f) <= g_file_end && bytes <= static_cast<uint64_t>(g_file_end - std::ftell(f)));
+}
 
 // `count` records of T read with one fread, as the exe does.
 template <typename T>
 T* read_records(std::FILE* f, uint32_t count, bool* ok) {
+  if (!fits(f, static_cast<uint64_t>(count) * sizeof(T{}.raw))) {
+    *ok = false;
+    return nullptr;
+  }
   T* out = new T[count]{};
   std::vector<uint8_t> buf(count * sizeof out->raw);
   *ok = std::fread(buf.data(), sizeof out->raw, count, f) == count;
@@ -40,6 +53,7 @@ T* read_records(std::FILE* f, uint32_t count, bool* ok) {
 
 bool read_blob(std::FILE* f, int32_t size, uint8_t** out) {
   if (size <= 0) return true;
+  if (!fits(f, static_cast<uint64_t>(size))) return false;
   *out = new uint8_t[size];
   return std::fread(*out, size, 1, f) == 1;
 }
@@ -208,12 +222,27 @@ int anim_read_zbd() {
   if (!a.loading || a.path[0] == 0) return -1;
   std::FILE* f = zutl::open(a.path, "rb");  // FIX (A): the mounts (zutl_path.h)
   if (!f) return -1;
-  const auto fail = [f] {
+  std::fseek(f, 0, SEEK_END);
+  g_file_end = std::ftell(f);
+  std::fseek(f, 0, SEEK_SET);
+  // Ours: a broken copy is refused whole (the log names it) and the world has
+  // no animations; the exe left what it had read in place, half bound.
+  bool header_ok = false;
+  const auto fail = [f, &a, &header_ok] {
     std::fclose(f);
+    g_file_end = -1;
+    if (header_ok) {
+      std::printf("mw3: %s is broken (a count, size or name it cannot hold), its animations not read\n", a.path);
+      delete[] a.defs, a.defs = nullptr;
+      a.block.put<int16_t>(0x0a, 0), a.block.put<int32_t>(0x10, 0);
+      delete[] a.messages, a.messages = nullptr;
+    }
     return -1;
   };
   uint32_t header[3];
   if (std::fread(header, sizeof header, 1, f) != 1 || header[0] != 0x08170616 || header[1] != 39) return fail();
+  header_ok = true;
+  if (!fits(f, static_cast<uint64_t>(header[2]) * 0x54)) return fail();
   // The source file list (0x0060c5f8 / 0x0060c5fc) is read and dropped.
   std::vector<uint8_t> sources(static_cast<size_t>(header[2]) * 0x54);
   if (std::fread(sources.data(), 0x54, header[2], f) != header[2]) return fail();
@@ -226,7 +255,11 @@ int anim_read_zbd() {
     if (!read_def(f, a.defs[i])) return fail();
   const char* prev_name = nullptr;
   for (int32_t i = 0; i < count; ++i)
-    if (!fix_def(i, a.defs[i], &prev_name)) return fail();
+    if (!fix_def(i, a.defs[i], &prev_name)) {  // a lookup, not a broken file: the original's way
+      std::fclose(f);
+      g_file_end = -1;
+      return -1;
+    }
   if (const int32_t n = a.message_count(); n > 0) {
     bool ok;
     a.messages = read_records<AnimMessage>(f, n, &ok);
@@ -235,6 +268,7 @@ int anim_read_zbd() {
       a.messages[i].put(0x20, zutl::msg_id(reinterpret_cast<const char*>(a.messages[i].raw)));
   }
   std::fclose(f);
+  g_file_end = -1;
   return 0;
 }
 
@@ -645,8 +679,9 @@ void anim_free_copies() {
 int32_t anim_free_all() {
   AnimState& a = g_anim;
   a.block.put<int32_t>(0x04, 0);  // 0x0073f724: the source list, dropped at the read (none kept)
-  a.block.put<int32_t>(0x08, 0);
+  a.block.put<int16_t>(0x08, 0);  // a word: the def count beside it (+0x0a) is the loop's
   for (int32_t i = 0; i < a.def_count(); ++i) anim_free(&a.defs[i], true);
+  g_freed_defs += a.def_count();
   delete[] a.defs;
   a.defs = nullptr;
   a.block.put<int16_t>(0x0a, 0);
@@ -659,6 +694,8 @@ int32_t anim_free_all() {
   zmod::puff_shutdown();
   return 0;
 }
+
+int32_t anim_freed_defs() { return g_freed_defs; }
 
 // Mech3.exe 1.2 @ 0x0050b430
 int32_t anim_shutdown() {

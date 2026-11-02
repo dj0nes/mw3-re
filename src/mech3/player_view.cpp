@@ -52,11 +52,14 @@ void to_euler(const float* q, float out[3]) {
 
 // The target's centroid node's world position (data +0x84), its stale
 // matrix rebuilt first as the camera updates do.
-const float* centroid_position(Mech& m) {
+const float* centroid_position(Vehicle& m) {
   ViewHooks& h = *g_hooks;
   if (h.node_flags(m.centroid) & 0x20) h.node_refresh(m.centroid);
   return h.node_position(m.centroid);
 }
+// The mech camera modes' target: they sit only in a mech's camera list
+// (make_cameras), so the view's target is a mech while one is its mode.
+Mech& mech_of(PlayerView& v) { return static_cast<Mech&>(*v.target); }
 }  // namespace
 
 ViewHooks& view_hooks() { return *g_hooks; }
@@ -103,7 +106,7 @@ bool nearest_hit(zcls::SegmentHits* hits, int32_t n, const float from[3], float 
 // that far in front of it. Sides: two units either way across the look
 // (0x00522460, 0x0051e210), the right side's crossing nearest the camera
 // first: the camera moved across (x and z) by what that side lacks.
-void pull_in(Mech* target, float pos[3], const float at[3], const float back[3]) {
+void pull_in(Vehicle* target, float pos[3], const float at[3], const float back[3]) {
   ViewHooks& h = *g_hooks;
   constexpr float k = 1.0f;  // 0x005e06f4
   const float nk = -k;
@@ -161,7 +164,7 @@ CameraMode::CameraMode(int32_t i) : id(i) {
 // Mech3.exe 1.2 @ 0x0040b8d0: behind the mech at a distance that grows with
 // its speed, turning with it.
 bool CameraMode::update(float step, PlayerView& v) {
-  Mech* m = v.target;
+  Vehicle* m = v.target;
   if (!m) return false;
   const float* vel = &m->velocity.x;
   const float s = std::sqrt((vel[0] * vel[0] + vel[1] * vel[1]) + vel[2] * vel[2]);
@@ -175,7 +178,7 @@ bool CameraMode::update(float step, PlayerView& v) {
 
 // Mech3.exe 1.2 @ 0x0040b820
 void CameraMode::reset(PlayerView& v) {
-  Mech* m = v.target;
+  Vehicle* m = v.target;
   if (!m) return;
   const float* vel = &m->velocity.x;
   v.speed = std::sqrt((vel[0] * vel[0] + vel[1] * vel[1]) + vel[2] * vel[2]);
@@ -226,7 +229,7 @@ bool MechCamera::read(void* node) {
 // Mech3.exe 1.2 @ 0x00421760: tether and the like. The speed drops slowly and
 // rises at once; the distance never below 0.9 x dist.
 bool MechCamera::update(float step, PlayerView& v) {
-  Mech& m = *v.target;
+  Mech& m = mech_of(v);
   const float a = std::fabs(m.vec_3c.z);
   const float da = a - speed;
   if (da < 0.0f) speed = speed - da * step * -0.15f;  // 0x005bd330, 0x005bd334
@@ -257,7 +260,7 @@ bool MechCamera::update(float step, PlayerView& v) {
 
 // Mech3.exe 1.2 @ 0x00421900: as the update, without the smoothing.
 void MechCamera::reset(PlayerView& v) {
-  Mech& m = *v.target;
+  Mech& m = mech_of(v);
   const float a = std::fabs(m.vec_3c.z);
   speed = a;
   v.speed = a;
@@ -282,7 +285,7 @@ void MechCamera::reset(PlayerView& v) {
 // Mech3.exe 1.2 @ 0x00421e40: in the cockpit, at the torso's node, turned with
 // the torso (its own aim when the AI holds the view), with the head's bob.
 bool CockpitCamera::update(float step, PlayerView& v) {
-  Mech& m = *v.target;
+  Mech& m = mech_of(v);
   const float* vel = &m.velocity.x;
   const float s = std::sqrt(vel[0] * vel[0] + vel[2] * vel[2]);
   const float diff = s - v.speed;
@@ -341,7 +344,7 @@ void CockpitCamera::reset(PlayerView& v) { MechCamera::reset(v); }
 
 // Mech3.exe 1.2 @ 0x004221d0: like the base, turned by the look.
 bool AreaCamera::update(float step, PlayerView& v) {
-  Mech& m = *v.target;
+  Mech& m = mech_of(v);
   const float* vel = &m.velocity.x;
   const float s = std::sqrt(vel[2] * vel[2] + vel[0] * vel[0]);
   const float diff = s - v.speed;
@@ -497,15 +500,15 @@ void PlayerView::update(float step) {
 
 // Mech3.exe 1.2 @ 0x0040adf0: the old target and mode let go, the new taken,
 // then one update with the last frame time.
-bool PlayerView::attach(Mech* t, CameraMode* m) {
+bool PlayerView::attach(Vehicle* t, CameraMode* m) {
   if (target) {
     if (mode) mode->deactivate(*this);
-    g_hooks->mech_detached(*target);
+    g_hooks->target_detached(*target);
   }
   target = t;
   mode = m;
   if (t) {
-    g_hooks->mech_attached(*t);
+    g_hooks->target_attached(*t);
     if (m) m->activate(*this);
   } else {
     mode = nullptr;
@@ -516,7 +519,7 @@ bool PlayerView::attach(Mech* t, CameraMode* m) {
 
 // Mech3.exe 1.2 @ 0x0040ae70: to the target's camera `id` when it may be used.
 void PlayerView::set_camera_mode(int32_t id) {
-  CameraMode* m = target ? g_hooks->mech_camera(*target, id) : nullptr;
+  CameraMode* m = target ? g_hooks->target_camera(*target, id) : nullptr;
   if (!m || !m->usable(*this)) return;
   if (mode) {
     last_mode = mode->id;
@@ -609,7 +612,7 @@ void PlayerView::place_now(const float at[3], float d, const float rot[4], const
 // parents the camera to the torso while the mech is off; the outside ones
 // give the torso back to the controls; godseye and area look straight.
 void MechCamera::activate(PlayerView& v) {
-  Mech& m = *v.target;
+  Mech& m = mech_of(v);
   ViewHooks& h = *g_hooks;
   view = &v;
   switch (id) {
@@ -661,7 +664,7 @@ bool MechCamera::usable(PlayerView& v) {
 // none, 4 up, 5 down) as the look's rotation, told to the HUD.
 void MechCamera::set_look(int32_t look) {
   ViewHooks& h = *g_hooks;
-  Mech* m = view->target;
+  Mech* m = view->target ? &mech_of(*view) : nullptr;
   if (!m || h.mech_dead(*m) != 0 || !m->active) return;
   h.torso_464ac0(*m, 0);
   switch (look) {
@@ -693,7 +696,7 @@ void MechCamera::set_look(int32_t look) {
 // look's number is not kept.
 void AreaCamera::set_look(int32_t look) {
   ViewHooks& h = *g_hooks;
-  Mech& m = *view->target;
+  Mech& m = mech_of(*view);
   if (h.mech_dead(m) != 0) return;
   float angle;
   switch (look) {
@@ -746,7 +749,7 @@ void PlayerView::mech_stands(Mech& m) {
 void CockpitCamera::on_switch(PlayerView& v, bool on) {
   if (static_cast<uint8_t>(on) == fixed) return;
   ViewHooks& h = *g_hooks;
-  Mech& m = *v.target;
+  Mech& m = mech_of(v);
   const Node3 parent = h.node_parent(v.camera);
   if (on) {
     h.node_remove_child(parent, v.camera);
@@ -818,7 +821,7 @@ void PlayerView::set_underwater(bool on) {
 // the camera (100 m up), shown again in the open.
 void PlayerView::weather_check() {
   ViewHooks& h = *g_hooks;
-  Mech* t = h.player_target();
+  Vehicle* t = h.player_target();
   if (!t || !h.has_weather()) return;
   h.node_set_intersect(t->node, 0);
   h.query_mode(1);

@@ -185,6 +185,10 @@ class Engine : public zgame::AppHooks {
   virtual void run_dir() { unported("0x004828d0", {}); }    // RunDir from the registry
   virtual uint32_t message_dll_load(const char* name) { return unported("0x00575f30", {name}); }
   virtual uint32_t directx_version() { return unported("0x0057a3d0", {}); }
+  // Ours: whether the menus offer the software renderer (VIDEO DEVICE's
+  // "software" entry). FIX (A): it is not ported, so no; the differential
+  // tests' engines say yes to check the original's cycle.
+  virtual bool software_renderer() { return false; }
   virtual uint32_t install_options(uint32_t mask) {    // 0x00597d80, InstallOptions & mask
     return unported("0x00597d80", {mask});
   }
@@ -207,6 +211,12 @@ class Engine : public zgame::AppHooks {
   virtual const char* version_number();                // 0x004af290
   // 0x004ac150 (cdecl): a message box from the message table; the fourth
   // argument (a format argument) is pushed only by some callers.
+  // Ours: the game's message box with our own text (no message id; the
+  // lobby's mods check). The answer as message_box's.
+  virtual uint32_t message_box_plain(int32_t a, int32_t caption, const std::string& text) {
+    (void)a, (void)caption, (void)text;
+    return 1;
+  }
   virtual uint32_t message_box(int32_t a, int32_t caption, int32_t text, int32_t arg = 0) {
     (void)arg;
     return unported("0x004ac150", {a, caption, text});
@@ -536,7 +546,24 @@ class Engine : public zgame::AppHooks {
   virtual bool file_exists(const char* path);
   virtual void network_set(int32_t on) { unported("0x0047fc40", {on}); }  // the app's network on or off
   virtual void network_leave() { unported("0x0046d100", {}); }  // the network session closed (the quit box's OK)
+  // Internet hosting (ours, multiplayer-port.md piece 9c; the platform's
+  // UPnP): how the internet reaches us, the port mapped while hosting, the
+  // clipboard. None: nothing known, nothing done.
+  struct NetReach {
+    enum State { kLooking, kNoRouter, kReady, kMapped, kRefused, kBlocked, kDoubleNat };  // as sdlfe::UpnpStatus's
+    int32_t state = kNoRouter;
+    std::string lan, internet;  // "ip:port", "" unknown
+    uint16_t port = 0;          // the game's UDP port
+  };
+  virtual NetReach network_reach() { return {}; }
+  virtual void network_hosting(bool on) { (void)on; }
+  virtual void copy_text(const char* text) { (void)text; }
   virtual void multiplayer_switch(Handle state) { unported("0x0049cb20", {state}); }
+  // 0x0049cb00 on the Multiplayer State: the page wanted next (1 the
+  // connection screen, 2 the lobby, 3 the new team) and whether it starts over.
+  virtual void multiplayer_page(Handle state, int32_t page, uint8_t reenter) {
+    unported("0x0049cb00", {state, static_cast<uint32_t>(page), reenter});
+  }
   // 0x00494920 on the first multiplayer screen with the pilot, then the
   // second's +0x15058 (the pilot) and +0x116ec (its multiplayer game).
   virtual void multiplayer_take_pilot(Handle first, Handle second) {

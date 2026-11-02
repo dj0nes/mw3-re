@@ -87,19 +87,54 @@ bool to_game(const std::string& s, std::string* out) {
   }
   return true;
 }
+// A host path that is absolute: "/..." and, on Windows, "C:/..." or "//server"
+// (after host()'s '\\' -> '/'). Ours: a Windows drive path was taken for a
+// game path and joined onto the write dir.
+bool absolute(const std::string& h) {
+  if (!h.empty() && h[0] == '/') return true;
+  return h.size() >= 3 && std::isalpha(static_cast<unsigned char>(h[0])) && h[1] == ':' && h[2] == '/';
+}
 }  // namespace
 
+bool game_text(const std::string& utf8, std::string* out) { return to_game(utf8, out); }
 Mounts& mounts() { return g_mounts; }
 
 void mount(const std::string& dir) { g_mounts.read.push_back(dir); }
 void mount_front(const std::string& dir) { g_mounts.read.insert(g_mounts.read.begin(), dir); }
+void mount_mod(const std::string& dir) {
+  g_mounts.read.push_back(dir);
+  g_mounts.mods.push_back(dir);
+}
+bool is_mod_dir(const std::string& dir) {
+  for (const std::string& m : g_mounts.mods)
+    if (dir == m || (dir.size() > m.size() && dir.compare(0, m.size(), m) == 0 && dir[m.size()] == '/')) return true;
+  return false;
+}
+bool mod_may_serve(const std::string& host_path) {
+  std::string p;
+  for (char c : host_path) p += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+  while (p.rfind("./", 0) == 0) p.erase(0, 2);
+  for (const char* dir : {"pilots/", "configs/", "keys/", "saves/", "patch12/", "mods/"})
+    if (p.rfind(dir, 0) == 0) return false;
+  for (const char* file : {"mw3.cfg", "settings.reg", "movie-shapes.txt"})
+    if (p == file) return false;
+  return p.size() < 4 || p.compare(p.size() - 4, 4, ".log") != 0;
+}
+std::string find_in_mods(const std::string& host_path) {
+  if (host_path.empty() || absolute(host_path) || !mod_may_serve(host_path)) return {};
+  for (const std::string& m : g_mounts.mods) {
+    const std::string p = join(m, host_path);
+    if (is_file(p)) return p;
+  }
+  return {};
+}
 void set_write_dir(const std::string& dir) { g_mounts.write = dir; }
 
 std::string host(const char* path) {
   std::string s = path ? path : "";
   for (char& c : s)
     if (c == '\\') c = '/';
-  if (s.empty() || s[0] == '/') return s;  // already the host's
+  if (s.empty() || absolute(s)) return s;  // already the host's
   std::string out;
   for (char c : s) {
     const auto b = static_cast<unsigned char>(c);
@@ -111,20 +146,38 @@ std::string host(const char* path) {
 std::string find(const char* path) {
   const std::string h = host(path);
   if (h.empty()) return {};
-  if (h[0] == '/' || (g_mounts.read.empty() && g_mounts.write.empty())) return is_file(h) ? h : std::string{};
+  if (absolute(h) || (g_mounts.read.empty() && g_mounts.write.empty())) return is_file(h) ? h : std::string{};
   if (!g_mounts.write.empty() && is_file(join(g_mounts.write, h))) return join(g_mounts.write, h);  // what the game wrote
   for (const std::string& dir : g_mounts.read) {
+    if (!g_mounts.mods.empty() && is_mod_dir(dir) && !mod_may_serve(h)) continue;
     const std::string p = join(dir, h);
     if (is_file(p)) return p;
   }
   return is_file(h) ? h : std::string{};  // relative to the working directory, as before
 }
 
+std::vector<std::string> find_all(const char* path) {
+  std::vector<std::string> out;
+  const std::string h = host(path);
+  if (h.empty()) return out;
+  if (absolute(h)) {
+    if (is_file(h)) out.push_back(h);
+    return out;
+  }
+  if (!g_mounts.write.empty() && is_file(join(g_mounts.write, h))) out.push_back(join(g_mounts.write, h));
+  for (const std::string& dir : g_mounts.read) {
+    if (!g_mounts.mods.empty() && is_mod_dir(dir) && !mod_may_serve(h)) continue;
+    const std::string p = join(dir, h);
+    if (is_file(p) && std::find(out.begin(), out.end(), p) == out.end()) out.push_back(p);
+  }
+  return out;
+}
+
 bool exists(const char* path) { return !find(path).empty(); }
 
 std::string write_path(const char* path) {
   const std::string h = host(path);
-  if (!h.empty() && h[0] == '/') return h;
+  if (absolute(h)) return h;
   const std::string& dir = !g_mounts.write.empty() ? g_mounts.write : g_mounts.read.empty() ? std::string{} : g_mounts.read[0];
   return join(dir, h);
 }
@@ -152,6 +205,7 @@ std::vector<std::string> list(const char* pattern) {
   if (roots.empty()) roots.push_back(".");
   std::vector<std::string> out;
   for (const std::string& r : roots) {
+    if (!g_mounts.mods.empty() && is_mod_dir(r) && !mod_may_serve(dir + "/")) continue;
     std::error_code ec;
     for (std::filesystem::directory_iterator it(join(r, dir), ec), end; !ec && it != end; it.increment(ec)) {
       if (!it->is_regular_file(ec)) continue;

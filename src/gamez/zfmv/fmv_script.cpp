@@ -1,9 +1,13 @@
 #include "gamez/zfmv/fmv_script.h"
 
+#include <chrono>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
 
 #include "crt/msvc_math.h"
 #include "gamez/zreader/zreader.h"
+#include "gamez/zutil/zfix.h"
 #include "gamez/zvideo/zvid_format.h"
 
 #pragma STDC FP_CONTRACT OFF
@@ -277,6 +281,19 @@ void FadeAction::end() {
 // The movies
 
 // Mech3.exe 1.2 @ 0x00599c00: "<dir>\<name>", dropped when not found.
+namespace {
+// Ours, for diagnosis (MW3_MOVIE_TRACE): each new frame's times, in ms since
+// the movie's first step.
+bool movie_trace() {
+  static const bool on = std::getenv("MW3_MOVIE_TRACE") != nullptr;
+  return on;
+}
+double now_ms() {
+  using C = std::chrono::steady_clock;
+  return std::chrono::duration<double, std::milli>(C::now().time_since_epoch()).count();
+}
+}  // namespace
+
 // FIX (A): the original then looked for the file on a CD-ROM drive (0x00575d40);
 // the movies come from the imported folder (docs/protection.md).
 AviAction::AviAction(const char* dir, const char* name, bool flag) : flag(flag) {
@@ -299,7 +316,11 @@ void AviAction::start(double) {
   host().render_target(&w, &h, &depth, &pitch);
   rect.right = w, rect.bottom = h;
   frame = -1;
+  if (movie_trace())
+    std::printf("mw3: movie trace: %s opened at %.1f ms (%d frames, %u a second)\n", path.c_str(), now_ms(),
+                stream ? stream->length : 0, stream ? stream->fps : 0u);
 }
+
 
 // Mech3.exe 1.2 @ 0x00599de0: the frame for the time since the first step
 // (x87 at 24 bits, truncated), drawn and shown when it changes; done once the
@@ -312,17 +333,52 @@ bool AviAction::step(double t) {
   if (frame < 0) started = t;
   const float since = static_cast<float>(t - started);
   const int32_t f = crt::msvc_ftol(since * static_cast<float>(stream ? stream->fps : 0));
-  if (f == frame) return going;
+  // FIX (bug): with its sound playing the picture is the sound's frame, but
+  // the exe asked for it only when this clock's frame changed: two 15 fps
+  // clocks started together, so each ask fell on the sound's own frame
+  // change and a frame repeated and one was skipped every few (fmv.md
+  // section 5). Asked each step, a frame is shown once the sound reaches it.
+  // From the clock's frame 1 on: the cursor still at 0 just after the start
+  // reads as the end (the stream's quirk).
+  if (zfix::options().bugs && stream && f >= 1 && frame >= 0) {
+    const int32_t s = stream->sound_frame();
+    if (s >= 0) {
+      if (s == sound_seen) return going;
+      sound_seen = s;
+    } else if (f == frame) {
+      return going;
+    }
+  } else if (f == frame) {
+    return going;
+  }
+  const bool trace = movie_trace();
+  const double t0 = trace ? now_ms() : 0;
+  const int32_t before = stream ? stream->shown : -1;
+  double t1 = 0;
   if (h.video_mode() == 2) {
     if (!(stream ? stream->frame(f) : 0)) going = false;
+    if (trace) t1 = now_ms();
     h.image_stretch(h.stream_image(stream), 0, nullptr, &rect);
     h.video_flip(0, 0, 1, 0);
   } else {
     h.video_lock();
     if (!(stream ? stream->frame(f) : 0)) going = false;
+    if (trace) t1 = now_ms();
     h.video_unlock();
     h.image_stretch(h.stream_image(stream), 0, nullptr, &rect);
     h.video_flip(0, 0, 1, 1);
+  }
+  if (trace) {
+    // The clock's frame, the one decoded (the sound's, with sound), how many
+    // the decode passed over since the last shown, the decode and the flip.
+    if (!trace_t0) trace_t0 = t0, trace_last = t0;
+    const int32_t got = stream ? stream->shown : -1;
+    const int32_t skipped = before >= 0 && got > before + 1 ? got - before - 1 : 0;
+    trace_skipped += skipped;
+    const double t2 = now_ms();
+    std::printf("mw3: movie trace %.1f ms: clock frame %d, shown %d (skipped %d, %d so far), gap %.1f, decode %.1f, flip %.1f\n",
+                t0 - trace_t0, f, got, skipped, trace_skipped, t0 - trace_last, t1 - t0, t2 - t1);
+    trace_last = t0;
   }
   frame = f;
   return going;

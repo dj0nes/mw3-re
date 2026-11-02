@@ -14,16 +14,44 @@ every box here is ticked:
 
 - [ ] Multiplayer ported (`docs/multiplayer-port.md`, every piece), with
       the two-process and soak tests passing.
-- [ ] The 1.2 patch rebuilt from 1.0 data (`docs/patch12.md`), and SETUP's
-      patch button gone.
-- [ ] The stealth object and BASIC mode on a debug key as a fly camera
-      (CLAUDE.md, back burner).
-- [ ] The software renderer no longer offered anywhere in the menus.
-- [ ] Every row in `docs/playtest.md` closed: fixed, by design or the
+- [x] The 1.2 patch rebuilt from 1.0 data (`docs/patch12.md`), and SETUP's
+      patch button gone (shown only for data of an unknown version).
+- [ ] The stealth object and BASIC ported as the original has them, its
+      fly camera on Shift+F12 under --debug-camera (docs/editor.md S1-S4;
+      F11 stays the lancemate command screen). The
+      Battlesport editor's menus (the AI net editor, the vehicle editor) come
+      after v1.0, with Pirate's Moon, whose net editor changed (Owen,
+      2026-11-01).
+- [x] SETUP takes any source foolproof: an install, a disc, .iso, .cue/.bin,
+      .zip (nested too), .7z; maps it and installs without the player
+      unpacking anything (`docs/setup-sources.md`; the packages carry
+      libarchive, zlib and liblzma with their licences).
+- [x] The software renderer no longer offered anywhere in the menus.
+- [ ] Fully 16:9 at the desktop's resolution (Owen, 2026-11-01): every
+      screen widened (the multiplayer screens and the logo screens checked);
+      the movies with black bars baked into their 4:3 frame (INTRO 640x320,
+      C4WIN 640x240) shown without them, scaled to the screen's width, the
+      whole picture kept; the 17 true-4:3 briefing movies centred with
+      plain black sides.
+      The movies and the logo screens done 2026-11-01 (fmv.md section 8:
+      the shapes measured from the pictures; C4WIN is letterboxed but for
+      its 4:3 ending, which is centred like the briefings).
+- [ ] Moddable, simply (Owen, 2026-11-01): players and hobbyists can add
+      their own game data without any change to the exe later. A `mods/`
+      folder in the settings folder (one folder per mod, a small manifest,
+      mounted in front of the install in mw3.cfg's order, nothing written
+      into the install); new worlds, Instant Action maps, multiplayer maps
+      and a campaign declared by a mod (the 1.2 patch's add-on scan,
+      extended); a plain-text string file over Mech3Msg.dll's; readers that
+      refuse a broken file with a message, never crash; docs/modding.md and
+      `mw3 --check-mod DIR`. Nothing changes with no mods installed.
+- [x] Every row in `docs/playtest.md` closed: fixed, by design or the
       original's, none open.
-- [ ] The community-reported problems (`docs/community-issues.md`) each
-      have a verdict.
-- [ ] Owen has played the whole campaign through on the release build.
+- [x] The community-reported problems (`docs/community-issues.md`) each
+      have a verdict (Owen, 2026-10-31: items 9 and 12 kept as the original).
+- The whole campaign on the release build: the automated 20-mission run
+  (`sdl_program_campaign_by_objectives`) counts; Owen's own playthrough is a
+  later playtest, not a gate (Owen, 2026-10-31).
 - [ ] Every check in sections 1-4 below passes on all three platforms.
 
 ## 1. Before
@@ -39,6 +67,11 @@ every box here is ticked:
       Owen has read them.
 - [ ] The players' read-mes match the build: `tools/windows/dist/README.txt`,
       `tools/macos/README.txt`, the top-level `README.md`.
+- [x] Open since 2026-11-01: the Mac `--deps` release form
+      (`tools/macos/make_app.sh --deps`) not built since libarchive, zlib
+      and liblzma arrived: rebuild build-deps/mac (`build_deps.sh mac`),
+      build the app, and check it is universal, links them in, and carries
+      their licences in Contents/Resources/licenses.
 
 ## 2. The version
 
@@ -65,7 +98,7 @@ the game's path is built into the programs.
 `MW3-Rebuild-Setup-<version>.exe` (Inno Setup).
 
 - [ ] `mw3.exe --version` names the version.
-- [ ] The folder has `mw3.exe`, `mw3indeo.exe`, `mw3import.exe`, the SDL and
+- [x] The folder has `mw3.exe`, `mw3indeo.exe`, `mw3import.exe`, the SDL and
       FFmpeg DLLs, the Visual C++ runtime, `README.txt`, `THIRD-PARTY.txt`,
       `licenses\`, `assets\launcher\`.
 - [ ] On a clean user: the installer installs, the launcher finds the
@@ -80,10 +113,10 @@ the game's path is built into the programs.
 `tools/deps/build_deps.sh mac`, then `tools/macos/make_app.sh --deps`
 (docs/macos.md) makes `build-mac/dist/MW3-Rebuild-<version>-mac.dmg`.
 
-- [ ] Every binary in the bundle is x86_64 and arm64 (`lipo -archs`), with
+- [x] Every binary in the bundle is x86_64 and arm64 (`lipo -archs`), with
       minimum macOS 12.0, and loads only system libraries and the bundle's
       own (`otool -L`: no `/opt/homebrew`).
-- [ ] `codesign -dv` on the app: `Signature=adhoc`, `TeamIdentifier=not set`.
+- [x] `codesign -dv` on the app: `Signature=adhoc`, `TeamIdentifier=not set`.
 - [ ] Opened from the DMG on a Mac that has not seen it: Gatekeeper's
       first-open steps in the README work.
 - [ ] It starts and plays a mission natively and under Rosetta
@@ -95,12 +128,12 @@ the game's path is built into the programs.
 `tools/linux/make-appimage.sh build-deps/linux/prefix <tools dir>`
 (docs/linux.md) makes `build-linux-pkg/dist/MW3-Rebuild-<version>-x86_64.AppImage`.
 
-- [ ] `AppDir/usr/lib` has SDL3, SDL3_ttf, SDL3_sound and the four FFmpeg
+- [x] `AppDir/usr/lib` has SDL3, SDL3_ttf, SDL3_sound and the four FFmpeg
       libraries; `ldd` on `mw3` and `mw3import` finds them there, and nothing
       else from the build prefix.
 - [ ] The launcher shows its text; with an install, a mission plays.
 - [ ] `--import --movie INTRO` converts the movies and plays the intro.
-- [ ] `AppDir/usr/share/doc/mw3/licenses` has every bundled library's
+- [x] `AppDir/usr/share/doc/mw3/licenses` has every bundled library's
       licence files.
 
 ## 4. Privacy
@@ -113,18 +146,44 @@ notes, the README) is checked before it goes up.
       release notes. Search each package's text and binaries for Owen's other
       name and for his email addresses (`strings -a`, `grep -ri`); there must
       be no match.
-- [ ] **No team ID or signing identity.** The Mac app is signed ad hoc
+- [x] **No team ID or signing identity.** The Mac app is signed ad hoc
       (above); the Windows files carry no certificate.
-- [ ] **No local paths.** No machine's folders in the binaries or the text:
+- [x] **No local paths.** No machine's folders in the binaries or the text:
       `strings -a <each binary> | grep -E '/Users/|/Volumes/|/home/|C:\\Users\\|E:\\'`
       must print nothing. (`MW3_PACKAGE=ON` keeps the game folder out; the
-      compilers' own `__FILE__` strings must be relative or absent.)
-- [ ] **No game files.** No `.zbd`, `.avi`, `.wav`, `.zrd` or other MicroProse
+      compilers' own `__FILE__` strings must be relative or absent.
+      The package scripts check this themselves (`check_paths.py`,
+      `check_dist.ps1`).)
+- [x] **No game files.** No `.zbd`, `.avi`, `.wav`, `.zrd` or other MicroProse
       data in any package; only our own launcher art (`assets/launcher`).
-- [ ] **No logs or settings.** No `mw3.log`, `mw3.cfg`, `settings.reg`,
+- [x] **No logs or settings.** No `mw3.log`, `mw3.cfg`, `settings.reg`,
       pilots or saves in any package.
 - [ ] The release notes and the README name no machine, folder or private
       service.
+
+### Status of the checks (2026-11-02, packages from 19a68f71)
+
+Ticked above: what passed on the Mac DMG, the Windows folder and zip, and
+the Linux AppDir. Left, and why:
+
+- **Local paths: fixed (2026-11-02).** FFmpeg keeps its configure line in
+  each library (`avutil_configuration()`), and build_deps.sh's real
+  `--prefix` put the build folder and user name into the Mac and Linux
+  FFmpeg. It is configured with `/ffbuild` now. make_app.sh and
+  make-appimage.sh run `tools/deps/check_paths.py` on what they ship, and
+  check_dist.ps1 does the same on Windows: any `/Volumes/`, `/Users/`,
+  `/home/`, `C:\Users\` or the building user's name fails the package.
+  Rebuilt and checked clean on the Mac and Linux.
+- Windows `--version` says `unknown` and the package `dev`: the PC copy it
+  was built in is not a git checkout. The release build comes from a clone
+  at the tag. The installer was built (Inno Setup 7 is on the PC); its
+  payload is the checked folder.
+- The tests at 19a68f71 on Windows: the file-leak crash and the drive-path
+  fix are on lead/b26, not main yet; v1.0 needs them.
+- Owen's: the tag and the version (section 2), the release notes, a clean
+  Windows user (install, uninstall), Gatekeeper on a fresh Mac, play under
+  Rosetta, and the Linux launcher, mission and movie runs (WSLg windows
+  appear on his desktop).
 
 ## 5. Publishing (Owen)
 

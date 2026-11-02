@@ -2366,3 +2366,313 @@ Assigned after 8b2 merged (fd3f05f). The lead asked for a section stepped at bot
   475 frames in both slices. arm64's files byte-identical to the dev
   importer's; x86_64's video 0.1% smaller (no asm in its FFmpeg), sound and
   index identical.
+## W38, the intro's dropped frames (2026-10-31)
+
+- Branch mac4/movie-start (off main 2b315d3a). MW3_MOVIE_TRACE: per new
+  movie frame the clock frame, the frame shown, skips, gap, decode, flip;
+  the Indeo helper's start-up and calls over 20 ms, per-op totals; the
+  sound device's period and the first callbacks.
+- Measured on Owen's PC (a worktree build-devtree in the PC repo, git-ignored,
+  junctions to deps and game; bundles carried over in build-devxfer; runs as
+  one-off /it scheduled tasks, deleted after). Windowed, not fullscreen:
+  --frames keeps the window out of fullscreen (mw3_main), noticed after.
+  Before: through mw3indeo one frame in three repeated and one skipped for
+  the whole 180 s (2690 frames), the files path the same (131 of 452 in
+  30 s); decode 5-6 ms, steps an even 67 ms, the helper up in 4 ms with the
+  codec in 39 ms; the sound device 44100 Hz, 441 frames (10 ms) a period.
+  Mac with CoreAudio (1024): 16 skips in 198.
+- Cause: AviAction::step asks only when its own 15 fps clock changes frame;
+  the stream answers the sound's frame; both clocks start on the same step,
+  so each ask falls on the sound's frame change (a 10 ms cursor: just before
+  or after, a regular beat). FIX (bug) behind bugs: with a streamed sound,
+  ask each step, show once the sound's frame changes (Stream::sound_frame),
+  from the clock's frame 1 (cursor 0 just after the start reads as the end).
+- After, on the PC: helper 453 steps in 30 s, 0 repeats, 0 skipped; files
+  453, 1 repeat (the start), 0 skipped; gaps 60-70 ms (the 10 ms periods).
+  Test sdl_intro_follows_its_sound_without_a_beat (SDL dummy driver at 441
+  frames: fixed 1/0, --original 19/2; break caught). Owen's "10 seconds" not
+  seen: the beat is steady all through and nothing stalls at the start.
+- --frames during the intro counts the movie's flips (15 a second), so
+  3000 was 200 s: run 1 hit my 180 s watchdog. Not changed; its usage line
+  says so now.
+## Multiplayer, piece 1: zNetwork's session (2026-10-31)
+
+- Plan accepted (mac4/mp-plan, 8d4e7936 with the NAT note); ENet approved.
+  Branch mac4/mp on it. znet_session.{h,cpp}: the globals, active / local_id
+  / is_host / send / shutdown, initialise / host_session / join_session, the
+  in-process Hub. The engine's network_lobby_active, lobby_session and
+  network_shutdown overrides; damage_calls().force_variant0 = znet::active
+  (its SKIP gone from hook_census.inc); the census's deferred 0x00586ce0 and
+  0x00586c20 lines gone. The shutdown's poll, handler clear and lists come
+  with pieces 2 and 3.
+- test_znet_session.py: the exe's three checks over 32 global states and
+  0x5888a0 with a fake IDirectPlay4A (SendEx at +0xc4 keeping its ten
+  arguments; 0x58a880 stubbed: 0 for an error), 56 identical; BREAK=1/2
+  caught. mw3tests znet_session_* (3; the hub delivering to its sender
+  caught).
+
+## Multiplayer, piece 2: the handlers and the poll (2026-10-31)
+
+- znet::on / off / clear_handlers / dispatch / poll; Session::handlers (a
+  vector for the exe's list), dispatching depth, system_message (piece 3's).
+  AppHooks::network_poll now znet::poll (ported, out of line like
+  timer_update); the census's deferred 0x00588930 gone, known-keys test 49.
+- test_znet_dispatch.py: the exe's list via 0x587aa0/0x587b20/0x587a00/
+  0x587c40 with a made sentinel node ([0x730794]), new/delete stubbed
+  (0x5abd26 / 0x5abd1a), handlers as logging code stubs (ECX sender, EDX the
+  message); the poll with a fake Receive at [0x730724]+0x64 growing the
+  buffer through DPERR_BUFFERTOOSMALL and the IAT realloc. Pitfalls met: the
+  emulator's heap rewinds at begin(), so the fake object goes after it; and
+  0x49bfd0 is Emulated's ZERR stub already (a second hook returns twice).
+
+## Multiplayer, piece 3a: players, teams, the translation (2026-10-31)
+
+- znet_dplay.{h,cpp}: PlayerRecord / TeamRecord / lists(), player,
+  player_name, each_player / each_team, system_message (0x588a70, read from
+  the disassembly: Ghidra folds the local message's words), network_error
+  (0x58ae10), on_host (0x586d50). Session gains desc, Player is_host; the
+  transport gains set_name and is_host; Packet a SystemEvent (the hub fills
+  it; its old words kept). initialise wires 0xd and the translation; the
+  shutdown empties the lists. The engine's lobby_player_name wired.
+- 0x588a70's details: DPMSG_CREATEPLAYERORGROUP's DPNAME at +0x18 (short
+  +0x20, long +0x24), add/delete group +4 / player +8; the host's 0xd on
+  every arrival (even a known one); destroy dispatches before unlinking;
+  SESSIONLOST is "MSG_DPERR_SESSIONLOST" by 0x575fb0 (zutl::localize).
+- test_znet_players.py: DPMSG structs in the emulator, fake GetPlayerCaps
+  and SendEx, strncpy stubbed at its IAT slot 0x5bb648, 0x575fb0 answering
+  its name; 250 sequences identical. My probe's first name parse was wrong
+  ("Player N" starts with P too); fixed in the probe.
+
+## Multiplayer, piece 3b: teams, data, kicks (2026-10-31)
+
+- znet_dplay: create/add/remove/destroy team, enum teams / team players /
+  players, leave, kick, player and team data. Transport::Member, the group
+  and data operations; the hub's. Read from the disassembly (Ghidra loses
+  the register arguments): add (ECX team, EDX player), the data calls (ECX
+  id, EDX data, the size or its pointer on the stack; 0x5897f0 passes its
+  own argument slot's address, so its caller never sees the size).
+- test_znet_teams.py: the enumerations' callbacks are labels, called
+  directly after the fake Enum* (no re-entry into Unicorn); the team
+  enumeration's answer read as [0x7307c0] after them. A prefix gives the
+  teams members so the removal break shows. create_team on failure: no
+  record (0x5883fb), fixed after the first version kept one.
+
+## Multiplayer, piece 4: the ENet transport (2026-10-31)
+
+- ENet 1.3.18 vendored (both downloads in the scratchpad's enet-dl; release
+  tarball 2a8a0c53..., GitHub tag archive 28603c89..., every kept file the
+  same). CMake: an `enet` library, unix.c's HAS_* macros, ws2_32 / winmm on
+  Windows; mw3sdl links it.
+- 0x5886c0 read: the record, the three enumerations, CreatePlayer(+0x18),
+  the caps, a poll, the record appended, host -> 0xd. The transport's
+  host/join now only open; create_player makes the player. The hub follows
+  (no events of existing players to a joiner: it enumerates).
+- net_enet: frames (kGame .. kRefused); the WELCOME roster's addresses as
+  the host sees them; the joiner's links to the others, held when a MESH
+  beats the host's PLAYER (a race the first version had). Blocking waits
+  (join, create_player) run NetOptions::while_waiting each round: the
+  in-process tests pump the host there.
+- mw3 --host/--join; the network log lines; the two-process test reads the
+  host's port from its log. Its ending is timing (who leaves first), so it
+  checks either side's view; the joiner's "the host N" line can show 0
+  (the 0xd can come after), so its "is the host" line is checked.
+
+## Multiplayer, piece 5a: the mission's network start, end and router (2026-10-31)
+
+- Piece 5 split: 5a here, 5b the network mech (0x46d450, 0x46d820,
+  0x46e280). `mech3/mech_net`: NetMech (owner +0x6fc, heard +0x73c), NetGame
+  (the flag, the remote mechs, configs, missing names, the reckoning gains),
+  NetCalls (the handlers of pieces 5b-7 and what the router calls).
+- Read from the disassembly: the router's jump table (0x15 dropped), which
+  handlers get the mech in ECX, on the stack, or only the message; the first
+  0xf's path (create, look up again, vt+0x18 with msg+4, timeGetTime at
+  +0x73c, the router again, vt+0x158 with [0x72c52c]). The network mech's
+  destructor 0x46e3c0 takes it off 0x605f84 and the dead list 0x605510.
+- The app's files see Handle as uint32_t: mech_net.h stays out of them;
+  net_start/net_end and net_set_game_clear are declared in app_mech.h, the
+  wiring is app_mech.cpp's wire_net. ztimer::ticks_ms added for timeGetTime;
+  zeff::log_set_net is 0x50d1d0.
+- test_mech_net.py: the probe's game clear logs after the handlers (the
+  exe's stub sees it then); the exe's slot byte is logged only when
+  0x495b10 was asked.
+- The hooks' lifetime (settled in 5b): wire_mission_hooks runs in the
+  GameEngine's constructor and its null in the destructor, so wire_net's
+  calls are live from start-up to exit, at the briefing and the quit box
+  alike. The census stand-ins go in at a mission's start, for the fields
+  still null.
+
+## Multiplayer, piece 5b: the records (2026-10-31)
+
+- 5b split again: 5b the records, 5c the network mech. 0x46da80 (the
+  launch) is LaunchHooks::multiplayer; the app's side (app_mission.cpp,
+  pilot.h) hands slot 0's loadout and the game's +0x8d/+0x8e through
+  net_set_launch_game; net_launch_player takes the packed form (the probe
+  hands any).
+- 0x4259c0: Ghidra's float line is right, the exe doubles the half tons
+  (fild, fadd st0); the armour item's add_equipment sets the tons again,
+  so stock loadouts unpack as valid as they were (checked over all 62).
+- Config vt+0x08 (ammo, 0x472210) and vt+0x10 (weapon, 0x472330) ported for it.
+
+## Multiplayer, piece 5c: the network mech (2026-10-31)
+
+- 0x46d450's missing list holds the player's id (0x45b800 copies *param_3,
+  the [esp+0x18] slot that holds the sender): fixed from piece 5a's
+  strings. Written, never read.
+- NetCalls.create left out of the hook census: its null means the port's
+  net_mech_create (a census stand-in there made nothing).
+- Torso::set_mode now honours vt+0x5c (Mech::remote): 2 for network mechs.
+- The app frees a network mech as mech_free does (registry, handle) through
+  NetCalls.free; mission_controls_free deletes controls whose release()
+  says so (the network's).
+
+## Multiplayer, piece 6a: the sends (2026-10-31)
+
+- 0x46f160's asm read for the 0xf layout (network-messages.md now has every
+  field and flag bit). The controls' getters go through the IControls thunks
+  (vtordisp 0): vt+0x2c the throttle target (+0x44), vt+0x24 the turn
+  (+0x14), vt+0x38 the jump (+0x20).
+- 0x46ef70 read from the asm (Ghidra had the resend counter off by one and
+  lost the rate's ECX: the game's +0x50, the lobby's count).
+- test_mech_net_send.py: the CRT asin and copysign stand-ins (test_matrix's)
+  for 0x525f80; ceil (test_mechsave's); the kinds of pieces 7/8 are caught
+  where their case starts and sent to the epilogue. The host's ping reads
+  the game unchecked: only sent from the timer, which has one.
+
+## Multiplayer, piece 6b: the receive side (2026-10-31)
+
+- 0x46e4d0 and 0x46ed70 read from the asm: the respawn's call has the mech
+  in ECX and the static 0x12 message on the stack; the aim extrapolation
+  sets the quaternion's z (its 4th word) to 0; the reckoning's blend is
+  0x51e380 (p = (1-k) recv + k p).
+- The apply's mech calls, the weapons' aim and fire are test hooks
+  (NetCalls::mech_call, aim, fire); the probe's parts log their setters.
+- test_mech_net_apply.py: the aim points (the torso's place plus a rotated
+  range, ~1000 m terms) are compared to those terms' rounding.
+
+## Multiplayer, piece 7a: a mech's events (2026-10-31)
+
+- The lag-correction fix (the lead's, from 6b) is in this commit: the
+  latency in ms behind bugs; test_mech_net_apply.py checks the fixed path
+  as the exe given the latency x 1000.
+- The network mech's vtable read properly: vt+0x168 0x00410490 (0),
+  vt+0x164 0x0046ef50 (0: no local damage), vt+0x160 0x0041ec50 (local id),
+  vt+0xa4 0x004709c0 (the player's name), vt+0x58 itself.
+- 0x0046e0f0 rebuilds in place: the port runs unlist, release, the
+  destructor and placement new, then net_mech_construct (split out of
+  net_mech_new).
+- 0x004705b0: ECX and the stack argument are both the sender; the exe sets
+  the sender's attacker. Kept, the fix behind bugs.
+
+## Multiplayer, piece 7b: the world's events (2026-10-31)
+
+- main merged in (0723eac1: the lead's NOMINMAX fix for the Windows build).
+- 0x0046fde0's resend: ECX the message copied, bit 7 set, guaranteed to all.
+  0x004700e0 is called with ECX the history entry's words; the port's
+  history keeps the material's index, the exe's its pointer (the test hands
+  each its own).
+- The test hooks added for 7b: crater_make, take_material, material_index,
+  log_has, log_replay, station.
+- A crater in the headless c1m1 (the hub test) was not made at any place
+  tried, so the crater path is checked by the emulator test only.
+
+## Multiplayer, piece 8: the game's end (2026-10-31)
+
+- The rules check left out with its folds: the folds only feed the next
+  check (protection.md section 4). test_mech_net_send.py's CRC stand-in
+  always passes, so the exe's path matches the port's.
+- "Multi-Exit State" (0x00605fa8): its vtable's +0x0c is the enter
+  (0x00470710): Missions cleanup(1), then Replace(state(2)) — the main menu.
+- In the c1m1 test, Missions::loaded stays set after cleanup (as the exe's
+  +0x5c); the test checks the load event (`done`) instead.
+
+## Multiplayer, pieces 8b and 8c: the soak test, a peer's packets (2026-11-01)
+
+- 8b: the debug start's network game (`--mission c1mp1 --host|--join`,
+  `--net-wait`, `--net-minutes`, `--net-drive`, `--net-soak`; Launch::multi,
+  the stand-in lobby, the autopilot, the staged kills, the lines) and
+  `sdl_network_soak_four_players` behind MW3_SOAK=1 (multiplayer-port.md,
+  piece 8b). Found: the join race in our ENet transport (fixed, tested);
+  THROTTLE0 is a key callback (the autopilot holds the polled 0x18); a
+  network game's end passes Multi-Exit and the main menu within a frame on
+  to the Multiplayer State; landing hits do about 0.4% damage in two
+  minutes of the autopilots' fight, so kills are staged.
+- 8c: the lead's review items, FIX (A) for a peer's packets (fixes.md row,
+  `net_hostile_peer_c1m1_headless`).
+- 8d: the pilot's respawn 0x0046dde0 with the pilot's mech change 0x004783c0
+  and the rebuild in place 0x004148c0, the objectives again 0x00491050; the
+  hook census in a network game (multiplayer-port.md, piece 8d). Found
+  while porting: the rebuilt mech's weapons asked the HUD of a freed
+  manager (the exe's view is on the stealth object meanwhile).
+- The 30-minute soak with the respawn: passes (tracking p95 3.8-4.1 m over
+  ~9700 samples each, memory down, scores alike: 1:12/5 2:6/7 3:10/4 4:10/5).
+- The lead's damage question: sdl_network_damage_point_blank (A held 40 m
+  from a still B): the path works, the soak's low damage is the autopilot's
+  aim and the ground (multiplayer-port.md, 8d).
+- Piece 9's plan accepted (multiplayer-port.md); 9a done: zNetwork's
+  connections, the search over the transport, its answers checked.
+- 9b done: the connection screen (multiplayer-port.md, 9b). The search's
+  amplification guards (the lead's review of 9a) went in before it.
+- 9c done: miniupnpc vendored, the PortMapper, the address lines with
+  copy; a double-router state of its own (a private "public" address),
+  not "your provider blocks hosting".
+- Piece 10 folded into 9b (the lead). 11 in three sittings: 11a the frame,
+  the records, the lists, kicks; 11b the rules and LOCK; 11c START, READY,
+  the mech lab, the teams' buttons, the scores' 0x14.
+- 11a done (multiplayer-port.md, 11a): the lobby screen, the multiplayer
+  game's lobby records and scores, zNetwork's walks with ids and team,
+  `set_game_info` / `refresh_session` and ENet's kDesc. Found: the world
+  list's hidden UNAVAILABLE, the add-on worlds by file name and the "**"
+  mark, teams as colours in play, the Zone's score report (dropped, FIX
+  (A)). The address lines sit under CANCEL and LOCK (a shot of the host's
+  lobby).
+- The lead's 9c item: the port mapper's quit bounded to 1 s (multiplayer-port.md).
+- The lead's real-router check: `net_upnp_real_router` behind MW3_UPNP_REAL=1
+  (the lead ran it on the Mac: passes, double router).
+- 11b done (multiplayer-port.md, 11b): the rules out and in, LOCK_OPTIONS,
+  the lock's mech; FIX (A) for the rules message, the locked door. Found:
+  STOCK on resets every loadout to the first stock one on the lock (a
+  candidate, fixes.md).
+- The lead: the lock's stock loadout as FIX (bug) behind bugs (066dd199).
+- 11c done (multiplayer-port.md, 11c): START, the places, READY, MECHLAB,
+  the scores, the teams' calls, the Load state for a multiplayer game, the
+  network game's lobby calls on the real game. Found: mech_net's one kills
+  hook was two exe calls (0x00435a30 kills, 0x00435a50 score); the lobby
+  needs the setter told of its own data (both transports now do). A host
+  alone goes from the menus to Beachhead.
+- The lead's order: the two-process lobby-to-game test first
+  (`sdl_two_processes_from_the_lobby_into_a_game`, `--click-players`), then
+  the mobile bases' stations (0x00490950), then 12.
+- The mobile bases' stations (0x00490950): no null place in the exe (the
+  emulator on c1's waynet_mp1 and mp2: all elements points), ported as is.
+- 12 done (multiplayer-port.md, 12): the chat log, its scroll, the send
+  and the 0x1f, FIX (A) for a short or open message.
+- The lead's chat check: names and chat text never a format, control
+  characters as '?' (names in zNetwork's records).
+- 13 done (multiplayer-port.md, 13): the new team's dialog, NEW_TEAM and
+  PICK_SKIN.
+- 14a done (multiplayer-port.md, 14a): zTwoD's console, the chat panel,
+  the chat keys, the HUD's chat line.
+- 14b checked (no code), 14c done (the way back to the lobby, the wreck's
+  fade), 16:9 for the multiplayer screens (multiplayer-port.md, 14b, 14c,
+  16:9). The whole-flow test and the 30-minute soak over the menu path;
+  the soak's leak (every mission's animations: a dword store over the def
+  count in 0x0050b380) fixed; the 1.2 read-me's six checks (two fixes: the
+  ping's latency, a Mac's keypad; the network loss ported).
+- The census's three (the player's death, a destroyed weapon's voices, a
+  network kill's box refill), the lobby's address lines at 16:9, the
+  briefing's first frame after its widening.
+- The mods check in the lobby (dev 2's M1 merged in; modding.md,
+  multiplayer-port.md, the mods check), on mac4/mods-check; with M2
+  merged, the lobby's add-on scan on to the mod worlds.
+- M3's share (modding.md): the texture and image libraries, the sounds and
+  interp.zbd's scripts bounded, with --check-mod looking inside them
+  (mac4/bounded-tex).
+- W40's probe (mac4/w40): --fire-probe in any Core game, the mouse's
+  capture, focus and buttons; Owen's run pending.
+- The overnight differential run's four (mac4/diff-fix): test_app_loop
+  (the probe records the now-ported poll 0x588930 as a boundary),
+  test_app_states (the quit box's move into the 2D named as the one
+  departure; the Escape frame's box update back after the frame),
+  test_veh_dock (the W8/W16 stuck check's start behind bugs), test_command
+  (CHAT_TEAM / CHAT_ALL back through the command's other hook).
+- Next: the lead's.

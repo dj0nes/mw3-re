@@ -7,9 +7,13 @@ the mockups were handed over in the outbox (launcher-sketch).
 
 ## The flow
 
-`mw3` with no check flags (not `--hidden`, `--frames`, `--shot`,
-`--campaign-chain`, `--mission`/`--fly`, `--movie`, `--dialog`, nor
-`--no-launcher`) runs:
+Since SETUP from any source (2026-10-31, docs/setup-sources.md and
+games-layout.md): a plain `mw3` start goes straight into the game when an
+install is found (mw3.cfg's, `<write dir>/install`, the finder's places),
+with no launcher; with none, it opens the **setup screen alone** (BACK is
+QUIT there) and goes on into the game in the same window once one is
+found or installed. The launcher below is its own program, `mw3launcher`
+(the launcher split, 2026-11-01; The two programs, below):
 
 1. SDL, the write dir, mw3.log (as now).
 2. The window, made once and kept for the game: fullscreen at the desktop
@@ -39,12 +43,14 @@ the mockups were handed over in the outbox (launcher-sketch).
 
 ## The setup screen (mockups 2 to 4)
 
-A status line, then four plates and Back:
+A status box (two lines, red for a refusal), then the plates and Back
+(SETUP from any source, 2026-10-31, replacing FIND and INSTALL):
 
 | plate | shown | what it does |
 | --- | --- | --- |
-| Find my installed MechWarrior 3 | always | the finder again, then a folder/Mech3.exe picker; `setup::check_install`; saved by `sdlfe::save_install` |
-| Install from my disc or disc image | always | the discs `setup::find_discs()` sees as plates of their own, plus "Choose a .iso or .cue file..."; `setup::probe_source` first ("MechWarrior 3 1.0 disc image (.cue), with 2 music tracks: about 711 MB to install." with Install / Back), then `setup::install_from_disc` into `<write dir>/install`, music into `<write dir>/music` for a .cue |
+| Point to your game | always | with no game found yet, the finder first (an install found is used at once); then a file picker (a disc image, a download: .zip .7z .rar .tar.., or Mech3.exe); `source::map_source` on the worker ("LOOKING AT YOUR GAME", its bar, CANCEL), then an installed copy on disk is used where it is, anything else gets INSTALL / BACK under its plain summary and `setup::install_from_source` into `<write dir>/install`, a cue's music into `<write dir>/music` |
+| A folder instead | always | a folder picker (an installed copy, a drive or a disc's files), then as above |
+| Search again | always | the finder (a moved install), else a disc in a drive (`find_discs`) looked at as if picked, else says nothing was found |
 | Apply the 1.2 patch | when the data is 1.0 or a mix | a file picker (the ZIP) or a folder picker; `setup::apply_patch` into `<write dir>/patch12` |
 | Add the music from my disc image | always (offered again after an install from an .iso, which has no CD audio) | a .cue picker; `setup::add_music` |
 
@@ -170,6 +176,71 @@ named install or `--install-from`/`--patch`; `--no-launcher` skips it):
   `launcher_first_start_notes`.
 - `--launcher-shot FILE [--launcher-screen main|setup|work|notes]` draws one
   screen into a BMP; `sdl_program_launcher_screens` checks the four.
+
+## The two programs (2026-11-01, the launcher split; games-layout.md)
+
+- `mw3launcher` (`launcher_main.cpp` over the same `launcher.cpp`): the
+  main icon. Windows: mw3launcher.exe, "MW3 Rebuild" in its version
+  resource, no console in any build (its output in the write dir's
+  mw3launcher.log; the game's stays mw3.log); the installer's main and
+  desktop shortcuts, "MechWarrior 3", start it; "MechWarrior 3 (no
+  launcher)" in the Start menu starts mw3.exe. Mac: "MechWarrior 3.app"'s
+  own executable (CFBundleExecutable), mw3 beside it in Contents/MacOS.
+  Linux: the AppImage's entry (mw3.desktop's Exec, its Name "MechWarrior
+  3"). The installed names are the game's (Owen, 2026-11-01); the release
+  files keep MW3-Rebuild-... (release.md).
+  Each package script checks both programs are in it.
+- MECHWARRIOR 3 starts `mw3` beside it (its own folder: `_NSGetExecutablePath`,
+  `/proc/self/exe`, `GetModuleFileNameW`; `MW3_GAME_BIN` for checks) as
+  `mw3 <install> [--write-dir D] [--windowed | --window WxH] [--nosound]
+  [--hidden] --ready-file F`, saving the install to mw3.cfg first, with its
+  own stdio (none: the game writes mw3.log itself; the launcher's log pipe
+  in its stdout would hold the launcher's exit until the game's). The
+  launcher stays on screen ("Starting MechWarrior 3...", input ignored)
+  until the game writes F at its first frame with a swapchain image
+  (`sdlfe::mark_ready`, sdl_render3d.cpp), so the switch shows no empty
+  moment, then **closes**, the game running on alone (Owen, 2026-11-01;
+  until then it hid and came back when the game ended). A failed start
+  leaves it up: a game that exits first has its exit code on the status
+  line; no first frame in 20 s says so on the status line ("has not shown
+  a picture yet") and the launcher keeps watching, closing at the frame if
+  it comes. `--hidden` keeps its window unshown and goes on to the game
+  (checks); `MW3_LAUNCHER_READY_MS` shortens the 20 s for them.
+  While the game works before its first frame it says what it is doing in
+  F.status (`sdlfe::set_ready_status`: its first start's movie import,
+  "Importing your movies (first start only)..." with the count when the
+  importer gives one, then "Starting MechWarrior 3..."; removed at the first
+  frame). The launcher reads it four times a second and shows it on its
+  status line in place of the 20 s "not shown a picture yet" (Owen,
+  2026-11-02: a first start sat a minute on "Starting MechWarrior 3...").
+  Test: `sdl_program_launcher_shows_the_games_status`.
+  Tests: `sdl_program_launcher_starts_mw3_as_its_own_program` (the
+  launcher's process ends at the ready file, the stand-in game still
+  running) and `sdl_program_launcher_stays_when_the_game_fails_or_is_slow`.
+  MechWarrior (1989) is unchanged: it has no ready signal, so the launcher
+  hides until it exits, as below.
+- The gap, measured (the launcher's log: "the game's first frame N ms after
+  MECHWARRIOR 3 was pressed"; the game's: "first frame shown N ms after the
+  start"): Mac, the app, 1.94 s, of which the game's own start 1.76 s (a
+  development build: SDL and mounts 0.20 s, the data version 0.08 s, the
+  window and GPU device 0.30 s, the original's start-up to its first frame
+  1.1 s) and the process's start about 0.2 to 0.45 s. The old one-process
+  hand-over saved the window and SDL's start (about 0.5 s) but drew nothing
+  either until the game's first frame; now the launcher is that picture.
+  Windows: over ssh the game gets no swapchain (windows.md), so the gap is
+  to be measured in a desktop session.
+- `mw3` started alone: straight into the game when an install is found;
+  the setup screen alone otherwise (`setup_only`, in the same window into
+  the game). `--launcher`, `--launcher-shot`, `--launcher-play` and
+  `--launcher-mw1` are mw3launcher's now.
+- Tests: `sdl_program_launcher_starts_mw3_as_its_own_program` (a stand-in
+  game keeps its arguments and writes the ready file: the install, the
+  write dir, the window, --nosound, --ready-file; the launcher's first-frame
+  and exit lines), `sdl_program_launcher_window_goes_on_to_the_game` (now the
+  setup screen's hand-over in mw3: an installed copy picked, the window
+  claimed, a frame shown), `sdl_program_plain_start_goes_straight_in_or_to_setup`
+  (mw3 refuses --launcher), the screens, sounds and MechWarrior (1989)
+  checks on mw3launcher.
 
 ## Open
 

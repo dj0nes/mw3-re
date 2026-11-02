@@ -5,6 +5,7 @@
 
 #include <cstdio>
 #include <cstring>
+#include <new>
 
 #include "gamez/zclass/cls_node.h"
 #include "gamez/zclass/object3d.h"
@@ -171,6 +172,35 @@ Mech* mech_new(MechData* data, MechControls* ctl, Config* cfg, const char* name)
   return m;
 }
 
+// Mech3.exe 1.2 @ 0x004148c0: the mech made again in its own memory as
+// `roster` (-1 its own): its loadout when the roster is its own, else the
+// type's first; its controls taken first (left off it when nothing is
+// made); the destructor (vt+0 with 0), then the constructor with `name`
+// (its vt+0xa4, the caller's); its old skin again by name; the HUD's fall
+// mode 0 (0x0041ca30, inline). Nothing without the type's data.
+void mech_rebuild(Mech& m, int32_t roster, const char* name) {
+  const int32_t own = m.pilot ? m.pilot->roster : -2;
+  const bool same = roster == own || roster == -1;
+  Config* cfg = same ? m.config : nullptr;
+  MechData* data = g_hooks->mech_data(same ? own : roster, 1);  // 0x00430d10
+  if (!data) return;
+  MechControls* ctl = m.controls;
+  m.controls = nullptr;
+  char nm[64] = {}, skin[64] = {};
+  if (name) std::snprintf(nm, sizeof nm, "%s", name);
+  if (const auto* old = static_cast<const Skin*>(m.decals); old && old->name) std::snprintf(skin, sizeof skin, "%s", old->name);
+  if (!cfg) cfg = mech_data_config(*data, 0);  // 0x00432950
+  if (ctl && cfg) {
+    m.release();
+    m.~Mech();
+    new (&m) Mech();
+    mech_construct(m, data, ctl, cfg, nm);
+  }
+  const MechDfn* dfn = g_hooks->dfn(m.pilot ? m.pilot->roster : roster);  // 0x004846a0
+  mech_set_skin(m, dfn && dfn->skins ? dfn->skins->named(skin) : nullptr);  // 0x00475b00, 0x00414390
+  m.hud_fall = &m == world().mission_player ? 0 : 1;  // 0x0041ca30(0)
+}
+
 // Mech3.exe 1.2 @ 0x00414f20 (vtable +0, 1)
 void mech_delete(Mech* m) {
   if (!m) return;
@@ -233,7 +263,7 @@ void Mech::release() {
     node = nullptr;
   }
   release_shadow();  // the bases' 0x004d58a0
-  x6d0.clear(), x678.clear(), actions.clear();
+  x6d0.clear(), net_shots.clear(), actions.clear();
 }
 
 // Mech3.exe 1.2 @ 0x004aeb00 (veh_basic.cpp's neighbour): the vehicle over
@@ -319,7 +349,7 @@ void mech_construct(Mech& m, MechData* data, MechControls* ctl, Config* cfg, con
   m.impulse = kZero, m.push = kZero;
   m.collides = true;
   m.heat_sinks.tech = 3, m.heat_sinks.count = 0, m.heat_sinks.doubles = false;
-  h.on_new(0xc, &m.x678);
+  h.on_new(0xc, &m.net_shots);
   m.pilot = data;
   m.x68c = nullptr;
   m.frame_dt = 0;
@@ -330,7 +360,7 @@ void mech_construct(Mech& m, MechData* data, MechControls* ctl, Config* cfg, con
   m.knockdown[3] = 3.76f, m.knockdown[4] = 11.28f;
   (void)m.tonnage();  // 0x00416770 compared with 10 and asked again: nothing is kept
   m.hip = nullptr, m.torso = nullptr;
-  m.x378 = 0;
+  m.chat = nullptr;
   m.legs[1] = m.legs[0] = nullptr;
   m.arms[1] = m.arms[0] = nullptr;
   m.jet_node = nullptr;
@@ -340,7 +370,7 @@ void mech_construct(Mech& m, MechData* data, MechControls* ctl, Config* cfg, con
   m.ams = nullptr;
   m.detail = static_cast<uint32_t>(-2);  // 0x0041e9e0
   m.model_node = m.lod_node = nullptr;
-  m.x690 = m.x680 = 0;
+  m.x690 = m.net_damaged = 0;
   m.alive_time = 0;
   m.anim_index = 2;
   for (MechAnim*& a : m.anims) a = nullptr;

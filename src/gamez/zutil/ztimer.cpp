@@ -11,6 +11,7 @@ platform::Clock* g_clock = nullptr;
 
 State& state() { return g_state; }
 void set_clock(platform::Clock* clock) { g_clock = clock; }
+uint32_t ticks_ms() { return g_clock ? g_clock->ticks_ms() : 0; }
 
 // Mech3.exe 1.2 @ 0x005759a0: the times zeroed and the last tick read now, so
 // the first update's step is the time since the start, not since 0.

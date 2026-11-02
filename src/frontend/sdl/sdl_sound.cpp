@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <cstring>
 
 namespace sdlfe {
@@ -25,6 +26,13 @@ int32_t SdlSoundOutput::create() {
   stream_ = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec, callback, this);
   if (!stream_) return static_cast<int32_t>(0x88780078);  // DSERR_NODRIVER
   SDL_ResumeAudioStreamDevice(stream_);
+  if (SDL_getenv("MW3_MOVIE_TRACE")) {  // ours, for diagnosis: the device's period
+    SDL_AudioSpec dev{};
+    int frames = 0;
+    SDL_GetAudioDeviceFormat(SDL_GetAudioStreamDevice(stream_), &dev, &frames);
+    std::printf("mw3: movie trace: sound device %d Hz, %d channels, %d sample frames a period; mixing at %d Hz\n", dev.freq,
+                dev.channels, frames, rate_);
+  }
   return 0;
 }
 
@@ -211,6 +219,15 @@ void SDLCALL SdlSoundOutput::callback(void* self, SDL_AudioStream* stream, int a
   auto* o = static_cast<SdlSoundOutput*>(self);
   const int frames = additional / static_cast<int>(sizeof(float) * 2);
   if (frames <= 0) return;
+  static const bool trace = SDL_getenv("MW3_MOVIE_TRACE") != nullptr;
+  static int traced = 0;
+  if (trace && traced < 60) {  // ours: the first callbacks' sizes and spacing
+    static Uint64 last = 0;
+    const Uint64 now = SDL_GetTicksNS();
+    std::printf("mw3: movie trace: sound callback %d frames (%.1f ms of sound), %.1f ms after the last\n", frames,
+                1000.0 * frames / o->rate_, last ? (now - last) / 1e6 : 0.0);
+    last = now, ++traced;
+  }
   o->scratch_.assign(static_cast<size_t>(frames) * 2, 0.0f);
   o->mix(o->scratch_.data(), frames);
   SDL_PutAudioStreamData(stream, o->scratch_.data(), frames * static_cast<int>(sizeof(float) * 2));

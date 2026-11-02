@@ -166,6 +166,17 @@ bool TrDummyState::enter() {
 }
 
 // ---------------------------------------------------------------------------
+// Multi-Exit
+
+// Mech3.exe 1.2 @ 0x00470710
+bool MultiExitState::enter() {
+  Engine& en = e();
+  en.mission_cleanup(1);  // 0x00491780
+  en.replace_state(2);    // 0x00590250 with 0x00482970(2): the main menu
+  return true;
+}
+
+// ---------------------------------------------------------------------------
 // Intro
 
 // Mech3.exe 1.2 @ 0x00482070. -nofmv skips INTRO only: the SPLASH logos in
@@ -412,7 +423,8 @@ bool CoreState::frame() {
     if (en.vcall(en.field32(en.pilot(), 0x6c), 0x2c, {}) != 3) return true;
     en.message_box_quit_prompt(message_box_);
   }
-  en.vcall(message_box_, 0x00, {zgame::bits(en.frame_dt())});
+  // The hardware path's, past its stop, is in its 2D with the HUD (W46).
+  if (renderer_ != kHardware || stop) en.vcall(message_box_, 0x00, {zgame::bits(en.frame_dt())});
   en.video_flip(0, 0, 0, 0);
   return false;
 }
@@ -638,6 +650,9 @@ bool CoreState::draw_hardware(Handle veh, bool flag) {
   en.video_begin_3d();
   hud(en);
   hud_static(en, veh);
+  // FIX (A), playtest W44/W46: the quit box (the exe's update after the frame,
+  // 0x00481e70) draws here, with the HUD's 2D, else nothing showed it.
+  en.vcall(message_box_, 0x00, {zgame::bits(en.frame_dt())});
   en.video_end_3d();
   return false;
 }

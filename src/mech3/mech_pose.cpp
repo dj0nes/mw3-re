@@ -245,6 +245,7 @@ void Mech::pose_gait(MechAnim& a, int jets, const Vec3& saved) {
 // Mech3.exe 1.2 @ 0x004177e7..0x004179fd (JumpJets): the jump pose, or the
 // stand without one, as it is (not advanced): legs, toes, hip, torso.
 void Mech::pose_jump() {
+  if (!anims[12] && !anims[2]) return;  // ours: no pose to take (a mech without its motions)
   MechAnim& a = anims[12] ? *anims[12] : *anims[2];
   Vec3 hp{0, 0, 0}, lp, rp;
   float hq[4], lq[4], rq[4], tq[4];

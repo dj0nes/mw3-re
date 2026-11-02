@@ -180,7 +180,8 @@ bool Disc::open(const std::string& path, std::string* error) {
 }
 
 DiscInstall install_from_disc(const std::string& source, const std::string& out_dir, const std::string& patch,
-                              const std::string& music_dir, const DiscProgress& progress) {
+                              const std::string& music_dir, const DiscProgress& progress,
+                              const std::string& movies_from) {
   DiscInstall r;
   auto say = [&](const std::string& s) { r.log.push_back(s); };
   auto fail = [&](DiscInstall::Failure f, const std::string& why) {
@@ -291,6 +292,18 @@ DiscInstall install_from_disc(const std::string& source, const std::string& out_
     if (!ok || r.cancelled)
       return abandon(wrote ? DiscInstall::kDamaged : DiscInstall::kCannotWrite, source + ": cannot copy " + f->path);
     ++r.movies, r.bytes += f->size;
+  }
+  if (!movies_from.empty()) {  // read out already: moved, or copied from another volume
+    fs::create_directories(tmp / "video", ec);
+    for (const auto& e : fs::directory_iterator(movies_from, ec)) {
+      const fs::path to = tmp / "video" / e.path().filename();
+      const uint64_t size = fs::file_size(e.path(), ec);
+      std::error_code mv;
+      fs::rename(e.path(), to, mv);
+      if (mv) fs::copy_file(e.path(), to, fs::copy_options::overwrite_existing, mv);
+      if (mv) return abandon(DiscInstall::kCannotWrite, "cannot move " + e.path().string() + ": " + mv.message());
+      ++r.movies, r.bytes += size;
+    }
   }
   say("video: " + std::to_string(r.movies) + " files");
 

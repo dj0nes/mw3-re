@@ -234,7 +234,7 @@ void classify() {
   if (m3::PlayerControls* pc = m3::player_controls_instance()) g_kind[pc] = kControls;
   if (!m) return;
   g_kind[m] = kMech;
-  g_kind[&m->parts] = g_kind[&m->actions] = g_kind[&m->x678] = g_kind[&m->x6d0] = kListHead;
+  g_kind[&m->parts] = g_kind[&m->actions] = g_kind[&m->net_shots] = g_kind[&m->x6d0] = kListHead;
   g_kind[m->tracked] = kPair;
   if (m->hip) g_kind[m->hip] = kHip;
   if (m->torso) g_kind[m->torso] = kTorso;
@@ -331,7 +331,7 @@ void mech_image(Img& o, const m3::Mech& m) {
   o.fs(0x340, c.matrix, 12);
   o.u(0x370, c.x370);
   for (int k = 0; k < 4; ++k) o.b8(0x374 + k, m.blocked[k]);
-  o.u(0x378, m.x378), o.p(0x37c, m.controls);
+  o.p(0x378, m.chat), o.p(0x37c, m.controls);
   o.list(0x380, &m.parts);
   o.p(0x38c, m.legs[0]), o.p(0x390, m.legs[1]), o.p(0x394, m.arms[0]), o.p(0x398, m.arms[1]);
   o.p(0x39c, m.torso), o.p(0x3a0, m.hip), o.p(0x3a4, m.head), o.p(0x3a8, m.jet_node);
@@ -360,7 +360,7 @@ void mech_image(Img& o, const m3::Mech& m) {
   o.i(0x658, m.heat_sinks.tech), o.i(0x65c, m.heat_sinks.count);
   if (g_configured) o.u(0x660, m.heat_sinks.doubles ? 1 : 0);  // the configuration's dword
   else o.b8(0x660, m.heat_sinks.doubles);
-  o.p(0x664, m.attacker), o.list(0x674, &m.x678), o.u(0x680, m.x680), o.p(0x684, m.pilot);
+  o.p(0x664, m.attacker), o.list(0x674, &m.net_shots), o.u(0x680, m.net_damaged), o.p(0x684, m.pilot);
   o.u(0x688, m.detail), o.p(0x68c, m.x68c), o.u(0x690, m.x690), o.p(0x694, m.model_node), o.p(0x698, m.lod_node);
   o.u(0x69c, m.heat_state), o.f(0x6a0, m.shutdown_time), o.f(0x6a4, m.beep_time), o.f(0x6a8, m.voice_time);
   o.u(0x6ac, m.x6ac), o.f(0x6b0, m.frame_dt), o.f(0x6b4, m.dead_time), o.fs(0x6b8, m.knockdown, 5);

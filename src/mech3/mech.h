@@ -48,6 +48,7 @@ struct MechData {
   Handle model = nullptr;        // +0x014  the model tree each mech copies (= models[0])
   Handle models[2] = {};         // +0x018  mechlib's trees (0x00484760): mech_<name>, mech_<name>_1 (low detail)
   uint8_t x20 = 0;               // +0x020  loaded: each step clears it on failure
+  uint8_t motion_refused = 0;    // ours: refused for a broken motion (modding.md, M3); a log line, no box
   Handle cameras = nullptr;      // +0x024  the view's camera kinds (0x00430e70)
   Handle sounds[25] = {};        // +0x028  by slot (mech_data.cpp kSounds): engine, ..., the mech's own
   MechAnim* anims[13] = {};      // +0x08c  the gait animations by slot (movement.md); copied to each mech
@@ -108,6 +109,14 @@ struct Vehicle : ai::AiTarget {
   void refresh_markers();
 };
 
+// A shot for the next network state (0x10 bytes, 0x0046f160 kind 0x16).
+struct NetShot {
+  int32_t slot = -1;         // +0x00  the weapon's index on its manager
+  int32_t x04 = 0;           // +0x04
+  int32_t trigger = 0;       // +0x08  the manager's state: 1 pressed, 2 held, 3 released
+  uint32_t target = 0;       // +0x0c  the locked target's player, 0 none
+};
+
 struct Mech : Vehicle {
   bool power_down_pending{};   // +0x0dc
   bool heat_shutdown{};        // +0x0dd
@@ -118,7 +127,7 @@ struct Mech : Vehicle {
   Vec3 part_aim{};           // +0x0ec  the target's chosen part's world point (0x0041d6f0)
   int32_t xf8 = -1;          // +0x0f8  the target's chosen part (0x0041d810), -1 none
   Collider collider;         // +0x0fc..+0x373 (mech_collide.h)
-  uint32_t x378 = 0;         // +0x378
+  class ChatPanel* chat = nullptr;  // +0x378  the network game's chat panel (mech3/chat_panel), none
   MechControls* controls = nullptr;  // +0x37c  (docs/controls.md)
   bool blocked[4] = {};      // +0x374  collider (+0xfc) resolved: vehicle, mech/bump, ceiling, wall/touch
   std::list<MechPart*> parts;  // +0x384, count +0x388
@@ -200,8 +209,10 @@ struct Mech : Vehicle {
   Vec3 lock_velocity{};      // +0x64c  vt+0xc's (0x0041d480): the lead velocity when last asked
   HeatSinks heat_sinks;      // +0x658
   Handle attacker = nullptr;  // +0x664  the last to hit it
-  std::list<Handle> x678;    // +0x678, count +0x67c (an empty list)
-  uint32_t x680 = 0;         // +0x680
+  uint8_t net_acked = 0;     // +0x668  the last state sent has arrived (0x004709d0)
+  uint32_t net_sent = 0;     // +0x66c  that send's id
+  std::list<NetShot> net_shots;  // +0x678, count +0x67c: the shots since the last state sent (0x0046f160 kind 0x16)
+  uint32_t net_damaged = 0;  // +0x680  the parts (bit by id) whose damage goes with the next state (kind 0x15)
   MechData* pilot = nullptr;    // +0x684
   Handle x68c = nullptr;     // +0x68c  updated last each frame (0x004e6480)
   uint32_t detail{};           // +0x688  level-of-detail bits by distance (docs/movement.md): 0 sounds, 1 toes, 2 turn pivot, 3 landing effects, 4 full gait, 5 lean

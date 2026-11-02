@@ -3,6 +3,7 @@
 // Core states: the pilot's game for a debug launch (our addition), the view
 // the Core state draws through. Not original code: it stands where the exe's
 // other modules will be. What has no port is logged once by address.
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <algorithm>
@@ -560,7 +561,7 @@ struct WiredPlayerHooks : PlayerHooks {
   void vehicle_place(Handle v, const ai::AivRecord* rec) override {
     if (!vehicles.count(v)) return PlayerHooks::vehicle_place(v, rec);
     const float pos[3] = {rec->get<float>(0x08), rec->get<float>(0x0c), rec->get<float>(0x10)};
-    program_vehicle_place(e->object_of(v), pos, rec_yaw(rec));
+    program_vehicle_place(e->object_of(v), pos, rec_heading(rec));
   }
   void vehicle_setup(Handle v, Handle common, const char* name, int32_t kind) override {
     if (!vehicles.count(v)) return PlayerHooks::vehicle_setup(v, common, name, kind);
@@ -678,6 +679,10 @@ struct WiredPlayerHooks : PlayerHooks {
     if (m && is_launched_mech(m)) update_mech(m, dt);
     else PlayerHooks::vehicle_update(v, dt);
   }
+  void stealth_update(Handle s, float dt) override {  // vt+0x34 while the view is on it
+    if (s && e->object_of(s) == program_stealth()) program_stealth_frame(dt);
+    else PlayerHooks::stealth_update(s, dt);
+  }
   void entities_update(float dt) override { update_entities(dt); }  // 0x004a1140
   // 0x004d52b0 / 0x004d5300: every znet object's vt+0x2c / vt+0x30 (vt+0x28
   // is itself, 0x004d2a70). Only the waynets' begin (0x00479a50) changes the
@@ -717,7 +722,9 @@ void mission_controls_free(void* controls) {
     return;
   }
   const Handle h = g_player_hooks.e ? g_player_hooks.e->handle_of(controls) : 0;
-  if (h && g_player_hooks.controls.count(h)) g_player_hooks.controls_delete(h);
+  if (h && g_player_hooks.controls.count(h)) return g_player_hooks.controls_delete(h);
+  // The network mech's are the mech's to delete (their vt+0x18, 0x004d7210).
+  if (auto* c = static_cast<MechControls*>(controls); c && c->release()) delete c;
 }
 
 namespace {
@@ -1497,9 +1504,26 @@ struct WiredObjectiveHooks : ObjectiveHooks {
 WiredObjectiveHooks g_objective_hooks;
 
 
+// [0x00479480]+0xa8: the lobby's ALLOW MOBILE BASES (piece 11c); a debug
+// start's game has none.
+bool mp_mobile_bases() {
+  const MultiplayerGame* g = current_pilot() ? current_pilot()->multiplayer() : nullptr;
+  if (!g && g_mission_engine && g_mission_engine->launch().type == 3) g = g_mission_engine->launch().multi;
+  return g && g->ba8;
+}
+
 struct WiredMissionHooks : MissionHooks {
   void hooks_check() override { hook_census_install(); }
   Handle multiplayer() override { return e->launch().type == 3 ? 1 : 0; }  // 0x00479480
+  // The loss in a network game (0x0048f9e0): the player's centre torso
+  // (0x0041d510's part 1) given no internal structure (its vt+0x3c with 0, 0).
+  Handle mech_action(Handle mech, int32_t v) override {
+    void* part = program_mech_part(e->object_of(mech), v);
+    return part ? e->handle_of(part) : 0;
+  }
+  void action_start(Handle a) override { program_part_set_internal(e->object_of(a), 0.0f, 0); }
+  uint8_t mp_flag() override { return mp_mobile_bases() ? 1 : 0; }
+  void mp_stations(Handle h) override { program_mp_stations(e->object_of(h)); }  // 0x00490950
   WiredObjectiveHooks& ob() { return g_objective_hooks; }
   // The end's cockpit (mission.cpp cockpit): 0x00430aa0 on the view's own mech's
   // +0x684, and its objectives box (+0x17964) shown for a time (vt+0x60, -1 held).
@@ -1695,7 +1719,11 @@ struct WiredMissionHooks : MissionHooks {
   }
   // The loading screen is the briefing's ([0x005f4c80]: 0x004050d0, 0x00405120);
   // its lines also go to the log.
-  void progress(float f) override { program_briefing_progress(f); }
+  void progress(float f) override {
+    if (f == 0.0f) load_t0_ = std::chrono::steady_clock::now();  // a mission load begins (mission.cpp)
+    program_briefing_progress(f);
+  }
+  std::chrono::steady_clock::time_point load_t0_ = std::chrono::steady_clock::now();
   void fn_431800() override { mech3::mech_canned_nodes_free(); }  // the canned effects' node copies
   // The mission's start animation (start_single_player_m<n>, else without the
   // number): found 0x0050b450, run at the load's end 0x00508c10(anim, 0, 0, 0, 0).
@@ -1712,7 +1740,10 @@ struct WiredMissionHooks : MissionHooks {
   }
   void progress_text(const char* s) override {
     program_briefing_line(s);
-    if (s && *s && !e->quiet) std::printf("mw3: load: %s\n", s);
+    if (s && *s && !e->quiet)
+      std::printf("mw3: load: %s (%lld ms)\n", s,
+                  static_cast<long long>(std::chrono::duration_cast<std::chrono::milliseconds>(
+                                             std::chrono::steady_clock::now() - load_t0_).count()));
   }
   int32_t game_mission_index() override { return e->launch().index; }
   int32_t game_type() override { return e->launch().type; }
@@ -1748,16 +1779,29 @@ struct WiredMissionHooks : MissionHooks {
   void set_608c84(Handle v) override { e->poke32(0x608c84, v); }
   Handle get_608c84() override { return e->peek32(0x608c84); }
   void set_stealth(Handle v) override { e->poke32(0x609a2c, v); }
-  // The stealth object (0x004a4de0) is not made (vehicles.md, The stealth
-  // object); its constructor's call that makes the vehicles' radar and TARGET
-  // markers (0x004ac3d0) is. The exe frees them with the stealth at the
-  // world's unload (0x004a4fc0 -> 0x004ac4e0); here the old ones go as the
-  // next are made.
-  Handle stealth_4a4de0(Handle mem, Handle x) override {
-    vehicle_markers_delete();
-    vehicle_markers_create();
-    return MissionHooks::stealth_4a4de0(mem, x);
+  // The stealth object (veh_stealth.h, editor.md): its controls (0x004ac860
+  // and 0x004a51b0 in one), then the object; its constructor makes the
+  // vehicles' radar and TARGET markers (0x004ac3d0), its destructor at the
+  // world's unload frees them (0x004a4fc0 -> 0x004ac4e0).
+  Handle stealth_4ac860(int32_t) override { return e->handle_of(program_stealth_controls()); }
+  Handle stealth_4a51b0(Handle obj, int32_t) override { return obj; }
+  Handle stealth_4a4de0(Handle, Handle ctl) override {
+    void* s = ctl ? program_stealth_create(e->object_of(ctl)) : nullptr;
+    return s ? e->handle_of(s) : 0;
   }
+  // 0x005a84c0 on the stealth: its node renamed (the vehicles' is entity_name).
+  void entity_named(Handle h, const char* name) override {
+    void* s = program_stealth();
+    if (!h || !s || e->object_of(h) != s) return MissionHooks::entity_named(h, name);
+    if (void* node = program_vehicle_node(s); node && name) zcls::node_set_name(static_cast<zcls::Node*>(node), name);
+  }
+  // zEntity's list (0x005a89c0, 0x005a8820): the unload keeps the stealth out
+  // while it frees the rest, then puts it back last.
+  void entities_remove(Handle h) override {
+    auto& l = ai::entity_list();
+    l.erase(std::remove(l.begin(), l.end(), h), l.end());
+  }
+  void entities_add(Handle h) override { ai::entity_list().push_back(h); }
   Handle stealth() override { return e->peek32(0x609a2c); }
   // Instant Action's game (the win's waves, 0x0048f740) and its next wave.
   Handle ia_game() override {
@@ -1772,6 +1816,8 @@ struct WiredMissionHooks : MissionHooks {
   uint32_t field32(Handle h, uint32_t off) override {
     uint32_t v = 0;
     if (ActionGame* a = launch_action(e); a && h == e->handle_of(a) && action_field(a, off, &v, nullptr)) return v;
+    if (off == 0x578)  // a mech's animation state (the loss's "already down", 10)
+      if (const int32_t st = program_mech_anim_state(e->object_of(h)); st != -1) return static_cast<uint32_t>(st);
     return e->peek32(h + off);
   }
   void set_field32(Handle h, uint32_t off, uint32_t v) override {
@@ -1964,6 +2010,9 @@ struct WiredMissionHooks : MissionHooks {
   Handle make_608c84(Handle mem, Handle world) override {
     unported("0x0047f2b0", {mem, world});
     build_soil_table();  // 0x0047f400, in the constructor
+    // [0x00608c84]+4, the world node, from here on (the stealth object, made
+    // later in this load, goes into it; read_world_params sets it again).
+    world_hooks().world = world ? static_cast<zcls::Node*>(e->object_of(world)) : nullptr;
     return mem;
   }
   void anim_allow_loading(int32_t on) override { zeff::anim_allow_loading(on); }
@@ -2266,6 +2315,32 @@ const char* mission_nav_name(uint32_t nav) {
   return program_nav_name(g_mission_engine ? g_mission_engine->object_of(nav) : nullptr);
 }
 
+void program_objectives_again() { missions().objectives_again(); }
+void program_net_clock(float left, bool on) {
+  missions().clock = left;
+  missions().clock_down = on ? 1 : 0;
+}
+void program_options_apply() { apply_all(); }
+
+namespace {
+// The pilot's network game, else a network debug start's (ours).
+MultiplayerGame* net_debug_game() {
+  if (MultiplayerGame* g = current_pilot() ? current_pilot()->multiplayer() : nullptr) return g;
+  return g_mission_engine && g_mission_engine->launch().type == 3 ? g_mission_engine->launch().multi : nullptr;
+}
+}  // namespace
+
+MultiplayerGame* mission_multiplayer_game() { return net_debug_game(); }
+std::vector<std::string> mission_multiplayer_score_lines() {
+  std::vector<std::string> out;
+  MultiplayerGame* g = net_debug_game();
+  if (!g) return out;
+  g->rescore();
+  g->score_texts(0x14, 0xc);
+  for (const auto& l : g->score_lines) out.push_back(l->text);
+  return out;
+}
+
 void wire_mission_hooks(GameEngine* e) {
   g_mission_hooks.e = e;
   g_objective_hooks.e = e;
@@ -2273,12 +2348,15 @@ void wire_mission_hooks(GameEngine* e) {
   g_player_hooks.forget();  // a new engine numbers its handles afresh
   g_mission_engine = e;
   set_mission_hooks(e ? &g_mission_hooks : nullptr);
+  program_set_mp_mobile_bases(e ? &mp_mobile_bases : nullptr);
   // The mission's waynet, the missions' +0xb0 ([0x00609980]): as a handle there.
   program_waynet_mission(
       e ? +[]() -> void* { return g_mission_engine->object_of(missions().stations); } : nullptr,
       e ? +[](void* w) { missions().stations = w ? g_mission_engine->handle_of(w) : 0; } : nullptr);
   AppKeyCalls& keys = app_key_calls();
+  const bool debug_camera = keys.debug_camera;  // the program's flag, set before
   keys = AppKeyCalls{};
+  keys.debug_camera = debug_camera;
   if (e) {
     keys.cycle_camera = [] {  // 0x0040aed0 on [0x005f4c8c]
       if (PlayerView* v = program_view()) v->cycle_camera();
@@ -2339,6 +2417,33 @@ void wire_mission_hooks(GameEngine* e) {
   (void)en;
   wire_mech_build(&w);
   wire_sensors(&w, [](void* p, int32_t id) { return static_cast<GameEngine*>(p)->message(id); });
+  net_set_game_clear([] {  // the network start's (0x0046ceb0): the network game's +0x7c, +0x80, +0x84
+    if (MultiplayerGame* g = net_debug_game()) g->clock_next = g->end_time = 0, g->end_state = 0;
+  });
+  NetGameAccess acc;
+  acc.fields = [](int32_t* players, float** clock_next, float** end_time, int32_t** end_state, int32_t** kills,
+                  int32_t** deaths, int32_t* score_limit, uint8_t** flags) {
+    MultiplayerGame* g = net_debug_game();  // 0x00479480
+    if (!g) return false;
+    *players = static_cast<int32_t>(znet::lists().players.size());  // +0x50, the lobby's count (piece 11: the session's)
+    *clock_next = &g->clock_next, *end_time = &g->end_time, *end_state = &g->end_state;
+    *kills = &g->kills, *deaths = &g->deaths, *score_limit = g->x70;
+    *flags = &g->b8c;  // +0x8c..+0x8f
+    return true;
+  };
+  acc.exit_fade = [] { fade_replace(&states().multi_exit, 0, 1, 2, kFadeSeconds, 0, 0, 0); };  // 0x0048ef00
+  acc.game_time = [] { return missions().time; };        // [0x0060991c]
+  acc.clock_left = [] { return missions().clock; };      // [0x00609920]
+  acc.clock_on = [] { return missions().clock_down != 0; };  // [0x00609924]
+  acc.set_clock_left = [](float v) { missions().clock = v; };
+  net_set_game_access(acc);
+  net_set_launch_game([](NetLaunchGame* out) {  // the network launch's (0x0046da80): slot 0 is +0x20 (0x00437800)
+    MultiplayerGame* g = net_debug_game();
+    if (!g) return false;
+    out->loadout = g->slot.config, out->skin = g->slot.skin;
+    out->unlimited_ammo = g->b8d != 0, out->outside_view = g->b8e != 0;
+    return true;
+  });
 }
 
 // 0x00490880 on the missions object: the load, then (a debug launch, our
@@ -2346,7 +2451,12 @@ void wire_mission_hooks(GameEngine* e) {
 void GameEngine::missions_start(uint32_t list) {
   if (list != 0x6098d0) return Engine::missions_start(list);
   Missions& m = missions();
-  ai::entity_list().clear();  // zEntity's list: emptied by the last cleanup (0x0049dc40); a debug start's own
+  // zEntity's list: emptied by the last cleanup (0x0049dc40) but for the
+  // stealth object, which the cleanup puts back (the world's, kept when the
+  // next mission is on the same world); a debug start's own.
+  const Handle stealth = peek32(0x609a2c);
+  ai::entity_list().clear();
+  if (stealth) ai::entity_list().push_back(stealth);
   mech_entities_forget();
   m.start();
   if (m.failed) std::fprintf(stderr, "mw3: the mission load failed\n");
@@ -2365,7 +2475,9 @@ void GameEngine::missions_start(uint32_t list) {
       ztwod::host().image_path("..\\data\\common\\images\\maps");
       briefing_pick_map(map);
     }
-    // The briefing's Launch (0x0040500a): the player's mech (0x00491150).
+    // The briefing's Launch (0x0040500a): a network game's start first
+    // (0x0046ceb0, briefing.cpp), then the player's mech (0x00491150).
+    if (launch_.type == 3) multiplayer_launch_prep();
     LaunchedMech s;
     if (!launch_player() || !launched_mech(&s)) {
       std::fprintf(stderr, "mw3: the launch made no mech\n");
@@ -2589,6 +2701,9 @@ uint32_t GameEngine::vcall(Handle obj, uint32_t slot, std::initializer_list<Arg>
   // A mech answers vt+0x50 with itself (vehicles.md, Telling a mech).
   if (obj && slot == 0x50 && entity_is_mech(object_of(obj))) return obj;
   if (menu_vcall(obj, slot, args, &r)) return r;
+  // The chosen pilot's own game (its +0x6c from the menus, peek32): its type.
+  if (Pilot* p = current_pilot(); obj && obj != game_ && p && p->current && obj == handle_of(p->current) && slot == 0x2c)
+    return static_cast<uint32_t>(p->current->type());
   if (obj && obj == game_) {
     switch (slot) {
       case 0x2c: return static_cast<uint32_t>(launch_.type);

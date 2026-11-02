@@ -22,6 +22,7 @@
 #include "mech3/mech_skin.h"
 #include "mech3/mech_skis.h"
 #include "mech3/pocket_panel.h"
+#include "mech3/mech_net.h"
 #include "mech3/weapon.h"
 #include "mech3/zainetedit.h"
 #include "mech3/zrdraiv.h"

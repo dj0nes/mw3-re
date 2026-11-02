@@ -18,14 +18,17 @@ Visual Studio's headers and libraries.
   `deps\SDL3_sound-3.2.0`; build.cmd hands it to CMake as
   `SDL3_sound_ROOT`, which an existing `build-win\` also picks up on its
   next configure. Its decoders are built in (stb_vorbis, dr_flac, dr_mp3).
-- For the movies' importer only: FFmpeg's shared libraries, BtbN's LGPL
-  build `ffmpeg-n8.1-latest-win64-lgpl-shared-8.1.zip` (github.com/BtbN/
-  FFmpeg-Builds, releases, "latest") unpacked into `deps\` as
-  `deps\ffmpeg-n8.1-latest-win64-lgpl-shared-8.1` (its `include\`,
-  `lib\*.lib` and `bin\*.dll`). Any shared build with those three folders
-  does (CMake takes the first `deps\ffmpeg-*shared*`, or `-DFFMPEG_DIR`).
-  It has FFmpeg's own Indeo 5 decoder and MPEG-1 encoder, which is all the
-  importer uses. Without it `mw3import` is not built; the game is.
+- For the movies' importer only: our minimal LGPL 2.1 FFmpeg 8.1.2, the
+  same configure line as the Mac's and Linux's (docs/deps.md), cross-built
+  on a Mac (or Linux) with mingw-w64: `tools/deps/build_deps.sh win`, then
+  `build-deps/win/prefix` copied to the PC as
+  `deps\ffmpeg-8.1.2-win64-lgpl-shared` (its `include\`, `lib\*.lib`,
+  `bin\*.dll` and licence files; CMake takes the first
+  `deps\ffmpeg-*shared*`, or `-DFFMPEG_DIR`). Four DLLs that load only
+  Windows' own. Without it `mw3import` is not built; the game is. (Until
+  2026-11-02 this was BtbN's "latest" LGPL build: not pinned, LGPL v3,
+  some fifty libraries built in, zvbi's GPL-2 files among them; not used
+  any more.)
 
 ## Building
 
@@ -36,7 +39,7 @@ to it. `mw3soundcheck --music FILE` plays a music file through the game's
 music player for 3 s and says whether this build decodes it.
 `tools\windows\build.cmd mw3 mw3import` also builds the importer, and its
 build copies FFmpeg's DLLs next to `mw3import.exe`; give a player the two
-exes and all the DLLs in one folder (FFmpeg 8.1's are nine). On Owen's PC
+exes and all the DLLs in one folder (FFmpeg's are four). On Owen's PC
 (2026-10-30): the 19 movies in 29 s; their `.wav` and `.fmv` files are
 the Mac's byte for byte, the `.m1v` differ by FFmpeg build but play either
 way; `--cue` on his MW3 disc image gives track02 (191.9 s) and track03
@@ -50,9 +53,11 @@ codec (fmv.md, The Indeo helper): `clang-cl -m32` under `vcvarsall x86`,
 one file, Windows' own libraries, the CRT linked in, a GUI program (no
 console when mw3 starts it). With it beside `mw3.exe` the movies need no
 FFmpeg and no import. Its check, from the repo, with the install at
-`C:\Games\MW3` (any 1.0 or 1.2 install):
+`C:\Games\MW3` (any 1.0 or 1.2 install; the reference frame from any
+full `ffmpeg` with the Indeo 5 decoder, as the package's DLLs come
+without `ffmpeg.exe`):
 
-    deps\ffmpeg-n8.1-latest-win64-lgpl-shared-8.1\bin\ffmpeg.exe -i C:\Games\MW3\video\C1M1.AVI -vf "fps=15,select=eq(n\,100)" -frames:v 1 -f rawvideo -pix_fmt rgb565le ref100.565
+    ffmpeg -i C:\Games\MW3\video\C1M1.AVI -vf "fps=15,select=eq(n\,100)" -frames:v 1 -f rawvideo -pix_fmt rgb565le ref100.565
     start /wait "" build-win\mw3indeo.exe --check C:\Games\MW3\Ir50_32.dll C:\Games\MW3\video\C1M1.AVI 100 c1m1-100 ref100.565 > check.txt
 
 `check.txt` says whether the codec loaded and ICOpen gave its driver (its
@@ -93,8 +98,10 @@ zip, made by Inno Setup's compiler from `tools\windows\installer.iss`
 (`iscc /DAppVersion=... /DDist=<the folder> /O<out>`). It installs the
 package folder to `Program Files\MechWarrior 3 Rebuild` (or, for a player
 without administrator rights, "only for me" in the user's Programs folder),
-with a Start-menu shortcut (and one to the read-me), a desktop shortcut
-(ticked by default), the rebuild's `LICENSE.txt` as its licence page, and
+with a Start-menu shortcut to the launcher, mw3launcher.exe ("MechWarrior
+3"), one straight to the game, mw3.exe ("MechWarrior 3 (no launcher)"), one
+to the read-me, a desktop shortcut to the launcher, "MechWarrior 3" (ticked
+by default), the rebuild's `LICENSE.txt` as its licence page, and
 an uninstaller. The game writes nothing in that folder, so the uninstaller
 leaves `%APPDATA%\MicroProse\MechWarrior 3` (settings, pilots, saves, the
 imported movies and music, a disc install) and says so. The same AppId
@@ -118,26 +125,9 @@ Windows helper; console programs) start without a window of their own
 development build stays a console program. `mw3import.exe` stays one too,
 for `mw3import --cue` from a prompt.
 
-BtbN's LGPL build is configured with `--enable-version3` (it has
-opencore-amr, Apache-2.0), so its DLLs are LGPL v3, and it builds in some
-twenty other libraries (dav1d, libvpx, opus, vorbis, lame, openh264, rav1e,
-SVT-AV1, zimg, libxml2, libbluray and more) that mw3import never uses.
-`ffmpeg_notices.ps1` lists them from the configure line with their licences
-(`licenses\ffmpeg-libraries.txt`), and names any it has no licence for.
-
-Later (not done; Owen's approval first, as building FFmpeg's downloaded
-code was not allowed in the dev session that tried it): a minimal FFmpeg of
-FFmpeg's own code only, LGPL v2.1+, a few MB instead of about 60, with no
-other notices. mw3import needs only `--disable-everything
---disable-autodetect --disable-programs --disable-doc --disable-network
---disable-avdevice --disable-avfilter --disable-swresample
---enable-protocol=file --enable-demuxer=avi --enable-decoder=indeo5
---enable-encoder=mpeg1video --enable-muxer=mpeg1video --enable-swscale
---enable-shared --disable-static`, built in MSYS2's MINGW64 shell
-(`--target-os=mingw32`, `-static-libgcc`), the `.lib` import libraries
-moved from `bin\` to `lib\` for CMake. Source: ffmpeg.org's
-ffmpeg-8.1.2.tar.xz (sha256 464beb5e...b524c, signed by the FFmpeg release
-key).
+The package's FFmpeg is FFmpeg's own code only (LGPL v2.1+, no other
+library inside), so its notice is FFmpeg's licence and configure line
+(`licenses\ffmpeg-configuration.txt`, from `mw3import --version`).
 
 `check_dist.ps1` then checks with `dumpbin /dependents` that every DLL the
 exes and DLLs import is in the folder or Windows' own (System32 or an

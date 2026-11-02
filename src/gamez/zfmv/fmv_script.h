@@ -177,6 +177,9 @@ class AviAction : public Action {
   double started = 0;             // +0x18  the first step's time
   int32_t frame = -1;             // +0x20  the frame last asked for
   Rect rect;                      // +0x24  0, 0, the render target's size
+  int32_t sound_seen = -1;        // ours: the sound's frame last shown (the judder's fix)
+  double trace_t0 = 0, trace_last = 0;  // ours: MW3_MOVIE_TRACE's times
+  int32_t trace_skipped = 0;
 };
 
 // PLAYMCI (vtable 0x005cf8b0): a movie through MCI. No script uses it; it ends

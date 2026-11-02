@@ -869,6 +869,43 @@ From the weapon code (weapons.md).
 - **In multiplayer the host re-checks the locked rules every 51 seconds**;
   changing them in memory (say, unlimited ammo after the lock) ends the game
   a minute or two later as if the clock ran out.
+  The rebuild leaves this check out.
+- **In a multiplayer mission another player's mech appears with their first
+  position update.** Until it does, everything else they send in the mission
+  is ignored, including chat. A player who leaves vanishes on the spot (no
+  wreck, no kill to anyone), and "<name> has bailed out of the game." shows
+  for four seconds. (`multiplayer-port.md`, piece 5a)
+- **In multiplayer an illegal loadout makes you invisible to the others.**
+  Each player's mech is built on the other machines from the loadout they
+  sent, and only if it passes the mech lab's checks (weight, armour, jump
+  jets, every item placed). One that fails builds nothing there: the player
+  plays on, but no one else sees their mech. (`multiplayer-port.md`, piece 5c)
+- **Multiplayer resends all your damage every 26th update.** Your mech's
+  position goes out up to 10 times a second (slower with more players:
+  7 a second for 2-4, 2 a second past 8), over a connection that can lose
+  packets. Damage rides along only when it changes, so every 26th update
+  carries every part's damage anyway: a lost hit shows up on the others'
+  screens within a few seconds. At one minute left the game says so, and
+  at three seconds left the game starts ending. (`network-messages.md`)
+- **Other players' mechs glide between updates, and their aim is not
+  corrected for lag.** Each update pulls a remote mech toward where it was
+  said to be, and between updates it carries on at its last speed, slowing
+  by about a quarter a second. The aim is meant to be pushed forward by the
+  measured lag, but the lag (in seconds) is divided by the time since the
+  last update (in milliseconds), so the correction is a tenth of a percent:
+  in effect none. The rebuild, with bug fixes on, corrects it as meant.
+  (`multiplayer-port.md`, piece 6b)
+- **In multiplayer, ramming kills credit no one.** Two mechs colliding
+  hurt each other, and the push of another player's mech is sent to you.
+  The game meant to note who pushed you, but it notes the pusher as its own
+  attacker, so if the push finishes you, nobody gets the kill. The rebuild,
+  with bug fixes on, gives it to the pusher. (`multiplayer-port.md`, piece 7a)
+- **In multiplayer every crater is the host's.** A crater your shot would
+  make is not made on your screen: it goes to the host, which makes it and
+  tells everyone (you included). Other players' shots make no craters on
+  your screen except those the host sends. A player who joins late gets
+  every crater so far. The mobile field bases' station animations are the
+  one kind of effect never shared. (`multiplayer-port.md`, piece 7b)
 - **Only one copy runs at a time.** Started a second time, the game finds the
   first window and brings it to the front instead. Launched from a multiplayer
   lobby, it closes the old copy instead.
@@ -1162,6 +1199,76 @@ From the network code (network-messages.md).
   a second with 2-4 players, down to 3 with 8; the tables stop at 8 players.
 - **Craters are shared.** The host checks each crater and sends it to everyone,
   so the terrain damage matches on every screen.
+- **You come back where the enemy is not.** In a game with respawn on, a
+  destroyed mech returns 7.1 seconds after it fell, repaired and rearmed
+  with its own loadout, at whichever of the map's starting points
+  (`remote_0` to `remote_15`) is farthest from the nearest other player's
+  mech, measured on the ground's plane (height does not count), then nudged
+  by your slot in the lobby. With respawn off you stay down and the view
+  switches to camera 4 to watch the rest of the game.
+- **The lobby's world list has a hidden first entry, "UNAVAILABLE".** The
+  arrows step over it, and a host whose saved world is missing gets
+  Beachhead.
+- **Add-on multiplayer worlds are found by file name.** Besides the eight
+  shipped worlds, the lobby lists every `readermp3.zbd` and up (numbered
+  over 2) in each campaign folder, named by the world's own info file; the
+  1.2 patch's two new maps on the c3 world come in this way. Each
+  player tells the others which of these it has, and a player without the
+  chosen one gets `**` after its name.
+- **The lobby marks the host with `++`** after its name.
+- **Teams are their colours.** In team play the game tells sides apart by
+  the team's skin (Gunmetal, Sunfire, Desert...), not by the team itself,
+  and without teams every player starts in Gunmetal.
+- **Kill limits double with teams.** The score list offers 1, 5, 10, 20
+  and 40 kills, or 2, 10, 20, 40 and 80 in team play.
+- **A score is kills minus suicides, never below zero,** and a team's is
+  the sum of its players'. Before the first kill the score list keeps the
+  lobby's order.
+- **You cannot kick yourself.** The game says so: "You can't kick yourself
+  out of the game! Pick on somebody else."
+- **Locking the options fits your mech to the weight limit.** When the host
+  locks the options, every player whose mech is over the WEIGHT LIMIT (or
+  who has none) gets the heaviest mech within it, with its first stock
+  loadout, and the mech lab then offers only mechs within the limit.
+- **"Use stock 'Mechs" resets everyone's loadout on the lock** to the
+  mech's first stock loadout, even a player who chose another stock one:
+  the game compares the player's copy of the loadout with the stock list's
+  own and never finds it. (The rebuild keeps the chosen one with bug fixes on.)
+- **The host is warned about an endless game.** Locking with no kill limit
+  and no time limit asks first: "No time limit. No score limit. Game has
+  no logical conclusion."
+- **The lock waits for everyone to have the map.** With an add-on world
+  chosen, the host cannot lock while a player lacks it; the game names
+  them.
+- **"Unlimited" is the number 100.** The kill and time lists' last
+  entries are the value 100, which the start turns into no limit; a
+  100-minute game cannot be chosen.
+- **The kill limit counts score, not kills:** kills minus suicides (never
+  below zero), and in team play the team's total.
+- **Your start point is your place in the lobby.** The host's START tells
+  everyone the players' order in the lobby list, and each mech's starting
+  point is chosen by that place.
+- **In-game chat stops your mech's controls.** CHAT ALL and CHAT TEAM
+  open a 25-line console box over the cockpit; while it is up the game's
+  commands are off (the keyboard types instead), and Enter sends and
+  closes it. Up arrow brings back the last line typed. Team chat without
+  team play goes to everyone. A chat line shows on the HUD for 5 seconds as
+  "<name  Send message to all> text".
+- **New teams are named by colour letter.** NEW TEAM suggests "A Team",
+  "B Team" and so on, by the first colour no team has yet (Gunmetal A,
+  Sunfire B...). A team's colour list never offers a colour another team
+  has, your own team's current one included.
+- **Lobby chat can be lost.** The lobby sends each chat message without
+  asking for delivery, so on a bad connection a line may never arrive. The
+  chat keeps the last 100 lines; the arrows scroll 14 at a time, and a team
+  message shows "< name to team >" (only the team gets it).
+- **Mobile bases in multiplayer use the map's repair stations.** With
+  ALLOW MOBILE BASES on, each multiplayer map's station points (two per
+  map) get a copy of the world's station, renamed mfb_station_04 and on,
+  so the field bases have somewhere to dock.
+- **A dead check on READY.** The game means to refuse READY in team play
+  when another team has your colour ("skin taken"), but asks the question
+  in a way that can never be true, so the warning never shows.
 
 ## Graphics
 
@@ -1236,6 +1343,39 @@ From the network code (network-messages.md).
 - **Game speed does not depend on CPU speed.** Everything is scaled by the real
   time each frame took, capped at 1/8 second a frame. The exceptions found so
   far are per-frame, like the lava heat above.
+
+- **Some vehicles' starting directions are written down and then ignored.**
+  The mission files give a few vehicles a heading (c1m1's two APCs face 110
+  degrees, c1m2's Bulldogs and APCs, c1m3's and c3m6's field bases, c3m6's
+  Strikers, the training mission's tank and APC turned round), but the game
+  sets the heading and then at once replaces it with the direction the
+  vehicle's model already has, so they all start facing the way the model
+  points.
+
+## A hidden game editor
+
+- **MW3 ships the in-game editor from Zipper's previous game.** A debug
+  command that no key is bound to opens "BATTLESPORT GAME EDITOR" (Zipper
+  made Battlesport before MW3): a mouse menu over the running mission with
+  EDIT AI NETS, EDIT VEHICLES, EDIT WEAPONS (which does nothing in MW3) and
+  EXIT GAME EDIT. The AI net editor has its own menu: go to a net, change a
+  net's or a node's parameters, add a vehicle to a node, move or delete a
+  node, save the changes, a tree view. While it is open the camera rides an
+  invisible vehicle, the "stealth" object every mission makes, and you fly
+  it with the game's own movement keys: throttle, turn and pitch, plus the
+  mouse. It hovers at a fixed height over the ground like a sled, and a
+  small readout names its movement mode (written into the debug text lines,
+  which the release never shows). Your own mech is still driven by the
+  same keys while you fly: hold throttle up and both move. And leaving the
+  editor leaves the camera where the editor put it, on the invisible
+  vehicle. Nothing in the released game can open it (docs/editor.md; the
+  rebuild opens it for developers with Shift+F12 under --debug-camera and
+  gives the view back on exit).
+- **Every mission builds that invisible camera vehicle anyway.** The
+  loading screen's "Creating Stealth" step makes it in every mission, campaign,
+  Instant Action and multiplayer alike, even though nothing in the release
+  ever looks through it. It has no model, so the game logs that it cannot
+  find its support points, collision points or destroy animation each time.
 
 ## Mission worlds
 
@@ -1953,10 +2093,17 @@ file (docs/assets.md, Data versions):
   "Hotel No_tell" and "Exit Vent" were English text in 1.0's mission files;
   1.2 names them by message number, with the 30-odd new names in the
   message table.
-- **New footstep and engine sounds.** 1.2 adds ten loose sound files
-  (`mech_footfall_2s.wav`, the soil footsteps, `mech_engine_np.wav`) and
-  points the mech sounds at them, and gives each sound quality its own
+- **The "new" footstep and engine sounds are the old ones.** 1.2 adds ten
+  loose sound files (`mech_footfall_2s.wav`, the soil footsteps,
+  `mech_engine_np.wav`) and points the mech sounds at them. The footsteps are
+  1.0's own sounds at 16 bits instead of 8 (the same samples, to within the
+  rounding). The engine is 1.0's loop with its last 176 samples cut: in 1.0
+  the loop ends on a ramp up to near full volume, so it clicks every time it
+  starts over ("np": no pop). 1.2 also gives each sound quality its own
   playback format.
+- **Room 4's sound has always been silent.** `env_room04.wav` in 1.0's
+  sound archives has no samples, and 1.2 points the sound at
+  `env_room04_p2.wav`, a file no version ships.
 - **The HUD gained layouts for 1152x864, 1280x1024 and 1600x1200.** 1.0's
   HUD file has 640x480, 800x600 and 1024x768 only.
 - **Smaller things:** new AI path networks and regions for Op 4b Missions 4
@@ -1965,8 +2112,20 @@ file (docs/assets.md, Data versions):
   the multiplayer host screen; messages for "Alt", "Shift", joystick buttons
   9 and 10, the mech lab's jump jet limit ("%1 can only carry %2 jump
   jets"), and a multiplayer check that tells a player with an older version
-  to patch. Op 3's world and animations and the mission scripts changed too,
-  not yet compared in detail.
+  to patch.
+- **Op 4b Mission 5 shipped with the wrong mission's paths.** In 1.0 its
+  data has only six AI path networks and Op 4's mission boundary; 1.2 adds
+  22 files, all from Missions 6 and 4: 13 copied byte for byte, the other
+  9 with a few points moved. Mission 4 gets five path networks its orders name but
+  1.0 never shipped.
+- **Op 3's world got a clean-up.** The world file was saved again: most of
+  the 187 models that differ hold the same faces in another order, but 34
+  really change. The dome complex's wall panels are re-cut to close the gaps
+  between them, a 6.3 m wall along one side of each of the seven helipads is
+  gone, three terrain corners that sat 4.5 m too low (holes you could see
+  through) are raised, a map-edge tile gets its missing point, and a few
+  small objects are closed. Op 3's animations and the mission scripts did
+  not change: those files were only saved again.
 
 ## Data files
 
@@ -2499,6 +2658,22 @@ file (docs/assets.md, Data versions):
   off the line to it usually clips the ground and an AI mech waits out its
   whole aim on a base it can't hit.
 
+- **The movies stutter in a steady beat.** The game shows a movie's
+  picture for wherever its sound has got to, but only checks when its own
+  15-frames-a-second clock ticks. Both start at the same moment and run at the
+  same speed, so each check lands just as the sound moves on to the next
+  frame: one frame shows twice and the next is skipped, about every third
+  frame, all through the intro. The rebuild checks the sound every time
+  (bug fixes on), so each frame shows once.
+- **...and a frame from two seconds ago can flash in.** The game keeps a
+  movie's sound in a two-part buffer and works out the picture from where
+  playback is in it. Windows sizes each part at exactly one second, so the
+  playback position often sits at exactly zero right after it wraps round,
+  and the game reads that zero as the start of the *previous* lap: for a
+  moment it shows the frame from two seconds earlier, every two seconds.
+  The rebuild reads it as the new lap (bug fixes on). (docs/fmv.md
+  section 5)
+
 ## The cameras
 
 From the view and its cameras (0x40aca0, 0x430e70; details: `view.md`).
@@ -2623,6 +2798,14 @@ From the view and its cameras (0x40aca0, 0x430e70; details: `view.md`).
   on a PC left on for weeks their waits and fades would move in visible
   steps (a quarter second after 24 days). The rebuild counts from the
   game's start.
+- **The intro and the ending movie are widescreen hiding in a 4:3 frame.**
+  INTRO.AVI is a 640x320 picture (2:1) with black bars baked in above and
+  below; the ending (c4win) is mostly 640x240 (8:3, wider than a cinema
+  screen), with a framed inset of about 568x283 partway through, and it
+  switches to a full 4:3 picture for its last four seconds, the Mad Cat in
+  a soft vignette. Every briefing movie is plain 4:3. On a widescreen
+  monitor the rebuild shows the letterboxed parts across the whole width.
+  (docs/fmv.md, The movies on a wide screen)
 
 ## Keyboard, mouse and joystick
 
@@ -3871,3 +4054,30 @@ The screen after the pilot for INSTANT ACTION, 0x00488bc0 (details:
   call. The rebuild, with bug fixes on, keeps them where they are for the
   next mech.
 
+
+- **A multiplayer game has no debriefing.** When the time or score limit
+  ends a network game, the game saves your pilot and goes straight back
+  through the main menu to the lobby, where the SCORES box shows that
+  game's score, kills and suicides for each player. The host's options
+  are unlocked again, so the host locks them and starts the next game as
+  the first time. With "Allow Respawn" on, a destroyed mech fades away in
+  the last second before its pilot comes back. (docs/multiplayer-port.md,
+  piece 14c)
+
+- **1.2 still has a cause of flailing arms in multiplayer.** Each player's
+  'Mech on your screen aims its arms where that player aims, carried a
+  little ahead by the connection's measured lag. The game measures the lag
+  from its pings, and when a player's answer reports a delay longer than
+  the whole round trip (a stall or hiccup on their side), the subtraction
+  goes below zero. The game reads that as an unsigned number: a lag of
+  about 24 days. Until the next ping, that 'Mech's arms swing between
+  their limits whenever its aim changes, most of all while it slows down
+  or turns. The rebuild, with bug fixes on, takes it as no lag.
+  (docs/multiplayer-port.md, the 1.2 read-me's six)
+
+- **Leaving the map in multiplayer is an invisible objective.** Each
+  multiplayer map has a hidden "left mission boundaries" fail objective,
+  as the campaign missions do. In a network game a failed mission does not
+  end anything; instead your 'Mech's centre torso loses all its internal
+  structure, and it blows up (then respawns, if respawn is on).
+  (docs/multiplayer-port.md, the 1.2 read-me's six)

@@ -354,6 +354,7 @@ Details: [`docs/protection.md`](docs/protection.md).
 
 These change how the game talks to the computer, not how it plays.
 
+- The graphics options no longer offer the software renderer, which the rebuild does not have: the video device list shows your graphics card only, and a setting saved by the original or an older rebuild that chose software starts on the card.
 - **Gamepads work as they did on Windows.** A modern pad's sticks, triggers
   and buttons arrive in the order the game knew from Windows: the left stick
   steers and walks, the triggers are the throttle, the right stick looks.
@@ -426,7 +427,9 @@ These change how the game talks to the computer, not how it plays.
   lines, and the backgrounds filled out to the edges from the player's own
   art as the game runs (nothing on disk changes). On by default; `widemenus=0`
   in mw3.cfg or `--no-wide-menus` keeps the original's 4:3 menus. A size
-  picked in the menus takes effect for the menus at the next start.
+  picked in the menus takes effect for the menus at the next start. The
+  multiplayer connection screen and lobby spread the same way, the lobby's
+  middle column widening between the other two.
 
 - The craters a host sends to a player joining a multiplayer game name their ground and texture by material number instead of by the host's memory addresses, which meant nothing on the joining machine (and do not fit a 64-bit program).
 
@@ -515,8 +518,22 @@ These change how the game talks to the computer, not how it plays.
   sound quality.
 
 - The rebuild runs on any MechWarrior 3 data, 1.0 as well as 1.2, and says
-  at start which it found. With 1.0's message file, the messages 1.2 added
-  read as blank text where the original would have crashed.
+  at start which it found. On 1.0's files it makes the 1.2 patch's changes
+  itself as the data loads, in its own words and numbers, without the patch's
+  files: so far the messages 1.2 added (target names, the new resolutions,
+  the jump-jet limit), the HUD layouts for 1152x864, 1280x1024 and
+  1600x1200, 1.2's weapon balance, the mechs' torso twist, heat sinks and
+  loadouts, its force feedback effects (a fall and a death shake), the
+  mission fixes (objectives, boundaries, a jump-jet ceiling, patrol points),
+  the named targets, the footstep and engine sounds (the engine loop
+  without its click, made from 1.0's own sound), and the AI paths and
+  regions 1.0 left out of Op 4b Mission 5 (taken from your own Mission 6
+  and 4 files, as 1.2 did), the other new AI paths, and 1.2's fixes to Op
+  3's world (the dome's gaps, the helipads' stray wall, the terrain holes).
+  Op 3's two new multiplayer maps, which 1.2 added as files of their own,
+  are copied into your settings folder on the first start, so a 1.0 player
+  has every 1.2 map too. Your files are not changed, and data that is neither 1.0's nor
+  1.2's (a mod) is left as it is. Details in `docs/patch12.md`.
 - A 1.0 install can be brought to 1.2 with the official patch file you
   already have (`--patch`, its ZIP or folder): the rebuild reads the patch
   without running its installer, checks every file against 1.2's, and
@@ -532,10 +549,11 @@ These change how the game talks to the computer, not how it plays.
 - Each start writes everything the rebuild reports to `mw3.log` in the saves
   folder (the start before kept as `mw3.old.log`), for bug reports. It also
   says which version of the game's data it found, and on the first start
-  shows a note when the 1.2 patch would help or no music was found, with
-  what to do.
+  shows a note when no music was found or the game files are of an unknown
+  version, with what to do (1.0's need nothing: they play as 1.2).
 
-- A launcher opens first (ours): it finds your MechWarrior 3 by itself and, when it cannot, sets it up from buttons instead of command lines: find your install, install from the disc or a disc image (with a progress bar and Cancel), apply the official 1.2 patch, add the music from a disc image.
+- Setting the game up takes whatever you have (ours): one POINT TO YOUR GAME button takes your installed game, the disc, a disc image (.iso, .cue/.bin with its music) or the file you downloaded (.zip, .7z, .rar, even a zip inside a zip) and installs straight from it, with nothing to unpack by hand; it tells MechWarrior 3 from Pirate's Moon by the files themselves. Started directly, the game goes straight in when it finds your install, and shows only this setup screen when it does not.
+- A launcher (ours; its own program, the main icon, which starts the game and steps aside while it runs; the game also starts directly) finds your MechWarrior 3 by itself and, when it cannot, sets it up from buttons instead of command lines: point to your game (with a progress bar and Cancel), apply the official 1.2 patch (offered only for game files of an unknown version), add the music from a disc image.
 
 ## Kept as the original, on purpose
 
@@ -553,3 +571,41 @@ Known quirks the rebuild deliberately keeps:
 - Jump jets lift you when you fire them walking uphill at more than 30 fps (the original could skim the ground with its jets burning).
 - The reticle turns yellow over a target out to your selected weapons' range, past 800 m (the ER large laser, ER PPC, Gauss rifle and others reach further); the original stopped looking at 800 m (bug fixes on).
 - A targeted building such as the Clan HQ in mission c3m1 shows on the radar and the map where it stands; the original pointed it at the map's zero point instead (bug fixes on).
+- The movies play smoothly with their sound: each frame shows once, when the sound reaches it; the original repeated one frame and skipped one every three or so, because it looked at the sound only when its own clock ticked (bug fixes on).
+- The movies no longer flash a frame from two seconds earlier every two seconds when they play through Windows' own Indeo codec: at each turn of the sound buffer the original read the sound's position as a whole buffer back (bug fixes on).
+- Multiplayer runs over UDP with ENet instead of DirectPlay, which modern systems no longer have: games are found on the local network or joined by address (`IP:port`, the host's UDP port forwarded for internet play). IPX, modem and serial connections are gone.
+- The multiplayer connection screen searches the local network as soon as it opens: games there show up without ticking Connect or pressing Find Game. Typing a host's address and pressing Find Game (or Enter) while it searches asks that host instead of stopping the search. The modem's Answer, Dial and Call buttons are gone, and the connection list has its one entry.
+- Hosting a multiplayer game opens its UDP port (27930) on your router by UPnP when the router allows it, and closes it again when you stop. The connection screen shows the address to give your friends, with a click to copy it, and your LAN address; when the internet cannot reach you it says why (no router answered, the router refused, another router in front of yours, or your provider's carrier-grade NAT) and what to do.
+- Joining a game with your player name already in use there is refused right after joining (the original checked before; our connection learns the names only on joining), with the same message.
+- Another player's loadout that arrives cut short is read only as far as it goes, instead of past its end.
+- Another player's record that arrives cut short makes no mech instead of being read past its end.
+- A multiplayer update or shot aimed at something that is not another player's mech names no player, instead of whatever memory followed that object.
+- A multiplayer update that arrives cut short is dropped, and its shots and damage are read only as far as it goes.
+- With bug fixes on, other players' aim is carried forward by the measured lag as intended (the original mixed seconds and milliseconds, so it barely moved).
+- With bug fixes on, a player whose mech is shoved to death by another player's collision credits that player with the kill.
+- A multiplayer clock message that would end the game outside a network game is ignored instead of crashing.
+- Messages from other players are checked before they are used, as anyone on the internet can send anything: a crater on ground that does not exist, an effect on objects that do not exist, more shots than a message holds, or a move the mech does not have are dropped instead of reading or writing past the game's tables.
+- The multiplayer host no longer re-checks its locked game rules every 51 seconds (a guard against memory editing that ended the game).
+- The multiplayer lobby no longer sends the scores to an online game service (the MSN Gaming Zone's score reporting, long gone).
+- The multiplayer lobby shows the host its internet and LAN addresses, with a click to copy, as the connection screen does.
+- The multiplayer lobby takes game settings only from the host, and checks them before use.
+- The multiplayer lobby takes the start of a game only from the host, and reads the scores between games only as far as the message goes.
+- The multiplayer lobby's chat reads each message only as far as it goes.
+- In-game multiplayer chat lines are read only as far as the message goes, and control characters in them show as '?'.
+- With bug fixes on, another player's 'Mech no longer throws its arms about on your screen after a hiccup in the connection (a delay longer than the ping's round trip was taken as a lag of 24 days).
+- In a multiplayer match Escape shows the game's "Are you sure you want to quit?" box, which the original never drew; with bug fixes on it does not stop play (move and fire as normal), Y leaves the match for the main menu and N or Escape closes it. Before, an Escape in a match left the mouse unable to fire.
+- A player who leaves a multiplayer game disappears for the others at once instead of after about half a minute.
+- A multiplayer game keeps running while its window is minimised or in the background, so your 'Mech is not a frozen target for the others (the original paused it).
+- On a Mac the numeric keypad types digits in text fields (an IP address on the connection screen); a Mac has no Num Lock, which the game needed on.
+- A locked multiplayer game turns away players who try to join it, instead of only greying out its Join button.
+- With bug fixes on, locking a multiplayer game with "Use stock 'Mechs" keeps the stock loadout a player chose instead of resetting it to the mech's first.
+- For developers only, with `--debug-camera` (or `debugcamera=1` in mw3.cfg): Shift+F12 opens the game editor the original carries but never lets you reach (its menu over the mission, the view on the invisible "stealth" camera flown with the movement keys); Shift+F12 again or EXIT GAME EDIT closes it and puts the view back on your mech (the original left it on the stealth). The AI net and vehicle editors behind its menu are not there yet.
+- The launcher closes once MechWarrior 3 is on screen, instead of waiting hidden for the game to end; if the game fails to start it stays and says so.
+- The launcher is installed as "MechWarrior 3" (the Windows Start menu and desktop, the Mac's "MechWarrior 3.app", the Linux desktop entry); the game alone is "MechWarrior 3 (no launcher)" in the Windows Start menu.
+- On a wide screen the movies keep their shape: the intro and the ending movie, whose black bars are part of the picture, fill the screen's width; the 4:3 movies and the logo screens are centred with black sides (they were stretched a third too wide). Measured once per movie from the pictures and kept in movie-shapes.txt in the settings folder.
+- Mods: folders of game data in the settings folder's mods\ folder, enabled in mw3.cfg (mod=NAME, in order), sit in front of the game's files; a mod's loose .zrd replaces one entry of a reader archive. A mod can never replace a player's pilots, loadouts, controls or settings, and with no mods enabled nothing changes (docs/modding.md).
+- A multiplayer game needs every player's gameplay mods to match: a player joining with other mods is told which mods the host uses and which they use, and LOCK OPTIONS names the player whose mods differ. Text, image, sound and music mods never count.
+- Mods can add new worlds (world= in mod.txt) and Instant Action maps on any world (ia_world=), and change the game's text (strings.txt, over Mech3Msg.dll's messages); a pilot whose Instant Action world came from a mod since removed plays on the first world.
+- A mod's new world can have multiplayer maps (readermp3.zbd and on), listed in the lobby with the others.
+- A broken entry in a reader archive (a mod's, say) is refused and named in the log instead of being read into whatever follows it; `mw3 --check-mod DIR` reads a mod as the game would and reports what it would refuse.
+- A broken texture or image library, world texture directory, sound or script file (a mod's, say) is refused and named in the log instead of being read past its end; a refused texture or sound is a missing one, a refused script line ends its script. `mw3 --check-mod` looks inside these files too.

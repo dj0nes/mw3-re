@@ -219,9 +219,13 @@ int read_nodes(int32_t size, std::FILE* f) {
   return p.capacity;
 }
 
+OpenHook g_open_hook = nullptr;
+void set_open_hook(OpenHook hook) { g_open_hook = hook; }
+
 // Mech3.exe 1.2 @ 0x004ff6a0. Only the signature and version are checked.
 std::FILE* open_zbd(const char* path, ZbdHeader* header) {
   std::FILE* f = zutl::open(path, "rb");  // FIX (A): the mounts (zutl_path.h)
+  if (f && g_open_hook) f = g_open_hook(path, f);
   if (!f) return nullptr;
   int line;
   const char* msg;
@@ -314,7 +318,8 @@ int read_zbd(const char* path) {
   int line = 0;
   const char* msg = nullptr;
   std::fseek(f, h.textures_offset, SEEK_SET);
-  if (zimg::read_texture_directory(h.texture_count, f) < 0) {
+  const std::string where = zutl::find(path);
+  if (zimg::read_texture_directory(h.texture_count, f, where.empty() ? path : where.c_str()) < 0) {
     line = 0x5d1, msg = "Error reading GameZ texture data.";
   } else if (std::fseek(f, h.materials_offset, SEEK_SET), zmod::read_materials(f) < 0) {
     line = 0x5dd, msg = "Error reading GameZ material data.";

@@ -28,7 +28,9 @@ struct TextureTable {
 };
 TextureTable& textures();
 
-int read_texture_directory(int count, std::FILE* f);  // 0x00518160
+// 0x00518160. Ours (docs/modding.md, M3): a mip index outside the table
+// refuses the directory (-1, the table as it was), `where` named in the log.
+int read_texture_directory(int count, std::FILE* f, const char* where = nullptr);
 TextureEntry* texture_at(int index);                  // 0x00518080
 
 // --- Loading ---
