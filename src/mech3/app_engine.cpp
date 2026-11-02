@@ -4,6 +4,7 @@
 #include "gamez/zclass/cls_node.h"
 #include "gamez/zimage/zimg_library.h"
 #include "mech3/app_engine.h"
+#include "mech3/mods.h"
 #include "mech3/force_feedback.h"
 
 #if !defined(_WIN32)
@@ -366,6 +367,9 @@ uint32_t GameEngine::message_dll_load(const char* name) {
     }
   }
   patch12::messages(dll_);
+  // Ours: the mods' strings.txt over the table (docs/modding.md).
+  if (!zutl::mounts().mods.empty())
+    for (const std::string& line : mods_apply_strings(dll_.text, dll_.ids)) std::printf("mw3: %s\n", line.c_str());
   zutl::install_messages(&dll_);
   return 1;
 }

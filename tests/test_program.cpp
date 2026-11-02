@@ -123,6 +123,7 @@
 #include "gamez/ztwod/twod.h"
 #include "gamez/ztwod/twod_host.h"
 #include "mech3/player.h"
+#include "mech3/mods.h"
 #include "mech3/sensors.h"
 #include "mech3/turret.h"
 #include "mech3/zai_brain.h"
@@ -10721,6 +10722,100 @@ TEST(mission_ia1_waves_headless) {
     app.exit_instance();
     mech3::set_app(nullptr);
   }
+  zrdr::close_archives(true);
+  mech3::reset_states();
+  reset_process_state();
+  mech3::options() = mech3::Options{};
+}
+
+namespace {
+bool& mod_world_reader_seen() {
+  static bool seen = false;
+  return seen;
+}
+}  // namespace
+
+// A mod's new world (docs/modding.md, M2): mods\mymap declares world=mymap
+// (its zbd\mymap\ the c1 world's files, linked; its mymap.gs sourcing
+// c1.gs) and ia_world=mymap; Instant Action on it (world 9) loads from the
+// mod's folder and reaches play with the player's mech.
+TEST(mod_world_plays_in_instant_action_headless) {
+  if (!have_game()) return;
+  namespace fs = std::filesystem;
+  SavedMounts keep;
+  const std::string wd = temp_dir("mod_world_write");
+  const fs::path mod = fs::path(wd) / "mods" / "mymap";
+  std::error_code ec;
+  fs::create_directories(mod / "zbd" / "mymap", ec);
+  for (fs::directory_iterator it(fs::path(MW3_GAME_DIR) / "zbd" / "c1", ec), end; !ec && it != end; it.increment(ec))
+    fs::create_symlink(it->path(), mod / "zbd" / "mymap" / it->path().filename(), ec);
+  std::ofstream(mod / "mod.txt") << "name=My Map\nworld=mymap\nia_world=mymap My Map\nworld=c1\n";
+  std::ofstream(mod / "mymap.gs") << "source c1.gs\n";
+  zutl::mounts() = zutl::Mounts{};
+  zutl::set_write_dir(wd);
+  mech3::mod_worlds().clear(), mech3::mod_ia_worlds().clear();
+  std::string log;
+  for (const std::string& l : mech3::mods_mount(wd, {"mymap"}, {MW3_GAME_DIR})) log += l + "\n";
+  zutl::mount(MW3_GAME_DIR);
+  std::printf("%s", log.c_str());
+  EXPECT(mech3::mission_dir_count() == 10 && std::string(mech3::mission_dir(9)) == "mymap" &&
+         mech3::mission_dir_index("MYMAP") == 9);
+  EXPECT(mech3::mod_ia_worlds().size() == 1 && mech3::mod_ia_worlds()[0].name == "My Map");
+  EXPECT(log.find("world c1: there is a world c1 already, left out") != std::string::npos);
+  EXPECT(zutl::find("zbd\\mymap\\gamez.zbd").find("/mods/mymap/") != std::string::npos);
+  mech3::reset_states();
+  reset_process_state();
+  mech3::missions() = mech3::Missions{};
+  mech3::mech_types_forget();
+  mech3::player_controls_instance() = nullptr;
+  mech3::options() = mech3::Options{};
+  FakeWindow window;
+  FakeAlert alert;
+  FakeClock clock;
+  FakeScreen screen;
+  platform::SilentSoundOutput sound;
+  mech3::MountFiles files;
+  mech3::Platform p;
+  p.window = &window, p.alert = &alert, p.clock = &clock, p.movie_clock = &fast_movie_clock(), p.screen = &screen, p.sound = &sound, p.files = &files;
+  bool played = false, from_mod = false;
+  {
+    mech3::GameEngine engine(p, "mech3.exe -nofmv");
+    engine.quiet = true;
+    mech3::Mech3App app(&engine);
+    mech3::set_app(&app);
+    EXPECT(app.init_instance());
+    mech3::ActionGame game(nullptr);
+    game.mode = 1, game.x6c = 1;
+    game.slot.mech = 9, game.slot.skin = 2;
+    game.add(14, 0, nullptr, 0);
+    mech3::GameEngine::Launch l;
+    l.type = 2, l.index = 9, l.number = 1;
+    l.action = &game;
+    engine.set_launch(l);
+    app.post_intro_ = &mech3::states().load;
+    int frames = 0;
+    engine.on_present = [&](int) {
+      if (app.current() != &mech3::states().core) return;
+      if (++frames == 3) played = mech3::mech_mission_player() != nullptr;
+    };
+    zrdr::set_load_hook([](const char* archive, const char*, zrdr::Node*) {
+      if (archive && std::string(archive).find("mymap") != std::string::npos) mod_world_reader_seen() = true;
+    });
+    mod_world_reader_seen() = false;
+    CountingPump pump;
+    pump.limit = 300;
+    pump.stop = [&] { return frames >= 3; };
+    app.run(pump);
+    from_mod = mod_world_reader_seen();
+    zrdr::set_load_hook(nullptr);
+    mech3::missions().cleanup(false);
+    app.stop_game();
+    app.exit_instance();
+    mech3::set_app(nullptr);
+  }
+  std::printf("  the mod's world: played %d, read from zbd\\mymap %d\n", played, from_mod);
+  EXPECT(played && from_mod);
+  mech3::mod_worlds().clear(), mech3::mod_ia_worlds().clear();
   zrdr::close_archives(true);
   mech3::reset_states();
   reset_process_state();
