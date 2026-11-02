@@ -3,6 +3,7 @@
 // garbled copies are refused or read, never a crash.
 #include <cstdint>
 #include <cstdio>
+#include <cstring>
 #include <filesystem>
 #include <random>
 #include <string>
@@ -11,7 +12,9 @@
 #include "check.h"
 #include "gamez/zclass/cls_mechlib.h"
 #include "gamez/zmodel/gmod_const.h"
+#include "gamez/zsiscript/si_script.h"
 #include "gamez/zutil/zutl_zar.h"
+#include "mech3/mech_anim.h"
 
 namespace {
 namespace fs = std::filesystem;
@@ -123,4 +126,57 @@ TEST(bounded_mechlib_fuzz_never_crashes) {
   std::printf("  mechlib fuzz: %d trees, %d refused, %d read; cut short %d, refused %d; materials refused %d\n", runs,
               refused, read, cut, cut_refused, materials_refused);
   EXPECT(runs > 150 && refused > 0 && cut_refused == cut);
+}
+
+namespace {
+// Every motion in the archive at `path` loaded: how many read, how many refused.
+void load_motions(const std::string& path, const std::vector<std::string>& names, int* read, int* refused) {
+  *read = *refused = 0;
+  if (!mech3::open_motions(path.c_str())) return;
+  for (const std::string& n : names) {
+    zsis::Script s;
+    if (mech3::load_motion(s, n.c_str())) ++*read;
+    else ++*refused;
+    mech3::script_free_parts(s);
+  }
+  mech3::close_motions();
+}
+}  // namespace
+
+TEST(bounded_motion_reads_the_shipped_motions_whole) {
+  const std::string path = std::string(MW3_GAME_DIR) + "/zbd/motion.zbd";
+  std::error_code ec;
+  if (!fs::exists(path, ec)) return;
+  std::vector<std::string> names;
+  for (const Entry& e : read_all(path)) names.push_back(e.name);
+  int read = 0, refused = 0;
+  load_motions(path, names, &read, &refused);
+  std::printf("  motion: %d of %zu read whole\n", read, names.size());
+  EXPECT(names.size() == 258 && read == 258 && refused == 0);
+}
+
+TEST(bounded_motion_fuzz_never_crashes) {
+  const std::string path = std::string(MW3_GAME_DIR) + "/zbd/motion.zbd";
+  std::error_code ec;
+  if (!fs::exists(path, ec)) return;
+  const std::vector<Entry> all = read_all(path);
+  const std::string dir = std::string(MW3_TEST_TMP) + "/bounded_motion";
+  fs::create_directories(dir, ec);
+  const std::string copy = dir + "/motion.zbd";
+  std::mt19937 r(4321);
+  int runs = 0, refused = 0, cut = 0, cut_refused = 0;
+  for (int seed = 0; seed < 300; ++seed) {
+    std::vector<Entry> m = all;
+    Entry& e = m[r() % m.size()];
+    const size_t before = e.data.size();
+    const int kind = seed % 3;
+    mutate(e.data, r, kind);
+    write_all(copy, m);
+    int ok = 0, bad = 0;
+    load_motions(copy, {e.name}, &ok, &bad);
+    ++runs, refused += bad;
+    if (kind == 0 && e.data.size() < before) ++cut, cut_refused += bad;
+  }
+  std::printf("  motion fuzz: %d motions, %d refused; cut short %d, refused %d\n", runs, refused, cut, cut_refused);
+  EXPECT(runs == 300 && refused > 0 && cut_refused == cut);
 }

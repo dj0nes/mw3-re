@@ -154,8 +154,18 @@ and `bounded_mechlib_fuzz_never_crashes` (210 trees cut short, bytes flipped
 or words made huge, and 30 broken material tables: none crash, every one
 cut short refused; without the bound it crashes at once).
 
-**Not bounded yet** (M3, next sittings, one format each): `motion.zbd`, the
-worlds' `anim.zbd` (dev 2), the texture and image archives' contents,
+**`motion.zbd`, bounded** (2026-11-01): a motion is read with its entry's
+end known (`zsis::Script::read`, `load_motion`): a frame count of 0 (the
+loop time divides by it), a frame or part count the bytes left cannot hold,
+a loop time not over 0, or a part's keys past the end refuse the motion
+(its parts freed, named in the log); a refused motion is a missing one.
+`test_motion.py` still reads all 258 as the original, each to its exact
+end; `bounded_motion_reads_the_shipped_motions_whole` (258 of 258) and
+`bounded_motion_fuzz_never_crashes` (300 copies: none crash, every one cut
+short refused; without the bound none is refused).
+
+**Not bounded yet** (M3, next sittings, one format each): the worlds'
+`anim.zbd` (dev 2), the texture and image archives' contents,
 `interp.zbd`'s scripts and the sound archives (dev 1). Their tables are
 checked (above); a mod that replaces one with broken contents can still
 crash the game, and `--check-mod` says it did not look inside.

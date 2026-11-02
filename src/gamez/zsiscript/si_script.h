@@ -22,7 +22,7 @@ struct Part {               // 0x4c bytes
 
   Part();                                    // 0x005aa500
   bool attach(Script* s, const Part* share); // 0x005aa5a0
-  bool read(std::FILE* f);                   // 0x005aa6d0
+  bool read(std::FILE* f, long end = -1);    // 0x005aa6d0; ours: `end` the entry's (a broken copy refused)
   void destroy();                            // 0x005aac10: the buffers, when owned
 
   void set_matrix(const float m[12], bool compose);  // 0x005aae10; null clears has_matrix
@@ -61,7 +61,10 @@ struct Script {             // vtable 0x5d0f20
   int32_t key0 = 0;         // +0x80
   int32_t key1 = 1;         // +0x84
 
-  bool read(std::FILE* f);  // 0x005a9c70, vtable +4
+  // 0x005a9c70, vtable +4. Ours (docs/modding.md, M3): with the archive
+  // entry's `end`, counts the bytes left cannot hold refuse the motion
+  // (false, its parts freed); without one, the original's read.
+  bool read(std::FILE* f, long end = -1);
   void share(const Script& from);  // 0x005a99f0: the same parts' buffers, frames, loop and rates
   void set_loop_time(float t);     // 0x005aa3b0
   void set_fps(float fps);         // 0x005aa450
