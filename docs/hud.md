@@ -1452,7 +1452,9 @@ In order, with the line count kept for the panel:
 - **Failed** (+0x88, only once the fail group is done, 0x0048fad0; not in
   multiplayer): an empty line, its text or 0x238, then each failed visible
   condition (no score).
-- **The end**: multiplayer's score lines (unported, 0x004361e0); else, lost
+- **The end**: in a network game the scores again (0x004361e0) and their
+  lines at widths 0x14 and 0xc (0x00435b60), each a line in rt_mp_scores
+  (ported 2026-11-01: `mission_multiplayer_score_lines`); else, lost
   (+0x56): an empty line, "M I S S I O N  F A I L U R E" (0x239) and "Press
   %1 To Exit Mission Area" (0x23a, Exit Mission's key, command 0x71); else,
   when every primary and final condition is done (visible or not, a
@@ -1493,6 +1495,35 @@ Completed while the box is open; F12 again hides it). Break: without the
 fill no line; without 0x00446930's blank score the columns differ.
 `build/mw3 --mission c1m1 --objectives N` (ours) opens the box from the
 N-th frame, for a screenshot.
+
+## 24b. The player's death and a network kill's scores (2026-11-01)
+
+- **The player's death** (0x0041b263..0x0041b30c, inside Die 0x0041b0d0,
+  on the view's mech's HUD): the zoom window hidden unless locked
+  (+0x1508 vt+0x64 unless +0x167c); still shown (locked open, +0x1514
+  bit 4 clear), its lock let go (0x00442e00, which hides it); then the
+  HUD off (vt+0x04 with 0: the radar hidden). `DamageCalls::player_died_hud`.
+- **A weapon destroyed on the player's mech** (0x004b3020's 0x004e6dc0 with
+  1.0, 0, 0, -1.0, 0): its NAMESOUND and `mech_part_destroy` voices through
+  0x00571cc0 (no place, volume 1, no fade; both QUEUE radio lines, so they
+  wait their turn); their names into the message panel only with
+  [0x0060b878], which nothing sets. `WeaponCalls::destroyed_sounds`.
+- **A kill's score in a network game** (0x00470170's end): the host's count
+  sent (0x14), then the view's mech's objectives box filled again while it
+  is shown (+0x17970 bit 4 clear). The exe reads the box through a null HUD
+  when the player's mech is not the view's target; the port does nothing
+  then (FIX (bug), fixes.md). `NetCalls::hud_scores`.
+- The HUD hooks' `multiplayer_game` (0x00479480) answers the pilot's
+  network game; it answered 0, so the box's network header and the MFD's
+  network title were never taken.
+
+Test: `mission_c1m1_player_death_hud_and_voices_headless` (the window
+locked open, a weapon with a NAMESOUND destroyed: its line queued; the head
+lost: the HUD off, the window closed and its lock let go; none of the three
+on the census), `net_chat_panel_c1mp1_headless` (the kill's score refills
+the open box, "Network Game Scores" first, and leaves a closed one empty).
+Breaks caught: the voices left a stand-in, the death's HUD call unwired,
+the scores' refill unwired.
 
 ## 25. The mission maps (hud-plan items 7-8; mech_map.cpp, `mission_map`)
 
@@ -1577,8 +1608,9 @@ to the ported fields:
   mode. The port started them at their defaults each time.
 - **The MFD's title** (message 0xdbe, "DISHONORABLE"): in single player it
   is drawn only while the cheat flag [0x00609994] is set (0x00442540). In
-  multiplayer, "You are alone." while [0x00605f88] is clear (not ported:
-  multiplayer). [0x00609994] is one byte in the exe. The cheat setters
+  multiplayer, "You are alone." while [0x00605f88] is clear: no remote
+  mech in the game ([0x00605f84]'s count, `net_game().mechs`; wired
+  2026-11-01). [0x00609994] is one byte in the exe. The cheat setters
   (0x0040ced0..) set it, and the mission's check (0x00491d20) sets or
   clears it at the start. The port kept two copies, so a cheat turned on
   mid-mission was missed by the debriefing (the mission still counted).

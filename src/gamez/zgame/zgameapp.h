@@ -45,6 +45,8 @@ class AppHooks : public Unported {
   virtual void input_unacquire() { unported("0x0051b050", {}); }    // zInput, release the devices
   virtual void input_acquire() { unported("0x0051b080", {}); }      // zInput, take them back
   virtual void video_restore_window() { unported("0x00579f20", {}); }  // zVideo, OpenIcon if minimised
+  // Ours (W45): run on while inactive (a network game), else the original's wait.
+  virtual bool run_while_inactive() { return false; }
 };
 
 class App {

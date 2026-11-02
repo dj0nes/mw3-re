@@ -92,7 +92,7 @@ struct Recording : mech3::ViewHooks {
     return g;
   }
   uint8_t water_flag() override { return g_w.water_flag; }
-  void camera_zone(mech3::Node3 cam, int32_t index, mech3::Mech* t) override {
+  void camera_zone(mech3::Node3 cam, int32_t index, mech3::Vehicle* t) override {
     call("0x004f6c80", {A(cam), index});
     call("0x005a80d0", {t ? id(t) : 0u});
     call("0x00502d70", {});
@@ -111,13 +111,15 @@ struct Recording : mech3::ViewHooks {
     call("0x0040b310", {fb(pos[0]), fb(pos[1]), fb(pos[2]), fb(at[0]), fb(at[1]), fb(at[2]), fb(back[0]), fb(back[1]),
                         fb(back[2])});
   }
-  const float* entity_position(mech3::Mech&) override {
+  const float* entity_position(mech3::Vehicle&) override {
     call("0x005a85e0", {g_w.mech});
     return g_w.entity_pos;
   }
-  mech3::CameraMode* mech_camera(mech3::Mech&, int32_t i) override {
+  mech3::CameraMode* target_camera(mech3::Vehicle&, int32_t i) override {
     return g_mode_at[call("mech.vt+0x10c", {g_w.mech, i})];
   }
+  void target_attached(mech3::Vehicle& t) override { unported("mech.vt+0x100", {v(t)}); }
+  void target_detached(mech3::Vehicle& t) override { unported("mech.vt+0x104", {v(t)}); }
   const float* torso_aim(mech3::Mech&) override {
     call("0x0041ce00", {g_w.mech});
     return g_w.aim;
@@ -134,7 +136,7 @@ struct Recording : mech3::ViewHooks {
   uint8_t head_bob() override { return g_w.head_bob; }
   float head_bob_scale() override { return g_w.head_bob_scale; }
   uint32_t mech_screen(mech3::Mech&) override { return call("0x00430aa0", {g_w.pilot}); }
-  mech3::Mech* player_target() override { return g_view ? g_view->target : nullptr; }
+  mech3::Vehicle* player_target() override { return g_view ? g_view->target : nullptr; }
   uint8_t game_byte_8e(uint32_t) override { return g_w.game_8e; }
   const float* mission_fog(bool water) override { return g_w.fog[water ? 1 : 0]; }
   void* dfn_reader(int32_t roster) override {

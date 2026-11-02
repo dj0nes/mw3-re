@@ -325,6 +325,7 @@ class GameEngine : public Engine {
   float source_value(int32_t src, Handle joy) override;  // 0x0042fea0: mech3::source_value
   uint32_t message_box3(int32_t a, int32_t caption, int32_t text, const char* s1, const char* s2,
                         const char* s3) override;
+  uint32_t message_box_plain(int32_t a, int32_t caption, const std::string& text) override;
   void credits_restart(Handle screen) override;
   void pilot_state_set_mode(Handle state, int32_t mode) override;
   void action_open(Handle screen) override;
@@ -427,6 +428,7 @@ class GameEngine : public Engine {
   uint32_t message_box_text(uint32_t hwnd, const char* text, const char* caption, uint32_t type) override;
   uint32_t focus_window() override { return hwnd_; }
   void lock_system_keys(uint32_t) override {}
+  bool run_while_inactive() override;  // ours (W45): a network game runs on while inactive
   void sleep(uint32_t ms) override;
   void remove_debug_menu(uint32_t) override {}
   void attach_debug_menu(uint32_t) override {}
@@ -567,15 +569,22 @@ class GameEngine : public Engine {
   void wait_start() override;
   uint32_t wait_poll() override;
   void wait_end() override;
-  void fmv_stretch(zimg::Texture* image, int32_t left, int32_t top, int32_t right, int32_t bottom);
+  // Ours on a wide buffer (docs/fmv.md section 8): rows `src_top`..`src_bottom`
+  // of the image (-1: all of it) kept in their shape over the whole buffer.
+  void fmv_stretch(zimg::Texture* image, int32_t left, int32_t top, int32_t right, int32_t bottom, int32_t src_top = -1,
+                   int32_t src_bottom = -1);
   struct MovieStats {  // ours, for checking: the PLAYAVI frames drawn, the last one, its movie's length
     int drawn = 0, last = -1, length = 0;
   } movie_stats;
+  // Ours (docs/fmv.md section 8): a movie's shape measured before its first
+  // frame instead of beside it (the --movie debug start's, for its shots).
+  bool movie_shape_first = false;
   // The Direct3D frame: zvid's lock (0x00576d00 / 0x00576d60), scene nesting
   // (0x00579af0 / 0x00579b10), the quad ([0x0072f3ec]) and the finish (0x00558610).
   // 0x0040f8d0: the message panel's slide, then the view target's HUD data update.
   void camera_update() override;
   void hud_update() override;  // 0x0040fac0: the HUD frame, its parts in the exe's order
+  void hud_draw() override;    // 0x0040e4b0: the game editor's frame (game_editor)
   Handle pilot_hud(Handle data) override;          // 0x00430aa0 on the MechData
   void hud_static(Handle hud, float dt) override;  // 0x0043cd20
   void hud_zoom_pass(Handle hud, float dt) override;  // 0x00444230: the reticle's zoom window's 3D pass

@@ -3,9 +3,14 @@
 // GameEngine's 16-bit buffer and Render3D. Our addition, not original code:
 // the zfmv::Host the exe's modules stood behind.
 #include <algorithm>
+#include <atomic>
+#include <cctype>
 #include <cstring>
+#include <fstream>
 #include <map>
 #include <memory>
+#include <mutex>
+#include <thread>
 
 #include "gamez/zfmv/fmv_script.h"
 #include "gamez/zimage/zimg_library.h"
@@ -14,6 +19,7 @@
 #include "gamez/ztwod/twod_host.h"
 #include "mech3/app_engine.h"
 #include "mech3/app_movie.h"
+#include "mech3/movie_shape.h"
 #include "gamez/zutil/zutl_path.h"
 #include "gamez/zvideo/zvid_ddd3d.h"
 #include "platform/vfw.h"
@@ -22,9 +28,27 @@ namespace mech3 {
 
 namespace {
 
+constexpr uint32_t kVidsType = 0x73646976;  // 'vids'
+constexpr const char* kShapesFile = "movie-shapes.txt";  // in the write dir (ours, docs/fmv.md section 8)
+
+// A movie's file name, lower case, without its folder or extension.
+std::string movie_name(const std::string& path) {
+  std::string n = path;
+  std::replace(n.begin(), n.end(), '\\', '/');
+  if (const size_t s = n.rfind('/'); s != std::string::npos) n.erase(0, s + 1);
+  if (const size_t d = n.rfind('.'); d != std::string::npos) n.erase(d);
+  for (char& c : n) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+  std::replace(n.begin(), n.end(), ' ', '_');
+  return n;
+}
+
 class GameFmvHost : public zfmv::Host {
  public:
   explicit GameFmvHost(GameEngine* e) : e_(e) {}
+  ~GameFmvHost() override {
+    stop_ = true;
+    if (scan_.joinable()) scan_.join();
+  }
   uint32_t unported(const char* key, std::initializer_list<zgame::Arg> args) override {
     return e_->unported(key, args);
   }
@@ -50,8 +74,14 @@ class GameFmvHost : public zfmv::Host {
   // so the blur's copies between them are nothing to do.
   void copy_to_second(const zfmv::Rect*, const zfmv::Rect*) override {}
   void copy_from_second(const zfmv::Rect*, const zfmv::Rect*) override {}
+  // A movie's frame in its shape on a wide screen (movie_shape.h); a still
+  // image kept in its own shape (GameEngine::fmv_stretch).
   void image_stretch(Handle image, int32_t, const zfmv::Rect*, const zfmv::Rect* dst) override {
-    if (auto* t = texture(image); t && dst) e_->fmv_stretch(t, dst->left, dst->top, dst->right, dst->bottom);
+    auto* t = texture(image);
+    if (!t || !dst) return;
+    int32_t top = -1, bottom = -1;
+    if (t == shown_image_) frame_rows(shown_frame_, &top, &bottom);
+    e_->fmv_stretch(t, dst->left, dst->top, dst->right, dst->bottom, top, bottom);
   }
   void scene_begin() override { e_->video_begin_scene(); }
   void draw_tint_quad() override { e_->video_draw_3d(); }
@@ -103,16 +133,20 @@ class GameFmvHost : public zfmv::Host {
     auto o = std::make_unique<Open>();
     o->video = type == 0x73646976;  // 'vids'
     const std::string host = remote_path(path);
+    std::unique_lock<std::mutex> lock(vfw_mu_);
     if (!host.empty() && vfw()->open(host, type, &o->remote) == 0 && o->remote) {
       vfw()->format(o->remote, &o->format);
       vfw()->info(o->remote, &o->info);
+      lock.unlock();
     } else {
+      lock.unlock();
       o->remote = 0;
       o->imported = MovieStream::open(movie_base(path), type);
       if (!o->imported) return -1;  // AVIERR_FILEOPEN
       o->format = o->video ? o->imported->info().video_format : o->imported->info().audio_format;
       o->info = o->video ? o->imported->info().video : o->imported->info().audio;
     }
+    if (o->video) shape_open(*o, host.empty() ? movie_base(path) : host, !host.empty());
     *stream = e_->handle_of(o.get());
     streams_[*stream] = std::move(o);
     return 0;
@@ -128,7 +162,9 @@ class GameFmvHost : public zfmv::Host {
   int32_t avi_length(Handle stream) override {
     Open* m = movie(stream);
     if (!m) return 0;
-    return m->remote ? vfw()->length(m->remote) : static_cast<int32_t>(m->info.length);
+    if (!m->remote) return static_cast<int32_t>(m->info.length);
+    std::lock_guard<std::mutex> g(vfw_mu_);
+    return vfw()->length(m->remote);
   }
   int32_t avi_info(Handle stream, zfmv::AviStreamInfo* info) override {
     Open* m = movie(stream);
@@ -139,18 +175,25 @@ class GameFmvHost : public zfmv::Host {
   int32_t avi_read(Handle stream, int32_t start, int32_t samples, void* buffer, int32_t bytes) override {
     Open* m = movie(stream);
     if (!m) return -1;
-    return m->remote ? vfw()->read(m->remote, start, samples, buffer, bytes) : m->imported->read(start, samples, buffer, bytes);
+    if (!m->remote) return m->imported->read(start, samples, buffer, bytes);
+    std::lock_guard<std::mutex> g(vfw_mu_);
+    return vfw()->read(m->remote, start, samples, buffer, bytes);
   }
   int32_t avi_find_sample(Handle stream, int32_t pos, uint32_t flags) override {
     Open* m = movie(stream);
     if (!m) return -1;
-    return m->remote ? vfw()->find_sample(m->remote, pos, flags) : m->imported->find_sample(pos, flags);
+    if (!m->remote) return m->imported->find_sample(pos, flags);
+    std::lock_guard<std::mutex> g(vfw_mu_);
+    return vfw()->find_sample(m->remote, pos, flags);
   }
   void avi_release(Handle stream) override {
     auto it = streams_.find(stream);
     if (it == streams_.end()) return;
     if (decoding_ == it->second.get()) decoding_ = nullptr;
-    if (it->second->remote && vfw()) vfw()->release(it->second->remote);
+    if (it->second->remote && vfw()) {
+      std::lock_guard<std::mutex> g(vfw_mu_);
+      vfw()->release(it->second->remote);
+    }
     e_->forget_object(it->second.get());
     streams_.erase(it);
   }
@@ -173,9 +216,11 @@ class GameFmvHost : public zfmv::Host {
     std::memcpy(&compression, static_cast<const uint8_t*>(out) + 16, 4);
     if (bits != 16) return -1;
     const int32_t rows = h < 0 ? -h : h, pitch = ((w + 3) & ~3) * 2;
-    if (decoding_->remote)  // the header and, for BI_BITFIELDS, its three masks
+    if (decoding_->remote) {  // the header and, for BI_BITFIELDS, its three masks
+      std::lock_guard<std::mutex> g(vfw_mu_);
       return vfw()->decompress(decoding_->remote, flags, out, size + (compression == 3 ? 12 : 0), image,
                                static_cast<size_t>(rows) * pitch);
+    }
     const zvid::ChannelMasks& m = zvid::channel_masks();
     return decoding_->imported->decompress(static_cast<uint16_t*>(image), w, rows, pitch, m.r, m.g, m.b);
   }
@@ -187,6 +232,7 @@ class GameFmvHost : public zfmv::Host {
     GameEngine::MovieStats& st = e_->movie_stats;
     ++st.drawn;
     st.last = stream->shown, st.length = stream->length;
+    shown_image_ = &stream->image, shown_frame_ = stream->shown;
     return e_->handle_of(&stream->image);
   }
   // zSound's streaming buffer (zsnd_create.cpp, ported).
@@ -231,6 +277,7 @@ class GameFmvHost : public zfmv::Host {
     std::unique_ptr<MovieStream> imported;
     std::vector<uint8_t> format;
     zfmv::AviStreamInfo info;
+    std::string shape_key;  // the picture's (movie_shape.h)
   };
   Open* movie(Handle h) const {
     auto it = streams_.find(h);
@@ -240,15 +287,160 @@ class GameFmvHost : public zfmv::Host {
   // The AVI's host path when the helper is up and the mounts have the file.
   std::string remote_path(const char* path) const {
     platform::VideoForWindows* v = vfw();
-    if (!v || !path || !v->ready()) return {};
+    if (!v || !path) return {};
+    {
+      std::lock_guard<std::mutex> g(vfw_mu_);
+      if (!v->ready()) return {};
+    }
     std::string p = path;
     std::replace(p.begin(), p.end(), '\\', '/');
     while (p.rfind("./", 0) == 0) p.erase(0, 2);
     return zutl::find(p.c_str());
   }
+  // The movies' shapes (movie_shape.h, docs/fmv.md section 8): measured
+  // once per movie on a thread of their own, kept in the write dir. A movie
+  // played before its shape is known shows its whole frame up to the first
+  // shape change after it is (never mid-shot).
+  struct Shape {
+    bool ready = false;
+    std::vector<MovieShapeRun> runs;
+  };
+  struct Play {
+    std::string key;
+    MovieShapePlay shape;
+  };
+  void shapes_load() {
+    if (shapes_loaded_) return;
+    shapes_loaded_ = true;
+    std::ifstream f(zutl::write_path(kShapesFile));
+    for (std::string line, key; std::getline(f, line);) {
+      std::vector<MovieShapeRun> runs;
+      if (line.empty() || line[0] == '#' || !movie_shape_parse(line, &key, &runs)) continue;
+      shapes_[key] = Shape{true, runs};
+    }
+  }
+  void shapes_save(const std::string& key, const std::vector<MovieShapeRun>& runs) {
+    const std::string path = zutl::write_path(kShapesFile);
+    std::ifstream in(path);
+    const bool fresh = !in.good();
+    in.close();
+    std::ofstream out(path, std::ios::app);
+    if (!out) return;
+    if (fresh) out << "# The movies' shapes on a wide screen, measured once each (docs/fmv.md section 8).\n";
+    out << movie_shape_line(key, runs) << "\n";
+  }
+  // A picture stream opened: its key (name, frames, size); scanned unless known.
+  void shape_open(Open& o, const std::string& source, bool remote) {
+    int32_t w = 0, h = 0;
+    if (o.format.size() >= 12) std::memcpy(&w, &o.format[4], 4), std::memcpy(&h, &o.format[8], 4);
+    h = h < 0 ? -h : h;
+    o.shape_key = movie_name(source) + "/" + std::to_string(o.info.length) + "/" + std::to_string(w) + "x" + std::to_string(h);
+    play_ = Play{o.shape_key, {}};
+    std::lock_guard<std::mutex> g(shapes_mu_);
+    shapes_load();
+    if (shapes_.count(o.shape_key)) return;
+    if (scanning_) return;  // one at a time: this one plays whole, measured on a later play
+    if (scan_.joinable()) scan_.join();
+    shapes_[o.shape_key] = Shape{};
+    scanning_ = true;
+    const std::string key = o.shape_key;
+    const int32_t fps = o.info.scale ? static_cast<int32_t>(o.info.rate / o.info.scale) : 15;
+    scan_ = std::thread([this, key, source, remote, fps] {
+      std::vector<MovieFrameScan> frames;
+      int32_t fw = 0, fh = 0;
+      const bool ok = remote ? scan_remote(source, &frames, &fw, &fh) : scan_imported_movie(source, &frames, &fw, &fh, &stop_);
+      std::vector<MovieShapeRun> runs;
+      if (ok) runs = movie_shape_runs(frames, fw, fh, fps);
+      std::lock_guard<std::mutex> g(shapes_mu_);
+      if (ok && !runs.empty()) {
+        shapes_[key] = Shape{true, runs};
+        shapes_save(key, runs);
+        std::printf("mw3: movie %s measured: %s\n", key.c_str(), movie_shape_line("", runs).c_str() + 1);
+      } else {
+        shapes_.erase(key);
+      }
+      scanning_ = false;
+    });
+    if (e_->movie_shape_first) {
+      shapes_mu_.unlock();
+      scan_.join();
+      shapes_mu_.lock();
+    }
+  }
+  // Every frame through the helper (its own stream, under the helper's lock).
+  bool scan_remote(const std::string& host, std::vector<MovieFrameScan>* out, int32_t* w, int32_t* h) {
+    platform::VideoForWindows* v = vfw();
+    if (!v) return false;
+    uint32_t id = 0;
+    std::vector<uint8_t> in;
+    zfmv::AviStreamInfo info;
+    int32_t len = 0;
+    {
+      std::lock_guard<std::mutex> g(vfw_mu_);
+      if (v->open(host, kVidsType, &id) != 0 || !id) return false;
+      v->format(id, &in);
+      v->info(id, &info);
+      len = v->length(id);
+    }
+    bool ok = in.size() >= 0x28;
+    int32_t fw = 0, fh = 0;
+    if (ok) std::memcpy(&fw, &in[4], 4), std::memcpy(&fh, &in[8], 4);
+    fh = fh < 0 ? -fh : fh;
+    ok = ok && fw > 0 && fh > 0 && fw <= 4096 && fh <= 4096;
+    std::vector<uint8_t> fmt(std::max<size_t>(in.size(), 0x6c), 0);
+    if (ok) {
+      std::copy(in.begin(), in.end(), fmt.begin());
+      auto w32 = [&](size_t at, uint32_t x) { std::memcpy(&fmt[at], &x, 4); };
+      w32(0, static_cast<uint32_t>(fmt.size()));
+      const uint16_t bits = 16;
+      std::memcpy(&fmt[0xe], &bits, 2);
+      w32(0x10, 3), w32(0x20, 0), w32(0x28, 0xf800), w32(0x2c, 0x07e0), w32(0x30, 0x001f), w32(0x34, 0);
+      const int32_t top_down = -fh;
+      std::memcpy(&fmt[8], &top_down, 4);
+      w32(0x14, static_cast<uint32_t>(fh * ((fw + 3) & ~3) * 2));
+    }
+    const int32_t pitch = ((fw + 3) & ~3) * 2;
+    std::vector<uint16_t> px(ok ? static_cast<size_t>(pitch / 2) * fh : 0);
+    std::vector<uint8_t> chunk(info.suggested_buffer ? info.suggested_buffer : 1u << 20);
+    for (int32_t f = 0; ok && f < len; ++f) {
+      if (stop_) ok = false;
+      std::lock_guard<std::mutex> g(vfw_mu_);
+      if (!ok || v->read(id, f, 1, chunk.data(), static_cast<int32_t>(chunk.size())) != 0) {
+        ok = false;
+        break;
+      }
+      const uint32_t flags = v->find_sample(id, f, 0x14) != f ? 0x08000000u : 0;  // FIND_PREV | FIND_KEY; not a key frame
+      if (v->decompress(id, flags, fmt.data(), fmt.size() + 12, px.data(), px.size() * 2) != 0) ok = false;
+      else out->push_back(movie_scan_frame(px.data(), fw, fh, pitch, 0xf800, 0x07e0, 0x001f));
+    }
+    {
+      std::lock_guard<std::mutex> g(vfw_mu_);
+      v->release(id);
+    }
+    *w = fw, *h = fh;
+    return ok;
+  }
+  // The rows of the playing movie's frame `f` to show, or -1 for its whole frame.
+  void frame_rows(int32_t f, int32_t* top, int32_t* bottom) {
+    std::lock_guard<std::mutex> g(shapes_mu_);
+    auto it = shapes_.find(play_.key);
+    const bool ready = it != shapes_.end() && it->second.ready;
+    int16_t t = 0, b = 0;
+    if (play_.shape.rows(ready ? &it->second.runs : nullptr, f, &t, &b)) *top = t, *bottom = b;
+  }
   GameEngine* e_;
   std::map<Handle, std::unique_ptr<Open>> streams_;
   Open* decoding_ = nullptr;
+  mutable std::mutex vfw_mu_;  // the helper's calls: the player's and the shape scan's
+  std::mutex shapes_mu_;
+  std::map<std::string, Shape> shapes_;
+  bool shapes_loaded_ = false;
+  bool scanning_ = false;
+  std::atomic<bool> stop_{false};
+  std::thread scan_;
+  Play play_;
+  const zimg::Texture* shown_image_ = nullptr;  // the movie's picture drawn last, and its frame
+  int32_t shown_frame_ = -1;
 };
 
 std::unique_ptr<GameFmvHost> g_host;
@@ -307,17 +499,32 @@ void GameEngine::wait_end() {
 
 // [0x0072f360] (0x005773e0): the whole image Blt-stretched over the rect of
 // the 2D target. FIX (A): onto the 16-bit buffer, nearest pixel, as
-// DirectDraw's stretch without filtering.
-void GameEngine::fmv_stretch(zimg::Texture* image, int32_t left, int32_t top, int32_t right, int32_t bottom) {
+// DirectDraw's stretch without filtering. Ours: over the whole of a buffer
+// wider than 4:3 the picture keeps its shape (the original's screen was
+// always 4:3): a movie's letterboxed rows at the buffer's width, anything
+// else at its height, centred on black (docs/fmv.md section 8).
+void GameEngine::fmv_stretch(zimg::Texture* image, int32_t left, int32_t top, int32_t right, int32_t bottom,
+                             int32_t src_top, int32_t src_bottom) {
   if (!image || !image->pixels || image->width <= 0 || image->height <= 0) return;
   if (last_via_render_ && !buffer_is_screen_) buffer_is_screen_ = true;  // drawn over whatever was shown
+  const int32_t iw = image->width, ih = image->height;
+  int32_t sy0 = 0, rows = ih;
+  if (width_ * 3 > height_ * 4 && left <= 0 && top <= 0 && right >= width_ && bottom >= height_) {
+    if (src_top >= 0 && src_bottom >= src_top && src_bottom < ih) sy0 = src_top, rows = src_bottom - src_top + 1;
+    // The picture's shape: a crop at the buffer's width, else the image's own.
+    int64_t dw = width_, dh = static_cast<int64_t>(width_) * rows / iw;
+    if (rows == ih || dh > height_) dh = height_, dw = static_cast<int64_t>(height_) * iw * ih / (static_cast<int64_t>(rows) * ih);
+    if (dw > width_) dw = width_;
+    std::fill(buffer_.begin(), buffer_.begin() + static_cast<std::ptrdiff_t>(width_) * height_, uint16_t{0});
+    left = static_cast<int32_t>((width_ - dw) / 2), top = static_cast<int32_t>((height_ - dh) / 2);
+    right = left + static_cast<int32_t>(dw), bottom = top + static_cast<int32_t>(dh);
+  }
   const int32_t x0 = left < 0 ? 0 : left, y0 = top < 0 ? 0 : top;
   const int32_t x1 = right > width_ ? width_ : right, y1 = bottom > height_ ? height_ : bottom;
   const int32_t w = right - left, h = bottom - top;
   if (w <= 0 || h <= 0) return;
-  const int32_t iw = image->width, ih = image->height;
   for (int32_t y = y0; y < y1; ++y) {
-    const int32_t sy = static_cast<int32_t>(static_cast<int64_t>(y - top) * ih / h);
+    const int32_t sy = sy0 + static_cast<int32_t>(static_cast<int64_t>(y - top) * rows / h);
     for (int32_t x = x0; x < x1; ++x) {
       const int32_t sx = static_cast<int32_t>(static_cast<int64_t>(x - left) * iw / w);
       const size_t i = static_cast<size_t>(sy) * iw + sx;

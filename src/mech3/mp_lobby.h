@@ -130,6 +130,12 @@ class LobbyScreen : public MenuScreen {
   void open_pick_skin();             // 0x0049a820: PICK_SKIN (8)
   int32_t free_skin(int32_t skin, int32_t except);  // 0x0049bd10: the team with that skin, 0 none
   bool has_world(uint32_t player, int32_t world);   // 0x0049ab30: an add-on world in its data
+  // Ours (the mods check): a player's gameplay mods from its data (the
+  // block after the add-on worlds; none: hash 0), and the text naming two
+  // sides' mods ("" when they match).
+  static bool mods_of(const std::vector<uint32_t>& data, uint64_t* hash, std::vector<std::string>* names);
+  static std::string mods_text(const std::vector<std::string>& names);
+  uint8_t mods_checked = 0;          // ours: the joiner compared its mods with the host's
   // Ours (piece 9c, the lead's plan for piece 11): the host's addresses, as
   // on the connection screen, while it waits for players.
   void show_reach();

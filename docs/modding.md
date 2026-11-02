@@ -66,11 +66,14 @@ Such files in a mod are listed as ignored.
   text).
 
 **Multiplayer.** Every player's gameplay data must match. A number over the
-enabled mods' gameplay files (`mods_gameplay_hash`) is to travel in the
-lobby's player data and block a game whose players differ, naming the mods
-on each side. Strings, images, sounds, music and movies do not count, so a
-translation or a texture pack never blocks a game. (The function and its
-test are M1's; the lobby's check is in the multiplayer code, next.)
+enabled mods' gameplay files (`mods_gameplay_hash`) travels in the lobby's
+player data, with the names of the mods that count (`mods_identity`, set at
+start-up). A joiner whose number differs from the host's is sent back with
+"Your mods don't match the host's. The host uses: X. You use: Y.", and LOCK
+refuses while any player's differs, naming theirs and ours. Strings,
+images, sounds, music and movies do not count, so a translation or a
+texture pack never blocks a game; with none on either side nothing changes.
+The block's layout: multiplayer-port.md, the mods check.
 
 Tests: `test_mods.cpp` (mod.txt; the folders found; the mounts in order,
 the first winning, unusable names left out, nothing served for pilots or
@@ -106,9 +109,11 @@ Action screen shows the first world and a launch asks for c1, said in the
 log (ours: the original would load a world named "none").
 
 **Multiplayer.** The lobby's add-on scan (every `readermp<n>.zbd`, `n` over
-2, named by its `mpinfo.zrd`'s `db_name`) looks in the first six folders;
-a mod's maps on those worlds are found today. Its worlds past the nine wait
-for the lobby to scan them (the multiplayer code, with the mods check).
+2, named by its `mpinfo.zrd`'s `db_name`) looks in the first six folders
+and, ours, in every mod world (9 on); t1, lab and dev1/dev2 stay left out.
+A mod world's map is an add-on world like c3's: listed in the player's
+lobby data, `**` beside a player who lacks it, and LOCK refused for it.
+Test: `net_lobby_lists_a_mod_worlds_maps_headless`.
 
 **Words.** `strings.txt` at the mod's root: `id=text` a line, over
 Mech3Msg.dll's messages (the first enabled mod's line wins). The id is a

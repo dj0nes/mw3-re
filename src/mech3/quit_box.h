@@ -22,6 +22,12 @@ class QuitBox : public ztwod::MessageBox {
   // +0x2c 0x0048e3f0 jumps to the base's.
   void prompt();                  // 0x0048e2d0
   void close();                   // 0x0048e320
+  // Ours (playtest W46, with bug fixes on): while shown, Y leaves (OK) and N
+  // closes (Cancel); called each frame before the box's update.
+  void keys();
+
+  // Ours (W46): Y's and N's commands (key1, key2), lifted while shown.
+  int32_t held_cmds[2][2] = {};
 
   SlideButton unused;             // +0x12494  built (id -1), never bound or added
   int32_t mouse_cmd = 0;          // +0x12680  the command on mouse button 1, unbound while shown

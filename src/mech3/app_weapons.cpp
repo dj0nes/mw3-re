@@ -168,7 +168,13 @@ void wire_weapons(uint32_t (*log)(const char* key)) {
   };
   c.node_destroy = [](Handle n) { zcls::node_delete(zn(n)); };
   c.mech_sound = [](int32_t i) { cockpit_sound_play(i, 1.0f); };  // 0x0041e770
-  c.destroyed_sounds = [](Handle, Handle) { unported("0x004e6dc0"); };
+  // 0x004e6dc0 (1.0, 0, 0, -1.0, 0): the weapon's name and "destroyed" voices,
+  // each through 0x00571cc0 (no place, volume 1, no fade). Their names in
+  // the message panel only with [0x0060b878], which nothing sets.
+  c.destroyed_sounds = [](Handle name, Handle destroyed) {
+    for (Handle h : {name, destroyed})
+      if (h) zsnd::play_fading(static_cast<zsnd::Object*>(h), nullptr, 1.0f, nullptr, -1.0f, 0);
+  };
   c.voice_destroyed = [](int32_t) { unported("0x004853d0"); };
   c.vehicle_entity = [](Handle v) { return v; };                                          // vt+0x2c: itself
   c.vehicle_velocity = [](Handle v) { return reinterpret_cast<const Vec3f*>(&mech_of(v)->velocity); };

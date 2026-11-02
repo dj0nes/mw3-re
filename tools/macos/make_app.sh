@@ -1,5 +1,5 @@
 #!/bin/bash
-# Builds "MechWarrior 3 Rebuild.app" and its DMG for Mac players (docs/macos.md):
+# Builds "MechWarrior 3.app" and its DMG for Mac players (docs/macos.md):
 # a package build (MW3_PACKAGE: no development copy of the game in it), the
 # libraries it loads copied into Contents/Frameworks with their paths
 # rewritten to @rpath, the icon, Info.plist, every binary signed ad hoc
@@ -13,7 +13,7 @@
 #        (arm64, x86_64), macOS 12 and later, against the libraries
 #        tools/deps/build_deps.sh mac built (build-deps/mac/prefix), not Homebrew's
 #
-# Out: build-mac/dist/MechWarrior 3 Rebuild.app and
+# Out: build-mac/dist/MechWarrior 3.app and
 #      build-mac/dist/MW3-Rebuild-<git describe>-mac.dmg
 set -euo pipefail
 cd "$(dirname "$0")/../.."
@@ -30,7 +30,7 @@ if [ -n "$DEPS" ] && [ ! -d "$DEPS/lib" ]; then echo "no $DEPS: run tools/deps/b
 if [ -z "$DEPS" ]; then
   echo "note: Homebrew's libraries (this Mac's macOS, arm64 only); THIRD-PARTY.txt describes the --deps build: not for release" >&2
 fi
-NAME="MechWarrior 3 Rebuild"
+NAME="MechWarrior 3"  # the app as installed (CFBundleName, the display name); the DMG keeps MW3-Rebuild-
 BUNDLE_ID="com.owenmorgan.mw3rebuild"
 VER="$(git describe --tags --always --dirty)"
 OUT=build-mac/dist

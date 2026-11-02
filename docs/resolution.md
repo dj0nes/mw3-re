@@ -486,6 +486,14 @@ Tests:
 - `mission_c1m1_mode_change_keeps_the_camera_shape_headless`: c1m1 at mode
   5, then 13, then 5. The camera reads 80 by 60, then 96.42 by 60, then 80
   by 60. Without the fix it stays at 80 at 1920x1080 (1 check fails).
+  Each change also refits the player's HUD (0x004ab6b0's loop, 0x0041cdc0
+  on the view's mech: Hud::setup once a change, `Hud::setups`; break: the
+  loop empty, no setup). The exe's loop walks zEntity's list at
+  [0x0073655c]..[0x00736560]; the base Engine's (the emulator probes')
+  reads that mirror, which the program never writes, but the program's
+  own (`GameEngine::screen_mode_cockpits`, and `update_shadows` through
+  `update_mech_shadows`) walk `ai::entity_list()`, so both run in play
+  (2026-11-01, the lead's check of dev 2's note).
 - `mission_c1m1_options_from_the_pause_keep_the_menus_frame_headless`: c1m1
   at modes 5, 13 and 15. Escape, the pause screen's OPTIONS, then GRAPHICS &
   AUDIO. Both screens have origin 0, and ACCEPT's and RESOLUTION's rects are
@@ -543,6 +551,9 @@ made, except the pause screen (it keeps the dialog origin, section 9):
   polyline's points are where it draws (0x005a38f0), so they move with it
   (the briefing's lines); a briefing waypoint is put back on its nav point
   every frame (0x004081a0), so it keeps the map's shift (ours, `shift_x`);
+  a ripple button's ripple (SlideButton) is carried by the offset, not put
+  again at its image's centre, which a baked or not yet shown button has not
+  (playtest W41: HOST's ripple at its corner);
   a Line2D draws from its place to its end, so its end moves too (the
   debriefing's totals); a control whose rect runs from 0 to past its own
   place (its bounds pulled to a label at 0: the lab's data and lists) is
@@ -609,7 +620,15 @@ group, the part past it to the right; the right column stretched first),
 202 and 412, just inside the middle column's two dividers: that column's
 shade and lines widen, the outer two keep the screen's edges. The
 briefing in its multiplayer mode is the briefing's one block; there is no
-multiplayer debriefing (the lobby's scores after a game).
+multiplayer debriefing (the lobby's scores after a game). The lobby's two
+address lines (ours, piece 9c: under CANCEL and LOCK OPTIONS at 640, where
+nothing else fits) move on a wide canvas to the middle column's band under
+the chat bar (y 379 and 389), clear of the bottom row. The frame's bottom
+line stops under the middle column as it does at 640 (the art's: just left
+of MECHLAB). A briefing draws its first frame (the constructor's,
+0x00405230) only once widened (`BriefingScreen::draw_first`, called by
+GameEngine::construct after widen_screen); before, that one frame showed
+at 640 over the last screen.
 `--click-at` in the menus is a canvas pixel now (the menus' origin is 0).
 
 Test: `menus_wide_spread_by_their_groups_headless`, with a saved

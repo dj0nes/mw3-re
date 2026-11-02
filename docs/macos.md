@@ -1,7 +1,8 @@
 # The macOS app
 
 `tools/macos/make_app.sh` makes the release for Mac players:
-`build-mac/dist/MechWarrior 3 Rebuild.app` and
+`build-mac/dist/MechWarrior 3.app` (the app as installed: CFBundleName and
+the display name "MechWarrior 3") and
 `build-mac/dist/MW3-Rebuild-<git describe>-mac.dmg`. Run from the repo root.
 The release form is `tools/macos/make_app.sh --deps` (after
 `tools/deps/build_deps.sh mac`, docs/deps.md): universal (arm64, x86_64),

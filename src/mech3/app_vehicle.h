@@ -9,6 +9,8 @@
 // program). Pointers stay void* here: mech.h's Handle is not app_mission's.
 namespace mech3 {
 
+struct Vehicle;
+
 void wire_vehicles(const MechWiring* w);  // from wire_mech_build; null: the defaults again
 bool is_program_vehicle(const void* p);   // made by the mission start, still alive
 uint8_t program_vehicle_active(const void* p);  // its +0x08 (zEntity's active flag)
@@ -18,6 +20,10 @@ void* program_vehicle_create(void* ctl, const char* type, const char* name);  //
 void* program_stealth_controls();
 void* program_stealth_create(void* ctl);
 void* program_stealth();
+void program_stealth_frame(float dt);  // its vt+0x34 (0x004a1040) from the player's tick
+// The view letting go of a vehicle (its vt+0x104): the stealth's turns its
+// overlay off (0x004a50d0); a mech's and others', nothing.
+void program_vehicle_view_detached(Vehicle& v);
 bool program_vehicle_sensed(const void* v);  // zEntity +0x09: the entity walk runs it
 void* program_field_base_create(void* ctl, const char* type, const char* name);  // 0x004589d0
 bool program_is_field_base(const void* v);  // vt+0xf0 / vt+0xf4: itself (0x004d2a70), else 0

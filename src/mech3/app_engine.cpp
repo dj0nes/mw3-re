@@ -4,6 +4,7 @@
 #include "gamez/zclass/cls_node.h"
 #include "gamez/zimage/zimg_library.h"
 #include "mech3/app_engine.h"
+#include "mech3/game_editor.h"
 #include "mech3/mods.h"
 #include "mech3/force_feedback.h"
 
@@ -25,6 +26,7 @@
 #include "gamez/zeffect/zeff_anim_run.h"
 #include "mech3/mech_shade.h"
 #include "mech3/app_mech.h"
+#include "mech3/pilot.h"
 #include "mech3/app_hud.h"
 #include "mech3/options.h"
 #include "mech3/pocket_panel.h"
@@ -229,7 +231,6 @@ const std::map<std::string, const char*>& known_keys() {
       {"0x00576d90", "own: the back buffer's size, zvid's Surface (lock_3d); here only the targets' arguments"},
       {"0x00576da0", "own: the back buffer's height, the same (lock_3d)"},
       {"0x00576dc0", "own: the back buffer's pitch, the same"},
-      {"0x0040e4b0", "deferred: developer only (the 25 lines' draw and hit test, hud.md section 20)"},
       {"vt+0x7c", "deferred: developer only (the 25 lines cleared)"},
       {"hudline.vt+0x7c", "deferred: developer only (the 25 lines cleared)"},
       {"0x0040f7f0", "deferred: developer only (the 25 lines' Arial font)"},
@@ -320,6 +321,11 @@ void GameEngine::print_unported_summary() const {
 }
 
 uint32_t GameEngine::peek32(uint32_t addr) {
+  // The chosen pilot's +0x6c, its game (W42's lead): from the menus, before
+  // any launch writes the stand-in game there, the pilot's current game, so
+  // a game's queries (vt+0x2c: the lab's skins, the quit box) reach it.
+  if (Pilot* p = current_pilot(); p && p->current && addr == handle_of(p) + 0x6c && !memory_.count(addr))
+    return handle_of(p->current);
   return static_cast<uint32_t>(peek8(addr)) | static_cast<uint32_t>(peek8(addr + 1)) << 8 |
          static_cast<uint32_t>(peek8(addr + 2)) << 16 | static_cast<uint32_t>(peek8(addr + 3)) << 24;
 }
@@ -431,6 +437,14 @@ uint32_t GameEngine::message_box3(int32_t a, int32_t caption, int32_t text, cons
   return game_message_box(a, caption, zutl::format_message(text, {s1, s2, s3}));
 }
 
+uint32_t GameEngine::message_box_plain(int32_t a, int32_t caption, const std::string& text) {
+  if (on_message_box) {
+    last_box_text = text;
+    return on_message_box(a, caption, 0);
+  }
+  return game_message_box(a, caption, text);
+}
+
 Handle GameEngine::joy_state() { return handle_of(zin::joy_state()); }
 float GameEngine::source_value(int32_t src, Handle joy) {
   return mech3::source_value(src, static_cast<const platform::JoyState*>(object_of(joy)), nullptr);
@@ -446,6 +460,10 @@ Handle GameEngine::script_new() {
 void GameEngine::script_delete(Handle s) {
   auto* in = static_cast<zint::Interp*>(object_of(s));
   if (interp() == in) interp() = nullptr;
+  // Ours: interp.zbd, kept open since its first script (0x00596620), closed
+  // with its object (the exe's stays open to the process's end; a second
+  // app in one process, as the tests make, would leak a file each).
+  if (in && in->archive.f) std::fclose(in->archive.f), in->archive.f = nullptr;
   delete in;
 }
 
@@ -868,6 +886,7 @@ void GameEngine::hud_update() {
   if (MessagePanel* p = message_panel()) p->update(dt);  // [0x00603d7c] vt+0x24: its text
   pocket_draw(dt);                                       // 0x0046a410
 }
+void GameEngine::hud_draw() { editor_frame(); }
 Handle GameEngine::pilot_hud(Handle data) { return handle_of(program_pilot_hud(object_of(data))); }
 void GameEngine::hud_static(Handle hud, float dt) { program_hud_static(object_of(hud), dt); }
 bool program_intensity_flag() { return options().intensity_flag[0] != 0; }
@@ -1012,6 +1031,7 @@ void GameEngine::replace_state_at(Handle state) {
 void GameEngine::fade_to_state(Handle next, uint32_t arg, int32_t direction, int32_t buffer, float seconds,
                                uint8_t r, uint8_t g, uint8_t b) {
   if (next == 0x6099a0) fade_replace(&states().end_win, arg, direction, buffer, seconds, r, g, b);
+  else if (next == 0x609848) fade_replace(&states().multi_exit, arg, direction, buffer, seconds, r, g, b);  // the quit box's (0x0048e390): a second Multi-Exit
   else if (next == states().ia_dummy.addr()) fade_replace(&states().ia_dummy, arg, direction, buffer, seconds, r, g, b);
   else Engine::fade_to_state(next, arg, direction, buffer, seconds, r, g, b);
 }
@@ -1034,4 +1054,9 @@ void GameEngine::model_set_global_light(int32_t on) { zmod::set_shadows(on); }
 void GameEngine::effects_set_level(int32_t v) { zeff::anim_set_level(v); }  // 0x00508fb0
 void GameEngine::shadows_reset() { shade_apply(); }  // 0x004e6900: the option as set
 
+}  // namespace mech3
+
+namespace mech3 {
+// W45: a network game in play runs on while the window is inactive (FIX (A)).
+bool GameEngine::run_while_inactive() { return program_net_running(); }
 }  // namespace mech3

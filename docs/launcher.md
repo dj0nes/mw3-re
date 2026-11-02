@@ -183,19 +183,34 @@ named install or `--install-from`/`--patch`; `--no-launcher` skips it):
   main icon. Windows: mw3launcher.exe, "MW3 Rebuild" in its version
   resource, no console in any build (its output in the write dir's
   mw3launcher.log; the game's stays mw3.log); the installer's main and
-  desktop shortcuts start it, "MechWarrior 3" in the Start menu starts
-  mw3.exe. Mac: the app's own executable (CFBundleExecutable), mw3 beside it
-  in Contents/MacOS. Linux: the AppImage's entry (mw3.desktop's Exec).
+  desktop shortcuts, "MechWarrior 3", start it; "MechWarrior 3 (no
+  launcher)" in the Start menu starts mw3.exe. Mac: "MechWarrior 3.app"'s
+  own executable (CFBundleExecutable), mw3 beside it in Contents/MacOS.
+  Linux: the AppImage's entry (mw3.desktop's Exec, its Name "MechWarrior
+  3"). The installed names are the game's (Owen, 2026-11-01); the release
+  files keep MW3-Rebuild-... (release.md).
   Each package script checks both programs are in it.
 - MECHWARRIOR 3 starts `mw3` beside it (its own folder: `_NSGetExecutablePath`,
   `/proc/self/exe`, `GetModuleFileNameW`; `MW3_GAME_BIN` for checks) as
   `mw3 <install> [--write-dir D] [--windowed | --window WxH] [--nosound]
-  --ready-file F`, saving the install to mw3.cfg first. The launcher stays on
-  screen ("Starting MechWarrior 3...", input ignored) until the game writes
-  F at its first frame with a swapchain image (`sdlfe::mark_ready`,
-  sdl_render3d.cpp), then hides, so the switch shows no empty moment; it
-  shows itself again when the game exits (an exit code other than 0 is
-  said on its status line). No signal in 20 s: hidden anyway.
+  [--hidden] --ready-file F`, saving the install to mw3.cfg first, with its
+  own stdio (none: the game writes mw3.log itself; the launcher's log pipe
+  in its stdout would hold the launcher's exit until the game's). The
+  launcher stays on screen ("Starting MechWarrior 3...", input ignored)
+  until the game writes F at its first frame with a swapchain image
+  (`sdlfe::mark_ready`, sdl_render3d.cpp), so the switch shows no empty
+  moment, then **closes**, the game running on alone (Owen, 2026-11-01;
+  until then it hid and came back when the game ended). A failed start
+  leaves it up: a game that exits first has its exit code on the status
+  line; no first frame in 20 s says so on the status line ("has not shown
+  a picture yet") and the launcher keeps watching, closing at the frame if
+  it comes. `--hidden` keeps its window unshown and goes on to the game
+  (checks); `MW3_LAUNCHER_READY_MS` shortens the 20 s for them.
+  Tests: `sdl_program_launcher_starts_mw3_as_its_own_program` (the
+  launcher's process ends at the ready file, the stand-in game still
+  running) and `sdl_program_launcher_stays_when_the_game_fails_or_is_slow`.
+  MechWarrior (1989) is unchanged: it has no ready signal, so the launcher
+  hides until it exits, as below.
 - The gap, measured (the launcher's log: "the game's first frame N ms after
   MECHWARRIOR 3 was pressed"; the game's: "first frame shown N ms after the
   start"): Mac, the app, 1.94 s, of which the game's own start 1.76 s (a

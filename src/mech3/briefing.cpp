@@ -4,6 +4,7 @@
 
 #include <cstring>
 
+#include "gamez/zimage/zimg_library.h"
 #include "gamez/zreader/zreader.h"
 #include "gamez/ztwod/twod_host.h"
 #include "gamez/zutil/zfix.h"
@@ -259,7 +260,7 @@ void MapLine::update(float dt) {
 // Mech3.exe 1.2 @ 0x00405230. The dialog is the briefing's own section of
 // briefing.zrd (multiplayer's from mpinfo.zrd), else "default"; the buttons
 // are BRIEFINGDIALOG's. Built, it is drawn once at once (the load starts next).
-BriefingScreen::BriefingScreen(Engine& e, const char* name)
+BriefingScreen::BriefingScreen(Engine& e, const char* name, bool draw_now)
     : MenuScreen(e, 0),
       abort_btn(e, -1),
       launch_btn(e, -1),
@@ -327,6 +328,15 @@ BriefingScreen::BriefingScreen(Engine& e, const char* name)
   unload();
   loaded = 1;
   set_loaded(false);
+  if (draw_now) draw_first();
+}
+
+// The constructor's end (0x00405230): drawn once at once, the load next.
+// Ours apart: a wide canvas's screen draws only once widened, or its first
+// frame showed at 640 over the menus (GameEngine::construct).
+void BriefingScreen::draw_first() {
+  Engine& e = engine();
+  first_map_w = images[0].image ? images[0].image->width : 0;
   e.sound_update(1, 0);
   e.video_lock();
   update(e.frame_dt());
@@ -781,20 +791,23 @@ void BriefingScreen::show_realloc(bool on) {
 
 // ---- the lance's loadouts (0x00408c30) ----
 
-// The game's vt+0x38 and vt+0x34: the campaign's (0x00435180, 0x00435110)
-// or Instant Action's (0x00436a30, 0x004368b0). The port had the campaign's
-// only, so the lab opened from Instant Action's briefing had no mech
-// (playtest W37).
+// The game's vt+0x38 and vt+0x34: the campaign's (0x00435180, 0x00435110),
+// Instant Action's (0x00436a30, 0x004368b0) or a network game's (0x004a5270,
+// one; 0x00437800, its +0x20). The port had the campaign's only, so the lab
+// opened from Instant Action's briefing had no mech (playtest W37), and from
+// the lobby too (W42).
 int32_t Engine::game_slot_count() {
   Pilot* p = current_pilot();
   if (CampaignGame* c = p ? p->campaign() : nullptr) return c->slot_count();
   if (ActionGame* a = p ? p->action() : nullptr) return a->slot_count();
+  if (p && p->multiplayer()) return 1;
   return 0;
 }
 GameSlot* Engine::game_slot(int32_t i) {
   Pilot* p = current_pilot();
   if (CampaignGame* c = p ? p->campaign() : nullptr) return c->slot_at(i);
   if (ActionGame* a = p ? p->action() : nullptr) return a->slot_at(i);
+  if (MultiplayerGame* m = p ? p->multiplayer() : nullptr) return m->slot_at(i);
   return nullptr;
 }
 
