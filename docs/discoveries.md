@@ -2665,6 +2665,14 @@ file (docs/assets.md, Data versions):
   frame: one frame shows twice and the next is skipped, about every third
   frame, all through the intro. The rebuild checks the sound every time
   (bug fixes on), so each frame shows once.
+- **...and a frame from two seconds ago can flash in.** The game keeps a
+  movie's sound in a two-part buffer and works out the picture from where
+  playback is in it. Windows sizes each part at exactly one second, so the
+  playback position often sits at exactly zero right after it wraps round,
+  and the game reads that zero as the start of the *previous* lap: for a
+  moment it shows the frame from two seconds earlier, every two seconds.
+  The rebuild reads it as the new lap (bug fixes on). (docs/fmv.md
+  section 5)
 
 ## The cameras
 
