@@ -1280,6 +1280,13 @@ Ours, in three pieces:
   no change. Test: `net_lobby_mods_check_headless` (refused at join and at
   lock with both sides' names; equal hashes and two string-only mods pass).
   Breaks caught: the joiner's check off, LOCK's check off.
+- **Mod worlds' maps** (the lead, 2026-11-01): the add-on scan in enter
+  (0x00497720, folders 0 to 5) goes on to `mission_dir_count()`, skipping
+  6 to 8 as the exe's bound did, so a mod world's `readermp<n>.zbd` maps are
+  listed and travel in the data as `n << 8 | world`. Test:
+  `net_lobby_lists_a_mod_worlds_maps_headless` (a mod world with a
+  readermp3 listed last, named from its mpinfo, in our data). Break caught:
+  the bound back at six.
 
 ## Open
 

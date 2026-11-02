@@ -4112,6 +4112,53 @@ TEST(net_lobby_mods_check_headless) {
   mine = mech3::ModsIdentity{};
 }
 
+// A mod's world (M2's world=, index 9 on) with a readermp3.zbd: the lobby's
+// add-on scan goes on past the exe's six to it, named by its mpinfo.zrd.
+TEST(net_lobby_lists_a_mod_worlds_maps_headless) {
+  if (!have_game()) return;
+  LobbyRig r("net_mod_world_write");
+  EXPECT(r.l != nullptr);
+  if (!r.l) return;
+  const std::string wd = std::string(MW3_TEST_TMP) + "/net_mod_world_write";
+  const std::string mod = wd + "/mods/w";
+  std::filesystem::create_directories(mod + "/zbd/mymap");
+  std::ofstream(mod + "/mod.txt") << "name=W\nworld=mymap\n";
+  std::ofstream(mod + "/zbd/mymap/gamez.zbd") << "x";
+  {
+    // One entry, mpinfo.zrd: a list of db_name and its string.
+    auto u32 = [](std::string& b, uint32_t v) { b.append(reinterpret_cast<const char*>(&v), 4); };
+    std::string body;
+    u32(body, 4), u32(body, 3);
+    const std::string key = "db_name", name = "Moonbase Alpha";
+    u32(body, 3), u32(body, static_cast<uint32_t>(key.size())), body += key;
+    u32(body, 3), u32(body, static_cast<uint32_t>(name.size())), body += name;
+    zutl_zar::Entry e{};
+    e.length = static_cast<uint32_t>(body.size());
+    std::strncpy(e.name, "mpinfo.zrd", sizeof e.name - 1);
+    std::string data = body;
+    data.append(reinterpret_cast<const char*>(&e), sizeof e);
+    u32(data, 1), u32(data, 1);
+    std::ofstream(mod + "/zbd/mymap/readermp3.zbd", std::ios::binary) << data;
+  }
+  mech3::mod_worlds().clear();
+  mech3::mods_mount(wd, {"w"}, {});
+  EXPECT(mech3::mission_dir_count() == 10);
+  znet::SessionDesc d;
+  d.name = "Mine", d.max_players = 4, d.user[1] = mech3::kGameVersion;
+  EXPECT(znet::host_session(d, "Ann"));
+  r.enter();
+  // UNAVAILABLE, the eight, c3's two, then ours: readermp3 on world 9.
+  int32_t at = -1;
+  for (int32_t i = 0; i < r.l->worlds.count(); ++i)
+    if (r.l->worlds.value_at(i) == (3 << 8 | 9)) at = i;
+  std::printf("  the mod world's map: item %d of %d\n", at, r.l->worlds.count());
+  EXPECT(r.l->worlds.count() == 12 && at == 11 && std::string(r.l->worlds.item(at)->text) == "Moonbase Alpha");
+  // Our data lists it with c3's, as an add-on world the others must have.
+  uint32_t mine[32] = {}, size = sizeof mine;
+  EXPECT(znet::get_player_data(1, mine, &size) && mine[3] == 3 && mine[6] == (3 << 8 | 9));
+  mech3::mod_worlds().clear();
+}
+
 // A joiner's rules (piece 11b): the host's 0x20 shown and the boxes not
 // ours; a world we lack UNAVAILABLE; the lock taken (our mech fitted, the
 // block and CRC kept); a rules message from another player or cut short

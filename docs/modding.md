@@ -109,9 +109,11 @@ Action screen shows the first world and a launch asks for c1, said in the
 log (ours: the original would load a world named "none").
 
 **Multiplayer.** The lobby's add-on scan (every `readermp<n>.zbd`, `n` over
-2, named by its `mpinfo.zrd`'s `db_name`) looks in the first six folders;
-a mod's maps on those worlds are found today. Its worlds past the nine wait
-for the lobby to scan them (the multiplayer code, with the mods check).
+2, named by its `mpinfo.zrd`'s `db_name`) looks in the first six folders
+and, ours, in every mod world (9 on); t1, lab and dev1/dev2 stay left out.
+A mod world's map is an add-on world like c3's: listed in the player's
+lobby data, `**` beside a player who lacks it, and LOCK refused for it.
+Test: `net_lobby_lists_a_mod_worlds_maps_headless`.
 
 **Words.** `strings.txt` at the mod's root: `id=text` a line, over
 Mech3Msg.dll's messages (the first enabled mod's line wins). The id is a
