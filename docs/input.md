@@ -84,7 +84,9 @@ and its share, and the left, right and middle button states (1 pressed, 2
 held, 4 released: this read against the last, 0x0051b6e0).
 
 Each read (0x0051b7d0): the counts times the acceleration (0x005ece48/4c,
-MouseAccelX/Y, 1.3; cut toward zero) moved onto the position, clamped to the
+MouseAccelX/Y, 1.3; cut toward zero; the options' MOUSE SENSITIVITY slider,
+ours, sets their magnitude, menus.md; a mission takes them at its start,
+the menus 1.3 again from CoreState::leave) moved onto the position, clamped to the
 screen; the wheel unscaled and unclamped; with `callbacks`, each button
 pressed this read runs its command. Reset (0x0051ba80) forgets the buttons
 and zeroes the motion, but not the wheel's: quirk kept, a reset adds the last

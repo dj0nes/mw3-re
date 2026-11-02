@@ -183,6 +183,21 @@ ACCEPT:
 | THROTTLE_CONST | ON / OFF | 0x0040d060 / 0x0040d020 |
 | MW2JJETS | ON / OFF | 0x0040d1e0 / 0x0040d1c0 |
 | CMD_INVERT_MOUSE_Y | ON / OFF | MouseAccelY < 0; written -1.3 or 1.3 straight into the entry |
+| MOUSE_SENSITIVITY (ours) | slider 0.5 to 3.0 | MouseAccelX and Y's magnitude, Y keeping the invert box's sign; read from MouseAccelX |
+
+MOUSE SENSITIVITY (Owen, 2026-11-02) is ours: a record of our own under
+INVERT MOUSE Y in dlgOptions.zrd's GAME_OPTION_DIALOG (`patch12::apply_ours`,
+on any data version), the graphics screen's slider record and art
+(sliderunfilled / sliderfilled; the image is wider than the option boxes and
+reaches past the panel), its label spaced as the original's are. 0..1 on the
+slider is 0.5 to 3.0 in tenths; the original's 1.3 is where it starts, so a
+player who never moves it plays as the original. With it bound, ACCEPT writes
+both entries from it (the invert box gives Y's sign, so invert and sensitivity
+keep each other in either order); without it (the probes, which run the
+original's screen: `options_sensitivity_slider` is the program's) the
+original's invert path as before. Saved as MouseAccelX/Y with the other
+settings. Not behind the bug-fix switch: an option whose default is the
+original's. `options_mouse_sensitivity_slider_headless`.
 
 The red choices are the cheats (protection.md: turning them on sets the
 cheated flag). ACCEPT (0x00437f60) applies (+0x10 with 1), writes the

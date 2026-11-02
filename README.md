@@ -124,6 +124,7 @@ installed copy does not have. Two ways to get it back:
   the window to take it back. Switching away frees it too, and coming back
   to a mission (Cmd+Tab, Alt+Tab or a click) takes it again at once; that
   click does not fire.
+- **Options > Mouse sensitivity** (ours) sets how fast the mouse aims in a mission; it starts at the original's setting.
 - Gamepads work as they did on Windows 98, and force feedback becomes rumble.
 - On a widescreen every screen uses the whole width: the missions, the
   menus, the mech lab, the briefings and the multiplayer screens. For the

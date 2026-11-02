@@ -31,6 +31,15 @@ constexpr Edit kEdits[] = {
 #include "mech3/patch12_edits.inc"
 };
 
+// Ours, on any data (not 1.2's): the options screen's MOUSE SENSITIVITY
+// slider (Owen, 2026-11-02), the graphics screen's slider record and art
+// (sliderunfilled / sliderfilled) under INVERT MOUSE Y, its label spaced as
+// the original's are ("I N V E R T   M O U S E"); no new images.
+constexpr Edit kOurs[] = {
+    {"zbd/reader.zbd", "dlgoptions.zrd", Insert, R"(GAME_OPTION_DIALOG/BUTTONS/CMD_INVERT_MOUSE_Y)", R"("MOUSE_SENSITIVITY")",
+     R"(("POSITION" (245 330) "BITMAP" ("sliderunfilled") "LABEL" ("M O U S E   S E N S I T I V I T Y" "offset" (-180 2) "font" ("ia_dark_grey")) "ROLLOVER" () "ACTIVATE" ("SOUND" ("menu_select" 1.0)) "FILLBITMAP" ("sliderfilled")))"},
+};
+
 // A value as the table writes it: (lists), "strings", ints, floats with a '.'.
 bool parse_at(const char*& p, Node* out) {
   while (*p == ' ') ++p;
@@ -172,6 +181,20 @@ bool has_edits(const std::string& archive, const std::string& entry) {
   for (const Edit& e : kEdits)
     if (archive == e.archive && entry == e.entry) return true;
   return false;
+}
+
+bool apply_ours(const std::string& archive, const std::string& entry, Node* root) {
+  if (!root || root->type != zrdr::List) return false;
+  bool any = false;
+  for (const Edit& e : kOurs) {
+    if (archive != e.archive || entry != e.entry) continue;
+    Node copy = tree::clone(*root);  // a record not as expected (a mod's) is left whole
+    Node* top = &copy;
+    while (top->list[0].i == 2 && top->list[1].type == zrdr::List) top = &top->list[1];
+    if (apply_one(top, e)) tree::replace(root, copy), any = true;
+    else zrdr::free_contents(&copy);
+  }
+  return any;
 }
 
 bool apply_edits(const std::string& archive, const std::string& entry, Node* root) {

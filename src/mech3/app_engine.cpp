@@ -30,6 +30,7 @@
 #include "mech3/app_hud.h"
 #include "mech3/controls_cfg.h"
 #include "mech3/options.h"
+#include "mech3/options_menu.h"
 #include "mech3/pocket_panel.h"
 
 #include <algorithm>
@@ -204,7 +205,8 @@ GameEngine::GameEngine(const Platform& p, std::string command_line)
   vp.hardware = [](void* c) { return static_cast<GameEngine*>(c)->video_mode(); };
   vp.sync = [](void* c) { static_cast<GameEngine*>(c)->sync_view(); };
   wire_view(&vp);
-  patch12::install();  // 1.0's data read as 1.2's (docs/patch12.md)
+  patch12::install();  // 1.0's data read as 1.2's (docs/patch12.md), and our own record edits
+  options_sensitivity_slider() = true;  // ours: the options' MOUSE SENSITIVITY
   patch12::provide_files();  // and 1.2's added maps beside it, in the write dir
 }
 
