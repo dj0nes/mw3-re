@@ -219,7 +219,7 @@ void hit_globals_reset();  // mech_parts.h (its Handle clashes with mission.h's)
 
 void reset_process_state() {
   if (!zsnd::state().open) zsnd::state() = zsnd::State{};
-  for (int l = 0; l < 2; ++l) zimg::library_list(l).clear();
+  for (int l = 0; l < 2; ++l) zimg::free_all(l);  // closed and freed: a cleared list kept its files open (Windows has 512)
   mech3::damage_set() = mech3::DamageSet{};  // the HUD's silhouettes, loaded once a process (0x0043afc0)
   crt::rand_fixed_seed() = 1u;  // the clock seeds the game's rand: a fixed seed makes the runs repeat
   // The mission animations' random cursor and range-test stagger: the
@@ -16131,7 +16131,7 @@ TEST(playtest_hud_images_the_data_lacks) {
   zutl::mount(std::string(MW3_GAME_DIR) + "/zbd");
   zimg::state() = zimg::State{};
   zimg::state().display_format = 6;
-  for (int l = 0; l < 2; ++l) zimg::library_list(l).clear();
+  for (int l = 0; l < 2; ++l) zimg::free_all(l);  // closed and freed: a cleared list kept its files open (Windows has 512)
   zimg::register_image_library(1);
   const char* const parts[] = {"head", "ltorso", "rtorso", "ctorso", "larm", "rarm", "lleg", "rleg"};
   const char* const dirs[] = {"left", "right", "up", "down"};
@@ -16152,7 +16152,7 @@ TEST(playtest_hud_images_the_data_lacks) {
     check(std::string("hud_othererrow_") + d, false);
   }
   EXPECT(found == 40 && missing == 12);
-  for (int l = 0; l < 2; ++l) zimg::library_list(l).clear();
+  for (int l = 0; l < 2; ++l) zimg::free_all(l);  // closed and freed: a cleared list kept its files open (Windows has 512)
   zimg::state() = zimg::State{};
 }
 
