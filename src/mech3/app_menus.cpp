@@ -327,7 +327,19 @@ void GameEngine::widen_screen(MenuScreen* s, uint32_t ctor) {
       // its set_pos (0x0048b220) would add the bar's place again: moved as
       // an image, its label (on the list) by itself.
       if (auto* eb = dynamic_cast<ShellEditBar*>(m.o)) eb->ztwod::Image::set_pos(m.x + m.off, m.y);
-      else m.o->set_pos(m.x + m.off, m.y);
+      else if (auto* sb = dynamic_cast<SlideButton*>(m.o)) {
+        // Its set_pos (0x0042a400) puts the ripple at the image's centre, but
+        // a baked button (FastMenu) or one not yet shown has no image then:
+        // the ripple went to the corner (playtest W41). The ripple and its
+        // reach are carried by the offset, as placed at the bind.
+        const int32_t rx = sb->ripple.get_x(), ry = sb->ripple.get_y();
+        const ztwod::Rect reach = sb->reach;
+        sb->set_pos(m.x + m.off, m.y);
+        sb->ripple.set_pos(rx + m.off, ry);
+        sb->reach = {reach.left + m.off, reach.top, reach.right + m.off, reach.bottom};
+      } else {
+        m.o->set_pos(m.x + m.off, m.y);
+      }
       auto* pl = dynamic_cast<ztwod::PolyLine*>(m.o);  // its points are where it draws (0x005a38f0)
       if (pl && !dynamic_cast<ztwod::Shape*>(pl) && !dynamic_cast<ztwod::Caret*>(pl))
         for (int32_t i = 0; i < pl->count; ++i) pl->pts[i][0] += m.off;

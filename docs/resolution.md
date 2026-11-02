@@ -543,6 +543,9 @@ made, except the pause screen (it keeps the dialog origin, section 9):
   polyline's points are where it draws (0x005a38f0), so they move with it
   (the briefing's lines); a briefing waypoint is put back on its nav point
   every frame (0x004081a0), so it keeps the map's shift (ours, `shift_x`);
+  a ripple button's ripple (SlideButton) is carried by the offset, not put
+  again at its image's centre, which a baked or not yet shown button has not
+  (playtest W41: HOST's ripple at its corner);
   a Line2D draws from its place to its end, so its end moves too (the
   debriefing's totals); a control whose rect runs from 0 to past its own
   place (its bounds pulled to a label at 0: the lab's data and lists) is

@@ -168,7 +168,7 @@ struct Args {
   std::vector<Tap> taps;  // --tap DIK@N[:M]
   // group: a wide menu's left (0), middle (1) or right (2); players: N > 0
   // counts the frame from the first one the session holds N players (ours)
-  struct ClickAt { int frame, x, y, group = 0, players = 0, back = 0, ingame = 0; };
+  struct ClickAt { int frame, x, y, group = 0, players = 0, back = 0, ingame = 0, hover = 0; };
   std::vector<ClickAt> clicks_at;  // --click-at X,Y@N (the game's 640 x 480 pixels)
   std::string briefing;  // --briefing NAME (ours): a campaign mission's briefing, as the menus reach it
   bool walk = false;  // --walk: full throttle (THROTTLE0's key) at the start (ours)
@@ -295,6 +295,10 @@ bool parse(int argc, char** argv, Args& a) {
       const char* c = at ? std::strchr(at + 1, ':') : nullptr;
       if (at) a.taps.push_back({std::atoi(at + 1), c ? std::atoi(c + 1) : std::atoi(at + 1) + 1,
                                 hold ? -1 : static_cast<int>(std::strtol(v, nullptr, 0)), 1});
+    }
+    else if (s == "--hover-at" && next(1)) {  // X,Y@N: the cursor there at frame N, no click (a rollover)
+      Args::ClickAt c{};
+      if (std::sscanf(argv[++i], "%d,%d@%d", &c.x, &c.y, &c.frame) == 3) c.hover = 1, a.clicks_at.push_back(c);
     }
     else if (s == "--click-ingame" && next(1)) {  // X,Y@N: N frames into each game the menus start
       Args::ClickAt c{};
@@ -1386,7 +1390,7 @@ int run(const Args& a, platform::VideoForWindows* vfw) {
             const float px = static_cast<float>(c.x + ox), py = static_cast<float>(c.y + oy);
             zin::mouse_set((px - dw / 2) / (dw / 2), (py - dh / 2) / (dh / 2));
           }
-          if (menu_frames == c.frame + 1 || menu_frames == c.frame + 2) {
+          if (!c.hover && (menu_frames == c.frame + 1 || menu_frames == c.frame + 2)) {
             SDL_Event ev{};
             ev.type = menu_frames == c.frame + 1 ? SDL_EVENT_MOUSE_BUTTON_DOWN : SDL_EVENT_MOUSE_BUTTON_UP;
             ev.button.button = SDL_BUTTON_LEFT;

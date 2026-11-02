@@ -19576,6 +19576,7 @@ struct WideMenus {
   int32_t cn_host = -1, cn_cancel = -1, cn_lines_w = -1, cn_lan = -1;  // the connection screen
   int32_t lb_start = -1, lb_cancel = -1, lb_mechlab = -1, lb_players = -1, lb_lines_w = -1;  // the lobby
   int32_t lb_addr_x = -1, lb_addr_y = -1;  // the lobby's internet line (ours)
+  std::vector<std::pair<int32_t, int32_t>> mp_ripples;  // the multiplayer screens' ripple buttons: the ripple less the button's place
   int32_t tm_ok = -1, tm_backdrop = -1;  // the new team's dialog
 };
 WideMenus wide_menus_run(bool wide) {
@@ -19805,6 +19806,11 @@ WideMenus wide_menus_run(bool wide) {
         }
         if (auto* ms = dynamic_cast<mech3::GameMenuState*>(engine.menu_state_of(engine.peek32(0x609860)))) {
           auto at = [](ztwod::Object2D& o) { return o.get_rect() ? o.get_rect()->left : o.get_x(); };  // some have no rect
+          for (int k = 0; k < 3; ++k)
+            if (auto* sc = dynamic_cast<mech3::MenuScreen*>(engine.screen_of(ms->screens[k])))
+              for (ztwod::Object2D* o = sc->head; o; o = o->next)
+                if (auto* sb = dynamic_cast<mech3::SlideButton*>(o))
+                  out.mp_ripples.push_back({sb->ripple.get_x() - sb->get_x(), sb->ripple.get_y() - sb->get_y()});
           if (auto* c = dynamic_cast<mech3::ConnectScreen*>(engine.screen_of(ms->screens[0]))) {
             out.cn_host = at(c->host_btn), out.cn_cancel = at(c->cancel_btn);
             for (ztwod::Image* im : {&c->lines1, &c->lines2})
@@ -19978,6 +19984,14 @@ TEST(menus_wide_spread_by_their_groups_headless) {
   // The address lines (ours): under CANCEL at 640; wide, the middle column's band under the chat bar.
   std::printf("lobby's address line at %d,%d / %d,%d\n", off.lb_addr_x, off.lb_addr_y, on.lb_addr_x, on.lb_addr_y);
   EXPECT(off.lb_addr_x == 20 && off.lb_addr_y == 460 && on.lb_addr_x == 207 + extra / 2 && on.lb_addr_y == 379);
+  // W41: each ripple button's ripple at its centre after the move (baked ones too).
+  int32_t moved = 0;
+  for (size_t i = 0; i < on.mp_ripples.size() && i < off.mp_ripples.size(); ++i) moved += on.mp_ripples[i] != off.mp_ripples[i];
+  std::printf("multiplayer ripple buttons %zu / %zu, ripples off where 640 had them: %d (the first %d,%d / %d,%d)\n",
+              off.mp_ripples.size(), on.mp_ripples.size(), moved, off.mp_ripples.empty() ? 0 : off.mp_ripples[0].first,
+              off.mp_ripples.empty() ? 0 : off.mp_ripples[0].second, on.mp_ripples.empty() ? 0 : on.mp_ripples[0].first,
+              on.mp_ripples.empty() ? 0 : on.mp_ripples[0].second);
+  EXPECT(!off.mp_ripples.empty() && off.mp_ripples.size() == on.mp_ripples.size() && moved == 0);
   EXPECT(off.tm_ok > 0 && on.tm_ok == off.tm_ok + extra / 2 && off.tm_backdrop == 0 && on.tm_backdrop == 0);
   // The mech lab (from the briefing, before LAUNCH; one block): its edge
   // panels made wider outward (the left one staying at 0), ACCEPT half the
