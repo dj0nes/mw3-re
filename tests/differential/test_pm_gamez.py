@@ -307,7 +307,7 @@ def main():
     struct.pack_into('<i', head, 0x5c, 1)
     light = bytearray(0x4c)
     struct.pack_into('<i', light, 0xc, 2)
-    struct.pack_into('<fff', light, 0x1c, 10.4, 200.6, 99.5)
+    struct.pack_into('<fff', light, 0x1c, 7.6, 3.5, 15.7)  # rounding crosses a packed bit
     poly = bytearray(0x28)
     struct.pack_into('<IiIIiII', poly, 0, 3 | 0x1000, 2, 0, 0, 2, 0, 1)
     struct.pack_into('<I', poly, 0x24, 7)
