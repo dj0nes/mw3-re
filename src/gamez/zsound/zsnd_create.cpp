@@ -91,6 +91,34 @@ int32_t wave_parse(Wave& w) {
   return 1;
 }
 
+// Ours (docs/modding.md, M3): what makes a parsed WAV unplayable, or null.
+// The exe copies the samples and reads the cues as the chunks say.
+const char* wave_broken(const Wave& w) {
+  const uint64_t n = w.bytes.size();
+  if (w.data && w.data + static_cast<uint64_t>(w.data_size) > n) return "its samples past its end";
+  if (w.cues && w.cues + static_cast<uint64_t>(w.cue_count) * 0x18 > n) return "its cue points past its end";
+  if (w.has_format) {
+    const platform::WaveFormat& f = w.format;
+    if (f.channels == 0 || f.channels > 8 || f.bits_per_sample == 0 || f.bits_per_sample > 32 || f.samples_per_sec == 0 ||
+        f.samples_per_sec > 384000 || f.block_align == 0 || f.avg_bytes_per_sec == 0)
+      return "its format";
+  }
+  return nullptr;
+}
+
+namespace {
+// A broken WAV said and refused; `where` the file or the archive it came from.
+int32_t refuse_broken(Wave& w, const std::string& where) {
+  const char* why = w.valid ? wave_broken(w) : nullptr;
+  if (!why) return w.valid;
+  std::printf("mw3: %s: sound %s is broken (%s), not read\n", where.c_str(), w.path.c_str(), why);
+  w.valid = 0;
+  w.bytes.clear();
+  w.has_format = false, w.data = w.data_size = 0, w.cues = 0, w.cue_count = 0;
+  return 0;
+}
+}  // namespace
+
 // Mech3.exe 1.2 @ 0x00574e90. FIX (A): fopen on the found path becomes the
 // mounts (zutl_path.h).
 int32_t wave_read_file(Wave& w) {
@@ -107,7 +135,8 @@ int32_t wave_read_file(Wave& w) {
   }
   std::fclose(f);
   w.valid = wave_parse(w);
-  return w.valid;
+  const std::string host = zutl::find(w.path.c_str());
+  return refuse_broken(w, host.empty() ? w.path : host);
 }
 
 // Mech3.exe 1.2 @ 0x00574f50: the entry's length, then its bytes.
@@ -119,6 +148,8 @@ int32_t wave_read_archive(Wave& w, zutl_zar::Archive& a) {
     w.bytes.assign(size, 0);
     zutl_zar::read(a, zutl_zar::find(a, w.path.c_str()), w.bytes.data(), &size);
     w.valid = wave_parse(w);
+    const std::string host = a.path ? zutl::find(a.path) : std::string();
+    return refuse_broken(w, !host.empty() ? host : a.path ? a.path : "a sounds archive");
   }
   return w.valid;
 }

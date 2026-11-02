@@ -607,3 +607,4 @@ Known quirks the rebuild deliberately keeps:
 - Mods can add new worlds (world= in mod.txt) and Instant Action maps on any world (ia_world=), and change the game's text (strings.txt, over Mech3Msg.dll's messages); a pilot whose Instant Action world came from a mod since removed plays on the first world.
 - A mod's new world can have multiplayer maps (readermp3.zbd and on), listed in the lobby with the others.
 - A broken entry in a reader archive (a mod's, say) is refused and named in the log instead of being read into whatever follows it; `mw3 --check-mod DIR` reads a mod as the game would and reports what it would refuse.
+- A broken texture or image library, sound or script file (a mod's, say) is refused and named in the log instead of being read past its end; a refused texture or sound is a missing one, a refused script line ends its script. `mw3 --check-mod` looks inside these files too.
