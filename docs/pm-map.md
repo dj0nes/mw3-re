@@ -449,8 +449,23 @@ functions PM changed, and PM's new ones.
        own types. In 0x5171a0 every node index read is offset by the
        node base (cameras' 4 nodes, the world's light, sound and
        partition lists, 0x5178e0 and 0x517960 with 12-byte entries);
-       a world partition is 0x58 bytes. Ghidra mangles its switch: read
-       the jump table from pm.asm.
+       a world partition is 0x58 bytes. Ghidra mangles its switch; the
+       jump table (0x5178ac) gives: 0 empty (0x5177e0, the links only), 1
+       camera (0x1e8; its 4 nodes; lists 6 and 8; clip 0x506ef0 +0xb0/+0xb4,
+       fov 0x507010 +0xd8/+0xdc), 2 world (0xcc, MW3 0xbc: rows +0x9c of
+       +0x98 at +0xa0, lights +0xb0/+0xb4/+0xb8, sounds +0xbc/+0xc0/+0xc4,
+       +4..+0xc cleared; lists 6 and 13; the fog 0x505600.. and 0x504fb0
+       as MW3's), 3 window (0xf8; lists 6, 14), 4 display (0x1c; lists 6,
+       15; clear colour 0x50e3c0), 5 object3d (0x90; list 6), 6 lod (0x5c,
+       MW3 0x50; list 6), 9 light (0x100, MW3 0xd0: nodes +0xf8/+0xfc;
+       lists 6, 9), 10 sound ("Must complete software" reported, then 0x94
+       read, +0/+4 cleared, nodes +0x8c/+0x90; lists 6, 10); 7, 8 and
+       above 10 report (0x400, line 0x5a6) and give -1. The data classes
+       give 1; then the parents (i16 +0x54, into +0x58) and the children
+       (i16 +0x56, into +0x5c) through 0x5178e0, each making it 1. A read
+       error reports and gives -1 (0x51781d). The same as MW3's
+       0x4feaf0 but for the node base, the three sizes, the light's list,
+       the 16-bit counts and the partitions' 12-byte entries.
 2. **The world**: the light maps and lighting (`gmod_matl.c` 39 new; PM
    drops MW3's fog), `cls_clutter.cpp` (32 new), the world class
    (`cls_world.c` 20 new), the script interpreter's new commands (the
