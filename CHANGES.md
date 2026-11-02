@@ -595,3 +595,4 @@ Known quirks the rebuild deliberately keeps:
 - On a Mac the numeric keypad types digits in text fields (an IP address on the connection screen); a Mac has no Num Lock, which the game needed on.
 - A locked multiplayer game turns away players who try to join it, instead of only greying out its Join button.
 - With bug fixes on, locking a multiplayer game with "Use stock 'Mechs" keeps the stock loadout a player chose instead of resetting it to the mech's first.
+- Mods: folders of game data in the settings folder's mods\ folder, enabled in mw3.cfg (mod=NAME, in order), sit in front of the game's files; a mod's loose .zrd replaces one entry of a reader archive. A mod can never replace a player's pilots, loadouts, controls or settings, and with no mods enabled nothing changes (docs/modding.md).

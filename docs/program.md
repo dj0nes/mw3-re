@@ -171,6 +171,9 @@ They run inside the original main loop, after the original start-up.
   mounted in front of the install on this start and every later one. A
   source without all of 1.2's files writes nothing and mw3 exits with the
   reason.
+- `--mod NAME` (repeatable), `--no-mods`, `--mods` (ours, docs/modding.md):
+  this run's mods in order instead of mw3.cfg's `mod=` lines, none, or the
+  mods found and enabled listed (then it quits).
 - `--shot FILE.bmp [--shot-frame N] [--shot-any]` saves frame N (default 30;
   with `--shot-any` every frame shown counts, the fade's too) of either
   and quits, with the window hidden; `--shot-series K` also the K frames
