@@ -8,7 +8,9 @@
 #include <fstream>
 #include <sstream>
 
+#include "gamez/zreader/zreader.h"
 #include "gamez/zutil/zutl_path.h"
+#include "gamez/zutil/zutl_zar.h"
 #include "mech3/mission.h"
 
 namespace mech3 {
@@ -243,6 +245,103 @@ std::vector<std::string> mods_apply_strings(std::map<int32_t, std::string>& text
     log.insert(log.end() - 0, "mod strings: " + std::to_string(used) + " from " + (fs::path(*m) / "strings.txt").string());
   }
   return log;
+}
+
+std::vector<std::string> mod_check(const std::string& dir, const std::string& install, int* errors) {
+  std::vector<std::string> out;
+  *errors = 0;
+  auto error = [&](const std::string& what) { out.push_back("error: " + what), ++*errors; };
+  std::error_code ec;
+  if (!fs::is_directory(dir, ec)) {
+    error(dir + " is no folder");
+    return out;
+  }
+  ModInfo m;
+  std::ifstream f(fs::path(dir) / "mod.txt");
+  if (!f) {
+    error("no mod.txt");
+  } else {
+    std::stringstream ss;
+    ss << f.rdbuf();
+    if (mod_parse(ss.str(), &m)) out.push_back("mod.txt: " + m.name + (m.version.empty() ? "" : " " + m.version));
+    else error("mod.txt: " + m.error);
+  }
+  for (const std::string& w : m.worlds) {
+    if (mission_dir_index(w.c_str()) >= 0) error("world " + w + ": there is a world " + w + " already");
+    else if (w.find_first_of("/\\. ") != std::string::npos || !fs::is_regular_file(fs::path(dir) / "zbd" / w / "gamez.zbd", ec))
+      error("world " + w + ": no zbd/" + w + "/gamez.zbd");
+    else if (!fs::is_regular_file(fs::path(dir) / (w + ".gs"), ec))
+      error("world " + w + ": no " + w + ".gs (its build script) at the mod's root");
+    else out.push_back("world " + w + ": ok");
+  }
+  for (const auto& [folder, name] : m.ia_worlds) {
+    const bool own = std::find(m.worlds.begin(), m.worlds.end(), folder) != m.worlds.end();
+    if (!own && mission_dir_index(folder.c_str()) < 0) error("ia_world " + folder + ": no such world");
+    else out.push_back("ia_world " + folder + " \"" + (name.empty() ? folder : name) + "\": ok");
+  }
+  // Every file.
+  std::vector<std::string> files;
+  for (fs::recursive_directory_iterator it(dir, ec), end; !ec && it != end; it.increment(ec))
+    if (it->is_regular_file(ec)) files.push_back(fs::relative(it->path(), dir, ec).generic_string());
+  std::sort(files.begin(), files.end());
+  int archives = 0, entries = 0;
+  for (const std::string& rel : files) {
+    const std::string low = lower(rel);
+    if (low == "mod.txt") continue;
+    if (!zutl::mod_may_serve(rel)) {
+      out.push_back(rel + ": the player's own kind of file, which a mod cannot replace (ignored)");
+      continue;
+    }
+    const bool over = !install.empty() && fs::is_regular_file(fs::path(install) / rel, ec);
+    out.push_back(rel + (install.empty() ? "" : over ? ": replaces the game's" : ": added"));
+    const std::string host = (fs::path(dir) / rel).string();
+    const std::string name = low.substr(low.rfind('/') == std::string::npos ? 0 : low.rfind('/') + 1);
+    if (name.size() > 4 && name.compare(name.size() - 4, 4, ".zbd") == 0) {
+      zutl_zar::Archive a;
+      zutl_zar::init(a);
+      if (!zutl_zar::open(a, host.c_str())) {
+        error(rel + ": not an archive the game can read (its table)");
+        zutl_zar::destroy(a);
+        continue;
+      }
+      ++archives;
+      std::vector<std::string> names;
+      for (int i = 0; i < a.count; ++i) names.push_back(a.entries[i].name);
+      zutl_zar::destroy(a);
+      if (name.rfind("reader", 0) != 0) {  // the reader archives' entries: through the bounded reader
+        out.push_back("  its table read; what its " + std::to_string(names.size()) +
+                      " entries hold is not checked yet (docs/modding.md, M3)");
+        continue;
+      }
+      zrdr::init();
+      if (!zrdr::open_archive(host.c_str(), true)) {
+        error(rel + ": the reader cannot open it");
+        continue;
+      }
+      for (const std::string& e : names) {
+        ++entries;
+        if (zrdr::Node* n = zrdr::load(e.c_str())) zrdr::free_node(n);
+        else error(rel + ": entry " + e + " cannot be read");
+      }
+      zrdr::close_archives(true);
+    } else if (name.size() > 4 && name.compare(name.size() - 4, 4, ".zrd") == 0) {
+      zrdr::init();
+      if (zrdr::Node* n = zrdr::load(host.c_str())) zrdr::free_node(n);
+      else error(rel + ": not a text .zrd the reader can read");
+    }
+  }
+  // strings.txt, as the game would take it.
+  if (fs::is_regular_file(fs::path(dir) / "strings.txt", ec)) {
+    zutl::Mounts saved = zutl::mounts();
+    zutl::mounts() = zutl::Mounts{};
+    zutl::mount_mod(dir);
+    std::map<int32_t, std::string> text;
+    for (const std::string& l : mods_apply_strings(text, {})) out.push_back(l.rfind("  ", 0) == 0 ? "warning:" + l.substr(1) : l);
+    zutl::mounts() = saved;
+  }
+  out.push_back(std::to_string(files.size()) + " files, " + std::to_string(archives) + " archives, " + std::to_string(entries) +
+                " reader entries checked; " + std::to_string(*errors) + " errors");
+  return out;
 }
 
 }  // namespace mech3

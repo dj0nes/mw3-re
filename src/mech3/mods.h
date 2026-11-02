@@ -50,6 +50,14 @@ std::vector<std::string> mods_mount(const std::string& write_dir, const std::vec
 std::vector<std::string> mods_apply_strings(std::map<int32_t, std::string>& text,
                                             const std::map<std::string, int32_t>& ids);
 
+// mw3 --check-mod DIR (M3): the mod at `dir` read as the game would read
+// it, nothing mounted into play: mod.txt, its worlds and Instant Action
+// entries, every file (what it replaces in `install`, when given, or adds;
+// the player's own kind ignored), every archive's table, every reader
+// archive's entries and loose .zrd through the bounded reader, strings.txt.
+// The report's lines; `errors` counts what the game would refuse.
+std::vector<std::string> mod_check(const std::string& dir, const std::string& install, int* errors);
+
 // For the multiplayer lobby (a game needs every player's gameplay data the
 // same): whether a mod's file is gameplay data, which is anything but
 // strings (strings.txt), images (the texture and image archives, .png),

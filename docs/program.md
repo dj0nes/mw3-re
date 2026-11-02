@@ -174,6 +174,9 @@ They run inside the original main loop, after the original start-up.
 - `--mod NAME` (repeatable), `--no-mods`, `--mods` (ours, docs/modding.md):
   this run's mods in order instead of mw3.cfg's `mod=` lines, none, or the
   mods found and enabled listed (then it quits).
+- `--check-mod DIR` (ours, docs/modding.md): the mod at DIR read as the game
+  would read it, nothing mounted into play; the report printed, exit 1 when
+  anything would be refused.
 - `--shot FILE.bmp [--shot-frame N] [--shot-any]` saves frame N (default 30;
   with `--shot-any` every frame shown counts, the fade's too) of either
   and quits, with the window hidden; `--shot-series K` also the K frames
