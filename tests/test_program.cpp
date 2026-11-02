@@ -20045,6 +20045,8 @@ TEST(mission_c1m1_mode_change_keeps_the_camera_shape_headless) {
   p.window = &window, p.alert = &alert, p.clock = &clock, p.movie_clock = &fast_movie_clock(), p.screen = &screen, p.sound = &sound, p.files = &files;
   p.input = &input;
   float fov[3][2] = {};
+  int32_t reticle[3] = {-1, -1, -1};  // the HUD's reticle x
+  int32_t setups[3] = {};             // Hud::setup's runs: each mode change refits the player's HUD (0x004ab6b0's 0x0041cdc0)
   int got = 0;
   {
     mech3::GameEngine engine(p, "mech3.exe -nofmv");
@@ -20060,13 +20062,17 @@ TEST(mission_c1m1_mode_change_keeps_the_camera_shape_headless) {
     auto read = [&](int i) {
       auto* cam = static_cast<zcls::Node*>(engine.object_of(mech3::camera()));
       if (cam && zcls::camera_get_fov_angles(cam, &fov[i][0], &fov[i][1]) == 0) ++got;
+      int32_t ret[2] = {-1, -1};
+      float pt[3];
+      bool hit = false;
+      if (mech3::program_hud_aim(ret, pt, &hit)) reticle[i] = ret[0];
     };
     engine.on_present = [&](int) {
       if (app.current() != &mech3::states().core) return;
       ++core;
-      if (core == 5) read(0), engine.set_screen_mode(13);
-      if (core == 7) read(1), engine.set_screen_mode(5);
-      if (core == 9) read(2);
+      if (core == 5) read(0), setups[0] = mech3::Hud::setups(), engine.set_screen_mode(13);
+      if (core == 7) read(1), setups[1] = mech3::Hud::setups(), engine.set_screen_mode(5);
+      if (core == 9) read(2), setups[2] = mech3::Hud::setups();
     };
     CountingPump pump;
     pump.limit = 900;
@@ -20080,6 +20086,9 @@ TEST(mission_c1m1_mode_change_keeps_the_camera_shape_headless) {
   const double deg = 57.29577951308232;
   for (int i = 0; i < 3; ++i)
     std::printf("  camera %s: %.2f across, %.2f high\n", i == 1 ? "at 1920x1080" : "at 640x480", fov[i][0] * deg, fov[i][1] * deg);
+  std::printf("  the HUD's reticle at x %d, %d, %d; its setups %d, %d, %d\n", reticle[0], reticle[1], reticle[2], setups[0],
+              setups[1], setups[2]);
+  EXPECT(setups[1] == setups[0] + 1 && setups[2] == setups[1] + 1);
   EXPECT(got == 3);
   EXPECT(std::fabs(fov[0][0] * deg - 80.0) < 0.05 && std::fabs(fov[0][1] * deg - 60.0) < 0.05);
   EXPECT(std::fabs(fov[1][0] * deg - 96.4) < 0.1 && std::fabs(fov[1][1] * deg - 60.0) < 0.05);

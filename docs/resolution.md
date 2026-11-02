@@ -486,6 +486,14 @@ Tests:
 - `mission_c1m1_mode_change_keeps_the_camera_shape_headless`: c1m1 at mode
   5, then 13, then 5. The camera reads 80 by 60, then 96.42 by 60, then 80
   by 60. Without the fix it stays at 80 at 1920x1080 (1 check fails).
+  Each change also refits the player's HUD (0x004ab6b0's loop, 0x0041cdc0
+  on the view's mech: Hud::setup once a change, `Hud::setups`; break: the
+  loop empty, no setup). The exe's loop walks zEntity's list at
+  [0x0073655c]..[0x00736560]; the base Engine's (the emulator probes')
+  reads that mirror, which the program never writes, but the program's
+  own (`GameEngine::screen_mode_cockpits`, and `update_shadows` through
+  `update_mech_shadows`) walk `ai::entity_list()`, so both run in play
+  (2026-11-01, the lead's check of dev 2's note).
 - `mission_c1m1_options_from_the_pause_keep_the_menus_frame_headless`: c1m1
   at modes 5, 13 and 15. Escape, the pause screen's OPTIONS, then GRAPHICS &
   AUDIO. Both screens have origin 0, and ACCEPT's and RESOLUTION's rects are
