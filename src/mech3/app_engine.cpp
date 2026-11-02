@@ -1010,6 +1010,7 @@ void GameEngine::replace_state_at(Handle state) {
 void GameEngine::fade_to_state(Handle next, uint32_t arg, int32_t direction, int32_t buffer, float seconds,
                                uint8_t r, uint8_t g, uint8_t b) {
   if (next == 0x6099a0) fade_replace(&states().end_win, arg, direction, buffer, seconds, r, g, b);
+  else if (next == 0x609848) fade_replace(&states().multi_exit, arg, direction, buffer, seconds, r, g, b);  // the quit box's (0x0048e390): a second Multi-Exit
   else if (next == states().ia_dummy.addr()) fade_replace(&states().ia_dummy, arg, direction, buffer, seconds, r, g, b);
   else Engine::fade_to_state(next, arg, direction, buffer, seconds, r, g, b);
 }

@@ -591,6 +591,8 @@ Known quirks the rebuild deliberately keeps:
 - The multiplayer lobby's chat reads each message only as far as it goes.
 - In-game multiplayer chat lines are read only as far as the message goes, and control characters in them show as '?'.
 - With bug fixes on, another player's 'Mech no longer throws its arms about on your screen after a hiccup in the connection (a delay longer than the ping's round trip was taken as a lag of 24 days).
+- In a multiplayer match Escape shows the game's "Are you sure you want to quit?" box, which the original never drew; with bug fixes on it does not stop play (move and fire as normal), Y leaves the match for the main menu and N or Escape closes it. Before, an Escape in a match left the mouse unable to fire.
+- A player who leaves a multiplayer game disappears for the others at once instead of after about half a minute.
 - A multiplayer game keeps running while its window is minimised or in the background, so your 'Mech is not a frozen target for the others (the original paused it).
 - On a Mac the numeric keypad types digits in text fields (an IP address on the connection screen); a Mac has no Num Lock, which the game needed on.
 - A locked multiplayer game turns away players who try to join it, instead of only greying out its Join button.

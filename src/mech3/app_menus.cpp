@@ -505,7 +505,10 @@ bool GameEngine::menu_vcall(Handle obj, uint32_t slot, std::initializer_list<Arg
   if (quit_box_ && obj == quit_box_at_) {  // the quit box: its frame, on or off, its deleting destructor
     *out = 0;
     switch (slot) {
-      case 0x00: quit_box_->update(zgame::from_bits(a0)); return true;
+      case 0x00:
+        quit_box_->keys();  // ours (W46)
+        if (quit_box_) quit_box_->update(zgame::from_bits(a0));
+        return true;
       case 0x04: quit_box_->set_active(static_cast<int32_t>(a0)); return true;
       case 0x08:
         delete quit_box_;

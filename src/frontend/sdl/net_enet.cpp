@@ -394,8 +394,11 @@ bool EnetTransport::is_host(uint32_t id) const { return id && id == impl_->host_
 void EnetTransport::close() {
   Impl& m = *impl_;
   if (!m.host) return;
+  // The disconnect sent now (DirectPlay's Close told the others at once): a
+  // _later one waits for a service that never comes, as the host is freed
+  // next, and the others only timed the player out (playtest W46).
   for (ENetPeer* p = m.host->peers; p < &m.host->peers[m.host->peerCount]; ++p)
-    if (p->state != ENET_PEER_STATE_DISCONNECTED) enet_peer_disconnect_later(p, 0);
+    if (p->state != ENET_PEER_STATE_DISCONNECTED) enet_peer_disconnect(p, 0);
   enet_host_flush(m.host);
   m.players.clear(), m.groups.clear(), m.inbox.clear();
   m.opened = m.hosting = false;

@@ -796,6 +796,18 @@ multiplayer game (the game's kind 3), shows it (0x0048e2d0); the state's
 leave deletes it (vt+8). Outside multiplayer it is never shown. Playtest
 #21 saw its construction reported as unported at every mission start.
 
+In the port (playtest W44/W46, 2026-11-01): the frame's update (vt+0) of
+the hardware path runs inside its 2D pass with the HUD, else nothing drew it
+(FIX (A)): an Escape in a match left it up unseen, its mouse button 1
+unbound, the mouse's fire gone for the rest of the match. With bug fixes on
+(Owen's W46) it does not block: the mouse stays bound, each fresh Escape
+toggles it, Y answers OK (the match left), N Cancel, Y's and N's own
+commands lifted while it shows; with them off, the exe's (visible now). Its
+OK fades to 0x00609848, a second Multi-Exit State (0x00470650 builds it):
+the port's `states().multi_exit`, the mission ended, the main menu. The
+leave's ENet close now sends the disconnect at once (the others drop the
+player then, not ENet's timeout).
+
 - Construction (0x0048dfe0): the message box (0x005a6e60, flag 1), a
   SlideButton at +0x12494 (id -1; never bound, added or used), OK and
   CANCEL shown for good, the other six buttons and the backdrop hidden, the
