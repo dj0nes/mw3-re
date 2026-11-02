@@ -249,6 +249,23 @@ samples read, less two halves, or three just after the first half's refill,
 plus the cursor's samples) x fps / the sample rate, unsigned: with the cursor
 still at 0 on the first poll after the start the frame is huge, the end.
 
+Fixed (bug), the cursor at 0 after a wrap (2026-11-02): with the second half
+next to fill, the exe counts a cursor of exactly 0 as still in the second
+half, so the frame is a whole buffer back (30 frames at 15 a second) until
+the cursor moves on. Video for Windows reports the sound's suggested buffer
+as an exact second (INTRO 88,200 bytes a half, C1M2 22,050; the AVI headers
+the importer copies say 88,216 and 22,054), so the two halves are exactly
+2 s: a sound device's cursor in 10 ms steps (220.5 samples at 22,050 Hz,
+200 to a lap) and the `--movie --nosound` debug clock both land on 0 at each
+wrap. Through the Indeo helper (Windows' default) a frame from 2 s before
+was shown every 2 s; the debug run drew INTRO's 2737 frames 2828 times. With
+`bugs` on, a cursor at 0 after the first lap reads as the first half
+(`fmv_stream.cpp` audio_frame; the start keeps the exe's reading).
+`fmv_sound_cursor_at_zero_after_a_wrap_keeps_the_frame` (20 s of 10 ms
+steps on exact-second halves: never back with, 29 frames back without); on
+the PC through the helper INTRO now draws 2737, c1m2 475. `MW3_MOVIE_TRACE`
+prints the buffer's size.
+
 **The beat** (ours, W38): the step (0x00599de0) asks for a frame only when
 its own clock's frame changes, and with sound the stream answers the sound's
 frame. The two 15 fps clocks start on the same step, so each ask falls on the
