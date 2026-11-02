@@ -225,6 +225,8 @@ rm -rf "$STAGE" "$DMG" && mkdir -p "$STAGE"
 cp -R "$APP" "$STAGE/"
 ln -s /Applications "$STAGE/Applications"
 cp tools/macos/README.txt "$STAGE/Read me.txt"
+# No local path or user name in anything shipped (release.md, Privacy).
+python3 -I tools/deps/check_paths.py "$STAGE" || exit 1
 hdiutil create -volname "$NAME" -srcfolder "$STAGE" -ov -format UDZO "$DMG" >/dev/null
 if [ "$ID" != "-" ]; then codesign --force --timestamp --sign "$ID" "$DMG"; fi
 echo "App: $APP"

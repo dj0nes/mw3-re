@@ -63,6 +63,8 @@ LD_LIBRARY_PATH="$PREFIX/lib:$LD_LIBRARY_PATH" "$TOOLS/linuxdeploy-x86_64.AppIma
 # Both programs, the launcher as the entry (AppRun follows the desktop file's Exec).
 for p in mw3launcher mw3; do [ -x "$APPDIR/usr/bin/$p" ] || { echo "no $p in the AppDir" >&2; exit 1; }; done
 grep -qx 'Exec=mw3launcher' "$APPDIR"/*.desktop || { echo "the AppImage does not start the launcher" >&2; exit 1; }
+# No local path or user name in anything shipped (release.md, Privacy).
+python3 -I tools/deps/check_paths.py "$APPDIR" || exit 1
 mkdir -p build-linux-pkg/dist
 OUT="build-linux-pkg/dist/MW3-Rebuild-$VER-x86_64.AppImage"
 ARCH=x86_64 "$TOOLS/appimagetool-x86_64.AppImage" "$APPDIR" "$OUT"

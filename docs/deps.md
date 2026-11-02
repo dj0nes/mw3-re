@@ -61,3 +61,7 @@ What is built:
   protocol). On the Mac each architecture is configured and built apart
   (x86_64 cross-compiled, without its hand-written assembly) and the dylibs
   joined with `lipo`; install names `@rpath`.
+  Configured with `--prefix=/ffbuild` and installed through `DESTDIR`
+  (2026-11-02): FFmpeg keeps its whole configure line in each library
+  (`avutil_configuration()`), and a real prefix put the build folder, with
+  the user name, into the release packages (release.md, Privacy).
