@@ -28,6 +28,7 @@
 #include "mech3/app_mech.h"
 #include "mech3/pilot.h"
 #include "mech3/app_hud.h"
+#include "mech3/controls_cfg.h"
 #include "mech3/options.h"
 #include "mech3/pocket_panel.h"
 
@@ -108,7 +109,14 @@ struct WiredOptionsHooks : OptionsHooks {
   uint32_t video_has_cap(int32_t cap) override { return g_engine ? g_engine->video_has_cap(cap) : 0; }
   const char* message(int32_t id) override { return g_engine ? g_engine->message(id) : ""; }  // 0x00576040
   void controls_set_defaults() override { mech3::controls_set_defaults(); }        // 0x00411150
-  void controls_load(const char* name) override { mech3::controls_load(name); }    // 0x004120a0
+  void controls_load(const char* name) override {  // 0x004120a0, after the saved map is read
+    mech3::controls_load(name);
+    // FIX (bug), W40: the registry's read filled the bindings only; without a
+    // controls file the reverse tables stayed the defaults' (input.md).
+    zin::map_refresh();
+    mech3::controls_repair_mouse_fire();  // ours (W40): an older build's damage undone
+    mech3::controls_keep_saved();         // the map the settings save (W40)
+  }
   void controls_free() override { mech3::controls_free_groups(); }                 // 0x00410a80
   Handle player_view() override { return g_engine ? g_engine->player_view() : 0; }  // [0x005f4c8c]
   void view_set_camera_mode(Handle, int32_t mode) override { program_view_set_camera(mode); }  // 0x0040ae70

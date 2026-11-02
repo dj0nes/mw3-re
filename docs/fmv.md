@@ -331,8 +331,9 @@ for each `video\*.AVI` of the install, into the write dir's `video` folder
   - `keys <n> <frame> ...`: the video frames idx1 flags AVIIF_KEYFRAME
 
 The 19 movies of the install convert in about a minute (INTRO to 60 MB from
-82 MB). c3m3 and c1win..c3win are on the disc only (frontend-plan.md
-section 3). The `.fmv` is written last, so its presence marks a movie done;
+82 MB). fmv.zrd also names c3m3, c1win, c2win and c3win, which neither
+the disc (MechWarrior 3 (USA), 1999) nor the 1.0 or 1.2 install has: the
+disc's VIDEO folder is the same 19 files, byte for byte. The `.fmv` is written last, so its presence marks a movie done;
 `--missing` converts only the movies without one, and prints `progress K N
 name` after each. The `.fmv` is written in binary mode, so a Windows-made
 set is the Mac's (the `.m1v` alone differ, by FFmpeg build).
@@ -462,26 +463,45 @@ fitting), then whole for its last 4 s (the Mad Cat, a 4:3 picture in a
 vignette); the other 31 (the campaign's and the operations' and missions'
 briefings, ATTRACT) are 4:3 throughout and are shown whole.
 
-**When.** A movie stream opened (AVIStreamOpenFromFileA through the host,
-the helper's or the importer's) with no shape known starts a measuring
-thread of its own: its own stream of the same file decoded frame by frame
-(the importer's MovieStream, or the helper's Video for Windows under the
-helper's lock, which the player's calls take too), about 700 frames a
-second here (INTRO 3.7 s, C4WIN 1.5 s). The result goes into the write
-dir's `movie-shapes.txt`, a line a movie: `<name>/<frames>/<w>x<h>` and its
-runs (`0:79-400`, `1022:whole`), read at the next start. Until a movie's
-shape is known its frames are whole; a play that started so stays whole up
-to the first run start after the shape is known (`MovieShapePlay`), so the
-picture changes size only at a cut, at once, never mid-shot. One movie is
-measured at a time; another opened meanwhile plays whole and is measured on
-a later play. The `--movie` debug start measures first, so its shots are the
-final look.
+**The shipped movies** (2026-11-02) are known without measuring: a table
+in the program (`mech3/movie_shape_table.cpp`, `movie_shape_table()`) holds
+the line of each of the 19, made by `tools/analysis/movie_shapes.py`, which
+converts and measures every distinct `video\*.AVI` of the folders given with
+`mw3import --shapes` (the program's own measurement on the imported files).
+Our numbers, not the game's data. Run on the 1.2 and 1.0 installs and the
+disc: 57 files, 19 distinct (the same bytes everywhere), and the two lines of
+Owen's PC cache, measured through Windows' Indeo codec, come out the same
+(`intro/2737/640x480 0:79-400`, `c3m5/751/640x480 0:whole`). The
+multiplayer maps have no movies, and Pirate's Moon none at all.
+
+**Others** (a mod's, another language's disc): measured, never in a play's
+way (`MovieShapeStore`). A picture stream opened with no shape known starts
+a measuring thread of its own: its own stream of the same file decoded
+frame by frame (the importer's MovieStream, or the helper's Video for
+Windows under the helper's lock). Before each frame it waits while any
+movie plays, so the movie that started it plays at once, whole, and the
+measurement runs after it ends, in the menus, about 700 frames a second on
+the Mac. Until 2026-11-02 it ran beside the play: on Owen's PC, through
+the Indeo helper, it took the helper's lock frame after frame and the
+player waited for it, so every movie's first play froze for 10 to 30 s
+(the intro 32 s). The result goes into the write dir's `movie-shapes.txt`,
+a line a movie: `<name>/<frames>/<w>x<h>` and its runs (`0:79-400`,
+`1022:whole`), read at the next start after the table, so a line there
+wins over the table's. A play that started before the shape was known
+stays whole up to the first run start after it is (`MovieShapePlay`), so
+the picture changes size only at a cut, at once, never mid-shot. One movie
+is measured at a time; another opened meanwhile is measured on a later
+play. The `--movie` debug start measures first (with no wait), so its shots
+are the final look.
 
 Tests: `test_movie_shape.cpp` (a frame's rows from 565 and 555 pixels, the
 runs on made-up movies: a black start, a full-frame shot at a cut and
 without one, a short letterboxed stretch, bars too thin, a picture too tall;
-the play's rule; the cache's lines) and, with FFmpeg in the importer,
+the play's rule; the cache's lines; the store: the 19 shipped movies known
+with nothing measured or written, an unknown one opened at once and
+measured only after its play ends then cached, the cache over the table,
+a stop while waiting) and, with FFmpeg in the importer,
 `sdl_program_movies_keep_their_shape_on_a_wide_screen` (INTRO, C4WIN and
-C1M1 imported and measured; 1920x1080 shots on mode 13: INTRO lit across
+C1M1 imported and measured by the test; 1920x1080 shots on mode 13: INTRO lit across
 0..1919 between rows 132 and 965, C1M1 at 238..1678 across the full height;
-the shapes kept in the write dir).
+the program measures none of them: the table has them).

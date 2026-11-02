@@ -2806,6 +2806,13 @@ From the view and its cameras (0x40aca0, 0x430e70; details: `view.md`).
   a soft vignette. Every briefing movie is plain 4:3. On a widescreen
   monitor the rebuild shows the letterboxed parts across the whole width.
   (docs/fmv.md, The movies on a wide screen)
+- **Four movies the game's scripts name were never shipped.** fmv.zrd has
+  entries for c3m3.avi and for an ending movie after each of the first
+  three operations (c1win, c2win, c3win), but no copy of MechWarrior 3
+  has them: the US disc and the 1.0 and 1.2 installs hold the same 19
+  movies, byte for byte. Only the fourth operation's ending (c4win) is
+  ever played; c3m3 simply has no opening movie. (docs/fmv.md, The
+  imported movies)
 
 ## Keyboard, mouse and joystick
 
@@ -4081,3 +4088,14 @@ The screen after the pilot for INSTANT ACTION, 0x00488bc0 (details:
   end anything; instead your 'Mech's centre torso loses all its internal
   structure, and it blows up (then respawns, if respawn is on).
   (docs/multiplayer-port.md, the 1.2 read-me's six)
+
+- **Quitting with the multiplayer quit box up can cost you the mouse's
+  fire button for good.** In a network game Escape brings up "Are you sure
+  you want to quit?", and while it is up the game takes the left mouse
+  button off its command so a click answers the box. The game keeps your
+  key bindings inside its saved settings and saves them when it closes, so
+  closing the game with the box still up (Alt-F4, say) saves the controls
+  with the left button bound to nothing: the mouse no longer fires in any
+  game after, until the controls are reset or rebound. (Found from the
+  code; the rebuild saves the controls only when you set them in the
+  controls menus. docs/fixes.md, playtest W40)

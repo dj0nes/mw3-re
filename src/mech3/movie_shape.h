@@ -1,6 +1,11 @@
 #pragma once
+#include <condition_variable>
 #include <cstdint>
+#include <functional>
+#include <map>
+#include <mutex>
 #include <string>
+#include <thread>
 #include <vector>
 
 // The movies' shapes on a wide screen (ours, docs/fmv.md section 8; Owen,
@@ -58,8 +63,61 @@ class MovieShapePlay {
   int32_t wait_run_ = -2;
 };
 
+// A movie's key: its file name lower-cased without folder or extension
+// (spaces as _), its frames and its picture's size: "intro/2737/640x480".
+std::string movie_shape_key(const std::string& path, uint32_t frames, int32_t width, int32_t height);
+
 // The cache's line for one movie: its key (name, frames, size), then the runs.
 std::string movie_shape_line(const std::string& key, const std::vector<MovieShapeRun>& runs);
 bool movie_shape_parse(const std::string& line, std::string* key, std::vector<MovieShapeRun>* runs);
+
+// The shipped movies' shapes, as cache lines: every movie of MW3's 1.0 and
+// 1.2 discs and installs, measured by tools/analysis/movie_shapes.py
+// (movie_shape_table.cpp). Our numbers, not the game's data.
+const std::vector<std::string>& movie_shape_table();
+
+// A measurement asks this between frames: it waits while a movie plays
+// (so a play never shares the decoder with it) and is false to stop.
+using MovieScanGate = std::function<bool()>;
+
+// The shapes the program knows: the table, then `cache` (the write dir's
+// movie-shapes.txt, whose lines win), then what is measured. A movie not
+// known is measured on a thread of its own, which runs only while no movie
+// plays: its first play is whole, never delayed, and the result is cached
+// for the next. One is measured at a time; another opened meanwhile is
+// measured on a later play.
+class MovieShapeStore {
+ public:
+  // Every frame scanned through `gate`; the picture's size in `w`, `h`.
+  using Measure = std::function<bool(const MovieScanGate& gate, std::vector<MovieFrameScan>* frames, int32_t* w,
+                                     int32_t* h)>;
+  explicit MovieShapeStore(std::string cache) : cache_(std::move(cache)) {}
+  ~MovieShapeStore();
+  // A movie's picture opened to play (`key`: name/frames/WxH), measured
+  // unless known; measuring waits until every play has ended. With `now`
+  // (the --movie debug start) it is measured before this returns.
+  void open(const std::string& key, int32_t fps, Measure measure, bool now = false);
+  void play_end();  // a picture stream released
+  // The rows of `key`'s frame `f` for `play` (MovieShapePlay::rows).
+  bool rows(const std::string& key, MovieShapePlay* play, int32_t f, int16_t* top, int16_t* bottom);
+  bool known(const std::string& key);
+  bool measuring();
+  void wait_measured();  // for the tests
+
+ private:
+  struct Shape {
+    bool ready = false;
+    std::vector<MovieShapeRun> runs;
+  };
+  void load();
+  void save(const std::string& key, const std::vector<MovieShapeRun>& runs);
+  std::string cache_;
+  std::mutex mu_;
+  std::condition_variable cv_;
+  std::map<std::string, Shape> shapes_;
+  bool loaded_ = false, scanning_ = false, stop_ = false;
+  int plays_ = 0;
+  std::thread scan_;
+};
 
 }  // namespace mech3

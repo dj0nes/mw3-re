@@ -197,7 +197,7 @@ int32_t MovieStream::decompress(uint16_t* out, int32_t width, int32_t height, in
 }
 
 bool scan_imported_movie(const std::string& base, std::vector<MovieFrameScan>* out, int32_t* w, int32_t* h,
-                         const std::atomic<bool>* stop) {
+                         const MovieScanGate& gate) {
   out->clear();
   std::unique_ptr<MovieStream> m = MovieStream::open(base, kVids);
   if (!m || m->info().video_format.size() < 12) return false;
@@ -212,12 +212,24 @@ bool scan_imported_movie(const std::string& base, std::vector<MovieFrameScan>* o
   const int32_t n = static_cast<int32_t>(m->info().video.length);
   out->reserve(static_cast<size_t>(n > 0 ? n : 0));
   for (int32_t f = 0; f < n; ++f) {
-    if (stop && stop->load()) return false;
+    if (gate && !gate()) return false;
     m->read(f, 1, nullptr, 0);
     if (m->decompress(px.data(), fw, fh, pitch, 0xf800, 0x07e0, 0x001f) != 0) return false;
     out->push_back(movie_scan_frame(px.data(), fw, fh, pitch, 0xf800, 0x07e0, 0x001f));
   }
   return true;
+}
+
+std::string measure_imported_movie(const std::string& base) {
+  std::unique_ptr<MovieStream> m = MovieStream::open(base, kVids);
+  if (!m) return {};
+  const zfmv::AviStreamInfo& info = m->info().video;
+  const int32_t fps = info.scale ? static_cast<int32_t>(info.rate / info.scale) : 15;
+  std::vector<MovieFrameScan> frames;
+  int32_t w = 0, h = 0;
+  if (!scan_imported_movie(base, &frames, &w, &h)) return {};
+  const std::vector<MovieShapeRun> runs = movie_shape_runs(frames, w, h, fps);
+  return runs.empty() ? std::string() : movie_shape_line(movie_shape_key(base, info.length, w, h), runs);
 }
 
 }  // namespace mech3

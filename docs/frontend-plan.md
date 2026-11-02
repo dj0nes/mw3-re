@@ -85,7 +85,8 @@ briefing (`c<op>m<n>`, each operation's first with its opener c<op>.avi),
 `c<op>win`, the demo blocks, UNLOAD (unplayed). Its verbs: PLAYAVI, PLAYMCI,
 LOADIMAGE, SHOWIMAGE, BLITIMAGE, FADEIN, FADEOUT, BLUR, BLURH, BLURV, WAIT,
 PLAYSOUND. The install has
-19 of the AVIs (`video/`; c3m3, c1win..c3win are disc-only). zFMV
+19 of the AVIs (`video/`; c3m3's and c1win..c3win's, which fmv.zrd names, are on
+neither the disc nor the installs: fmv.md section 8). zFMV
 (0x00598d80..0x0059b2f0, about 56 functions): the scripts are ported
 (item 10, fmv.md) and the AVI player too (item 11), on the importer's
 files: without them (mw3import not run) PLAYAVI ends at once, as the

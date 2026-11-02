@@ -88,6 +88,13 @@ int32_t controls_group_command(int32_t group, int32_t i);  // 0x00410fd0
 void controls_load(const char* path);
 void controls_save(const char* path);
 uint32_t controls_read_binding(zrdr::Node* entry, const char* key);  // 0x00412520
+// Ours (playtest W40): a saved map with no mouse button on TRIGGER1 and
+// mouse button 1 on nothing gets it back on TRIGGER1; true when it did.
+bool controls_repair_mouse_fire();
+// Ours (W40, FIX (bug)): the map the settings save is the one kept here (at
+// the load and when the controls menus set it), never the live one.
+void controls_keep_saved();
+int32_t controls_write_settings();  // zreg::write_all with the kept map
 const char* axis_source_name(int32_t source);       // 0x004300e0: X, Y, Z, Rx, Ry, Rz, Slider0, Slider1, X, Y, Z
 const char* axis_name(int32_t axis);                // Throttle, Twist, Pitch, LR (the turn)
 
