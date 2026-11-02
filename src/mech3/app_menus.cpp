@@ -739,6 +739,11 @@ void GameEngine::load_state_enter() {
     // The Action screen's (menus.md 13): vt+0x54 the world (0x00437890), vt+0x4c
     // the ia mission (0x004378f0), vt+0x48 the world as 1..4 (0x004378b0).
     l.index = a->x74;
+    // Ours: a world past the known ones (a mod's, the mod since gone): c1.
+    if (l.index < 0 || l.index >= mission_dir_count()) {
+      std::printf("mw3: Instant Action's world %d is gone (a mod no longer enabled?): c1 instead\n", l.index);
+      l.index = 0;
+    }
     l.number = a->x78;
     l.op = a->x74 >= 0 && a->x74 <= 3 ? a->x74 + 1 : 0;
   } else if (auto* m = dynamic_cast<MultiplayerGame*>(g)) {

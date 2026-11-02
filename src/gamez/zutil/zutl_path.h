@@ -40,6 +40,8 @@ void set_write_dir(const std::string& dir);
 // (Windows-1252: what the edit bars type, a pilot named Müller), the host's
 // UTF-8, so a relative path is converted (an absolute one is the host's).
 std::string host(const char* path);
+// UTF-8 text in the game's code page (Windows-1252); false for a character it lacks.
+bool game_text(const std::string& utf8, std::string* out);
 std::string find(const char* path);          // the host path in the first mount that has it, "" if none
 bool exists(const char* path);
 std::FILE* open(const char* path, const char* mode);  // reads search the mounts; writes go to the write dir

@@ -78,13 +78,54 @@ mw3.cfg, writes to the settings folder; a loose fmv.zrd over reader.zbd's,
 the archive's own without the mod or with a broken copy; the gameplay
 number ignoring textures, sounds, strings and music).
 
-## Planned
+## New worlds and words (M2, 2026-11-01)
 
-- M2 (v1.0): new worlds (`world=` in mod.txt, past the original's nine
-  folders), Instant Action maps on new or existing worlds (`ia_world=`),
-  multiplayer maps on the declared worlds (the original's own add-on scan,
-  `readermp<n>.zbd` with its `mpinfo.zrd`), and `strings.txt` (id=text over
-  Mech3Msg.dll).
+**A new world.** `world=<folder>` in mod.txt (as many as the mod has):
+
+- the world's files in the mod's `zbd\<folder>\`, as an install's world
+  folder holds them (`gamez.zbd`, `anim.zbd`, `reader.zbd`, `readerm<n>.zbd`
+  for missions, `readeria<n>.zbd` for Instant Action, `readermp<n>.zbd` for
+  multiplayer);
+- its build script `<folder>.gs` at the mod's root, a text script read
+  where `interp.zbd` has none (the game's own fallback, interp.md). It can be
+  a whole script or `source` another world's (`source c1.gs`).
+
+The game's worlds are the nine folders of 0x00484c50 (c1 c2 c3 c4 c4b t1 lab
+dev1 dev2, by number); a mod's are numbered on from 9 in mod order
+(`mission_dir`, `mod_worlds()`). A folder name that is already a world (any
+case), has a slash, dot or space, or has no `zbd\<folder>\gamez.zbd` in the
+mod is said and left out.
+
+**Instant Action.** `ia_world=<folder> <name>` puts a world on Instant
+Action's list after the original's four, named `<name>` (UTF-8, shown in the
+game's code page; the folder when none). The world can be the mod's own or
+any other's. Its maps are its `readeria<n>.zbd`: the screen's scenarios
+pick `n` and step down to the nearest the world has, as for the game's own
+worlds. A pilot keeps the chosen world by number; with that mod gone the
+Action screen shows the first world and a launch asks for c1, said in the
+log (ours: the original would load a world named "none").
+
+**Multiplayer.** The lobby's add-on scan (every `readermp<n>.zbd`, `n` over
+2, named by its `mpinfo.zrd`'s `db_name`) looks in the first six folders;
+a mod's maps on those worlds are found today. Its worlds past the nine wait
+for the lobby to scan them (the multiplayer code, with the mods check).
+
+**Words.** `strings.txt` at the mod's root: `id=text` a line, over
+Mech3Msg.dll's messages (the first enabled mod's line wins). The id is a
+number (decimal or `0x` hex, as mech3ax lists them) or a message's name;
+the text is UTF-8, shown in the game's code page (Windows-1252: a character
+it lacks leaves the line out, said in the log), `\n` a line break, `\\` a
+backslash, `#` a comment line. Cut to the original's 511 characters.
+
+Tests: `test_mods.cpp` (world= and ia_world= read, a good world numbered 9,
+a name taken, without files, with `..` and an unknown Instant Action world
+left out; strings.txt: the first mod's line, hex ids and names, UTF-8 to
+Windows-1252, `\n` and `\\`, a character the game lacks and lines without
+an id left out, nothing without mods) and `mod_world_plays_in_instant_action_headless`
+(a mod world of c1's files linked, `source c1.gs`, Instant Action on world
+9: its readers read from `zbd\mymap\`, the player's mech in play).
+
+## Planned
 - M3 (v1.0): bounded readers for the formats that trust their sizes
   (mechlib, motion, anim, the texture libraries, interp, sounds, the
   binary .zrd), a refused file named with its mod; `mw3 --check-mod DIR`.

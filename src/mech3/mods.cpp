@@ -3,11 +3,13 @@
 #include <algorithm>
 #include <cstring>
 #include <cctype>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
 
 #include "gamez/zutil/zutl_path.h"
+#include "mech3/mission.h"
 
 namespace mech3 {
 
@@ -39,6 +41,11 @@ bool mod_parse(const std::string& text, ModInfo* out) {
     else if (key == "author") out->author = value;
     else if (key == "for") out->game = value;
     else if (key == "description") out->description = value;
+    else if (key == "world" && !value.empty()) out->worlds.push_back(value);
+    else if (key == "ia_world" && !value.empty()) {
+      const size_t sp = value.find_first_of(" \t");
+      out->ia_worlds.emplace_back(value.substr(0, sp), sp == std::string::npos ? std::string() : trim(value.substr(sp)));
+    }
   }
   if (out->name.empty()) out->error = "mod.txt has no name= line";
   else if (!out->game.empty() && lower(out->game).rfind("mw3", 0) != 0) out->error = "it is for " + out->game + ", not MechWarrior 3";
@@ -68,9 +75,15 @@ std::vector<ModInfo> mods_found(const std::string& write_dir) {
   return out;
 }
 
+std::vector<ModIaWorld>& mod_ia_worlds() {
+  static std::vector<ModIaWorld> w;
+  return w;
+}
+
 std::vector<std::string> mods_mount(const std::string& write_dir, const std::vector<std::string>& enabled,
                                     const std::vector<std::string>& later) {
   std::vector<std::string> log;
+  std::vector<std::pair<std::string, ModIaWorld>> ia;  // the mod's name, the entry
   const std::vector<ModInfo> found = mods_found(write_dir);
   std::vector<std::string> done;
   for (const std::string& want : enabled) {
@@ -87,6 +100,19 @@ std::vector<std::string> mods_mount(const std::string& write_dir, const std::vec
     }
     zutl::mount_mod(it->path);
     log.push_back("mod " + want + " (" + it->name + (it->version.empty() ? "" : " " + it->version) + ") mounted");
+    // Its new worlds: a folder no world has yet, with its files in the mod.
+    for (const std::string& w : it->worlds) {
+      std::error_code wec;
+      if (mission_dir_index(w.c_str()) >= 0) {
+        log.push_back("  world " + w + ": there is a world " + w + " already, left out");
+      } else if (w.find_first_of("/\\. ") != std::string::npos || !fs::is_regular_file(fs::path(it->path) / "zbd" / w / "gamez.zbd", wec)) {
+        log.push_back("  world " + w + ": no zbd/" + w + "/gamez.zbd in the mod, left out");
+      } else {
+        mod_worlds().push_back(w);
+        log.push_back("  world " + w + " added (world " + std::to_string(mission_dir_count() - 1) + ")");
+      }
+    }
+    for (const auto& [folder, name] : it->ia_worlds) ia.push_back({want, ModIaWorld{folder, name.empty() ? folder : name}});
     // Each file: what it replaces (a copy later in the mounts) or adds.
     std::vector<std::string> files;
     std::error_code ec;
@@ -108,6 +134,15 @@ std::vector<std::string> mods_mount(const std::string& write_dir, const std::vec
     }
     log.push_back("  " + std::to_string(replaced) + " replaced, " + std::to_string(added) + " added, " +
                   std::to_string(ignored) + " ignored");
+  }
+  // Instant Action's new entries, once every mod's worlds are known.
+  for (const auto& [mod, w] : ia) {
+    if (mission_dir_index(w.folder.c_str()) < 0) {
+      log.push_back("mod " + mod + ": Instant Action world " + w.folder + " is no world, left out");
+      continue;
+    }
+    mod_ia_worlds().push_back(w);
+    log.push_back("mod " + mod + ": Instant Action world \"" + w.name + "\" on " + w.folder);
   }
   return log;
 }
@@ -155,6 +190,59 @@ uint64_t mods_gameplay_hash(const std::string& write_dir, const std::vector<std:
     }
   }
   return any ? h : 0;
+}
+
+std::vector<std::string> mods_apply_strings(std::map<int32_t, std::string>& text,
+                                            const std::map<std::string, int32_t>& ids) {
+  std::vector<std::string> log;
+  const std::vector<std::string>& mods = zutl::mounts().mods;
+  // The last mod first, so the first one's lines are the ones left.
+  for (auto m = mods.rbegin(); m != mods.rend(); ++m) {
+    std::ifstream f(fs::path(*m) / "strings.txt");
+    if (!f) continue;
+    int used = 0, n = 0;
+    for (std::string line; std::getline(f, line);) {
+      ++n;
+      if (!line.empty() && line.back() == '\r') line.pop_back();
+      if (n == 1 && line.rfind("\xef\xbb\xbf", 0) == 0) line.erase(0, 3);  // a UTF-8 mark
+      if (trim(line).empty() || trim(line)[0] == '#') continue;
+      const size_t eq = line.find('=');
+      const std::string key = trim(line.substr(0, eq == std::string::npos ? 0 : eq));
+      int32_t id = -1;
+      if (!key.empty() && std::isdigit(static_cast<unsigned char>(key[0]))) {
+        char* end = nullptr;
+        const long v = std::strtol(key.c_str(), &end, 0);
+        if (end && *end == 0 && v >= 0 && v <= 0x7fffffff) id = static_cast<int32_t>(v);
+      } else if (const auto it = ids.find(key); it != ids.end()) {
+        id = it->second;
+      }
+      std::string value, game;
+      if (eq != std::string::npos) {
+        const std::string raw = line.substr(eq + 1);
+        for (size_t i = 0; i < raw.size(); ++i) {
+          if (raw[i] == '\\' && i + 1 < raw.size() && (raw[i + 1] == 'n' || raw[i + 1] == '\\')) {
+            value += raw[i + 1] == 'n' ? "\r\n" : "\\";
+            ++i;
+          } else {
+            value += raw[i];
+          }
+        }
+      }
+      if (eq == std::string::npos || id < 0) {
+        log.push_back("  " + (fs::path(*m) / "strings.txt").string() + " line " + std::to_string(n) + ": no id= here, left out");
+        continue;
+      }
+      if (!zutl::game_text(value, &game)) {
+        log.push_back("  " + (fs::path(*m) / "strings.txt").string() + " line " + std::to_string(n) +
+                      ": a character the game cannot show, left out");
+        continue;
+      }
+      text[id] = game.substr(0, 0x1ff);  // the original's 0x200-byte buffers
+      ++used;
+    }
+    log.insert(log.end() - 0, "mod strings: " + std::to_string(used) + " from " + (fs::path(*m) / "strings.txt").string());
+  }
+  return log;
 }
 
 }  // namespace mech3
