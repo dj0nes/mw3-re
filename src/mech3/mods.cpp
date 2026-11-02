@@ -8,7 +8,11 @@
 #include <fstream>
 #include <sstream>
 
+#include "gamez/zclass/cls_mechlib.h"
+#include "gamez/zeffect/zeff_anim_init.h"
+#include "gamez/zmodel/gmod_const.h"
 #include "gamez/zreader/zreader.h"
+#include "gamez/zsiscript/si_script.h"
 #include "gamez/zutil/zutl_path.h"
 #include "gamez/zutil/zutl_zar.h"
 #include "mech3/mission.h"
@@ -16,6 +20,12 @@
 namespace mech3 {
 
 namespace fs = std::filesystem;
+
+// mech_anim.h's motion archive (its Handle is not mission.h's).
+bool open_motions(const char* path);
+void close_motions();
+bool load_motion(zsis::Script& s, const char* name);
+void script_free_parts(zsis::Script& s);
 
 namespace {
 std::string trim(const std::string& s) {
@@ -308,6 +318,48 @@ std::vector<std::string> mod_check(const std::string& dir, const std::string& in
       std::vector<std::string> names;
       for (int i = 0; i < a.count; ++i) names.push_back(a.entries[i].name);
       zutl_zar::destroy(a);
+      if (name == "mechlib.zbd") {  // every tree through the bounded reader
+        zmod::models() = zmod::ModelPool{};
+        zmod::reset_pool();
+        zcls::MechLib lib;
+        zutl_zar::init(lib.archive);
+        if (!zcls::mechlib_open(lib, host.c_str()) || lib.materials.empty()) {
+          error(rel + ": its version, format or materials cannot be read");
+        } else {
+          for (const std::string& e : names) {
+            if (e == "version" || e == "format" || e == "materials") continue;
+            ++entries;
+            if (!zcls::mechlib_load(lib, e.c_str())) error(rel + ": model " + e + " cannot be read");
+          }
+        }
+        zcls::mechlib_close(lib);
+        continue;
+      }
+      if (name == "motion.zbd") {  // every motion through the bounded reader
+        if (open_motions(host.c_str())) {
+          for (const std::string& e : names) {
+            ++entries;
+            zsis::Script sc;
+            if (!load_motion(sc, e.c_str())) error(rel + ": motion " + e + " cannot be read");
+            script_free_parts(sc);
+          }
+          close_motions();
+        } else {
+          error(rel + ": the motion archive cannot be opened");
+        }
+        continue;
+      }
+      if (name == "anim.zbd") {  // a world's animations: the read (its binding needs the world)
+        zeff::anim() = zeff::AnimState{};
+        zeff::anim_allow_loading(1);
+        zeff::anim_set_zbd_path(host.c_str());
+        zeff::anim_read_zbd();
+        if (zeff::anim().defs == nullptr && zeff::anim().def_count() == 0) error(rel + ": its animations cannot be read");
+        else out.push_back("  " + std::to_string(zeff::anim().def_count()) + " animations read (bound to the world in play)");
+        zeff::anim_free_all();
+        zeff::anim() = zeff::AnimState{};
+        continue;
+      }
       if (name.rfind("reader", 0) != 0) {  // the reader archives' entries: through the bounded reader
         out.push_back("  its table read; what its " + std::to_string(names.size()) +
                       " entries hold is not checked yet (docs/modding.md, M3)");

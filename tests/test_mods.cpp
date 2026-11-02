@@ -298,10 +298,27 @@ TEST(mods_check_mod_reports_what_the_game_would_refuse) {
     EXPECT(zutl_zar::close(a));
     zutl_zar::destroy(a);
   }
+  {  // a mechlib whose materials table is cut short, a motion of 4 bytes
+    zutl_zar::Archive a;
+    zutl_zar::init(a);
+    EXPECT(zutl_zar::create(a, (bad + "/zbd/mechlib.zbd").c_str()));
+    const uint32_t version = 27, format = 1, count = 5;
+    zutl_zar::add(a, "version", &version, 4);
+    zutl_zar::add(a, "format", &format, 4);
+    zutl_zar::add(a, "materials", &count, 4);
+    EXPECT(zutl_zar::close(a));
+    zutl_zar::destroy(a);
+    zutl_zar::init(a);
+    EXPECT(zutl_zar::create(a, (bad + "/zbd/motion.zbd").c_str()));
+    zutl_zar::add(a, "walk", &count, 4);
+    EXPECT(zutl_zar::close(a));
+    zutl_zar::destroy(a);
+  }
   text.clear();
   for (const std::string& l : mech3::mod_check(bad, install, &errors)) text += l + "\n";
   std::printf("%s", text.c_str());
-  EXPECT(errors == 6);
+  EXPECT(errors == 8 && text.find("error: zbd/mechlib.zbd: its version, format or materials cannot be read") != std::string::npos &&
+         text.find("error: zbd/motion.zbd: motion walk cannot be read") != std::string::npos);
   EXPECT(text.find("error: mod.txt: mod.txt has no name= line") != std::string::npos &&
          text.find("error: world nofiles: no zbd/nofiles/gamez.zbd") != std::string::npos &&
          text.find("error: ia_world nowhere: no such world") != std::string::npos &&

@@ -189,7 +189,9 @@ into play, and exits 1 when anything would be refused, else 0. It reports:
 mod.txt; each `world=` (its `zbd\<folder>\gamez.zbd` and `<folder>.gs`)
 and `ia_world=`; every file and what it replaces in the install (mw3.cfg's
 `install=`) or adds; the player's own kind of file, ignored; every archive's
-table; every reader archive's entries through the bounded reader; every
+table; every reader archive's entries through the bounded reader; a
+`mechlib.zbd`'s materials and every tree, a `motion.zbd`'s every motion and
+an `anim.zbd`'s read through theirs; every
 loose `.zrd` through the text parser; `strings.txt`'s lines the game would
 leave out (warnings). Test: `mods_check_mod_reports_what_the_game_would_refuse`
 (a good mod with a copied reader, a loose fmv.zrd and strings: no errors; a
