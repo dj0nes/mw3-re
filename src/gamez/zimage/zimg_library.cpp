@@ -1,5 +1,6 @@
 #include "gamez/zimage/zimg_library.h"
 
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <string>
@@ -29,6 +30,21 @@ uint16_t* shade(uint16_t* palette) { return palette; }
 
 int32_t read_size(const Texture& t, int bytes) {  // 0x00517f70
   return t.palette_count != 0 ? t.pixel_count : bytes * t.pixel_count;
+}
+
+// The library's file as the player has it (a mod's named by its folder).
+std::string where(const Library& lib) {
+  const std::string p = std::string(g_state.dir) + lib.name;
+  const std::string host = zutl::find(p.c_str());
+  return host.empty() ? p : host;
+}
+
+// Ours (M3): a texture's bytes run to the next texture's offset or the end.
+long span_end(const Library& lib, uint32_t offset) {
+  long end = lib.size;
+  for (int i = 0; i < lib.header.texture_count; ++i)
+    if (lib.entries[i].offset > offset && static_cast<long>(lib.entries[i].offset) < end) end = static_cast<long>(lib.entries[i].offset);
+  return end;
 }
 }  // namespace
 
@@ -126,10 +142,25 @@ bool open(Library& lib) {
   lib.file = zutl::open((std::string(g_state.dir) + lib.name).c_str(), "rb");
   if (!lib.file) return false;
   if (lib.entries) return true;
+  std::fseek(lib.file, 0, SEEK_END);
+  lib.size = std::ftell(lib.file);
+  std::fseek(lib.file, 0, SEEK_SET);
   if (std::fread(&lib.header, 0x18, 1, lib.file) == 1 && lib.header.has_entries == 1) {
+    // Ours (docs/modding.md, M3): counts the file cannot hold refuse it (the
+    // exe mallocs and reads them as they are).
+    const int64_t table = 0x18 + static_cast<int64_t>(lib.header.texture_count) * 0x28 +
+                          static_cast<int64_t>(lib.header.palette_count) * 0x200;
+    if (lib.header.texture_count < 0 || lib.header.palette_count < 0 || table > lib.size) {
+      std::printf("mw3: %s: its table is broken (%d textures, %d palettes in %ld bytes), not read\n", where(lib).c_str(),
+                  lib.header.texture_count, lib.header.palette_count, lib.size);
+      std::fclose(lib.file);
+      lib.file = nullptr;
+      return false;
+    }
     lib.entries = static_cast<Entry*>(std::malloc(lib.header.texture_count * sizeof(Entry)));
     if (std::fread(lib.entries, sizeof(Entry), lib.header.texture_count, lib.file) ==
         static_cast<size_t>(lib.header.texture_count)) {
+      for (int i = 0; i < lib.header.texture_count; ++i) lib.entries[i].name[31] = 0;  // ours (M3): _stricmp stays in the name
       lib.palette_base = static_cast<int32_t>(g_state.palettes.size());
       if (lib.header.palette_count < 1) return true;
       const size_t first = g_state.palettes.size();
@@ -166,8 +197,20 @@ Texture* load(Library& lib, const char* name) {
   for (int i = 0; i < lib.header.texture_count; ++i) {
     const Entry& e = lib.entries[i];
     if (crt::msvc_stricmp(e.name, name) != 0) continue;
+    // Ours (docs/modding.md, M3): the offset past the table and palettes,
+    // the palette one the library has, the texture within its bytes.
+    const int64_t table = 0x18 + static_cast<int64_t>(lib.header.texture_count) * 0x28 +
+                          static_cast<int64_t>(lib.header.palette_count) * 0x200;
+    if (e.offset < table || static_cast<int64_t>(e.offset) >= lib.size || e.palette < -1 || e.palette >= lib.header.palette_count) {
+      std::printf("mw3: %s: texture %s is broken (its offset or palette), not read\n", where(lib).c_str(), name);
+      return nullptr;
+    }
     std::fseek(lib.file, static_cast<long>(e.offset), SEEK_SET);
-    Texture* t = read_texture(lib.file);
+    Texture* t = read_texture(lib.file, span_end(lib, e.offset));
+    if (!t) {
+      std::printf("mw3: %s: texture %s is broken (its size past its end), not read\n", where(lib).c_str(), name);
+      return nullptr;
+    }
     if (e.palette == -1) return t;
     // The original writes through t unchecked; a failed read would crash there.
     if (t) t->palette = g_state.palettes[lib.palette_base + e.palette];
@@ -233,9 +276,20 @@ int read_data(std::FILE* f, Texture& t, int bytes) {
 
 // Mech3.exe 1.2 @ 0x00517f80. Quirk kept: a failed pixel read still returns
 // the texture.
-Texture* read_texture(std::FILE* f) {
+Texture* read_texture(std::FILE* f, long end) {
   auto* t = static_cast<Texture*>(std::calloc(1, sizeof(Texture)));  // 0x00517c10
   if (read_info(f, *t) != 0) return nullptr;
+  if (end >= 0) {  // ours (M3): sizes not below 0, the buffers within the bytes left
+    const long at = std::ftell(f);
+    const int64_t px = static_cast<int64_t>(t->width) * t->height;
+    const int64_t bpp = bytes_per_pixel(*t);
+    const int64_t need = (t->palette_count != 0 ? px : bpp * px) + ((t->flags & kFullAlpha) ? px : 0) +
+                         (!(t->flags & kGlobalPalette) && t->palette_count != 0 ? bpp * t->palette_count : 0);
+    if (at < 0 || at > end || t->width < 0 || t->height < 0 || t->palette_count < 0 || need > end - at) {
+      std::free(t);
+      return nullptr;
+    }
+  }
   t->pixels = std::malloc(read_size(*t, bytes_per_pixel(*t)));     // 0x00517c40
   read_data(f, *t, 0);
   t->flags |= kPixelsOwned;
