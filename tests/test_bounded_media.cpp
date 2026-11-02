@@ -16,6 +16,7 @@
 
 #include "check.h"
 #include "gamez/zimage/zimg_library.h"
+#include "gamez/zimage/zimg_texture.h"
 #include "gamez/zinterp/zinterp.h"
 #include "gamez/zsound/zsnd.h"
 #include "gamez/zutil/zutl_zar.h"
@@ -502,4 +503,62 @@ TEST(bounded_check_mod_reads_textures_sounds_and_scripts) {
   EXPECT(out.find("error: zbd/soundsH.zbd: sound " + sounds[3].name + " cannot be read") != std::string::npos);
   EXPECT(out.find("error: zbd/c1/rtexture2.zbd") == std::string::npos && out.find("error: zbd/interp.zbd") == std::string::npos &&
          out.find("error: zbd/soundsL.zbd") == std::string::npos);
+}
+
+// gamez.zbd's texture directory (c1's 553 entries): mip indices made huge,
+// below -1 or one past the table, and bytes flipped: no crash; every
+// directory with an index outside the table refused, the table as it was;
+// every one read has each mip null or a row of the table.
+TEST(bounded_gamez_texture_directory_mips) {
+  const std::string path = std::string(MW3_GAME_DIR) + "/zbd/c1/gamez.zbd";
+  std::error_code ec;
+  if (!fs::exists(path, ec)) return;
+  const std::vector<uint8_t> full = slurp(path);
+  const int32_t count = static_cast<int32_t>(u32(full, 8)), offset = static_cast<int32_t>(u32(full, 12));
+  const std::vector<uint8_t> dir(full.begin() + offset, full.begin() + offset + count * 0x28);
+  const std::string tmp = scratch("bounded_texdir") + "/dir";
+  auto read = [&](const std::vector<uint8_t>& d) {
+    spit(tmp, d);
+    std::FILE* f = std::fopen(tmp.c_str(), "rb");
+    zimg::textures().count = 7;  // a marker: a refused directory leaves it
+    const int r = zimg::read_texture_directory(count, f, "test");
+    std::fclose(f);
+    return r;
+  };
+  EXPECT(read(dir) == count);
+  std::mt19937 r(1999);
+  int refused = 0, out_of_range = 0, read_ok = 0, inside = 0, kept = 0;
+  for (int k = 0; k < 300; ++k) {
+    std::vector<uint8_t> d = dir;
+    bool bad = false;
+    for (int n = 1 + r() % 3; n > 0; --n) {
+      const size_t at = (r() % count) * 0x28 + (k % 2 ? 0x24 : r() % 0x24);
+      const uint32_t v = k % 2 ? std::vector<uint32_t>{0x7fffffffu, 0xfffffffeu, static_cast<uint32_t>(count), r() % count,
+                                                       0xffffffffu}[r() % 5]
+                               : r();
+      put32(d, at - at % 4, v);
+    }
+    for (int32_t i = 0; i < count; ++i) {
+      const int32_t m = static_cast<int32_t>(u32(d, i * 0x28 + 0x24));
+      bad = bad || m < -1 || m >= count;
+    }
+    out_of_range += bad;
+    const int got = read(d);
+    if (got < 0) {
+      ++refused;
+      kept += zimg::textures().count == 7;
+      continue;
+    }
+    ++read_ok;
+    bool all = true;
+    for (int32_t i = 0; i < count; ++i) {
+      const zimg::TextureEntry* m = zimg::textures().entries[i].mip;
+      all = all && (!m || (m >= &zimg::textures().entries[0] && m < &zimg::textures().entries[count]));
+    }
+    inside += all;
+  }
+  std::printf("  300 garbled directories: %d with an index outside, %d refused (%d left the table), %d read, %d with every mip inside\n",
+              out_of_range, refused, kept, read_ok, inside);
+  EXPECT(out_of_range > 100 && refused == out_of_range && kept == refused && inside == read_ok);
+  zimg::textures().count = 0;
 }
