@@ -196,6 +196,15 @@ It holds `mw3.cfg`, your pilots and saves, the settings, the converted movies
 and the music, and `mw3.log`. Uninstalling the rebuild keeps it; deleting it
 starts you over.
 
+## Known issues
+
+- **macOS: window tools can delay the mouse button by about a second.**
+  Tools that filter mouse clicks to snap or move windows (Magnet and
+  similar) can hold each mouse-button press back, so in a mission the mouse
+  fires only when you let go. The keyboard is not affected. Quit the tool
+  while you play, or add MechWarrior 3 to its excluded apps if it has that
+  setting.
+
 ## Reporting a bug
 
 Open an [issue](../../issues) and include:

@@ -1,7 +1,10 @@
 #include "mech3/movie_shape.h"
 
 #include <algorithm>
+#include <cctype>
+#include <cstdio>
 #include <cstdlib>
+#include <fstream>
 #include <sstream>
 
 namespace mech3 {
@@ -157,6 +160,16 @@ std::string movie_shape_line(const std::string& key, const std::vector<MovieShap
   return o.str();
 }
 
+std::string movie_shape_key(const std::string& path, uint32_t frames, int32_t width, int32_t height) {
+  std::string n = path;
+  std::replace(n.begin(), n.end(), '\\', '/');
+  if (const size_t s = n.rfind('/'); s != std::string::npos) n.erase(0, s + 1);
+  if (const size_t d = n.rfind('.'); d != std::string::npos) n.erase(d);
+  for (char& c : n) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+  std::replace(n.begin(), n.end(), ' ', '_');
+  return n + "/" + std::to_string(frames) + "/" + std::to_string(width) + "x" + std::to_string(height < 0 ? -height : height);
+}
+
 namespace {
 // A whole decimal number, nothing else; -1 when it is not one.
 int32_t number(const std::string& s) {
@@ -190,6 +203,108 @@ bool movie_shape_parse(const std::string& line, std::string* key, std::vector<Mo
     runs->push_back(r);
   }
   return !runs->empty() && runs->front().start == 0;
+}
+
+MovieShapeStore::~MovieShapeStore() {
+  {
+    std::lock_guard<std::mutex> g(mu_);
+    stop_ = true;
+  }
+  cv_.notify_all();
+  if (scan_.joinable()) scan_.join();
+}
+
+void MovieShapeStore::load() {
+  if (loaded_) return;
+  loaded_ = true;
+  std::string key;
+  std::vector<MovieShapeRun> runs;
+  for (const std::string& line : movie_shape_table())
+    if (movie_shape_parse(line, &key, &runs)) shapes_[key] = Shape{true, runs};
+  std::ifstream f(cache_);
+  for (std::string line; std::getline(f, line);) {
+    if (line.empty() || line[0] == '#' || !movie_shape_parse(line, &key, &runs)) continue;
+    shapes_[key] = Shape{true, runs};
+  }
+}
+
+void MovieShapeStore::save(const std::string& key, const std::vector<MovieShapeRun>& runs) {
+  std::ifstream in(cache_);
+  const bool fresh = !in.good();
+  in.close();
+  std::ofstream out(cache_, std::ios::app);
+  if (!out) return;
+  if (fresh) out << "# The movies' shapes on a wide screen, measured once each (docs/fmv.md section 8).\n";
+  out << movie_shape_line(key, runs) << "\n";
+}
+
+void MovieShapeStore::open(const std::string& key, int32_t fps, Measure measure, bool now) {
+  std::unique_lock<std::mutex> g(mu_);
+  load();
+  ++plays_;
+  if (shapes_.count(key) || scanning_ || stop_) return;
+  if (scan_.joinable()) scan_.join();  // finished: scanning_ is false
+  shapes_[key] = Shape{};
+  scanning_ = true;
+  scan_ = std::thread([this, key, fps, measure, now] {
+    const MovieScanGate gate = [this, now] {
+      std::unique_lock<std::mutex> l(mu_);
+      if (!now) cv_.wait(l, [this] { return stop_ || plays_ == 0; });
+      return !stop_;
+    };
+    std::vector<MovieFrameScan> frames;
+    int32_t w = 0, h = 0;
+    const bool ok = measure(gate, &frames, &w, &h);
+    std::vector<MovieShapeRun> runs;
+    if (ok) runs = movie_shape_runs(frames, w, h, fps);
+    std::lock_guard<std::mutex> l(mu_);
+    if (ok && !runs.empty()) {
+      shapes_[key] = Shape{true, runs};
+      save(key, runs);
+      std::printf("mw3: movie %s measured: %s\n", key.c_str(), movie_shape_line("", runs).c_str() + 1);
+    } else {
+      shapes_.erase(key);
+    }
+    scanning_ = false;
+    cv_.notify_all();
+  });
+  if (now) {
+    g.unlock();
+    scan_.join();
+  }
+}
+
+void MovieShapeStore::play_end() {
+  {
+    std::lock_guard<std::mutex> g(mu_);
+    if (plays_ > 0) --plays_;
+  }
+  cv_.notify_all();
+}
+
+bool MovieShapeStore::rows(const std::string& key, MovieShapePlay* play, int32_t f, int16_t* top, int16_t* bottom) {
+  std::lock_guard<std::mutex> g(mu_);
+  load();
+  auto it = shapes_.find(key);
+  const bool ready = it != shapes_.end() && it->second.ready;
+  return play->rows(ready ? &it->second.runs : nullptr, f, top, bottom);
+}
+
+bool MovieShapeStore::known(const std::string& key) {
+  std::lock_guard<std::mutex> g(mu_);
+  load();
+  auto it = shapes_.find(key);
+  return it != shapes_.end() && it->second.ready;
+}
+
+bool MovieShapeStore::measuring() {
+  std::lock_guard<std::mutex> g(mu_);
+  return scanning_;
+}
+
+void MovieShapeStore::wait_measured() {
+  std::unique_lock<std::mutex> g(mu_);
+  cv_.wait(g, [this] { return !scanning_; });
 }
 
 }  // namespace mech3

@@ -2806,6 +2806,13 @@ From the view and its cameras (0x40aca0, 0x430e70; details: `view.md`).
   a soft vignette. Every briefing movie is plain 4:3. On a widescreen
   monitor the rebuild shows the letterboxed parts across the whole width.
   (docs/fmv.md, The movies on a wide screen)
+- **Four movies the game's scripts name were never shipped.** fmv.zrd has
+  entries for c3m3.avi and for an ending movie after each of the first
+  three operations (c1win, c2win, c3win), but no copy of MechWarrior 3
+  has them: the US disc and the 1.0 and 1.2 installs hold the same 19
+  movies, byte for byte. Only the fourth operation's ending (c4win) is
+  ever played; c3m3 simply has no opening movie. (docs/fmv.md, The
+  imported movies)
 
 ## Keyboard, mouse and joystick
 

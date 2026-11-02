@@ -17,7 +17,8 @@ affiliated with or endorsed by Microsoft or MicroProse. MechWarrior is a
 trademark of Microsoft.
 
 **No game files are included. You need your own MechWarrior 3**: an
-installed copy (1.0 or 1.2), the disc, or a disc image.
+installed copy (1.0 or 1.2), the disc, or a disc image (.iso or .cue/.bin, or a zip
+of one). If you no longer have yours, you can find a copy on the internet.
 
 ## What 1.0 is
 
@@ -35,7 +36,8 @@ Moon, the expansion, is next, as a game of its own beside this one.
 | Linux | `MW3-Rebuild-1.0-x86_64.AppImage` | Make it executable and run it. |
 
 Start **MechWarrior 3**. It finds your install by itself; if it cannot,
-its SETUP screen takes whatever you have and sets the game up from it.
+it asks for your game: point it at the disc image or zip and it takes it
+from there.
 The Mac app is not signed by Apple: the first time, right-click it and
 choose **Open**. Windows SmartScreen may warn about an unknown publisher:
 **More info**, then **Run anyway**. The README has the rest.
@@ -85,11 +87,13 @@ choose **Open**. Windows SmartScreen may warn about an unknown publisher:
 
 ## Known open items
 
-- **Mac: the mouse in a window.** On one Mac, in a windowed mission, a
-  click paused the cursor and did not fire (the keyboard's fire key
-  worked), and an earlier build fired about a second late. Not
-  reproduced on our other test runs; fullscreen and the keyboard are not
-  affected. If you see it, please report it with `mw3.log`.
+- **macOS: window tools can delay the mouse button by about a second.**
+  Tools that filter mouse clicks to snap or move windows (Magnet and
+  similar) hold each press back, so in a mission the mouse fires only when
+  you let go; the keyboard is not affected. Quit the tool while you play,
+  or add MechWarrior 3 to its excluded apps. (The other half of that Mac
+  report, a mouse that never fired, was saved controls losing the mouse's
+  fire button; fixed, and controls already saved that way are mended.)
 - **Multiplayer: the mech lab from the lobby** once listed no mechs in a
   live match. Not reproduced since; if you see it, a report helps.
 - Pirate's Moon is not supported yet.
@@ -112,7 +116,7 @@ SHA-256 of each download (to be filled in from the built packages):
 <sha256>  MW3-Rebuild-1.0-x86_64.AppImage
 ```
 
-## Licences
+## Licenses
 
 The rebuild is under the MIT licence. Its libraries (SDL3, SDL3_ttf,
 FreeType, SDL3_sound, ENet, miniupnpc, libarchive, zlib, liblzma, miniz,

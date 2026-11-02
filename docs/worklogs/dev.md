@@ -2715,6 +2715,16 @@ Assigned after 8b2 merged (fd3f05f). The lead asked for a section stepped at bot
   breaks (the live map written, no keep at ACCEPT, no rebuild, no repair).
 - The blink/clickthrough candidate is held on mac4/w40-candidate.
 
+## W40's lag: Magnet (2026-11-02)
+
+- External: Magnet's filtering event tap on left-mouse-down (CGGetEventTapList:
+  998.9 ms measured). Probe runs: the down reached SDL after its up, macOS's
+  pressedMouseButtons 0 through the press, with relative mode off (B) and
+  with the run loop serviced each frame (C1/C2); on time with Magnet quit (C).
+- README known issues, the release notes' line, W40 closed in playtest.md, a
+  porting-lessons item (list the taps first). The probe branch
+  (mac4/w40-probe2) stays off main.
+
 ## Launcher for v1.0 (2026-11-02)
 
 - Hover: only the round badges ripple; square plates light their edge in
