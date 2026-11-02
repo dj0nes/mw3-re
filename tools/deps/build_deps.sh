@@ -101,12 +101,21 @@ FFMPEG_OPTS=(--enable-shared --disable-static --disable-everything --disable-aut
              --enable-protocol=file --enable-demuxer=avi --enable-decoder=indeo5 --enable-encoder=mpeg1video
              --enable-muxer=mpeg1video --enable-swscale)
 unpack ffmpeg-8.1.2.tar.xz
-ff_build() {  # install dir, then extra configure options
+# FFmpeg keeps its configure line in each library (avutil_configuration()),
+# so the prefix is a neutral /ffbuild and the install goes through DESTDIR:
+# the build folder (and the user name in it) stays out of the package.
+ff_build() {  # staging dir (the tree lands in <dir>/ffbuild), then extra configure options
   local dst="$1"; shift
   local b="$WORK/ffmpeg-build-$(basename "$dst")"
-  rm -rf "$b" && mkdir -p "$b"
-  (cd "$b" && "$WORK/src/ffmpeg-8.1.2/configure" --prefix="$dst" "${FFMPEG_OPTS[@]}" "$@" >/dev/null &&
-     make -j "$JOBS" >/dev/null && make install >/dev/null)
+  rm -rf "$b" "$dst" && mkdir -p "$b"
+  (cd "$b" && "$WORK/src/ffmpeg-8.1.2/configure" --prefix=/ffbuild "${FFMPEG_OPTS[@]}" "$@" >/dev/null &&
+     make -j "$JOBS" >/dev/null && make install DESTDIR="$dst" >/dev/null)
+}
+ff_pc() {  # the staged .pc files into PREFIX, pointed at it
+  mkdir -p "$PREFIX/lib/pkgconfig"
+  for f in "$1"/ffbuild/lib/pkgconfig/*.pc; do
+    sed "s|/ffbuild|$PREFIX|g" "$f" > "$PREFIX/lib/pkgconfig/$(basename "$f")"
+  done
 }
 if [ "$PLATFORM" = mac ]; then
   for arch in arm64 x86_64; do
@@ -116,19 +125,19 @@ if [ "$PLATFORM" = mac ]; then
     ff_build "$WORK/ffmpeg-$arch" "${extra[@]}"
   done
   # One tree (headers, pkg-config) with each dylib joined.
-  cp -R "$WORK/ffmpeg-arm64/include/." "$PREFIX/include/"
-  mkdir -p "$PREFIX/lib/pkgconfig"
-  for f in "$WORK"/ffmpeg-arm64/lib/*.dylib; do
+  cp -R "$WORK/ffmpeg-arm64/ffbuild/include/." "$PREFIX/include/"
+  for f in "$WORK"/ffmpeg-arm64/ffbuild/lib/*.dylib; do
     n="$(basename "$f")"
-    if [ -L "$f" ]; then cp -P "$f" "$PREFIX/lib/$n"; else lipo -create "$f" "$WORK/ffmpeg-x86_64/lib/$n" -output "$PREFIX/lib/$n"; fi
+    if [ -L "$f" ]; then cp -P "$f" "$PREFIX/lib/$n"; else lipo -create "$f" "$WORK/ffmpeg-x86_64/ffbuild/lib/$n" -output "$PREFIX/lib/$n"; fi
   done
-  for f in "$WORK"/ffmpeg-arm64/lib/pkgconfig/*.pc; do
-    sed "s|$WORK/ffmpeg-arm64|$PREFIX|g" "$f" > "$PREFIX/lib/pkgconfig/$(basename "$f")"
-  done
+  ff_pc "$WORK/ffmpeg-arm64"
 else
   # Without nasm FFmpeg's x86 assembly is left out (the Indeo decoder a little slower).
   asm=(); command -v nasm >/dev/null || asm=(--disable-x86asm)
-  ff_build "$PREFIX" --enable-pic --extra-ldflags='-Wl,-rpath,$$ORIGIN' ${asm[@]+"${asm[@]}"}
+  ff_build "$WORK/ffmpeg-native" --enable-pic --extra-ldflags='-Wl,-rpath,$$ORIGIN' ${asm[@]+"${asm[@]}"}
+  cp -R "$WORK/ffmpeg-native/ffbuild/include/." "$PREFIX/include/"
+  cp -P "$WORK"/ffmpeg-native/ffbuild/lib/*.so* "$PREFIX/lib/"
+  ff_pc "$WORK/ffmpeg-native"
 fi
 echo "built FFmpeg"
 
