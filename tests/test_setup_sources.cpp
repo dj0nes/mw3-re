@@ -487,3 +487,32 @@ TEST(setup_install_the_real_redump_zip) {
 TEST(setup_sources_no_libarchive_in_this_build) { EXPECT(!mech3::source::archives_supported()); }
 
 #endif
+
+// The swap replaces only our own earlier install (its mw3-install.txt) or an
+// empty folder: --install-to may name any folder, and the old one is deleted.
+TEST(setup_swap_replaces_only_our_own_install) {
+  namespace fs = std::filesystem;
+  const fs::path root = fs::path(MW3_TEST_TMP) / "swap";
+  std::error_code ec;
+  fs::remove_all(root, ec);
+  const auto put = [](const fs::path& p, const char* text) {
+    fs::create_directories(p.parent_path());
+    std::FILE* f = std::fopen(p.string().c_str(), "wb");
+    std::fputs(text, f);
+    std::fclose(f);
+  };
+  put(root / "new1" / "Mech3.exe", "new");
+  put(root / "theirs" / "letter.txt", "keep me");
+  EXPECT(!mech3::swap_in_folder((root / "new1").string(), (root / "theirs").string(), ec));
+  EXPECT(fs::exists(root / "theirs" / "letter.txt") && fs::exists(root / "new1" / "Mech3.exe"));
+  put(root / "ours" / "mw3-install.txt", "ours");
+  put(root / "ours" / "old.zbd", "old");
+  EXPECT(mech3::swap_in_folder((root / "new1").string(), (root / "ours").string(), ec));
+  EXPECT(fs::exists(root / "ours" / "Mech3.exe") && !fs::exists(root / "ours" / "old.zbd"));
+  EXPECT(!fs::exists(root / "ours.old"));
+  fs::create_directories(root / "empty");
+  put(root / "new2" / "Mech3.exe", "new");
+  EXPECT(mech3::swap_in_folder((root / "new2").string(), (root / "empty").string(), ec));
+  EXPECT(fs::exists(root / "empty" / "Mech3.exe"));
+  fs::remove_all(root, ec);
+}
