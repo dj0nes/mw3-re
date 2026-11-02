@@ -41,27 +41,18 @@ Its built-in decoders have their own terms:
   SDL_sound's source, src/timidity/, with its COPYING file.
 
 
-FFmpeg (avcodec, avformat, avutil, swscale and the other FFmpeg DLLs)
-----------------------------------------------------------------------
-https://ffmpeg.org/. This build of FFmpeg is licensed under the GNU Lesser
-General Public License (LGPL) version 3 or later: it was configured with
---enable-version3, because it includes Apache-2.0 code (opencore-amr).
-licenses\ffmpeg-*\ holds its licence files. Only mw3import.exe uses it, to
-convert the game's movies.
-- The DLLs are an unmodified LGPL build (BtbN's FFmpeg-Builds,
-  "win64-lgpl-shared", https://github.com/BtbN/FFmpeg-Builds), and
-  mw3import.exe links them dynamically. You may replace them with your own
-  build of the same FFmpeg version.
-- The exact version and the configuration it was built with (which names
-  every library built into the DLLs) are in
-  licenses\ffmpeg-configuration.txt. FFmpeg's source for that version is at
-  https://ffmpeg.org/download.html (git tag n<version>), and the build
-  scripts at the FFmpeg-Builds link above.
-- The DLLs also have other libraries built in (codecs and formats
-  mw3import does not use), each under its own licence. They are listed, with
-  their licences and where each project is, in
-  licenses\ffmpeg-libraries.txt; their licence texts are in each project's
-  source.
+FFmpeg (avcodec, avformat, avutil, swscale), version 8.1.2
+----------------------------------------------------------
+https://ffmpeg.org/. The FFmpeg developers. GNU Lesser General Public
+License, version 2.1 or later (licenses\ffmpeg-8.1.2-win64-lgpl-shared\).
+Used by mw3import.exe, which converts your disc's movies on the first
+start. Built unmodified from ffmpeg.org's release tarball
+ffmpeg-8.1.2.tar.xz, with only the AVI demuxer, the Indeo 5 decoder, the
+MPEG-1 video encoder and muxer, swscale and the file protocol enabled (no
+GPL or non-free parts, no other library inside); the configure line is in
+licenses\ffmpeg-configuration.txt and the project's docs/deps.md.
+mw3import.exe loads the DLLs dynamically: you may replace them with your
+own build of the same version.
 
 
 miniz's inflate, tinfl (built into mw3.exe)

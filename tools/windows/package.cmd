@@ -68,9 +68,8 @@ for /d %%d in (deps\*) do if /i not "%%~nxd"=="archive" (
   mkdir "%DIST%\licenses\%%~nxd" 2>nul
   for %%f in ("%%d\LICENSE*" "%%d\COPYING*" "%%d\README-SDL.txt") do copy /y "%%f" "%DIST%\licenses\%%~nxd\" >nul
 )
-rem FFmpeg's version and configuration: the libraries built into its DLLs (THIRD-PARTY.txt).
+rem FFmpeg's version and configure line (THIRD-PARTY.txt).
 build-win-pkg\mw3import.exe --version > "%DIST%\licenses\ffmpeg-configuration.txt" || exit /b 1
-powershell -NoProfile -ExecutionPolicy Bypass -File tools\windows\ffmpeg_notices.ps1 "%DIST%" || exit /b 1
 for /d %%d in ("%DIST%\licenses\*") do dir /b /a-d "%%d" >nul 2>nul || echo Warning: no licence file found for %%~nxd: copy it into licenses\%%~nxd by hand.
 mkdir "%DIST%\licenses\pl_mpeg"
 copy /y third_party\pl_mpeg\README.md "%DIST%\licenses\pl_mpeg\" >nul || exit /b 1
