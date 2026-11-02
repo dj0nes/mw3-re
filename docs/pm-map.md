@@ -341,8 +341,8 @@ functions PM changed, and PM's new ones.
        - `mw3pmtests`: `pm_text_files_take_include`, and
          `pm_include_stays_inside_the_mounts` (`..`, a full path and
          `sub/../..` read nothing; ours, for mods).
-   - **gamez.zbd 41 (in progress: (c1) textures and materials done,
-     (c2) models, (c3) nodes and the entry left)**: PM's world file loader stacks files.
+   - **gamez.zbd 41 (in progress: (c1) textures and materials and
+     (c2) models done; (c3) nodes and the entry left)**: PM's world file loader stacks files.
      Every gamez.zbd read appends to the material, model and node pools
      (MW3's replaced them), so one world can be made of several files.
      - Entry 0x516bc0 (MW3 0x4ff520). It keeps a list of the loaded files
@@ -381,6 +381,57 @@ functions PM changed, and PM's new ones.
      - Models 0x558ba0 (MW3 0x538e30): 0x68 each, appended the same
        way (the free list through +0x64). Each one goes through
        0x5587e0(f, model, material base).
+     - (c2) ported (2026-11-02): `pm/gamez/zmodel/gmod_const` (0x558ba0,
+       0x5587e0), PM's own types (`pm::zmod::Model`, `Polygon` with its
+       material list and UVs per material, `MaterialRef`), blocks of 750
+       (0x53fe30 sets the size; the pool starts empty). The reader checks
+       no read; a later file's empty slots go on the free list; a slot
+       without parents but not all zero is reported (0x606) and read.
+       `test_pm_gamez.py`: the models of the 4 worlds, 2 stacks, 4 copies
+       cut in the models and a crafted model (light colours with
+       fractions, a polygon with two materials each with UVs), alone and
+       stacked, both colour formats: 66 runs identical in all. 7 break
+       tests caught (no material base, one UV array, a later file's empty
+       slots unlinked, the refs' polygons not cumulative, the light
+       colours not rounded, the header taken on every load, normals read
+       without the flag).
+     - **The models' form** (lead's decision (B), 2026-11-02): after each
+       model the exe converts it for the renderer. Under Direct3D
+       ([0x8c1520], 0x572ae0) a model without 0x80 goes to 0x570b70 (model,
+       0x7fffffff, 0x7fffffff): about 1,960 instructions over MSVC
+       std::map/set (0x573100..0x576ba0), building triangle strips (0x2000)
+       of polygons with UVs and normals. In software, a model with 0x80
+       goes back through 0x5726f0. The port keeps the file's form. It is
+       exactly PM's under Direct3D for every shipped world: 0x570b70 acts
+       only on a model of type 0 with polygons, and every shipped model
+       without 0x80 that has polygons is a facade (type 1; 645 in the 4
+       worlds), so it returns at once. `test_pm_strips.py` runs PM's own
+       0x570b70 on all of them in the emulator (0 changed) and fails if a
+       type-0 model ever reaches it. Its other callers run later, on
+       models made or copied at run time (0x5587bf with a vertex limit of
+       4, 0x510ae2 in cls_clutter's range): to check when those are ported
+       (a type-0 model without 0x80 there would be stripped in PM).
+     - What reads model polygons for play, in PM: the segment tests
+       0x569290, 0x569b00, 0x56a600 (MW3 0x54e2b0, 0x54ea30, 0x54f450:
+       the weapons' hits, sight lines, the ground and ray queries), which
+       take strips (0x2000) and fans alike; the AI's in/out nets 0x4c9af0
+       and 0x4cced0 (new in PM, ZAiNetMechInOut.cpp, "Net without
+       color"); cls_clutter 0x512a80 and 0x511b50 (new); model_copy
+       0x559340 (MW3 0x5396c0). The rest are drawing (gmod_draw, light,
+       puffers, the software path 0x5685c0/0x5689d0). Since the shipped
+       form is unchanged under Direct3D, none of them sees a difference.
+     - The renderer: it must draw the file's form, as PM's own renderer
+       does. That means polygons with a list of materials, UVs per
+       material, strips (0x2000) where the file has them, and facades.
+       MW3's model draw 0x53f2e0 (2,753 instructions) has no pair in PM:
+       PM's draw is new code, to read in step 2. The options for later:
+       (i) a PM path in the renderer through the game table; (ii) a
+       load-time conversion, ours and outside the ported code, of PM's
+       models into the polygons the renderer draws (one per material
+       layer, the same vertices, UVs and colours). The lean is (ii), as
+       the high-res model layer would use it too. It needs PM's draw
+       code read first, for how a polygon's materials combine (blending,
+       order).
      - Nodes 0x516e90 / 0x5171a0 (MW3 0x4ff200 / 0x4feaf0): PM's node
        layout (mech3ax `nodes/node/pm`, world, light, lod) plus the model
        base. Left to read.
