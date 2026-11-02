@@ -16,6 +16,10 @@ set(MW3_GAME_DIR "${CMAKE_SOURCE_DIR}/game/mw3-1.2" CACHE PATH "The MechWarrior 
 # A build for other players (tools/windows/package.cmd): mw3 and mw3import
 # get no development copy to fall back on, only the player's own install.
 option(MW3_PACKAGE "Build mw3 and mw3import for players: no MW3_GAME_DIR in them" OFF)
+# Pirate's Moon (docs/games-layout.md): mw3pm, its library and its tests; OFF
+# builds MechWarrior 3 alone.
+option(MW3_BUILD_PM "Build Pirate's Moon (mw3pm) beside MechWarrior 3" ON)
+set(MW3PM_GAME_DIR "${CMAKE_SOURCE_DIR}/game/pm" CACHE PATH "The Pirate's Moon install the PM tests and tools read")
 # The version mw3 --version and the Windows version resource give: git's
 # describe (a tag, or the commit) and the commit count.
 execute_process(COMMAND git describe --tags --always --dirty WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
@@ -130,6 +134,7 @@ add_library(mw3core STATIC
   src/gamez/zreader/zreader.cpp
   src/gamez/zsiscript/si_script.cpp
   src/gamez/zgame/zgameapp.cpp
+  src/gamez/zgame/zgame_table.cpp
   src/gamez/zsound/zsnd_cd.cpp
   src/gamez/zrender/zrndr_draw.cpp
   src/gamez/zrender/zrndr_flare.cpp
@@ -555,6 +560,29 @@ target_compile_definitions(mw3tests PRIVATE MW3_GAME_DIR="${MW3_GAME_DIR}"
                                           MW3_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
 add_test(NAME mw3tests COMMAND mw3tests)
 
+# Pirate's Moon's own code (src/pm/: what PM adds or changes) and its tests,
+# apart from MW3's so a PM change cannot break MW3's suite unseen.
+if(MW3_BUILD_PM)
+  add_library(pmcore STATIC
+    src/pm/pm_game.cpp
+  )
+  target_link_libraries(pmcore PUBLIC mw3core)
+  if(NOT MSVC)
+    target_compile_options(pmcore PRIVATE -ffp-contract=off)
+  endif()
+  add_executable(mw3pmtests
+    tests/main.cpp
+    tests/pm/test_pm_game.cpp
+  )
+  target_include_directories(mw3pmtests PRIVATE tests)
+  target_link_libraries(mw3pmtests PRIVATE pmcore mw3core)
+  target_compile_definitions(mw3pmtests PRIVATE MW3_GAME_DIR="${MW3_GAME_DIR}"
+                                              MW3PM_GAME_DIR="${MW3PM_GAME_DIR}"
+                                              MW3_TEST_TMP_ROOT="${CMAKE_BINARY_DIR}"
+                                              MW3_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+  add_test(NAME mw3pmtests COMMAND mw3pmtests)
+endif()
+
 # The SDL3 front end and the programs on it.
 find_package(SDL3 CONFIG QUIET)
 if(SDL3_FOUND)
@@ -712,6 +740,15 @@ if(SDL3_FOUND)
         add_custom_command(TARGET mw3launcher POST_BUILD
                            COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_RUNTIME_DLLS:mw3launcher> $<TARGET_FILE_DIR:mw3launcher>
                            COMMAND_EXPAND_LISTS)
+      endif()
+    endif()
+    # Pirate's Moon (games-layout.md): its own program over the same engine.
+    if(MW3_BUILD_PM)
+      add_executable(mw3pm src/frontend/sdl/mw3pm_main.cpp)
+      target_link_libraries(mw3pm PRIVATE pmcore mw3core SDL3::SDL3)
+      target_compile_definitions(mw3pm PRIVATE MW3_VERSION="${MW3_VERSION}")
+      if(NOT MW3_PACKAGE)
+        target_compile_definitions(mw3pm PRIVATE MW3PM_GAME_DIR="${MW3PM_GAME_DIR}")
       endif()
     endif()
     # The Indeo helper's stand-in for the tests (tools/indeo; the real

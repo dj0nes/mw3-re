@@ -301,5 +301,6 @@ functions PM changed, and PM's new ones.
    HUD objectives, spot and headlights.
 8. **Multiplayer**: PM's game types (Mw3 dev has multiplayer).
 
-The launcher's game choice and the per-game mounts and saves come with
-step 1 (CLAUDE.md: one program, both games).
+The `mw3pm` program, its own mount of PM's install and its own settings
+and saves come with step 1: two programs, `mw3` and `mw3pm`, over one
+engine, started from the launcher or directly (docs/games-layout.md).

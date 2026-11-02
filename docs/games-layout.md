@@ -42,6 +42,31 @@ own MW3 or PM files) and keeps its own settings and saves.
   (`MW3_EXE=pm` runs a test against PM's exe), so a PM change cannot break
   MW3's suite unseen.
 
+## The pieces on `mac5/pm` (2026-11-02)
+
+- **The game table**: `src/gamez/zgame/zgame_table.h`, `zgame::Table`,
+  one per game: MW3's is the default (`zgame::mw3_table()`), PM's is
+  `pm::table()` (`src/pm/pm_game.cpp`), set by `zgame::set_game` before
+  anything loads. Shared code calls a changed function through
+  `zgame::game()`; each entry arrives with its port (`pm-map.md`, step 1
+  onwards). For now it holds only the game's name and its exe's.
+- **`pmcore`**: the library of `src/pm/`, on top of `mw3core`.
+- **`mw3pm`** (`src/frontend/sdl/mw3pm_main.cpp`):
+  - It takes `mw3pm [install-dir] [--write-dir DIR] [--hidden]`.
+  - It uses PM's table and its own write dir: SDL's app data for "Pirate's
+    Moon", apart from MW3's.
+  - The install comes from the command line, else `mw3pm.cfg`'s
+    `install=`, else (development builds) `game/pm`.
+  - The install must be PM's: zbd/reader.zbd ends in a zArchive of version
+    2. MW3's install, or a folder without reader.zbd, is refused, and the
+    message says what the folder is.
+  - It mounts the install and stops with "data not loadable yet" (exit 0).
+- **`mw3pmtests`**: PM's own unit tests (`tests/pm/`).
+- **The switch**: `-DMW3_BUILD_PM=OFF` drops all three, and `MW3PM_GAME_DIR`
+  names the PM install the tests read.
+- **Not yet**: the packages carry no `mw3pm`, and the launcher's entry is
+  still greyed. Both come when PM plays.
+
 ## One repo, and when PM arrives
 
 - Until MW3 is tagged `v1.0` (`release.md`, "MW3 v1.0"), `main` is MW3
