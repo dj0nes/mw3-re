@@ -65,6 +65,27 @@ TEST(controls_defaults_save_and_load_round_trip) {
   EXPECT(mech3::axis_table().ready == 0 && mech3::axis_table().stock == 0);
 }
 
+// Playtest W40: a map saved with the quit box up (mouse button 1 on nothing,
+// TRIGGER1 without a mouse button) gets the button back on TRIGGER1; maps the
+// player rebound on purpose stay as they are.
+TEST(controls_repair_mouse_fire_only_mends_the_quit_boxs_damage) {
+  fresh();
+  mech3::controls_set_defaults();
+  EXPECT(!mech3::controls_repair_mouse_fire());  // the defaults: nothing to mend
+  zin::bind_mouse(0, 0x3d);                       // as the quit box (0x0048e2d0) unbinds it
+  EXPECT(zin::mouse_of(0x3d) == 0 && zin::mouse_command(1) == 0);
+  EXPECT(mech3::controls_repair_mouse_fire());
+  EXPECT(zin::mouse_of(0x3d) == 1 && zin::mouse_command(1) == 0x3d);
+  EXPECT(zin::mouse_of(0x17) == 2 && zin::key1_of(0x3d) == 0x39);  // the rest untouched
+  zin::bind_mouse(2, 0x3d);  // fire moved to the right button: button 1 on nothing
+  EXPECT(!mech3::controls_repair_mouse_fire());
+  EXPECT(zin::mouse_of(0x3d) == 2 && zin::mouse_command(1) == 0);
+  mech3::controls_set_defaults();
+  zin::bind_mouse(1, 0x17);  // button 1 on free look: fire has none
+  EXPECT(!mech3::controls_repair_mouse_fire());
+  EXPECT(zin::mouse_of(0x3d) == 0 && zin::mouse_command(1) == 0x17);
+}
+
 TEST(controls_stock_axes_and_missing_files) {
   fresh();
   mech3::controls_set_defaults();

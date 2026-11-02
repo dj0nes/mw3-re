@@ -394,4 +394,22 @@ void controls_save(const char* path) {
   std::fclose(f);
 }
 
+// Ours, playtest W40: an older build saved the map with a quit box's unbind
+// in it (fixes.md), so the mouse never fired again. Only that damage is
+// undone: fire moved to another button, or button 1 given to another
+// command, stays as the player set it.
+bool controls_repair_mouse_fire() {
+  constexpr int32_t kTrigger1 = 0x3d;
+  zin::CmdMap* m = zin::state().map;
+  if (!m || m->count < 0xa7 || zin::mouse_of(kTrigger1) != 0) return false;
+  for (int32_t c = 1; c < 0xa7; ++c)
+    if (zin::mouse_of(c) == 1) return false;
+  // The word itself, as the saved map was read into it: the reverse table
+  // is the defaults' until the next rebuild, so bind_mouse could clear another.
+  m->bindings[kTrigger1] |= 1u << 26;
+  m->mouse_cmd(1) = kTrigger1;
+  std::printf("mw3: controls: mouse button 1 was bound to nothing, put back on fire (TRIGGER1)\n");
+  return true;
+}
+
 }  // namespace mech3

@@ -16095,6 +16095,118 @@ TEST(playtest_delete_pilot_through_the_games_message_box_headless) {
   }
 }
 
+// Playtest W40 (docs/playtest.md): on the Mac the mouse never fired and
+// Space did: the saved DefaultCmdMap had lost TRIGGER1's mouse button 1. The
+// map is the settings' own block, and a network match's quit box
+// (0x0048e2d0), up when the program closed, had the button unbound. FIX (bug):
+// the box gives it back before the settings are saved (bug fixes off, where
+// the box unbinds it). Ours: a map an older build saved that way loads with
+// the button back on TRIGGER1; one the player rebound loads as it was.
+TEST(playtest_w40_quit_box_at_exit_keeps_the_mouse_fire_headless) {
+  if (!have_game()) return;
+  SavedMounts keep;
+  zutl::mounts() = zutl::Mounts{};
+  zutl::mount(MW3_GAME_DIR);
+  const std::string dir = temp_dir("w40_quit_box_write");
+  zutl::set_write_dir(dir);
+  const zfix::Options saved_fix = zfix::options();
+  zfix::options().bugs = false;
+  constexpr int32_t kTrigger1 = 0x3d;
+  bool unbound = false, saved_bound = false, mended = false, rebound_kept = false;
+  struct SavedMapHost : zin::Host {  // the SDL host's: the map is the settings' block
+    uint32_t* settings_block(const char* name, uint32_t size) override {
+      zreg::Entry* e = zreg::create(name, zreg::kBlock, size, zreg::kUser);
+      return e ? reinterpret_cast<uint32_t*>(e->data) : nullptr;
+    }
+  } zhost;
+  zin::Host* const was_host = zin::g_host;
+  zin::set_host(&zhost);
+  std::vector<uint8_t> saved;  // the DefaultCmdMap the first run saved
+  auto set_mouse = [&](std::vector<uint8_t>& m, int32_t cmd, uint32_t b) {
+    uint32_t w = 0;
+    std::memcpy(&w, &m[cmd * 4], 4);
+    w = (w & 0xf3ffffffu) | b << 26;
+    std::memcpy(&m[cmd * 4], &w, 4);
+  };
+  // The box at exit; then the map as the box left it; then fire moved to the
+  // right button by the player (free look's taken from it).
+  for (int run = 0; run < 3; ++run) {
+    platform::RegFile settings(dir + "/settings.reg");
+    if (run > 0 && saved.size() >= 0xa7 * 4) {
+      std::vector<uint8_t> m = saved;
+      set_mouse(m, kTrigger1, run == 1 ? 0 : 2);
+      if (run == 2) set_mouse(m, 0x17, 0);
+      settings.open("SOFTWARE\\MicroProse\\MechWarrior 3\\1.0", true, true);
+      settings.write(true, "DefaultCmdMap", 3, m.data(), static_cast<uint32_t>(m.size()));
+      settings.close(true);
+    }
+    mech3::reset_states();
+    reset_process_state();
+    mech3::options() = mech3::Options{};
+    FakeWindow window;
+    FakeAlert alert;
+    FakeClock clock;
+    FakeScreen screen;
+    platform::SilentSoundOutput sound;
+    mech3::MountFiles files;
+    mech3::Platform p;
+    p.window = &window, p.alert = &alert, p.clock = &clock, p.movie_clock = &fast_movie_clock(), p.screen = &screen, p.sound = &sound, p.files = &files;
+    p.settings = &settings;
+    {
+      mech3::GameEngine engine(p, "mech3.exe -nofmv");
+      engine.quiet = true;
+      BoxHost host;
+      host.e = &engine;
+      ztwod::set_host(&host);
+      mech3::Mech3App app(&engine);
+      mech3::set_app(&app);
+      EXPECT(app.init_instance());
+      // The bindings themselves (the reverse table stays the defaults' after the read).
+      if (run == 1) mended = zin::mouse_of(kTrigger1) == 1 && zin::mouse_of(0x17) == 2;
+      if (run == 2) rebound_kept = zin::mouse_of(kTrigger1) == 2 && zin::mouse_of(0x17) == 0;
+      bool done = false;
+      engine.on_present = [&](int) {
+        if (done || app.current() != &mech3::states().main || !mech3::main_menu()) return;
+        if (run == 0) {
+          EXPECT(zin::mouse_command(1) == kTrigger1);  // the defaults
+          const auto box = engine.message_box_new("dlgMessage.zrd", "MESSAGEBOX");
+          engine.message_box_quit_prompt(box);
+          unbound = zin::mouse_command(1) == 0 && zin::mouse_of(kTrigger1) == 0;
+        }
+        done = true;
+      };
+      CountingPump pump;
+      pump.limit = 400;
+      pump.stop = [&] { return done; };
+      app.run(pump);
+      EXPECT(done);
+      app.stop_game();
+      app.exit_instance();
+      app.destroy();  // the settings saved, the box still up in the first run
+      mech3::set_app(nullptr);
+      ztwod::set_host(nullptr);
+    }
+    zrdr::close_archives(true);
+    if (run == 0)
+      for (const auto& [k, v] : settings.values(true))
+        if (k == "defaultcmdmap") saved = v.bytes;
+    if (run == 0 && saved.size() >= 0xa7 * 4) {
+      uint32_t w = 0;
+      std::memcpy(&w, &saved[kTrigger1 * 4], 4);
+      saved_bound = (w >> 26 & 3) == 1;
+    }
+  }
+  zin::set_host(was_host);
+  zfix::options() = saved_fix;
+  mech3::reset_states();
+  reset_process_state();
+  mech3::options() = mech3::Options{};
+  EXPECT(unbound);       // the box took the button (0x0048e2d0)
+  EXPECT(saved_bound);   // and the saved map has it on TRIGGER1 again
+  EXPECT(mended);        // an older build's saved map mended at the load
+  EXPECT(rebound_kept);  // the player's own binding left alone
+}
+
 // Playtest #3 (docs/playtest.md): Escape in a mission pushes the Pause State,
 // whose screen (0x00492750) is made over a grab of the frame shown; RESUME
 // (0x00492d70) goes back through the state's +0x28, and so does Escape on the

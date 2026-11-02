@@ -110,6 +110,17 @@ entry named for the map (0x00597d90, type 7, per user), so they are saved
 with the other settings (settings.md; `zin::Host::settings_block`, which the
 SDL host answers from the store; null keeps them in the map).
 
+Because the map is the saved block, whatever it holds when the program
+closes is saved: a quit box (0x0048e2d0) still up then saved mouse button 1
+unbound, and the mouse never fired again (playtest W40). The port closes
+the box before the save, and mends a map an older build saved that way when
+it loads (after the options' registry read and the controls file, 0x0040c420):
+TRIGGER1 with no mouse button and button 1 on no command get button 1 back
+on TRIGGER1, with a log line (`mech3::controls_repair_mouse_fire`; fixes.md).
+The registry's read fills the bindings only: the reverse tables stay the
+defaults' until the next rebuild, so the mend sets the word and the table
+entry itself.
+
 - `bind(cmd, name, key1, key2, joy, mouse)` 0x0051c190 (0x0051d2c0): each
   input taken from the command that had it, the command's old one freed.
 - `set_callback(cmd, fn)` 0x0051c2b0 (99 callers): only a command with a

@@ -4081,3 +4081,14 @@ The screen after the pilot for INSTANT ACTION, 0x00488bc0 (details:
   end anything; instead your 'Mech's centre torso loses all its internal
   structure, and it blows up (then respawns, if respawn is on).
   (docs/multiplayer-port.md, the 1.2 read-me's six)
+
+- **Quitting with the multiplayer quit box up can cost you the mouse's
+  fire button for good.** In a network game Escape brings up "Are you sure
+  you want to quit?", and while it is up the game takes the left mouse
+  button off its command so a click answers the box. The game keeps your
+  key bindings inside its saved settings and saves them when it closes, so
+  closing the game with the box still up (Alt-F4, say) saves the controls
+  with the left button bound to nothing: the mouse no longer fires in any
+  game after, until the controls are reset or rebound. (Found from the
+  code; the rebuild puts the button back before it saves. docs/fixes.md,
+  playtest W40)

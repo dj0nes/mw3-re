@@ -2676,3 +2676,30 @@ Assigned after 8b2 merged (fd3f05f). The lead asked for a section stepped at bot
   test_veh_dock (the W8/W16 stuck check's start behind bugs), test_command
   (CHAT_TEAM / CHAT_ALL back through the command's other hook).
 - Next: the lead's.
+
+## W40: the Mac's mouse never fires (2026-11-02)
+
+- Owen's probe log: every click focused, captured, relative, not muted,
+  the buttons down for the hold, and the trigger never set; Space set it.
+  Not SDL, focus or the take-back. Owen's saved DefaultCmdMap: TRIGGER1
+  0x3d on Space and joystick 1, no mouse button, nothing on mouse 1.
+- Cause: zInput's map is the settings' block (SdlZinHost::settings_block),
+  saved at exit by the app's destructor; a network match's quit box
+  (0x0048e2d0, W44) unbinds mouse 1 while up, so a program closed with it
+  up saved the map without it, for every later game. Fix (bug, always):
+  GameEngine::input_maps_free closes an open quit box first.
+- Test: playtest_w40_quit_box_at_exit_keeps_the_mouse_fire_headless (bug
+  fixes off; the box up at the exit, the next start reads mouse 1 on
+  TRIGGER1). Break: without the close, the next start has it unbound.
+- The test's zin host answers settings_block as the SDL host does; the
+  usual test host keeps the map in memory, so no test saw it saved.
+- Doubled down/up/down in one ms: SDL's Cocoa button reconcile on a
+  trackpad tap, likely; it ends down for the hold, harmless.
+- The lead's follow-up: a map an older build saved that way is mended at
+  its load (controls_repair_mouse_fire, from the engine's controls_load
+  hook so the probes do not see it): TRIGGER1 without a mouse button and
+  button 1 on nothing. The registry's read leaves the reverse tables the
+  defaults' (mouse_command(1) still 0x3d), so it sets the word and the
+  table entry, not bind_mouse. Tests: the unit one in test_controls_cfg,
+  and the playtest test's damaged and rebound saved maps; three breaks.
+- The blink/clickthrough candidate is held on mac4/w40-candidate.
