@@ -3,12 +3,17 @@
 #include <algorithm>
 #include <cstring>
 #include <cctype>
+#include <cerrno>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
 
+#include "gamez/zclass/cls_mechlib.h"
+#include "gamez/zeffect/zeff_anim_init.h"
+#include "gamez/zmodel/gmod_const.h"
 #include "gamez/zreader/zreader.h"
+#include "gamez/zsiscript/si_script.h"
 #include "gamez/zutil/zutl_path.h"
 #include "gamez/zutil/zutl_zar.h"
 #include "mech3/mission.h"
@@ -16,6 +21,12 @@
 namespace mech3 {
 
 namespace fs = std::filesystem;
+
+// mech_anim.h's motion archive (its Handle is not mission.h's).
+bool open_motions(const char* path);
+void close_motions();
+bool load_motion(zsis::Script& s, const char* name);
+void script_free_parts(zsis::Script& s);
 
 namespace {
 std::string trim(const std::string& s) {
@@ -62,7 +73,7 @@ std::vector<ModInfo> mods_found(const std::string& write_dir) {
     if (!it->is_directory(ec)) continue;
     ModInfo m;
     m.folder = it->path().filename().string();
-    m.path = it->path().string();
+    m.path = it->path().generic_string();  // zutl's / (its joins and the mods' prefixes)
     std::ifstream f(it->path() / "mod.txt");
     if (!f) {
       m.error = "no mod.txt";
@@ -93,7 +104,7 @@ std::vector<std::string> mods_mount(const std::string& write_dir, const std::vec
     done.push_back(want);
     const auto it = std::find_if(found.begin(), found.end(), [&](const ModInfo& m) { return m.folder == want; });
     if (it == found.end()) {
-      log.push_back("mod " + want + ": not in " + (fs::path(write_dir) / "mods").string() + ", left out");
+      log.push_back("mod " + want + ": not in " + (fs::path(write_dir) / "mods").generic_string() + ", left out");
       continue;
     }
     if (!it->error.empty()) {
@@ -232,8 +243,9 @@ std::vector<std::string> mods_apply_strings(std::map<int32_t, std::string>& text
       int32_t id = -1;
       if (!key.empty() && std::isdigit(static_cast<unsigned char>(key[0]))) {
         char* end = nullptr;
-        const long v = std::strtol(key.c_str(), &end, 0);
-        if (end && *end == 0 && v >= 0 && v <= 0x7fffffff) id = static_cast<int32_t>(v);
+        errno = 0;
+        const long long v = std::strtoll(key.c_str(), &end, 0);  // long is 32 bits on Windows: it would saturate
+        if (errno != ERANGE && end && *end == 0 && v >= 0 && v <= 0x7fffffff) id = static_cast<int32_t>(v);
       } else if (const auto it = ids.find(key); it != ids.end()) {
         id = it->second;
       }
@@ -250,18 +262,18 @@ std::vector<std::string> mods_apply_strings(std::map<int32_t, std::string>& text
         }
       }
       if (eq == std::string::npos || id < 0) {
-        log.push_back("  " + (fs::path(*m) / "strings.txt").string() + " line " + std::to_string(n) + ": no id= here, left out");
+        log.push_back("  " + (fs::path(*m) / "strings.txt").generic_string() + " line " + std::to_string(n) + ": no id= here, left out");
         continue;
       }
       if (!zutl::game_text(value, &game)) {
-        log.push_back("  " + (fs::path(*m) / "strings.txt").string() + " line " + std::to_string(n) +
+        log.push_back("  " + (fs::path(*m) / "strings.txt").generic_string() + " line " + std::to_string(n) +
                       ": a character the game cannot show, left out");
         continue;
       }
       text[id] = game.substr(0, 0x1ff);  // the original's 0x200-byte buffers
       ++used;
     }
-    log.insert(log.end() - 0, "mod strings: " + std::to_string(used) + " from " + (fs::path(*m) / "strings.txt").string());
+    log.insert(log.end() - 0, "mod strings: " + std::to_string(used) + " from " + (fs::path(*m) / "strings.txt").generic_string());
   }
   return log;
 }
@@ -313,7 +325,7 @@ std::vector<std::string> mod_check(const std::string& dir, const std::string& in
     }
     const bool over = !install.empty() && fs::is_regular_file(fs::path(install) / rel, ec);
     out.push_back(rel + (install.empty() ? "" : over ? ": replaces the game's" : ": added"));
-    const std::string host = (fs::path(dir) / rel).string();
+    const std::string host = (fs::path(dir) / rel).generic_string();
     const std::string name = low.substr(low.rfind('/') == std::string::npos ? 0 : low.rfind('/') + 1);
     if (name.size() > 4 && name.compare(name.size() - 4, 4, ".zbd") == 0) {
       zutl_zar::Archive a;
@@ -327,6 +339,48 @@ std::vector<std::string> mod_check(const std::string& dir, const std::string& in
       std::vector<std::string> names;
       for (int i = 0; i < a.count; ++i) names.push_back(a.entries[i].name);
       zutl_zar::destroy(a);
+      if (name == "mechlib.zbd") {  // every tree through the bounded reader
+        zmod::models() = zmod::ModelPool{};
+        zmod::reset_pool();
+        zcls::MechLib lib;
+        zutl_zar::init(lib.archive);
+        if (!zcls::mechlib_open(lib, host.c_str()) || lib.materials.empty()) {
+          error(rel + ": its version, format or materials cannot be read");
+        } else {
+          for (const std::string& e : names) {
+            if (e == "version" || e == "format" || e == "materials") continue;
+            ++entries;
+            if (!zcls::mechlib_load(lib, e.c_str())) error(rel + ": model " + e + " cannot be read");
+          }
+        }
+        zcls::mechlib_close(lib);
+        continue;
+      }
+      if (name == "motion.zbd") {  // every motion through the bounded reader
+        if (open_motions(host.c_str())) {
+          for (const std::string& e : names) {
+            ++entries;
+            zsis::Script sc;
+            if (!load_motion(sc, e.c_str())) error(rel + ": motion " + e + " cannot be read");
+            script_free_parts(sc);
+          }
+          close_motions();
+        } else {
+          error(rel + ": the motion archive cannot be opened");
+        }
+        continue;
+      }
+      if (name == "anim.zbd") {  // a world's animations: the read (its binding needs the world)
+        zeff::anim() = zeff::AnimState{};
+        zeff::anim_allow_loading(1);
+        zeff::anim_set_zbd_path(host.c_str());
+        zeff::anim_read_zbd();
+        if (zeff::anim().defs == nullptr && zeff::anim().def_count() == 0) error(rel + ": its animations cannot be read");
+        else out.push_back("  " + std::to_string(zeff::anim().def_count()) + " animations read (bound to the world in play)");
+        zeff::anim_free_all();
+        zeff::anim() = zeff::AnimState{};
+        continue;
+      }
       if (name.rfind("reader", 0) != 0) {  // the reader archives' entries: through the bounded reader
         out.push_back("  its table read; what its " + std::to_string(names.size()) +
                       " entries hold is not checked yet (docs/modding.md, M3)");

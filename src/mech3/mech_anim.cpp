@@ -72,8 +72,17 @@ bool load_motion(zsis::Script& s, const char* name) {
   if (!g_motions) return false;
   const int i = zutl_zar::find(*g_motions, name);
   if (i < 0) return false;  // the exe seeks to entry -1 and reads whatever is there
-  std::FILE* f = zutl_zar::seek(*g_motions, i, nullptr);
-  return f && s.read(f);
+  uint32_t length = 0;
+  std::FILE* f = zutl_zar::seek(*g_motions, i, &length);
+  if (!f) return false;
+  const long end = std::ftell(f) + static_cast<long>(length);
+  if (s.read(f, end)) return true;
+  // Ours (docs/modding.md, M3): a broken copy is said; the motion then is
+  // as missing (the exe read on into the next entries).
+  if (s.part_count == 0 && !s.parts)
+    std::printf("mw3: %s: its motion %s is broken (a count or keys past its end), not read\n",
+                g_motions->path ? g_motions->path : "motion.zbd", name);
+  return false;
 }
 
 // Mech3.exe 1.2 @ 0x0041f100
