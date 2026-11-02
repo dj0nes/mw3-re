@@ -198,10 +198,50 @@ allocation, where unbounded the run passes 4 GB and is stopped). What the
 anim run later makes of a garbled event stream inside a well-sized blob is
 not checked here.
 
-**Not bounded yet** (M3, dev 1's sittings): the texture and image archives' contents,
-`interp.zbd`'s scripts and the sound archives (dev 1). Their tables are
-checked (above); a mod that replaces one with broken contents can still
-crash the game, and `--check-mod` says it did not look inside.
+**The texture and image libraries, bounded** (2026-11-02; `rimage.zbd`,
+`rtexture*.zbd`, `rmechtex*.zbd`, one format, not zar archives:
+`zimg_library.cpp`). The table's counts must fit the file (the exe
+malloc'd and read them as they were); an entry's name ends inside its 32
+bytes; an entry's offset lies past the table and palettes and inside the
+file, its global palette one the library has (the exe indexed the shared
+palette table with it unchecked); a texture's bytes run to the next
+texture's offset or the file's end, and a width, height or palette count
+below 0, or pixels, an alpha plane or a palette past them, refuse the
+texture (null, named in the log: the exe returned a half-read texture). A
+refused library is a missing one; a refused texture is one the library
+lacks. `test_texload.py` and `test_shadow_image.py` as the original;
+`bounded_textures_read_the_shipped_libraries_whole` (22 libraries, 17,644
+textures, each the same pixels as the exe's read) and
+`bounded_textures_survive_broken_copies` (300 copies of a 12-texture
+library: no crash, every cut copy keeps exactly the textures whose bytes it
+still has; table counts past the file or below 0 and an entry's offset or
+palette out of range refused).
+
+**The sounds, bounded** (2026-11-02; `soundsL.zbd`, `soundsH.zbd` and loose
+WAVs: `zsnd_create.cpp`). After the chunk walk, a WAV whose samples or cue
+points run past its bytes, or whose format no output can play (0 or more
+than 8 channels, 0 or more than 32 bits, a rate of 0 or over 384 kHz, a
+block or byte rate of 0), is refused, named in the log, and is a sound not
+loaded (the exe copied the samples as the data chunk said, from past the
+buffer). `bounded_sounds_read_the_shipped_archives_whole` (1,998 sounds and
+10 loose WAVs, each buffer its own samples) and
+`bounded_sounds_survive_broken_copies` (300 cut, flipped or garbled sounds:
+no crash, all 99 cut inside their samples refused; without the bound all
+300 are made).
+
+**`interp.zbd`'s scripts, bounded** (2026-11-02, `zinterp.cpp`). An entry's
+name ends inside its 0x78 bytes; a script whose offset lies outside the
+file is not the archive's (the loose file's turn, as for a script the
+archive lacks; the exe seeked there); a script runs to the next one's start
+or the file's end, and a line past that ends the script there, said in the
+log (the exe read on into the next script). Each include keeps its own end.
+`test_interp.py` as the original; `bounded_interp_reads_the_shipped_scripts_whole`
+(44 scripts, 2,504 lines, as unbounded) and `bounded_interp_survives_broken_copies`
+(300 copies of a 10-script archive: no crash, every cut copy reads its whole
+scripts as before; a first line reaching into the next script ends the
+script there, the others unchanged; an offset past the file refused).
+
+**Not bounded yet**: `gamez.zbd`'s texture directory takes each entry's mip index unchecked (dev 1's next sitting). Every other format a mod can replace is read with its end known.
 
 **`mw3 --check-mod DIR`** reads a mod as the game would without mounting it
 into play, and exits 1 when anything would be refused, else 0. It reports:
@@ -209,20 +249,24 @@ mod.txt; each `world=` (its `zbd\<folder>\gamez.zbd` and `<folder>.gs`)
 and `ia_world=`; every file and what it replaces in the install (mw3.cfg's
 `install=`) or adds; the player's own kind of file, ignored; every archive's
 table; every reader archive's entries through the bounded reader; a
-`mechlib.zbd`'s materials and every tree, a `motion.zbd`'s every motion and
-an `anim.zbd`'s read through theirs; every
-loose `.zrd` through the text parser; `strings.txt`'s lines the game would
+`mechlib.zbd`'s materials and every tree, a `motion.zbd`'s every motion, an
+`anim.zbd`'s read, every texture and image library's textures, every sounds
+archive's sounds and `interp.zbd`'s scripts through theirs; every loose
+`.zrd` through the text parser; `strings.txt`'s lines the game would
 leave out (warnings). Test: `mods_check_mod_reports_what_the_game_would_refuse`
 (a good mod with a copied reader, a loose fmv.zrd and strings: no errors; a
 bad one: no name, a world without files, an unknown Instant Action world, a
 non-archive `.zbd`, a reader entry claiming a billion nodes and an unclosed
 `.zrd`: six errors) and `mods_broken_reader_entries_are_refused` (a list of
 a billion, a type 9, 100 lists deep, a list running into the next entry:
-each refused, the entries around them read).
+each refused, the entries around them read), and
+`bounded_check_mod_reads_textures_sounds_and_scripts` (shipped copies of a
+library, interp.zbd and six sounds pass; a library cut by 5,000 bytes names
+its last four textures, a script offset past the file and a sound cut in
+half are named: six errors).
 
 ## Planned
-- M3 (v1.0), the rest: bounded readers for mechlib, motion, anim, the
-  texture and image archives' contents, interp's scripts and the sounds
+- M3 (v1.0), the rest: bounded readers for mechlib, motion and anim
   (above), each with `--check-mod` looking inside.
 - After v1.0: a custom campaign, new mechs and weapons (the exe's name
   tables made data), loose `.zan` motions, the launcher's MODS list.

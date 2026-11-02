@@ -327,7 +327,7 @@ TEST(mods_check_mod_reports_what_the_game_would_refuse) {
   EXPECT(text.find("error: mod.txt: mod.txt has no name= line") != std::string::npos &&
          text.find("error: world nofiles: no zbd/nofiles/gamez.zbd") != std::string::npos &&
          text.find("error: ia_world nowhere: no such world") != std::string::npos &&
-         text.find("error: zbd/rimage.zbd: not an archive the game can read") != std::string::npos &&
+         text.find("error: zbd/rimage.zbd: not a texture library the game can read") != std::string::npos &&
          text.find("error: zbd/c1/readerm1.zbd: entry mission.zrd cannot be read") != std::string::npos &&
          text.find("error: zbd/broken.zrd: not a text .zrd the reader can read") != std::string::npos &&
          text.find("pilots/x.pil: the player's own kind of file") != std::string::npos);
