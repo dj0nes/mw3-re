@@ -24,6 +24,7 @@
 #include "gamez/zeffect/zeff_anim_run.h"
 #include "mech3/mech_shade.h"
 #include "mech3/app_mech.h"
+#include "mech3/pilot.h"
 #include "mech3/app_hud.h"
 #include "mech3/options.h"
 #include "mech3/pocket_panel.h"
@@ -321,6 +322,11 @@ void GameEngine::print_unported_summary() const {
 }
 
 uint32_t GameEngine::peek32(uint32_t addr) {
+  // The chosen pilot's +0x6c, its game (W42's lead): from the menus, before
+  // any launch writes the stand-in game there, the pilot's current game, so
+  // a game's queries (vt+0x2c: the lab's skins, the quit box) reach it.
+  if (Pilot* p = current_pilot(); p && p->current && addr == handle_of(p) + 0x6c && !memory_.count(addr))
+    return handle_of(p->current);
   return static_cast<uint32_t>(peek8(addr)) | static_cast<uint32_t>(peek8(addr + 1)) << 8 |
          static_cast<uint32_t>(peek8(addr + 2)) << 16 | static_cast<uint32_t>(peek8(addr + 3)) << 24;
 }

@@ -20514,6 +20514,13 @@ TEST(multiplayer_lab_has_the_players_mech_headless) {
   std::printf("  a network game's lab: %d slots, its mech %d; the store %zu items\n", n, s0 ? engine.lab_slot_mech(s0) : -1,
               game.store.items.size());
   EXPECT(n == 1 && s0 && engine.lab_slot_mech(s0) == game.slot.mech && engine.lab_slot(0, 1) == 0);
+  // The lab asks the pilot's game (+0x6c) its type (vt+0x2c: the skins hidden
+  // in a network game); from the menus, before any launch, it was 0 (W42's
+  // "not ported: vt+0x2c( 0 )").
+  const zgame::Handle ph = engine.handle_of(&pilot);
+  const uint32_t type = engine.vcall(engine.field32(ph, 0x6c), 0x2c, {});
+  std::printf("  the pilot's game from the menus: %u\n", type);
+  EXPECT(engine.field32(ph, 0x6c) != 0 && type == 3);
   mech3::current_pilot() = was;
   pilot.current = nullptr;
 }
