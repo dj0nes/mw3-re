@@ -592,6 +592,9 @@ Known quirks the rebuild deliberately keeps:
 - The multiplayer lobby's chat reads each message only as far as it goes.
 - In-game multiplayer chat lines are read only as far as the message goes, and control characters in them show as '?'.
 - With bug fixes on, another player's 'Mech no longer throws its arms about on your screen after a hiccup in the connection (a delay longer than the ping's round trip was taken as a lag of 24 days).
+- In a multiplayer match Escape shows the game's "Are you sure you want to quit?" box, which the original never drew; with bug fixes on it does not stop play (move and fire as normal), Y leaves the match for the main menu and N or Escape closes it. Before, an Escape in a match left the mouse unable to fire.
+- A player who leaves a multiplayer game disappears for the others at once instead of after about half a minute.
+- A multiplayer game keeps running while its window is minimised or in the background, so your 'Mech is not a frozen target for the others (the original paused it).
 - On a Mac the numeric keypad types digits in text fields (an IP address on the connection screen); a Mac has no Num Lock, which the game needed on.
 - A locked multiplayer game turns away players who try to join it, instead of only greying out its Join button.
 - With bug fixes on, locking a multiplayer game with "Use stock 'Mechs" keeps the stock loadout a player chose instead of resetting it to the mech's first.
@@ -599,3 +602,5 @@ Known quirks the rebuild deliberately keeps:
 - The launcher closes once MechWarrior 3 is on screen, instead of waiting hidden for the game to end; if the game fails to start it stays and says so.
 - The launcher is installed as "MechWarrior 3" (the Windows Start menu and desktop, the Mac's "MechWarrior 3.app", the Linux desktop entry); the game alone is "MechWarrior 3 (no launcher)" in the Windows Start menu.
 - On a wide screen the movies keep their shape: the intro and the ending movie, whose black bars are part of the picture, fill the screen's width; the 4:3 movies and the logo screens are centred with black sides (they were stretched a third too wide). Measured once per movie from the pictures and kept in movie-shapes.txt in the settings folder.
+- Mods: folders of game data in the settings folder's mods\ folder, enabled in mw3.cfg (mod=NAME, in order), sit in front of the game's files; a mod's loose .zrd replaces one entry of a reader archive. A mod can never replace a player's pilots, loadouts, controls or settings, and with no mods enabled nothing changes (docs/modding.md).
+- A multiplayer game needs every player's gameplay mods to match: a player joining with other mods is told which mods the host uses and which they use, and LOCK OPTIONS names the player whose mods differ. Text, image, sound and music mods never count.

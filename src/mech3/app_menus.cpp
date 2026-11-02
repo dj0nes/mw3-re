@@ -327,7 +327,19 @@ void GameEngine::widen_screen(MenuScreen* s, uint32_t ctor) {
       // its set_pos (0x0048b220) would add the bar's place again: moved as
       // an image, its label (on the list) by itself.
       if (auto* eb = dynamic_cast<ShellEditBar*>(m.o)) eb->ztwod::Image::set_pos(m.x + m.off, m.y);
-      else m.o->set_pos(m.x + m.off, m.y);
+      else if (auto* sb = dynamic_cast<SlideButton*>(m.o)) {
+        // Its set_pos (0x0042a400) puts the ripple at the image's centre, but
+        // a baked button (FastMenu) or one not yet shown has no image then:
+        // the ripple went to the corner (playtest W41). The ripple and its
+        // reach are carried by the offset, as placed at the bind.
+        const int32_t rx = sb->ripple.get_x(), ry = sb->ripple.get_y();
+        const ztwod::Rect reach = sb->reach;
+        sb->set_pos(m.x + m.off, m.y);
+        sb->ripple.set_pos(rx + m.off, ry);
+        sb->reach = {reach.left + m.off, reach.top, reach.right + m.off, reach.bottom};
+      } else {
+        m.o->set_pos(m.x + m.off, m.y);
+      }
       auto* pl = dynamic_cast<ztwod::PolyLine*>(m.o);  // its points are where it draws (0x005a38f0)
       if (pl && !dynamic_cast<ztwod::Shape*>(pl) && !dynamic_cast<ztwod::Caret*>(pl))
         for (int32_t i = 0; i < pl->count; ++i) pl->pts[i][0] += m.off;
@@ -343,6 +355,13 @@ void GameEngine::widen_screen(MenuScreen* s, uint32_t ctor) {
       auto* cb = dynamic_cast<ztwod::CheckButton*>(m.o);  // its rect is BOUNDS as read (a list box's rows)
       if (cb && cb->bounds.right > cb->bounds.left) cb->bounds.left += m.off, cb->bounds.right += m.off;
     }
+  // Ours: the lobby's two address lines (piece 9c), under CANCEL and LOCK at
+  // 640, go to the middle column's band under the chat bar, which the width
+  // leaves room for (at 640 they would cross MECHLAB).
+  if (auto* l = dynamic_cast<LobbyScreen*>(s)) {
+    l->internet_line.set_pos(s->origin_x + 207 + extra / 2, s->origin_y + 379);
+    l->lan_line.set_pos(s->origin_x + 207 + extra / 2, s->origin_y + 389);
+  }
 }
 
 Handle GameEngine::construct(uint32_t ctor, std::initializer_list<Arg> args) {
@@ -445,8 +464,9 @@ Handle GameEngine::construct(uint32_t ctor, std::initializer_list<Arg> args) {
     case 0x405230: {  // the briefing, new(0x12e6c): its section's name
       const char* name = args.size() && args.begin()->s ? args.begin()->s : "default";
       const Handle h = alloc_block(0x12e6c);
-      auto* b = new BriefingScreen(*this, name);
+      auto* b = new BriefingScreen(*this, name, false);
       widen_screen(b, ctor);  // its script's objects are made with it (read_script)
+      b->draw_first();        // its first frame once widened (the constructor's end)
       screens_[h] = {b, 0x12e6c};
       briefing_screen() = b;
       return h;
@@ -485,7 +505,10 @@ bool GameEngine::menu_vcall(Handle obj, uint32_t slot, std::initializer_list<Arg
   if (quit_box_ && obj == quit_box_at_) {  // the quit box: its frame, on or off, its deleting destructor
     *out = 0;
     switch (slot) {
-      case 0x00: quit_box_->update(zgame::from_bits(a0)); return true;
+      case 0x00:
+        quit_box_->keys();  // ours (W46)
+        if (quit_box_) quit_box_->update(zgame::from_bits(a0));
+        return true;
       case 0x04: quit_box_->set_active(static_cast<int32_t>(a0)); return true;
       case 0x08:
         delete quit_box_;
@@ -1346,8 +1369,14 @@ void GameEngine::multiplayer_take_pilot(Handle first, Handle second) {
 
 // Mech3.exe 1.2 @ 0x0049b660 on the lobby: back from the mech lab.
 void GameEngine::multiplayer_resume(Handle screen) {
-  if (auto* l = dynamic_cast<LobbyScreen*>(screen_of(screen))) l->resume();
-  else Engine::multiplayer_resume(screen);
+  if (auto* l = dynamic_cast<LobbyScreen*>(screen_of(screen))) {
+    l->resume();
+    if (!quiet)  // ours: the mech the lab left in the game's slot (the tests)
+      if (MultiplayerGame* g = current_pilot() ? current_pilot()->multiplayer() : nullptr)
+        std::printf("mw3: lobby back from the lab, mech %d\n", static_cast<int>(g->slot.mech));
+  } else {
+    Engine::multiplayer_resume(screen);
+  }
 }
 
 }  // namespace mech3

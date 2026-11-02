@@ -25,7 +25,6 @@ SKIP(mech3::weapon_calls, ff_weapon, "0x00433630")  // WeaponCalls.ff_weapon
 SKIP(mech3::weapon_calls, target_projectile, "WeaponCalls.target_projectile")  // WeaponCalls.target_projectile
 SKIP(zcls::world_render_hooks, after_scene, "0x005a67c0")  // WorldRenderHooks.after_scene
 SKIP(zcls::world_render_hooks, dirty_rect, "0x00576ce0")  // WorldRenderHooks.dirty_rect
-SKIP(mech3::damage_calls, player_died_hud, "0x0041b263")  // DamageCalls.player_died_hud
 SKIP(mech3::draw_calls, map_point, "0x004586e0")  // DrawCalls.map_point
 SKIP(mech3::pocket_calls, view_pocket, "0x004b5290")  // PocketCalls.view_pocket
 // The mission's network side (mech_net.cpp): pieces 5b-7 and the lobby.
@@ -39,5 +38,4 @@ SKIP(mech3::net_calls, lobby_score, "0x00435a50")  // NetCalls.lobby_score
 SKIP(mech3::net_calls, lobby_scores, "0x00470170 lobby list")  // NetCalls.lobby_scores
 SKIP(mech3::net_calls, lobby_set_kills, "0x004359f0")  // NetCalls.lobby_set_kills
 SKIP(mech3::net_calls, lobby_set_deaths, "0x00435b00")  // NetCalls.lobby_set_deaths
-SKIP(mech3::net_calls, hud_scores, "0x00446ad0")  // NetCalls.hud_scores
 SKIP(mech3::net_calls, lobby_deaths, "0x00435b40")  // NetCalls.lobby_deaths

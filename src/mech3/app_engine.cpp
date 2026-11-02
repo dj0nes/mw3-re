@@ -25,6 +25,7 @@
 #include "gamez/zeffect/zeff_anim_run.h"
 #include "mech3/mech_shade.h"
 #include "mech3/app_mech.h"
+#include "mech3/pilot.h"
 #include "mech3/app_hud.h"
 #include "mech3/options.h"
 #include "mech3/pocket_panel.h"
@@ -319,6 +320,11 @@ void GameEngine::print_unported_summary() const {
 }
 
 uint32_t GameEngine::peek32(uint32_t addr) {
+  // The chosen pilot's +0x6c, its game (W42's lead): from the menus, before
+  // any launch writes the stand-in game there, the pilot's current game, so
+  // a game's queries (vt+0x2c: the lab's skins, the quit box) reach it.
+  if (Pilot* p = current_pilot(); p && p->current && addr == handle_of(p) + 0x6c && !memory_.count(addr))
+    return handle_of(p->current);
   return static_cast<uint32_t>(peek8(addr)) | static_cast<uint32_t>(peek8(addr + 1)) << 8 |
          static_cast<uint32_t>(peek8(addr + 2)) << 16 | static_cast<uint32_t>(peek8(addr + 3)) << 24;
 }
@@ -425,6 +431,14 @@ uint32_t GameEngine::message_box3(int32_t a, int32_t caption, int32_t text, cons
     return on_message_box(a, caption, text);
   }
   return game_message_box(a, caption, zutl::format_message(text, {s1, s2, s3}));
+}
+
+uint32_t GameEngine::message_box_plain(int32_t a, int32_t caption, const std::string& text) {
+  if (on_message_box) {
+    last_box_text = text;
+    return on_message_box(a, caption, 0);
+  }
+  return game_message_box(a, caption, text);
 }
 
 Handle GameEngine::joy_state() { return handle_of(zin::joy_state()); }
@@ -1009,6 +1023,7 @@ void GameEngine::replace_state_at(Handle state) {
 void GameEngine::fade_to_state(Handle next, uint32_t arg, int32_t direction, int32_t buffer, float seconds,
                                uint8_t r, uint8_t g, uint8_t b) {
   if (next == 0x6099a0) fade_replace(&states().end_win, arg, direction, buffer, seconds, r, g, b);
+  else if (next == 0x609848) fade_replace(&states().multi_exit, arg, direction, buffer, seconds, r, g, b);  // the quit box's (0x0048e390): a second Multi-Exit
   else if (next == states().ia_dummy.addr()) fade_replace(&states().ia_dummy, arg, direction, buffer, seconds, r, g, b);
   else Engine::fade_to_state(next, arg, direction, buffer, seconds, r, g, b);
 }
@@ -1031,4 +1046,9 @@ void GameEngine::model_set_global_light(int32_t on) { zmod::set_shadows(on); }
 void GameEngine::effects_set_level(int32_t v) { zeff::anim_set_level(v); }  // 0x00508fb0
 void GameEngine::shadows_reset() { shade_apply(); }  // 0x004e6900: the option as set
 
+}  // namespace mech3
+
+namespace mech3 {
+// W45: a network game in play runs on while the window is inactive (FIX (A)).
+bool GameEngine::run_while_inactive() { return program_net_running(); }
 }  // namespace mech3

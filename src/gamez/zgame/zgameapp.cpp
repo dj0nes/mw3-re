@@ -90,6 +90,15 @@ int App::run(platform::MessagePump& pump) {
         hooks_->network_poll(-1, 0);
         cur = current();
         if (active_ != 0) break;
+        // FIX (A), playtest W45: inactive (minimised, another window in
+        // front) the original waits here, the mission frozen; in a network
+        // game the others then fight a mech that neither moves nor hears
+        // them, and the catch-up comes all at once. There it runs on, about
+        // 30 frames a second.
+        if (hooks_->run_while_inactive()) {
+          if (!pump.peek()) pump.wait(33);
+          break;
+        }
         if (!pump.peek()) {
           idle(first_idle);
           first_idle = 0;

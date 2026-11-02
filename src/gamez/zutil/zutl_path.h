@@ -18,11 +18,22 @@ namespace zutl {
 struct Mounts {
   std::vector<std::string> read;   // searched in order
   std::string write;               // where the game writes (configs\, saves); "" = the first read mount
+  // Ours (docs/modding.md): the read mounts that are mods (and the world
+  // folders under them). A mod serves game data only, never what belongs
+  // to the player (mod_may_serve).
+  std::vector<std::string> mods;
 };
 Mounts& mounts();
 
 void mount(const std::string& dir);          // appended: searched after the ones before
 void mount_front(const std::string& dir);    // searched first (an override folder)
+void mount_mod(const std::string& dir);      // appended, as a mod (Mounts::mods)
+bool is_mod_dir(const std::string& dir);     // a mod's root or a folder under one
+// Whether a mod may serve the game path (host form): not the player's own
+// files (pilots, saved loadouts, keys, mw3.cfg, the settings, the logs).
+bool mod_may_serve(const std::string& host_path);
+// The first mod's copy of a game path (host form, from a mod's root), "" if none.
+std::string find_in_mods(const std::string& host_path);
 void set_write_dir(const std::string& dir);
 
 // '\\' -> '/'; FIX (A): a game path's characters are the game's code page

@@ -1,6 +1,10 @@
 #include "gamez/zreader/zreader.h"
 
+#include <algorithm>
+#include <cstdio>
 #include <cstdlib>
+#include <string>
+#include <vector>
 #include <cstring>
 
 #include "crt/msvc_math.h"
@@ -627,6 +631,24 @@ void set_load_hook(LoadHook hook) { g_load_hook = hook; }
 MissingHook g_missing_hook = nullptr;
 void set_missing_hook(MissingHook hook) { g_missing_hook = hook; }
 
+// Ours (docs/modding.md): a mod's loose text copy of an archive's entry, in
+// the mod at the archive's own folder (zbd\c1\world.zrd for zbd\c1\reader.zbd's
+// world.zrd), read instead of the entry; "" without one. Each such file is
+// said once in the log.
+std::string mod_loose(const zutl_zar::Archive& a, const char* name) {
+  if (zutl::mounts().mods.empty() || !a.path) return {};
+  std::string dir = zutl::host(a.path);
+  const size_t slash = dir.rfind('/');
+  dir = slash == std::string::npos ? std::string{} : dir.substr(0, slash + 1);
+  const std::string found = zutl::find_in_mods(dir + zutl::host(name));
+  static std::vector<std::string> said;
+  if (!found.empty() && std::find(said.begin(), said.end(), found) == said.end()) {
+    said.push_back(found);
+    std::printf("mw3: mod: %s instead of %s's entry\n", found.c_str(), a.path);
+  }
+  return found;
+}
+
 Node* load(const char* path) {
   crt::msvc_splitpath_name(path, g_fname, g_ext);
   std::strncat(g_fname, g_ext, sizeof g_fname - std::strlen(g_fname) - 1);
@@ -635,6 +657,13 @@ Node* load(const char* path) {
     zutl_zar::Archive* a = g_state.archives[i];
     std::FILE* f = zutl_zar::seek(*a, zutl_zar::find(*a, g_fname), nullptr);
     if (!f) continue;
+    if (const std::string loose = mod_loose(*a, g_fname); !loose.empty()) {
+      if (std::FILE* t = std::fopen(loose.c_str(), "rb")) {
+        Node* root = parse_text(t);
+        std::fclose(t);
+        if (root) return root;
+      }
+    }
     Node* root = new_nodes(List, 1);
     read_node(f, root);
     if (g_load_hook) g_load_hook(a->path, g_fname, root);

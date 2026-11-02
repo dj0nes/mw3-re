@@ -2330,6 +2330,17 @@ MultiplayerGame* net_debug_game() {
 }
 }  // namespace
 
+MultiplayerGame* mission_multiplayer_game() { return net_debug_game(); }
+std::vector<std::string> mission_multiplayer_score_lines() {
+  std::vector<std::string> out;
+  MultiplayerGame* g = net_debug_game();
+  if (!g) return out;
+  g->rescore();
+  g->score_texts(0x14, 0xc);
+  for (const auto& l : g->score_lines) out.push_back(l->text);
+  return out;
+}
+
 void wire_mission_hooks(GameEngine* e) {
   g_mission_hooks.e = e;
   g_objective_hooks.e = e;
@@ -2690,6 +2701,9 @@ uint32_t GameEngine::vcall(Handle obj, uint32_t slot, std::initializer_list<Arg>
   // A mech answers vt+0x50 with itself (vehicles.md, Telling a mech).
   if (obj && slot == 0x50 && entity_is_mech(object_of(obj))) return obj;
   if (menu_vcall(obj, slot, args, &r)) return r;
+  // The chosen pilot's own game (its +0x6c from the menus, peek32): its type.
+  if (Pilot* p = current_pilot(); obj && obj != game_ && p && p->current && obj == handle_of(p->current) && slot == 0x2c)
+    return static_cast<uint32_t>(p->current->type());
   if (obj && obj == game_) {
     switch (slot) {
       case 0x2c: return static_cast<uint32_t>(launch_.type);

@@ -155,7 +155,9 @@ class BriefingScreen : public MenuScreen {
   enum Button : int32_t { kBtnAbort = 0, kBtnLaunch = 1, kBtnMechLab = 2, kBtnReplay = 3, kBtnSalvage = 4,
                           kBtnLoading = 5, kBtnReallocOk = 7 };
 
-  BriefingScreen(Engine& e, const char* name);  // 0x00405230: the briefing's section of briefing.zrd
+  BriefingScreen(Engine& e, const char* name, bool draw_now = true);  // 0x00405230: the briefing's section of briefing.zrd
+  void draw_first();  // the constructor's end: drawn once (apart for the widening, ours)
+  int32_t first_map_w = -1;  // ours, for the tests: the map's width when that first frame drew
   ~BriefingScreen() override;        // 0x00406170 (deleting 0x00405fd0)
   void update(float dt) override;    // +0x00  0x00406440
   void on_button(int32_t id, int32_t a, int32_t b) override;  // +0x14  0x00404c30
