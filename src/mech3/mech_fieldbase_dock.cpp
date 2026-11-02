@@ -444,6 +444,7 @@ void DockContact::abort() {
 void DockPlaces::begin() {
   until = hk().frame() + 5;
   sound = reg->sounds[6];  // +0xa4 mcb_contact
+  if (!zfix::options().bugs) return;  // ours: the step's stuck check's start
   for (int i = 0; i < 3; ++i) {
     moved_at[i] = hk().game_time();
     const FieldBase* b = reg->bases[i];

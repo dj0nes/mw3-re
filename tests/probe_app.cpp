@@ -46,6 +46,8 @@ struct RecordingHooks : zgame::AppHooks {
   }
   void timer_update() override { call("0x00575a00", {}); }
   void cd_notify(uint32_t status, uint32_t device) override { call("0x00572bf0", {status, device}); }
+  // Ported (znet::poll) but kept a boundary here, as the test stubs it in the exe.
+  void network_poll(int32_t a, uint8_t b) override { call("0x00588930", {static_cast<uint32_t>(a), b}); }
 };
 
 struct Pump : platform::MessagePump {

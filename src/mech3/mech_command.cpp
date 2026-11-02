@@ -1,5 +1,4 @@
 #include "mech3/mech_command.h"
-#include "mech3/chat_panel.h"
 
 #include <cstring>
 
@@ -317,7 +316,7 @@ void Mech::command(int32_t cmd) {
         other(*this, cmd, "0x0047a910");
         break;
       case 0x76: case 0x77:  // CHAT_TEAM, CHAT_ALL: the network game's chat panel (0x0041e4e0)
-        mech_chat_open(*this, cmd == 0x77);
+        other(*this, cmd, "0x0041e4e0");
         break;
       default:
         break;

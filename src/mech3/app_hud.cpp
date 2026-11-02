@@ -1,4 +1,5 @@
 #include "mech3/app_hud.h"
+#include "mech3/chat_panel.h"
 #include "mech3/app_sensors.h"
 #include "mech3/app_turret.h"
 #include "mech3/turret.h"
@@ -956,12 +957,12 @@ void wire_hud() {
       radar_light(m);
       return;
     }
+    if (cmd == 0x76 || cmd == 0x77) return mech_chat_open(m, cmd == 0x77);  // 0x0041e4e0, CHAT_TEAM / CHAT_ALL
     // The rest stay unported, recorded as the handler would (docs/keybindings.md).
     const char* key = cmd >= 0x36 && cmd <= 0x38 ? "[0x00609980] vtable +0x60..+0x68"
                       : cmd == 0x3e              ? "0x0041d070"
                       : cmd == 0x69              ? "vtable +0xb8"
                       : cmd == 0x73              ? "0x0047a910"
-                      : cmd == 0x76 || cmd == 0x77 ? "0x0041e4e0"
                                                  : "mech command (other)";
     if (command_calls().unported) command_calls().unported(key, cmd);
   };
