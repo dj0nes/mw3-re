@@ -142,6 +142,8 @@ struct Args {
   // else mw3.cfg's mod= lines, in order; --no-mods none; --mods lists them.
   std::vector<std::string> mods, cfg_mods;
   bool mods_given = false, no_mods = false, list_mods = false;
+  std::string check_mod;  // --check-mod DIR
+
   std::string original;  // -nofmv -seasick -cdN, passed on as the command line
   // The bug fixes (zfix bugs; fixes.md, The bug fixes switch): mw3.cfg's
   // bugfixes=0/1 (default 1), --original turns them off whatever it says.
@@ -219,7 +221,7 @@ void usage() {
       "mw3 [install-dir] [--install DIR | --install-from DISC|ISO|CUE [--install-to DIR]] [--assets DIR]... [--write-dir DIR] [--version]\n"
       "    [--mission NAME | --fly NAME [--variant BLOCK]] [--pos X Y Z] [--look YAW PITCH] [--vehicle-ahead M [--vehicle-hold]] [--turret-ahead M] [--mech-ahead M] [--dialog FILE NAME]\n"
       "    [--shot FILE.bmp [--shot-frame N] [--shot-any] [--shot-series K]] [--fire N [--fire-group 1..5]] [--objectives N] [--win N] [--lab-mech N]\n"
-      "    [--windowed] [--original] [--import | --no-import] [--no-launcher] [--debug-camera] [--wide-menus | --no-wide-menus] [--mod NAME]... [--no-mods] [--mods] [--patch ZIP|DIR] [--vfw-helper EXE | --no-vfw-helper] [--briefing c1m2] [--click N[:M]] [--click-at X,Y@N]... [--click-players X,Y@N/P]... [--click-return X,Y@N]... [--walk] [--tap DIK@N[:M]]... [--frames N] [--frame-ms N] [--frame-times N] [--seed N] [--window WxH] [--nosound] [--hidden] [--verbose]\n"
+      "    [--windowed] [--original] [--import | --no-import] [--no-launcher] [--debug-camera] [--wide-menus | --no-wide-menus] [--mod NAME]... [--no-mods] [--mods] [--check-mod DIR] [--patch ZIP|DIR] [--vfw-helper EXE | --no-vfw-helper] [--briefing c1m2] [--click N[:M]] [--click-at X,Y@N]... [--click-players X,Y@N/P]... [--click-return X,Y@N]... [--walk] [--tap DIK@N[:M]]... [--frames N] [--frame-ms N] [--frame-times N] [--seed N] [--window WxH] [--nosound] [--hidden] [--verbose]\n"
       "    [-nofmv] [-seasick] [-cdN]\n"
       "See docs/program.md.\n");
 }
@@ -242,6 +244,7 @@ bool parse(int argc, char** argv, Args& a) {
     else if (s == "--mod" && next(1)) a.mods.emplace_back(argv[++i]), a.mods_given = true;
     else if (s == "--no-mods") a.no_mods = true;
     else if (s == "--mods") a.list_mods = true;
+    else if (s == "--check-mod" && next(1)) a.check_mod = argv[++i];
     else if (s == "--mission" && next(1)) a.mission = argv[++i];
     else if (s == "--fly" && next(1)) a.mission = argv[++i], a.fly = true;
     else if (s == "--variant" && next(1)) a.variant = argv[++i];
@@ -621,6 +624,13 @@ int main(int argc, char** argv) {
   if (!a.write_dir.empty()) read_config(a.write_dir, a);
   if (!a.mods_given) a.mods = a.cfg_mods;
   if (a.no_mods) a.mods.clear();
+  if (!a.check_mod.empty()) {  // read the mod as the game would, nothing mounted into play
+    int errors = 0;
+    const std::string install = !a.install.empty() ? a.install : a.cfg_install;
+    for (const std::string& line : mech3::mod_check(a.check_mod, install, &errors)) std::printf("%s\n", line.c_str());
+    SDL_Quit();
+    return errors ? 1 : 0;
+  }
   if (a.list_mods) {
     const std::vector<mech3::ModInfo> found = mech3::mods_found(a.write_dir);
     std::printf("mw3: mods in %s/mods: %zu\n", a.write_dir.c_str(), found.size());

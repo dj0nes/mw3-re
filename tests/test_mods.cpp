@@ -2,6 +2,7 @@
 // in mw3.cfg's order, the player's own files never served from a mod, a
 // mod's loose .zrd over its archive's entry, nothing changed without mods.
 #include <filesystem>
+#include <cstdint>
 #include <fstream>
 #include <map>
 #include <string>
@@ -10,6 +11,7 @@
 #include "check.h"
 #include "gamez/zreader/zreader.h"
 #include "gamez/zutil/zutl_path.h"
+#include "gamez/zutil/zutl_zar.h"
 #include "mech3/mission.h"
 #include "mech3/mods.h"
 
@@ -204,4 +206,108 @@ TEST(mods_worlds_declared) {
          log.find("Instant Action world nowhere is no world") != std::string::npos);
   mech3::mod_worlds().clear(), mech3::mod_ia_worlds().clear();
   EXPECT(mech3::mission_dir_count() == 9 && std::string(mech3::mission_dir(9)) == "none");
+}
+
+// M3: a reader archive's broken entries are refused, not read on into the
+// next ones or allocated as their counts say; good ones read as before.
+TEST(mods_broken_reader_entries_are_refused) {
+  SavedMounts keep;
+  const std::string dir = tmp("mods_broken_zrd");
+  const std::string path = dir + "/broken.zbd";
+  auto le = [](std::vector<uint8_t>& v, int32_t x) {
+    for (int i = 0; i < 4; ++i) v.push_back(static_cast<uint8_t>(x >> (8 * i)));
+  };
+  // (list of 3: int 7, string "ok")
+  std::vector<uint8_t> good;
+  le(good, 4), le(good, 3), le(good, 1), le(good, 7), le(good, 3), le(good, 2), good.push_back('o'), good.push_back('k');
+  std::vector<uint8_t> huge;  // a list claiming a billion children
+  le(huge, 4), le(huge, 1000000000), le(huge, 1), le(huge, 7);
+  std::vector<uint8_t> type;  // a node of type 9
+  le(type, 4), le(type, 2), le(type, 9), le(type, 0);
+  std::vector<uint8_t> deep;  // 100 nested lists of 2
+  for (int i = 0; i < 100; ++i) le(deep, 4), le(deep, 2);
+  le(deep, 1), le(deep, 0);
+  std::vector<uint8_t> past;  // a list of 3 holding one int: the rest is the next entry's
+  le(past, 4), le(past, 3), le(past, 1), le(past, 5);
+  zutl_zar::Archive a;
+  zutl_zar::init(a);
+  EXPECT(zutl_zar::create(a, path.c_str()));
+  zutl_zar::add(a, "good.zrd", good.data(), static_cast<uint32_t>(good.size()));
+  zutl_zar::add(a, "huge.zrd", huge.data(), static_cast<uint32_t>(huge.size()));
+  zutl_zar::add(a, "type.zrd", type.data(), static_cast<uint32_t>(type.size()));
+  zutl_zar::add(a, "deep.zrd", deep.data(), static_cast<uint32_t>(deep.size()));
+  zutl_zar::add(a, "past.zrd", past.data(), static_cast<uint32_t>(past.size()));
+  zutl_zar::add(a, "after.zrd", good.data(), static_cast<uint32_t>(good.size()));
+  EXPECT(zutl_zar::close(a));
+  zutl_zar::destroy(a);
+  zutl::mounts() = zutl::Mounts{};
+  zrdr::init();
+  EXPECT(zrdr::open_archive(path.c_str(), true));
+  zrdr::Node* g = zrdr::load("good.zrd");
+  EXPECT(g && zrdr::list_count(g) == 3 && g->list[1].i == 7 && std::string(g->list[2].s) == "ok");
+  if (g) zrdr::free_node(g);
+  for (const char* bad : {"huge.zrd", "type.zrd", "deep.zrd", "past.zrd"}) {
+    zrdr::Node* n = zrdr::load(bad);
+    std::printf("  %s: %s\n", bad, n ? "read" : "refused");
+    EXPECT(n == nullptr);
+    if (n) zrdr::free_node(n);
+  }
+  zrdr::Node* after = zrdr::load("after.zrd");  // the reader is fine after them
+  EXPECT(after && zrdr::list_count(after) == 3);
+  if (after) zrdr::free_node(after);
+  zrdr::close_archives(true);
+}
+
+// M3: mw3 --check-mod's report on a good mod and on one with every kind of
+// fault the game would refuse.
+TEST(mods_check_mod_reports_what_the_game_would_refuse) {
+  const std::string install = MW3_GAME_DIR;
+  std::error_code ec;
+  SavedMounts keep;
+  const std::string root = tmp("mods_check");
+  // Good: a world reader copied from the install, a loose .zrd, strings.
+  const std::string good = root + "/good";
+  put(good + "/mod.txt", "name=Good\nversion=1\nia_world=c1 Again\n");
+  put(good + "/zbd/fmv.zrd", "(INTRO (PLAYAVI intro))\n");
+  put(good + "/strings.txt", "100=Hello\n");
+  if (fs::exists(install + "/zbd/c1/readerm1.zbd", ec)) {
+    fs::create_directories(good + "/zbd/c1", ec);
+    fs::copy_file(install + "/zbd/c1/readerm1.zbd", good + "/zbd/c1/readerm1.zbd", ec);
+  }
+  int errors = -1;
+  std::string text;
+  for (const std::string& l : mech3::mod_check(good, install, &errors)) text += l + "\n";
+  std::printf("%s", text.c_str());
+  EXPECT(errors == 0 && text.find("mod.txt: Good 1") != std::string::npos && text.find("zbd/fmv.zrd: added") != std::string::npos);
+  if (fs::exists(install + "/zbd/c1/readerm1.zbd", ec))
+    EXPECT(text.find("zbd/c1/readerm1.zbd: replaces the game's") != std::string::npos && text.find("0 errors") != std::string::npos);
+  // Bad: no name, a world without files, an unknown Instant Action world, a
+  // garbage archive, a reader archive with a broken entry, a broken .zrd.
+  const std::string bad = root + "/bad";
+  put(bad + "/mod.txt", "version=1\nworld=nofiles\nia_world=nowhere\n");
+  put(bad + "/zbd/rimage.zbd", "not an archive at all");
+  put(bad + "/zbd/broken.zrd", "(UNCLOSED\n");
+  put(bad + "/pilots/x.pil", "x");
+  {
+    std::vector<uint8_t> huge = {4, 0, 0, 0, 0, 0xca, 0x9a, 0x3b};  // a list of a billion
+    zutl_zar::Archive a;
+    zutl_zar::init(a);
+    fs::create_directories(bad + "/zbd/c1", ec);
+    EXPECT(zutl_zar::create(a, (bad + "/zbd/c1/readerm1.zbd").c_str()));
+    zutl_zar::add(a, "mission.zrd", huge.data(), static_cast<uint32_t>(huge.size()));
+    EXPECT(zutl_zar::close(a));
+    zutl_zar::destroy(a);
+  }
+  text.clear();
+  for (const std::string& l : mech3::mod_check(bad, install, &errors)) text += l + "\n";
+  std::printf("%s", text.c_str());
+  EXPECT(errors == 6);
+  EXPECT(text.find("error: mod.txt: mod.txt has no name= line") != std::string::npos &&
+         text.find("error: world nofiles: no zbd/nofiles/gamez.zbd") != std::string::npos &&
+         text.find("error: ia_world nowhere: no such world") != std::string::npos &&
+         text.find("error: zbd/rimage.zbd: not an archive the game can read") != std::string::npos &&
+         text.find("error: zbd/c1/readerm1.zbd: entry mission.zrd cannot be read") != std::string::npos &&
+         text.find("error: zbd/broken.zrd: not a text .zrd the reader can read") != std::string::npos &&
+         text.find("pilots/x.pil: the player's own kind of file") != std::string::npos);
+  EXPECT(mech3::mod_check(root + "/none", install, &errors).size() == 1 && errors == 1);
 }

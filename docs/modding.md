@@ -130,9 +130,46 @@ an id left out, nothing without mods) and `mod_world_plays_in_instant_action_hea
 (a mod world of c1's files linked, `source c1.gs`, Instant Action on world
 9: its readers read from `zbd\mymap\`, the player's mech in play).
 
+## Broken files and checking a mod (M3, begun 2026-11-01)
+
+**The reader archives' entries, bounded.** Every `reader*.zbd` entry (a
+mission's objectives, a mech's definition, the worlds' settings) is read
+through `zrdr::load` with the entry's own length known: a list whose count
+the bytes left cannot hold (every node is at least 8 bytes), a node of no
+type, or lists nested past 64 deep mark the entry broken. It is then read as
+no entry at all, and the log names the archive and the entry. The original
+read on into the next entries or allocated what the count said; the shipped
+entries read exactly as before (`test_zreader.py`, 178 files identical;
+`test_zreader_text.py`, 540; `test_ai_readers.py`). Already bounded before
+M3: the archives' tables (`zutl_zar`: a count or a length the file cannot
+hold), strings (to the file's end), the text `.zrd` parser (an unclosed
+list), `gamez.zbd` (a bad signature, version or a cut file), the AI files,
+the mech definitions and the saved loadouts.
+
+**Not bounded yet** (M3, next sittings, one format each): `mechlib.zbd`,
+`motion.zbd`, the worlds' `anim.zbd`, the texture and image archives'
+contents, `interp.zbd`'s scripts and the sound archives. Their tables are
+checked (above); a mod that replaces one with broken contents can still
+crash the game, and `--check-mod` says it did not look inside.
+
+**`mw3 --check-mod DIR`** reads a mod as the game would without mounting it
+into play, and exits 1 when anything would be refused, else 0. It reports:
+mod.txt; each `world=` (its `zbd\<folder>\gamez.zbd` and `<folder>.gs`)
+and `ia_world=`; every file and what it replaces in the install (mw3.cfg's
+`install=`) or adds; the player's own kind of file, ignored; every archive's
+table; every reader archive's entries through the bounded reader; every
+loose `.zrd` through the text parser; `strings.txt`'s lines the game would
+leave out (warnings). Test: `mods_check_mod_reports_what_the_game_would_refuse`
+(a good mod with a copied reader, a loose fmv.zrd and strings: no errors; a
+bad one: no name, a world without files, an unknown Instant Action world, a
+non-archive `.zbd`, a reader entry claiming a billion nodes and an unclosed
+`.zrd`: six errors) and `mods_broken_reader_entries_are_refused` (a list of
+a billion, a type 9, 100 lists deep, a list running into the next entry:
+each refused, the entries around them read).
+
 ## Planned
-- M3 (v1.0): bounded readers for the formats that trust their sizes
-  (mechlib, motion, anim, the texture libraries, interp, sounds, the
-  binary .zrd), a refused file named with its mod; `mw3 --check-mod DIR`.
+- M3 (v1.0), the rest: bounded readers for mechlib, motion, anim, the
+  texture and image archives' contents, interp's scripts and the sounds
+  (above), each with `--check-mod` looking inside.
 - After v1.0: a custom campaign, new mechs and weapons (the exe's name
   tables made data), loose `.zan` motions, the launcher's MODS list.
