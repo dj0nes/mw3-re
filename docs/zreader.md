@@ -111,6 +111,46 @@ strtol wrapping, the #else not taken, #endif not counting, items reversed,
 the last token kept at the end of the file. The fixes are checked in
 `mw3tests` (`zreader_text_files`).
 
+## Pirate's Moon (zrdr_main.cpp)
+
+Pirate's Moon 1.0 renamed `zreader.cpp` to `zrdr_main.cpp` and rewrote it
+(2026-11-02, `src/pm/gamez/zreader/zrdr_main`, docs/pm-map.md step 1). The
+files are the same: all 1,052 entries of PM's 50 reader archives are MW3's
+binary trees. The state is now a C++ object at 0x008c1750 (the search path,
+a `std::list` of open archives, the current one; open 0x00579310, find
+0x00579300, close 0x00579330, init 0x00578040, shutdown 0x005780b0), and
+most functions take their arguments on the stack where MW3's took ECX and
+EDX. What they return is MW3's, checked on PM's exe
+(`test_pm_zreader.py`: every tree, and every getter on 52,337 keys), so the
+port keeps zrdr's. New:
+
+- **Getters**: an int value 0x00578f70 (an int, a one-item list too; `fild`
+  then `_ftol`, which give the int back), and keyed float and string values
+  0x00579090 / 0x005790b0 (find, then 0x00556fe0's and 0x00557030's PM
+  copies). The keyed list getters moved (0x005790d0-0x00579170) and MW3's
+  find wrapper 0x005569e0 is gone (0x00578950 calls find with 1).
+- **A stack of open files**: every text byte is read from the current
+  handle 0x008c19f4, the top of up to 32 (0x008c1974, the top index
+  0x00612f08, push 0x00578720, pop 0x005782a0). At a file's end the byte
+  reader 0x00578250 closes it and goes on in the file before, so an
+  included file is read in place. The balance check 0x00578150 runs on the
+  first file only.
+- **`#include NAME`**: the directive word 0x005795e0 gives 0 ifdef, 1 else,
+  2 endif, 3 include, 4 anything else; 0x00579440 replaces 0x00557550,
+  and opens the file (0x00578750, through load's search 0x005780e0) at
+  once. It returns true, so an `#include` met while a false `#ifdef` is
+  skipped is read and ends the skip (kept). The #ifdef depth moved to
+  0x008c19fc, kept across files as MW3's; the defines list 0x008c176c is
+  still empty. The list pool is made with 0x200 elements (MW3: 64).
+- **Binary read 0x005791b0**: MW3's 0x00557180 on the current handle
+  (strings through zArchive's 0x00597280), its error line now 0x59d.
+
+The shared `zrdr::load` reads a loose text file through the running game's
+table (`zgame::Table::zrdr_parse_text`): PM's `pm::zrdr::parse_text` takes
+`#include`, MW3's skips the word. `test_pm_zreader_text.py` checks it
+against PM's exe on MW3's 540 cases and 300 with `#include` (2,693 files
+included, up to 32 open).
+
 ## Original behaviour worth knowing
 
 - `find` is depth-first through every nested list and does not tell keys from

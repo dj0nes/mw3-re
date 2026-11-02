@@ -296,6 +296,21 @@ functions PM changed, and PM's new ones.
          copies, 200 random reads and 50 writes, and mech3ax's rules on
          every shipped file. 0 mismatches.
        - `mw3pmtests`: all 364 motions load; a cut one is refused.
+     - Left: `mods.cpp`'s `--check-mod` and the mod loaders still bound an
+       entry by its stored length. When PM takes mods, they go through
+       `zutl_zar::span` too.
+   - **The reader (`zrdr_main.cpp`): done** (2026-11-02,
+     `src/pm/gamez/zreader/zrdr_main`; zreader.md, Pirate's Moon):
+     - Rewritten as a C++ object over the same files. Every function MW3
+       also has returns what MW3's does, so the port keeps zrdr's for
+       them. New: three getters, a stack of 32 open files, and `#include`
+       in text files (through `zgame::Table::zrdr_parse_text`).
+     - Tests:
+       - `test_pm_zreader.py` on PM's exe: all 1,052 entries of the 50
+         reader archives, and every getter on 52,337 keys.
+       - `test_pm_zreader_text.py` on PM's exe: 840 text files, 300 of
+         them with `#include`.
+       - `mw3pmtests`: `pm_text_files_take_include`.
 2. **The world**: the light maps and lighting (`gmod_matl.c` 39 new; PM
    drops MW3's fog), `cls_clutter.cpp` (32 new), the world class
    (`cls_world.c` 20 new), the script interpreter's new commands (the

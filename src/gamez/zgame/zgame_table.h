@@ -1,9 +1,13 @@
 #pragma once
 
 #include <cstdint>
+#include <cstdio>
 
 namespace zutl_zar {
 struct Archive;
+}
+namespace zrdr {
+struct Node;
 }
 
 // Ours, not the exe's: which game the shared engine runs (docs/games-layout.md).
@@ -24,6 +28,8 @@ struct Table {
   // readers (MW3: its length; PM: up to the next entry, its motion.zbd's
   // lengths being 1).
   uint32_t (*zar_span)(const zutl_zar::Archive& a, int index);
+  // zReader's loose text files (zreader.h): PM's adds #include.
+  zrdr::Node* (*zrdr_parse_text)(std::FILE* file);  // 0x005563d0; PM 0x005782f0
 };
 
 const Table& mw3_table();

@@ -5,11 +5,13 @@
 #include <cstring>
 #include <filesystem>
 
+#include "pm/gamez/zreader/zrdr_main.h"
 #include "pm/gamez/zutil/zutl_zar.h"
 
 namespace pm {
 namespace {
-const zgame::Table kPm = {"Pirate's Moon", "Pirate's Moon 1.0", zar::read_table, zar::write_table, zar::span};
+const zgame::Table kPm = {"Pirate's Moon", "Pirate's Moon 1.0", zar::read_table, zar::write_table, zar::span,
+                         zrdr::parse_text};
 }  // namespace
 
 const zgame::Table& table() { return kPm; }

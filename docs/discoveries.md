@@ -4097,3 +4097,10 @@ The screen after the pilot for INSTANT ACTION, 0x00488bc0 (details:
   Every entry in `motion.zbd`'s index says it is 1 byte long; the game
   jumps to where a motion starts and reads it until it ends.
   (docs/pm-map.md, The data formats)
+- **Pirate's Moon's text data files can include other files.** Its reader
+  takes `#include name.zrd` (MechWarrior 3's knows only `#ifdef`, `#else`
+  and `#endif`): the named file is read right there, as if pasted in, up
+  to 32 files deep. Only loose text files use it; everything the game
+  ships is in its archives. One oddity: an `#include` inside an `#ifdef`
+  block that is being skipped is still read, and the rest of the block
+  is no longer skipped. (docs/zreader.md, Pirate's Moon)

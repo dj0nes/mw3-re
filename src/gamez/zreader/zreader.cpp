@@ -10,6 +10,7 @@
 #include "crt/msvc_math.h"
 #include "crt/msvc_string.h"
 #include "gamez/zerror/zerr.h"
+#include "gamez/zgame/zgame_table.h"
 #include "gamez/zutil/zutl_path.h"
 #include "gamez/zutil/zutl_zar.h"
 
@@ -542,6 +543,8 @@ bool directive(std::FILE* f, char* c, bool skipping) {
   }
 }
 
+}  // namespace
+
 // Mech3.exe 1.2 @ 0x00556690: an unquoted token that strtol or strtod reads
 // whole is an int or a float; anything else a string.
 Node* token_value(const char* s, bool quoted) {
@@ -568,6 +571,8 @@ Node* token_value(const char* s, bool quoted) {
   std::memcpy(n->s, s, size);
   return n;
 }
+
+namespace {
 
 // Mech3.exe 1.2 @ 0x00556510: the next token into *out (nullptr when there is
 // none before the delimiter). Returns the delimiter, '(' ')' or a space, or 0
@@ -689,7 +694,7 @@ Node* load(const char* path) {
     if (!f) continue;
     if (const std::string loose = mod_loose(*a, g_fname); !loose.empty()) {
       if (std::FILE* t = std::fopen(loose.c_str(), "rb")) {
-        Node* root = parse_text(t);
+        Node* root = zgame::game().zrdr_parse_text(t);
         std::fclose(t);
         if (root) return root;
       }
@@ -708,7 +713,7 @@ Node* load(const char* path) {
   }
   std::FILE* f = zutl::open(path, "rb");
   if (!f) return g_missing_hook ? g_missing_hook(g_fname) : nullptr;
-  Node* root = parse_text(f);
+  Node* root = zgame::game().zrdr_parse_text(f);
   std::fclose(f);
   return root;
 }

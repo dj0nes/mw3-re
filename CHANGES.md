@@ -241,7 +241,8 @@ unusual happens.
   empty list instead of crashing.
 - A text data file with a word of 256 letters or more, a quote that is never
   closed, or an `#ifdef` without its `#endif` no longer crashes or hangs the
-  game.
+  game (MechWarrior 3 and Pirate's Moon, whose text files can also
+  `#include` others).
 - A vehicle with a name of 20 letters or more (or with a `%` in it) in a
   mission's vehicle file keeps its name; the original cut it and, from 28
   letters, overwrote the vehicle's settings. A made-up vehicle whose name

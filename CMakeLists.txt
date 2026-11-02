@@ -566,6 +566,7 @@ if(MW3_BUILD_PM)
   add_library(pmcore STATIC
     src/pm/pm_game.cpp
     src/pm/gamez/zutil/zutl_zar.cpp
+    src/pm/gamez/zreader/zrdr_main.cpp
   )
   target_link_libraries(pmcore PUBLIC mw3core)
   if(NOT MSVC)

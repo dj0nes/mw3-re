@@ -9,6 +9,7 @@
 
 #include "check.h"
 #include "gamez/zgame/zgame_table.h"
+#include "gamez/zreader/zreader.h"
 #include "gamez/zsiscript/si_script.h"
 #include "gamez/zutil/zutl_path.h"
 #include "gamez/zutil/zutl_zar.h"
@@ -144,4 +145,30 @@ TEST(pm_broken_motion_is_refused) {
   mech3::close_motions();
   zgame::set_game(zgame::mw3_table());
   zutl::mounts() = {};
+}
+
+// The loose text files through zrdr::load: PM's table reads an #include in
+// place (pm/gamez/zreader/zrdr_main), MW3's skips the word as an unknown
+// directive.
+TEST(pm_text_files_take_include) {
+  const std::string dir = std::string(MW3_TEST_TMP) + "/pm_include";
+  std::filesystem::create_directories(dir);
+  { std::ofstream(dir + "/top.zrd") << "(A 1\n#include part.zrd\nC 3)\n"; }
+  { std::ofstream(dir + "/part.zrd") << "B 2 (D 4)"; }
+  zutl::mounts() = {};
+  zutl::mount(dir);
+  zutl::set_write_dir(dir);
+  int32_t v = 0;
+  for (const bool pm_game : {true, false}) {
+    zgame::set_game(pm_game ? pm::table() : zgame::mw3_table());
+    zrdr::state().if_depth = 0;
+    zrdr::Node* root = zrdr::load("top.zrd");
+    EXPECT(root != nullptr);
+    if (!root) continue;
+    EXPECT(zrdr::get_int(root, "A", &v) && v == 1);
+    EXPECT(zrdr::get_int(root, "C", &v) && v == 3);
+    EXPECT(zrdr::get_int(root, "B", &v) == pm_game && (!pm_game || v == 2));
+    EXPECT(zrdr::get_int(root, "D", &v) == pm_game && (!pm_game || v == 4));
+    zrdr::free_node(root);
+  }
 }
