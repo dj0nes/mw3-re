@@ -6,6 +6,8 @@
 #else
 #include <execinfo.h>
 #include <signal.h>
+#include <dirent.h>
+#include <fcntl.h>
 #include <unistd.h>
 #endif
 #if defined(_WIN32)
@@ -128,6 +130,25 @@ int main() {
     const int before = check::failures;
     t.fn();
     std::printf("%s %s\n", check::failures == before ? "ok  " : "FAIL", t.name);
+#if !defined(_WIN32)
+    // Ours: MW3_TEST_FDS=1, the open files after each test (a leak would
+    // starve Windows' 512 FILEs long before a POSIX limit).
+    if (std::getenv("MW3_TEST_FDS")) {
+      int n = 0;
+      if (DIR* d = opendir("/dev/fd")) {
+        while (readdir(d)) ++n;
+        closedir(d);
+      }
+      std::fprintf(stderr, "fds %d after %s\n", n, t.name);
+#if defined(__APPLE__)
+      if (std::strcmp(std::getenv("MW3_TEST_FDS"), "2") == 0)  // each one's file
+        for (int fd = 3; fd < 4096; ++fd) {
+          char path[1024];
+          if (fcntl(fd, F_GETPATH, path) == 0) std::fprintf(stderr, "  fd %d %s\n", fd, path);
+        }
+#endif
+    }
+#endif
   }
   std::printf("%zu tests, %d failed checks\n", ran, check::failures);
   return check::failures == 0 ? 0 : 1;

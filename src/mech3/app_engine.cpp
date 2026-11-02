@@ -460,6 +460,10 @@ Handle GameEngine::script_new() {
 void GameEngine::script_delete(Handle s) {
   auto* in = static_cast<zint::Interp*>(object_of(s));
   if (interp() == in) interp() = nullptr;
+  // Ours: interp.zbd, kept open since its first script (0x00596620), closed
+  // with its object (the exe's stays open to the process's end; a second
+  // app in one process, as the tests make, would leak a file each).
+  if (in && in->archive.f) std::fclose(in->archive.f), in->archive.f = nullptr;
   delete in;
 }
 
