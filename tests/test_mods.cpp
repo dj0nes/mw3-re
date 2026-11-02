@@ -3,12 +3,14 @@
 // mod's loose .zrd over its archive's entry, nothing changed without mods.
 #include <filesystem>
 #include <fstream>
+#include <map>
 #include <string>
 #include <vector>
 
 #include "check.h"
 #include "gamez/zreader/zreader.h"
 #include "gamez/zutil/zutl_path.h"
+#include "mech3/mission.h"
 #include "mech3/mods.h"
 
 namespace {
@@ -146,4 +148,60 @@ TEST(mods_gameplay_hash_ignores_looks_and_words) {
   EXPECT(mech3::mod_file_is_gameplay("zbd/c1/reader.zbd") && mech3::mod_file_is_gameplay("zbd/fmv.zrd") &&
          !mech3::mod_file_is_gameplay("zbd/rtexture.zbd") && !mech3::mod_file_is_gameplay("pilots/x.pil") &&
          !mech3::mod_file_is_gameplay("video/intro.m1v"));
+}
+
+TEST(mods_strings_over_the_message_table) {
+  SavedMounts keep;
+  const std::string wd = tmp("mods_strings");
+  put(wd + "/mods/fr/mod.txt", "name=French\n");
+  put(wd + "/mods/fr/strings.txt",
+      "\xef\xbb\xbf# French\n100=Campagne\n0x65=D\xc3\xa9marrer\nID_QUIT=Quitter\nnot a line\n999999999999=x\n"
+      "102=Two\\nlines \\\\ here\n103=\xe2\x98\x83 snowman\n");
+  put(wd + "/mods/en/mod.txt", "name=English fixes\n");
+  put(wd + "/mods/en/strings.txt", "100=Campaign!\n104=Only here\n");
+  zutl::mounts() = zutl::Mounts{};
+  zutl::set_write_dir(wd);
+  mech3::mods_mount(wd, {"fr", "en"}, {});
+  std::map<int32_t, std::string> text = {{100, "CAMPAIGN"}, {101, "START"}, {105, "QUIT"}, {106, "kept"}};
+  const std::map<std::string, int32_t> ids = {{"ID_QUIT", 105}};
+  std::string log;
+  for (const std::string& l : mech3::mods_apply_strings(text, ids)) log += l + "\n";
+  std::printf("%s", log.c_str());
+  EXPECT(text[100] == "Campagne");                   // the first mod's wins
+  EXPECT(text[101] == "D\xe9marrer");                // hex id, UTF-8 to Windows-1252
+  EXPECT(text[105] == "Quitter");                    // by the message's name
+  EXPECT(text[102] == "Two\r\nlines \\ here");       // \n and \\ .
+  EXPECT(text.count(103) == 0);                      // a snowman the game cannot show: left out
+  EXPECT(text[104] == "Only here" && text[106] == "kept");
+  EXPECT(log.find("line 5: no id= here") != std::string::npos && log.find("line 6: no id= here") != std::string::npos &&
+         log.find("line 8: a character the game cannot show") != std::string::npos);
+  // No mods: nothing changes.
+  zutl::mounts() = zutl::Mounts{};
+  std::map<int32_t, std::string> same = {{100, "CAMPAIGN"}};
+  EXPECT(mech3::mods_apply_strings(same, ids).empty() && same[100] == "CAMPAIGN");
+}
+
+TEST(mods_worlds_declared) {
+  mech3::ModInfo m;
+  EXPECT(mech3::mod_parse("name=W\nworld=mymap\nworld=other\nia_world=mymap  My  Map \nia_world=c2\n", &m));
+  EXPECT((m.worlds == std::vector<std::string>{"mymap", "other"}) && m.ia_worlds.size() == 2 &&
+         m.ia_worlds[0].first == "mymap" && m.ia_worlds[0].second == "My  Map" && m.ia_worlds[1].second.empty());
+  SavedMounts keep;
+  const std::string wd = tmp("mods_worlds");
+  put(wd + "/mods/w/mod.txt", "name=W\nworld=good\nworld=nofiles\nworld=../evil\nworld=T1\nia_world=good Good\n"
+                              "ia_world=c3\nia_world=nowhere Lost\n");
+  put(wd + "/mods/w/zbd/good/gamez.zbd", "x");
+  zutl::mounts() = zutl::Mounts{};
+  zutl::set_write_dir(wd);
+  mech3::mod_worlds().clear(), mech3::mod_ia_worlds().clear();
+  std::string log;
+  for (const std::string& l : mech3::mods_mount(wd, {"w"}, {})) log += l + "\n";
+  EXPECT(mech3::mod_worlds() == std::vector<std::string>{"good"} && mech3::mission_dir_count() == 10 &&
+         std::string(mech3::mission_dir(9)) == "good" && std::string(mech3::mission_dir(10)) == "none");
+  EXPECT(mech3::mod_ia_worlds().size() == 2 && mech3::mod_ia_worlds()[0].name == "Good" && mech3::mod_ia_worlds()[1].name == "c3");
+  EXPECT(log.find("world nofiles: no zbd/nofiles/gamez.zbd") != std::string::npos &&
+         log.find("world ../evil: no zbd") != std::string::npos && log.find("world T1: there is a world T1 already") != std::string::npos &&
+         log.find("Instant Action world nowhere is no world") != std::string::npos);
+  mech3::mod_worlds().clear(), mech3::mod_ia_worlds().clear();
+  EXPECT(mech3::mission_dir_count() == 9 && std::string(mech3::mission_dir(9)) == "none");
 }

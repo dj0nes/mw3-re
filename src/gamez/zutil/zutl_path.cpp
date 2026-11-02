@@ -89,6 +89,7 @@ bool to_game(const std::string& s, std::string* out) {
 }
 }  // namespace
 
+bool game_text(const std::string& utf8, std::string* out) { return to_game(utf8, out); }
 Mounts& mounts() { return g_mounts; }
 
 void mount(const std::string& dir) { g_mounts.read.push_back(dir); }

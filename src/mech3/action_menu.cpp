@@ -4,6 +4,9 @@
 #include <string>
 
 #include "gamez/zreader/zreader.h"
+#include "gamez/zutil/zutl_path.h"
+#include "mech3/mission.h"
+#include "mech3/mods.h"
 #include "mech3/mech_config.h"
 #include "mech3/pilot.h"
 #include "mech3/player.h"
@@ -272,6 +275,12 @@ ActionScreen::ActionScreen(Engine& e, Handle s)
     bind_button(&waves, "ENEMY_WAVE");
   }
   for (int32_t i = 0; i < 4; ++i) worlds.add_item(e.message(0xe33 + i), i);  // c1..c4
+  // Ours: the worlds mods add (ia_world= in mod.txt, docs/modding.md), after them.
+  for (const ModIaWorld& w : mod_ia_worlds()) {
+    std::string name;
+    if (!zutl::game_text(w.name, &name)) name = w.folder;
+    worlds.add_item(name.c_str(), mission_dir_index(w.folder.c_str()));
+  }
   for (int32_t i = 1; i < kActionScenarioCount; ++i) {
     scenarios.add_item(e.message(kActionScenarios[i].name), i);
     descriptions.add_item(e.message(kActionScenarios[i].desc), i);
@@ -374,7 +383,7 @@ void ActionScreen::reset() {
   Engine& e = engine();
   const ActionSetup& k = action_setup();
   GameSlot* slot = player_slot();
-  worlds.select(k.g874);
+  worlds.select(k.g874 < worlds.count() ? k.g874 : 0);  // ours: a mod's world kept by a pilot, the mod since gone
   scenarios.select(k.g878);
   descriptions.select(k.g878);
   for (AllyList& l : allies) l.clear_items();

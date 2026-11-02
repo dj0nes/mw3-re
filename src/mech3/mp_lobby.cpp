@@ -1,4 +1,5 @@
 #include "mech3/mp_lobby.h"
+#include "mech3/mission.h"
 #include "mech3/mods.h"
 
 #include <cctype>
@@ -283,8 +284,10 @@ void LobbyScreen::enter() {
   static const int32_t kShipped[7][2] = {{0, 2}, {1, 1}, {1, 2}, {2, 1}, {2, 2}, {3, 1}, {3, 2}};
   for (int32_t i = 0; i < 7; ++i) worlds.add_item(e.message(0x321 + i), kShipped[i][1] << 8 | kShipped[i][0]);
   // The add-on worlds (readermp3 on): each folder's numbered readers, named
-  // by their mpinfo.zrd's db_name, recorded in the data.
-  for (int32_t dir = 0; dir < 6; ++dir) {
+  // by their mpinfo.zrd's db_name, recorded in the data. Ours: on past the
+  // exe's six to the mods' worlds (9 on), t1, lab and dev1/dev2 still left out.
+  for (int32_t dir = 0; dir < mission_dir_count(); ++dir) {
+    if (dir >= 6 && dir < 9) continue;
     const std::string folder = e.mission_dir(static_cast<uint32_t>(dir));
     for (const std::string& file : e.list_files(("zbd\\" + folder + "\\readermp*.zbd").c_str())) {
       if (file.size() < 8) continue;
