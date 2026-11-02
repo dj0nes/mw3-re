@@ -49,8 +49,13 @@ masked.
 Owen (2026-10-31): copying small amounts of 1.2's data is fine, so a 1.0
 player gets the exact 1.2. Left out:
 
-- **c3's multiplayer maps** (`readermp3.zbd`, `readermp4.zbd`): until
-  multiplayer is ported.
+- (Done 2026-11-01, Owen: include them.) **c3's multiplayer maps**
+  (`readermp3.zbd`, `readermp4.zbd`, 7,262 and 6,662 bytes) are whole new
+  files, not entries: `patch12_files.inc` holds 1.2's bytes, and at the
+  engine's start `provide_files()` writes them into the write dir when c3's
+  world (`gamez.zbd`) is 1.0's and no mount has them, never into the
+  install. The lobby's add-on scan then lists them. Test:
+  `patch12_adds_c3s_multiplayer_maps_to_a_10_install`.
 - **16-bit sound**: the footsteps play 1.0's 8-bit samples (the same sounds).
 - **The unused texture `cpad07`** stays in 1.0's c3 texture table (no
   material uses it in 1.2; dropping it would renumber the table).

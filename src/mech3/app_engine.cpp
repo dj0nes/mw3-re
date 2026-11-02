@@ -195,6 +195,7 @@ GameEngine::GameEngine(const Platform& p, std::string command_line)
   vp.sync = [](void* c) { static_cast<GameEngine*>(c)->sync_view(); };
   wire_view(&vp);
   patch12::install();  // 1.0's data read as 1.2's (docs/patch12.md)
+  patch12::provide_files();  // and 1.2's added maps beside it, in the write dir
 }
 
 GameEngine::~GameEngine() {
@@ -228,8 +229,6 @@ const std::map<std::string, const char*>& known_keys() {
       {"0x00576d90", "own: the back buffer's size, zvid's Surface (lock_3d); here only the targets' arguments"},
       {"0x00576da0", "own: the back buffer's height, the same (lock_3d)"},
       {"0x00576dc0", "own: the back buffer's pitch, the same"},
-      {"0x004ac860", "deferred: the stealth object (its block; back burner, vehicles.md)"},
-      {"0x004a4de0", "deferred: the stealth object"},
       {"0x0040e4b0", "deferred: developer only (the 25 lines' draw and hit test, hud.md section 20)"},
       {"vt+0x7c", "deferred: developer only (the 25 lines cleared)"},
       {"hudline.vt+0x7c", "deferred: developer only (the 25 lines cleared)"},
@@ -245,7 +244,6 @@ const std::map<std::string, const char*>& known_keys() {
       {"0x004f8f20", "no effect: zClass's two values set to their defaults (update_frame 1, frozen 0)"},
       {"0x004f3540", "no effect: [0x005ea53c] is never read"},
       {"0x00558070", "no effect: [0x008007dc] / [0x008007e0] are only written"},
-      {"0x005a84c0", "deferred: the stealth object (its name; back burner, vehicles.md)"},
       {"0x005a7e10", "own: CZAiTarget's defaults, the port's AiTarget initialisers (called with 0)"},
       {"0x005a7f90", "own: ~CZAiTarget, the port's AiTarget destructor"},
       {"0x00576c50", "own: zutl::crc32 builds its table on first use"},

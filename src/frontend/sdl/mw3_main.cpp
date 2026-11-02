@@ -85,6 +85,7 @@
 #include "gamez/zutil/zfix.h"
 #include "gamez/zutil/zutl_path.h"
 #include "mech3/app.h"
+#include "mech3/mods.h"
 #include "mech3/app_engine.h"
 #include "mech3/app_hud.h"
 #include "mech3/pilot.h"
@@ -134,6 +135,10 @@ struct Args {
   std::string cfg_mw1_game;  // mw3.cfg's mw1_game= (ours: the launcher's MechWarrior 1989 folder)
   int wide_menus = -1, cfg_wide_menus = -1;  // --wide-menus / --no-wide-menus, mw3.cfg's widemenus= (ours)
   std::vector<std::string> assets;
+  // Mods (ours, docs/modding.md): --mod NAME (repeatable, this run's list),
+  // else mw3.cfg's mod= lines, in order; --no-mods none; --mods lists them.
+  std::vector<std::string> mods, cfg_mods;
+  bool mods_given = false, no_mods = false, list_mods = false;
   std::string original;  // -nofmv -seasick -cdN, passed on as the command line
   // The bug fixes (zfix bugs; fixes.md, The bug fixes switch): mw3.cfg's
   // bugfixes=0/1 (default 1), --original turns them off whatever it says.
@@ -211,7 +216,7 @@ void usage() {
       "mw3 [install-dir] [--install DIR | --install-from DISC|ISO|CUE [--install-to DIR]] [--assets DIR]... [--write-dir DIR] [--version]\n"
       "    [--mission NAME | --fly NAME [--variant BLOCK]] [--pos X Y Z] [--look YAW PITCH] [--vehicle-ahead M [--vehicle-hold]] [--turret-ahead M] [--mech-ahead M] [--dialog FILE NAME]\n"
       "    [--shot FILE.bmp [--shot-frame N] [--shot-any] [--shot-series K]] [--fire N [--fire-group 1..5]] [--objectives N] [--win N] [--lab-mech N]\n"
-      "    [--windowed] [--original] [--import | --no-import] [--no-launcher] [--wide-menus | --no-wide-menus] [--patch ZIP|DIR] [--vfw-helper EXE | --no-vfw-helper] [--briefing c1m2] [--click N[:M]] [--click-at X,Y@N]... [--click-players X,Y@N/P]... [--click-return X,Y@N]... [--walk] [--tap DIK@N[:M]]... [--frames N] [--frame-ms N] [--frame-times N] [--seed N] [--window WxH] [--nosound] [--hidden] [--verbose]\n"
+      "    [--windowed] [--original] [--import | --no-import] [--no-launcher] [--wide-menus | --no-wide-menus] [--mod NAME]... [--no-mods] [--mods] [--patch ZIP|DIR] [--vfw-helper EXE | --no-vfw-helper] [--briefing c1m2] [--click N[:M]] [--click-at X,Y@N]... [--click-players X,Y@N/P]... [--click-return X,Y@N]... [--walk] [--tap DIK@N[:M]]... [--frames N] [--frame-ms N] [--frame-times N] [--seed N] [--window WxH] [--nosound] [--hidden] [--verbose]\n"
       "    [-nofmv] [-seasick] [-cdN]\n"
       "See docs/program.md.\n");
 }
@@ -231,6 +236,9 @@ bool parse(int argc, char** argv, Args& a) {
     else if (s == "--install" && next(1)) a.install = argv[++i];
     else if (s == "--assets" && next(1)) a.assets.emplace_back(argv[++i]);
     else if (s == "--write-dir" && next(1)) a.write_dir = argv[++i];
+    else if (s == "--mod" && next(1)) a.mods.emplace_back(argv[++i]), a.mods_given = true;
+    else if (s == "--no-mods") a.no_mods = true;
+    else if (s == "--mods") a.list_mods = true;
     else if (s == "--mission" && next(1)) a.mission = argv[++i];
     else if (s == "--fly" && next(1)) a.mission = argv[++i], a.fly = true;
     else if (s == "--variant" && next(1)) a.variant = argv[++i];
@@ -376,6 +384,7 @@ void read_config(const std::string& dir, Args& a) {
     if (line.rfind("install=", 0) == 0) a.cfg_install = line.substr(8);
     else if (line.rfind("mw1_game=", 0) == 0) a.cfg_mw1_game = line.substr(9);
     else if (line.rfind("assets=", 0) == 0) a.assets.push_back(line.substr(7));
+    else if (line.rfind("mod=", 0) == 0) a.cfg_mods.push_back(line.substr(4));
     else if (line == "windowed=1") a.windowed = true;
     else if (line == "bugfixes=0") a.cfg_bugfixes = 0;
     else if (line == "bugfixes=1") a.cfg_bugfixes = 1;
@@ -605,6 +614,19 @@ int main(int argc, char** argv) {
   else if (!a.write_dir.empty() && run_log.open(a.write_dir))
     std::printf("mw3 (MechWarrior 3 rebuild) %s, log %s\n", MW3_VERSION, run_log.path().c_str());
   if (!a.write_dir.empty()) read_config(a.write_dir, a);
+  if (!a.mods_given) a.mods = a.cfg_mods;
+  if (a.no_mods) a.mods.clear();
+  if (a.list_mods) {
+    const std::vector<mech3::ModInfo> found = mech3::mods_found(a.write_dir);
+    std::printf("mw3: mods in %s/mods: %zu\n", a.write_dir.c_str(), found.size());
+    for (const mech3::ModInfo& m : found) {
+      const auto at = std::find(a.mods.begin(), a.mods.end(), m.folder);
+      std::printf("  %s: %s%s%s\n", m.folder.c_str(), m.error.empty() ? (m.name + " " + m.version).c_str() : m.error.c_str(),
+                  at == a.mods.end() ? "" : ", enabled #", at == a.mods.end() ? "" : std::to_string(at - a.mods.begin() + 1).c_str());
+    }
+    SDL_Quit();
+    return 0;
+  }
   // Every play-changing bug fix off with --original or bugfixes=0 (ours; the
   // platform fixes that let it run stay on: fixes.md, The bug fixes switch).
   zfix::options().bugs = !a.play_original && a.cfg_bugfixes != 0;
@@ -675,6 +697,10 @@ int main(int argc, char** argv) {
   for (const std::string& d : a.assets) zutl::mount(d);
   // The 1.2 patch's files, imported (ours: patch_import.h), over the install's.
   const std::string patch_dir = a.write_dir.empty() ? std::string() : a.write_dir + "/patch12";
+  // The enabled mods, in front of the patch and the install (docs/modding.md).
+  if (!a.mods.empty())
+    for (const std::string& line : mech3::mods_mount(a.write_dir, a.mods, {patch_dir, a.install}))
+      std::printf("mw3: %s\n", line.c_str());
   if (!a.patch.empty()) {
     const mech3::setup::Result r = mech3::setup::apply_patch(a.patch, a.write_dir, nullptr);
     if (a.verbose) std::printf("%s", r.detail.c_str());
@@ -923,13 +949,16 @@ int run(const Args& a, platform::VideoForWindows* vfw) {
       // --mission ia<N>[w<W>] (ours, for measuring): Instant Action map N in
       // wave mode from wave W (1), four allies (Champions) with the player,
       // as the Action screen would set it (the AI survey's start).
+      // <dir>ia<N>[w<W>] the same on another world (c3ia2: c3's readeria2).
       int ia_map = 0, ia_wave = 1;
-      if (std::sscanf(a.mission.c_str(), "ia%dw%d", &ia_map, &ia_wave) >= 1 && ia_map > 0) {
+      const size_t ia_at = a.mission.find("ia");
+      if (ia_at != std::string::npos &&
+          std::sscanf(a.mission.c_str() + ia_at, "ia%dw%d", &ia_map, &ia_wave) >= 1 && ia_map > 0) {
         ia_game = std::make_unique<mech3::ActionGame>(nullptr);
         ia_game->mode = 2, ia_game->x6c = ia_wave, ia_game->slot.mech = 9;
         for (int i = 0; i < 4; ++i) ia_game->add(5, 1, nullptr, 0);
         l.type = 2, l.number = ia_map, l.action = ia_game.get();
-        dir = "c1";
+        dir = ia_at ? a.mission.substr(0, ia_at) : "c1";
       } else if (const size_t mp = a.mission.rfind("mp");
                  mp != std::string::npos && mp > 0 && mp + 2 < a.mission.size() &&
                  a.mission.find_first_not_of("0123456789", mp + 2) == std::string::npos) {

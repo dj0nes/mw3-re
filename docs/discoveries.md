@@ -1344,6 +1344,34 @@ From the network code (network-messages.md).
   time each frame took, capped at 1/8 second a frame. The exceptions found so
   far are per-frame, like the lava heat above.
 
+- **Some vehicles' starting directions are written down and then ignored.**
+  The mission files give a few vehicles a heading (c1m1's two APCs face 110
+  degrees, c1m2's Bulldogs and APCs, c1m3's and c3m6's field bases, c3m6's
+  Strikers, the training mission's tank and APC turned round), but the game
+  sets the heading and then at once replaces it with the direction the
+  vehicle's model already has, so they all start facing the way the model
+  points.
+
+## A hidden game editor
+
+- **MW3 ships the in-game editor from Zipper's previous game.** A debug
+  command that no key is bound to opens "BATTLESPORT GAME EDITOR" (Zipper
+  made Battlesport before MW3): a mouse menu over the running mission with
+  EDIT AI NETS, EDIT VEHICLES, EDIT WEAPONS (which does nothing in MW3) and
+  EXIT GAME EDIT. The AI net editor has its own menu: go to a net, change a
+  net's or a node's parameters, add a vehicle to a node, move or delete a
+  node, save the changes, a tree view. While it is open the camera rides an
+  invisible vehicle, the "stealth" object every mission makes, and you fly
+  it with the game's own movement keys: throttle, turn and pitch, plus the
+  mouse. It hovers at a fixed height over the ground like a sled, and a
+  small readout names its movement mode. Nothing in the released game can
+  open it (docs/editor.md).
+- **Every mission builds that invisible camera vehicle anyway.** The
+  loading screen's "Creating Stealth" step makes it in every mission, campaign,
+  Instant Action and multiplayer alike, even though nothing in the release
+  ever looks through it. It has no model, so the game logs that it cannot
+  find its support points, collision points or destroy animation each time.
+
 ## Mission worlds
 
 From the world files (gamez.md).

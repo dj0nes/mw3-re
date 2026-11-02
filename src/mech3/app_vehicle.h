@@ -13,6 +13,12 @@ void wire_vehicles(const MechWiring* w);  // from wire_mech_build; null: the def
 bool is_program_vehicle(const void* p);   // made by the mission start, still alive
 uint8_t program_vehicle_active(const void* p);  // its +0x08 (zEntity's active flag)
 void* program_vehicle_create(void* ctl, const char* type, const char* name);  // 0x004ac320
+// The stealth object (veh_stealth.h): its controls (0x004ac860(0xa1c) and
+// 0x004a51b0), the object over them (0x004a4de0), the one made ([0x00609a2c]).
+void* program_stealth_controls();
+void* program_stealth_create(void* ctl);
+void* program_stealth();
+bool program_vehicle_sensed(const void* v);  // zEntity +0x09: the entity walk runs it
 void* program_field_base_create(void* ctl, const char* type, const char* name);  // 0x004589d0
 bool program_is_field_base(const void* v);  // vt+0xf0 / vt+0xf4: itself (0x004d2a70), else 0
 void* program_campaign();                   // app_menus.cpp: the pilot's campaign (0x00479440), null without one

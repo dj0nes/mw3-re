@@ -530,8 +530,9 @@ These change how the game talks to the computer, not how it plays.
   regions 1.0 left out of Op 4b Mission 5 (taken from your own Mission 6
   and 4 files, as 1.2 did), the other new AI paths, and 1.2's fixes to Op
   3's world (the dome's gaps, the helipads' stray wall, the terrain holes).
-  Only Op 3's two new multiplayer maps are left out until multiplayer is
-  ported. Your files are not changed, and data that is neither 1.0's nor
+  Op 3's two new multiplayer maps, which 1.2 added as files of their own,
+  are copied into your settings folder on the first start, so a 1.0 player
+  has every 1.2 map too. Your files are not changed, and data that is neither 1.0's nor
   1.2's (a mod) is left as it is. Details in `docs/patch12.md`.
 - A 1.0 install can be brought to 1.2 with the official patch file you
   already have (`--patch`, its ZIP or folder): the rebuild reads the patch
@@ -597,3 +598,4 @@ Known quirks the rebuild deliberately keeps:
 - On a Mac the numeric keypad types digits in text fields (an IP address on the connection screen); a Mac has no Num Lock, which the game needed on.
 - A locked multiplayer game turns away players who try to join it, instead of only greying out its Join button.
 - With bug fixes on, locking a multiplayer game with "Use stock 'Mechs" keeps the stock loadout a player chose instead of resetting it to the mech's first.
+- Mods: folders of game data in the settings folder's mods\ folder, enabled in mw3.cfg (mod=NAME, in order), sit in front of the game's files; a mod's loose .zrd replaces one entry of a reader archive. A mod can never replace a player's pilots, loadouts, controls or settings, and with no mods enabled nothing changes (docs/modding.md).

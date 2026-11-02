@@ -228,6 +228,7 @@ BasicVehicle* vehicle_create(Handle ctl, const char* type, const char* name) {
   }
   auto* v = new BasicVehicle;
   h.on_new(0xfc, v);
+  if (!ctl) h.no_ai_controls(type, name);  // ours: its own controls (0x004ae270) are not ported
   vehicle_construct(*v, ctl, node);
   return v;
 }

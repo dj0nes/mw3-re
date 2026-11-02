@@ -17,6 +17,7 @@
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
 #include <functional>
 #if defined(__APPLE__)
 #include <mach/mach.h>
@@ -84,6 +85,7 @@
 #include "mech3/zainet_region.h"
 #include "mech3/cockpit_sound.h"
 #include "mech3/app_sensors.h"
+#include "mech3/patch12.h"
 #include "mech3/app_states.h"
 #include "mech3/lab_screen.h"
 #include "mech3/lab_view.h"
@@ -286,6 +288,41 @@ TEST(data_version_names_the_install) {
   zutl::mounts() = zutl::Mounts{};
   const mech3::DataVersion none = mech3::detect_data_version();
   EXPECT(none.name == "incomplete" && none.missing == 16 && none.of_10 == 12);
+}
+
+// c3's two 1.2 multiplayer maps (Owen, 2026-11-01; patch12.md): a 1.0 install
+// lacks them, so the layer writes 1.2's files into the write dir, byte for
+// byte, where the lobby's scan finds them; never into the install, never over
+// a copy found anywhere, and nothing for a 1.2 install.
+TEST(patch12_adds_c3s_multiplayer_maps_to_a_10_install) {
+  const std::string v10 = std::string(MW3_SOURCE_DIR) + "/game/mw3-1.0", v12 = std::string(MW3_SOURCE_DIR) + "/game/mw3-1.2";
+  if (!std::filesystem::exists(v10 + "/zbd/c3/reader.zbd") || !std::filesystem::exists(v12 + "/zbd/c3/readermp3.zbd")) return;
+  SavedMounts keep;
+  auto run = [](const std::string& install, const std::string& write) {
+    zutl::mounts() = zutl::Mounts{};
+    zutl::mount(install);
+    if (!write.empty()) zutl::set_write_dir(write);
+    mech3::patch12::forget_files();
+    return mech3::patch12::provide_files();
+  };
+  const std::string wd = temp_dir("patch12_mp_maps");
+  const int first = run(v10, wd);
+  const std::vector<std::string> listed = zutl::list("zbd\\c3\\readermp*.zbd");
+  int same = 0;
+  for (const char* n : {"readermp3.zbd", "readermp4.zbd"}) {
+    std::ifstream a(wd + "/zbd/c3/" + n, std::ios::binary), b(v12 + "/zbd/c3/" + n, std::ios::binary);
+    const std::string x((std::istreambuf_iterator<char>(a)), {}), y((std::istreambuf_iterator<char>(b)), {});
+    same += !x.empty() && x == y;
+  }
+  const int again = run(v10, wd);
+  const int on_12 = run(v12, temp_dir("patch12_mp_maps_12"));
+  const int no_write = run(v10, "");
+  std::printf("  1.0: %d written, %d byte-identical, %zu listed; again %d; on 1.2 %d; no write dir %d\n", first, same,
+              listed.size(), again, on_12, no_write);
+  EXPECT(first == 2 && same == 2 && listed.size() >= 4);  // readermp1, 2 (1.0's own), 3, 4
+  EXPECT(again == 0 && on_12 == 0 && no_write == 0);
+  EXPECT(!std::filesystem::exists(v10 + "/zbd/c3/readermp3.zbd"));  // the install untouched
+  mech3::patch12::forget_files();
 }
 
 // The official 1.2 patch read without running it (ours; assets.md, The 1.2
@@ -3219,13 +3256,17 @@ TEST(mission_start_reads_c1m1_vehicles_headless) {
     EXPECT(count("0x004e71c0") == 0);
     EXPECT(count("0x004589d0") == 0);  // mobilehq_01..03 (over net 2) are the port's (mech_fieldbase)
     EXPECT(count("0x004ac320") == 0);  // the basic vehicles are the port's (app_vehicle.cpp)
-    EXPECT(count("0x004ac860") == 1);  // the stealth entity's block (the vehicles' controllers are made)
+    EXPECT(count("0x004ac860") == 0);  // the stealth object's controls are the port's (veh_stealth)
     // mobilehq_01..03, ttruck_01, ttruck_02, apc_01, apc_02: AI-driven, on
     // the ground at their records' places, in the world with their own nodes,
-    // set up from vehicle.zrd (health, motion block, weapons).
+    // set up from vehicle.zrd (health, motion block, weapons). The stealth
+    // object besides (editor.md S1): named "stealth", BASIC, its own controls.
     {
       const std::vector<void*> vs = mech3::program_vehicles();
       EXPECT(vs.size() == 7);
+      mech3::VehicleSummary st;
+      EXPECT(mech3::program_stealth() && mech3::describe_vehicle(mech3::program_stealth(), &st) && st.name &&
+             std::string(st.name) == "stealth" && st.mode == 0 && !st.ai_controls && st.in_world);
       int named = 0;
       for (void* p : vs) {
         mech3::VehicleSummary s;
@@ -4837,7 +4878,15 @@ TEST(mission_c1m1_mechs_cast_shadows_headless) {
     app.exit_instance();
     mech3::set_app(nullptr);
   }
-  EXPECT(zmod::caster_list() == nullptr);  // every caster freed with its entity
+  // Every caster freed with its entity; the stealth object, a target the
+  // world's load made (editor.md S1), outlives the mission's cleanup with its
+  // own, as the original's does, until the world's unload deletes it.
+  {
+    void* st = mech3::program_stealth();
+    const void* own = st ? static_cast<mech3::ai::AiTarget*>(mech3::program_vehicle_target(st))->shadow : nullptr;
+    const auto* left = zmod::caster_list();
+    EXPECT(left == nullptr || (left == own && !left->next));
+  }
   zrdr::close_archives(true);
   mech3::reset_states();
   reset_process_state();
@@ -8179,8 +8228,9 @@ TEST(mission_c1m1_sensors_fill_the_contacts_headless) {
     app.run(pump);
     EXPECT(fade_frames > 1);
     EXPECT(seen.frames >= 7);
-    // The player, the Owens, the command marker, the seven vehicles and the turrets.
-    EXPECT(seen.turrets > 0 && seen.entities == 10 + seen.turrets && seen.player_first && seen.sorted);
+    // The player, the Owens, the command marker, the seven vehicles, the
+    // stealth object (editor.md S1) and the turrets.
+    EXPECT(seen.turrets > 0 && seen.entities == 11 + seen.turrets && seen.player_first && seen.sorted);
     EXPECT(!seen.far_sensed);
     EXPECT(seen.player_sees_owens && seen.owens_hidden && seen.owens_sees_player && seen.nearest_first);
     EXPECT(seen.near_distance);
@@ -15721,13 +15771,29 @@ TEST(playtest_hud_images_the_data_lacks) {
 // Mission-plan item 11: each known key says what it is (the program's own,
 // deferred by a decision, or without effect) and why; the gaps found while
 // checking (items 12-15) are not among them.
+// A vehicle's placement heading from its aiv record (app_mission.cpp's
+// vehicle_place, 0x004a3630): the record's dword as the float it is, as the
+// exe pushes it. c1m1's apc_01 has 1.919862 (110 degrees); converting the
+// integer gave 1069547520-odd radians. (The controls' setup, 0x004ac8a0,
+// then takes the node's rotation, in the exe too: vehicles.md.)
+TEST(vehicle_heading_from_its_record_is_the_float) {
+  mech3::ai::AivRecord rec;
+  const float h = 1.919862f;
+  uint32_t bits;
+  std::memcpy(&bits, &h, 4);
+  rec.put_raw(0x14, bits);
+  EXPECT(mech3::PlayerHooks::rec_heading(&rec) == h);
+  rec.put_raw(0x14, 0);
+  EXPECT(mech3::PlayerHooks::rec_heading(&rec) == 0.0f);
+}
+
 TEST(known_unported_keys_name_their_reason) {
   int n = 0;
   for (const char* k : {"0x005561a0", "0x005561e0", "0x00516f50", "[0x0072f3f0]",
-                        "0x004ac860", "0x004a4de0", "0x0040e4b0", "vt+0x7c",
+                        "0x0040e4b0", "vt+0x7c",
                         "hudline.vt+0x7c", "0x0040f7f0", "0x0040f890", "0x0040fef0", "0x004b52e0", "0x0047f2b0",
                         "0x00518790", "0x005269e0", "0x004f8f20", "0x004f3540", "0x00557f90", "0x00558290",
-                        "0x00576d90", "0x00576da0", "0x00576dc0", "0x00558070", "0x005a8390", "0x005a84c0",
+                        "0x00576d90", "0x00576da0", "0x00576dc0", "0x00558070", "0x005a8390",
                         "0x005a7e10", "0x005a7f90", "0x00576c50", "0x00535ed0", "0x004f8f60", "0x00537520",
                         "0x00519e50", "0x00526510", "0x005578f0", "0x00557b30", "0x00575f70", "0x00576c60",
                         "0x00516f00", "0x00526780", "0x00557b10", "0x005646d0",
@@ -15740,7 +15806,7 @@ TEST(known_unported_keys_name_their_reason) {
            w.size() > 20);
     ++n;
   }
-  EXPECT(n == 42);  // 0x00586ce0, 0x00586c20, 0x00588930, 0x0046ef70, 0x0046f160 ported (multiplayer-port.md pieces 1, 2, 6a), 0x00493260 (9b), 0x00495f90 (11a), 0x0049bd80 (13), 0x0041ab90 (14a)
+  EXPECT(n == 39);  // 0x00586ce0, 0x00586c20, 0x00588930, 0x0046ef70, 0x0046f160 ported (multiplayer-port.md pieces 1, 2, 6a), 0x00493260 (9b), 0x00495f90 (11a), 0x0049bd80 (13), 0x0041ab90 (14a); 0x004ac860, 0x004a4de0, 0x005a84c0 (the stealth object, editor.md S1)
   for (const char* gap : {"0x00579ea0", "0x004f9fa0", "0x004fa0b0", "0x00479be0", "0x0051a300",
                           "[[0x0060861c]+0x14]", "0x004f3430", "0x005799f0", "0x0051d0c0",
                           "0x00556210", "game.vt", "0x00414000", "0x0047abe0", "0x004f8f50",

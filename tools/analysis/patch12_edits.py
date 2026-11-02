@@ -1,5 +1,5 @@
 """Writes the 1.2 data layer's tables (src/mech3/patch12_edits.inc,
-patch12_copies.inc and patch12_added.inc) from the 1.0 and 1.2 installs' reader archives
+patch12_copies.inc, patch12_added.inc and patch12_files.inc) from the 1.0 and 1.2 installs' reader archives
 (docs/patch12.md).
 
   patch12_edits.py [game dir]
@@ -19,6 +19,9 @@ sys.path.insert(0, str(Path(__file__).parent))
 import zrd  # noqa: E402
 
 GAME = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(__file__).resolve().parents[2] / 'game'
+
+# Whole files 1.2 adds that 1.0 has nowhere.
+FILES = ['zbd/c3/readermp3.zbd', 'zbd/c3/readermp4.zbd']
 
 # (archive, entry): the changes the layer redoes, by sitting (docs/patch12.md).
 ENTRIES = [
@@ -206,6 +209,18 @@ def main():
     (root / 'patch12_added.inc').write_text('\n'.join(added) + '\n')
     (root / 'patch12_edits.inc').write_text('\n'.join(edits) + '\n')
     (root / 'patch12_copies.inc').write_text('\n'.join(copies) + '\n')
+    # Whole files 1.2 adds (c3's multiplayer maps; Owen, 2026-11-01): bytes.
+    files, table = list(head), []
+    for k, path in enumerate(FILES):
+        assert not (GAME / 'mw3-1.0' / path).exists(), path
+        data = (GAME / 'mw3-1.2' / path).read_bytes()
+        for at in range(0, len(data), 24):
+            pre = f'const unsigned char kFile{k}[] = {{' if at == 0 else '    '
+            files.append(pre + ','.join(f'0x{b:02x}' for b in data[at:at + 24]) + ',')
+        files.append('};')
+        table.append(f'    {{"{path.replace("/", chr(92) * 2)}", kFile{k}, {len(data)}, 0x{crc32(data):08x}}},')
+    files += ['const File kFiles[] = {'] + table + ['};']
+    (root / 'patch12_files.inc').write_text('\n'.join(files) + '\n')
 
 
 if __name__ == '__main__':

@@ -181,6 +181,7 @@ FieldBase* field_base_create(Handle ctl, const char* type, const char* name) {
   vh.world_add(node);
   auto* b = new FieldBase;
   g_hooks->on_new(0x160, b);
+  if (!ctl) veh_basic_hooks().no_ai_controls(type, name);  // ours: as vehicle_create's
   field_base_construct(*b, ctl, node);
   return b;
 }
