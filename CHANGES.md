@@ -596,3 +596,5 @@ Known quirks the rebuild deliberately keeps:
 - A locked multiplayer game turns away players who try to join it, instead of only greying out its Join button.
 - With bug fixes on, locking a multiplayer game with "Use stock 'Mechs" keeps the stock loadout a player chose instead of resetting it to the mech's first.
 - For developers only, with `--debug-camera` (or `debugcamera=1` in mw3.cfg): Shift+F12 opens the game editor the original carries but never lets you reach (its menu over the mission, the view on the invisible "stealth" camera flown with the movement keys); Shift+F12 again or EXIT GAME EDIT closes it and puts the view back on your mech (the original left it on the stealth). The AI net and vehicle editors behind its menu are not there yet.
+- The launcher closes once MechWarrior 3 is on screen, instead of waiting hidden for the game to end; if the game fails to start it stays and says so.
+- The launcher is installed as "MechWarrior 3" (the Windows Start menu and desktop, the Mac's "MechWarrior 3.app", the Linux desktop entry); the game alone is "MechWarrior 3 (no launcher)" in the Windows Start menu.
