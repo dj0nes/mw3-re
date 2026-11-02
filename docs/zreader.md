@@ -139,7 +139,9 @@ port keeps zrdr's. New:
   2 endif, 3 include, 4 anything else; 0x00579440 replaces 0x00557550,
   and opens the file (0x00578750, through load's search 0x005780e0) at
   once. It returns true, so an `#include` met while a false `#ifdef` is
-  skipped is read and ends the skip (kept). The #ifdef depth moved to
+  skipped is read and ends the skip (kept). Ours: a name that is absolute,
+  has a drive (`:`) or a `..` part opens nothing, so a file (a mod's too)
+  reads only inside the mounts; nothing shipped includes anything. The #ifdef depth moved to
   0x008c19fc, kept across files as MW3's; the defines list 0x008c176c is
   still empty. The list pool is made with 0x200 elements (MW3: 64).
 - **Binary read 0x005791b0**: MW3's 0x00557180 on the current handle

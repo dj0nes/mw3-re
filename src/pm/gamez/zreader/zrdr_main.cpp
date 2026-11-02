@@ -135,10 +135,22 @@ bool skip_to_hash(char* c) {
   return true;
 }
 
+// Ours: an included name comes from a data file (a mod's too), so it is opened
+// only inside the mounts: an absolute name, a drive or a ".." part opens nothing.
+bool inside_mounts(const char* name) {
+  if (name[0] == '/' || name[0] == '\\' || std::strchr(name, ':')) return false;
+  for (const char* p = name; *p;) {
+    const size_t n = std::strcspn(p, "/\\");
+    if (n == 2 && p[0] == '.' && p[1] == '.') return false;
+    p += n + (p[n] != '\0');
+  }
+  return true;
+}
+
 // Pirate's Moon 1.0 @ 0x00578750: the file found as load's text branch finds
 // one (FIX (A): zutl::open for the exe's search 0x005780e0), pushed.
 void include(const char* name) {
-  std::FILE* f = name[0] ? zutl::open(name, "rb") : nullptr;
+  std::FILE* f = name[0] && inside_mounts(name) ? zutl::open(name, "rb") : nullptr;
   if (f && !push(f)) std::fclose(f);  // ours: the exe leaves a 33rd file open
 }
 

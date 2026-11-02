@@ -310,7 +310,9 @@ functions PM changed, and PM's new ones.
          reader archives, and every getter on 52,337 keys.
        - `test_pm_zreader_text.py` on PM's exe: 840 text files, 300 of
          them with `#include`.
-       - `mw3pmtests`: `pm_text_files_take_include`.
+       - `mw3pmtests`: `pm_text_files_take_include`, and
+         `pm_include_stays_inside_the_mounts` (`..`, a full path and
+         `sub/../..` read nothing; ours, for mods).
 2. **The world**: the light maps and lighting (`gmod_matl.c` 39 new; PM
    drops MW3's fog), `cls_clutter.cpp` (32 new), the world class
    (`cls_world.c` 20 new), the script interpreter's new commands (the

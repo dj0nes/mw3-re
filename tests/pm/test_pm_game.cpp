@@ -172,3 +172,31 @@ TEST(pm_text_files_take_include) {
     zrdr::free_node(root);
   }
 }
+
+// An #include reaches only the mounts: a file beside them, named by "..", by
+// its absolute path or with backslashes, is not read (zrdr_main.cpp inside_mounts).
+TEST(pm_include_stays_inside_the_mounts) {
+  const std::string base = std::string(MW3_TEST_TMP) + "/pm_include_out";
+  const std::string dir = base + "/game";
+  std::filesystem::create_directories(dir + "/sub");
+  { std::ofstream(base + "/secret.zrd") << "S 9\n"; }
+  { std::ofstream(dir + "/sub/ok.zrd") << "K 5\n"; }
+  const std::string abs = std::filesystem::absolute(base + "/secret.zrd").string();
+  { std::ofstream(dir + "/top.zrd") << "(A 1\n#include ..\\secret.zrd\n#include sub/../../secret.zrd\n#include "
+                                    << abs << "\n#include sub\\ok.zrd\nC 3)\n"; }
+  zutl::mounts() = {};
+  zutl::mount(dir);
+  zutl::set_write_dir(dir);
+  zgame::set_game(pm::table());
+  zrdr::state().if_depth = 0;
+  zrdr::Node* root = zrdr::load("top.zrd");
+  EXPECT(root != nullptr);
+  if (!root) return;
+  int32_t v = 0;
+  EXPECT(zrdr::get_int(root, "A", &v) && v == 1);
+  EXPECT(zrdr::get_int(root, "C", &v) && v == 3);
+  EXPECT(zrdr::get_int(root, "K", &v) && v == 5);
+  EXPECT(!zrdr::get_int(root, "S", &v));
+  zrdr::free_node(root);
+  zgame::set_game(zgame::mw3_table());
+}

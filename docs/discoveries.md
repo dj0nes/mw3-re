@@ -4103,4 +4103,5 @@ The screen after the pilot for INSTANT ACTION, 0x00488bc0 (details:
   to 32 files deep. Only loose text files use it; everything the game
   ships is in its archives. One oddity: an `#include` inside an `#ifdef`
   block that is being skipped is still read, and the rest of the block
-  is no longer skipped. (docs/zreader.md, Pirate's Moon)
+  is no longer skipped. The rebuild reads included files only from
+  inside the game and its mods. (docs/zreader.md, Pirate's Moon)
