@@ -313,6 +313,34 @@ functions PM changed, and PM's new ones.
        - `mw3pmtests`: `pm_text_files_take_include`, and
          `pm_include_stays_inside_the_mounts` (`..`, a full path and
          `sub/../..` read nothing; ours, for mods).
+   - **gamez.zbd 41 (in progress)**: PM's world file loader stacks files.
+     Every gamez.zbd read appends to the material, model and node pools
+     (MW3's replaced them), so one world can be made of several files.
+     - Entry 0x516bc0 (MW3 0x4ff520). It keeps a list of the loaded files
+       (0x639c28, 0x2c each: the path, then the 0x28 header; count
+       0x639c2c, the current one 0x60ea00, the open file 0x639c30).
+       The texture directory is read only while none is loaded
+       (0x531860 = its count 0x63e1e8), so the first file's stays. The
+       material reader returns its base index, which goes to the model
+       reader; the model base goes to the node reader 0x516e90.
+       A failure pops the entry (0x517a70).
+     - Open 0x5179e0: the 0x28 header, signature 0x02971222, version
+       0x29.
+     - Textures 0x531920 (MW3 0x518160): entries of 0x2c at 0x63e1ec
+       (the image +0, +4, the surface +8, the name +0xc, the state +0x20,
+       set to 2, the group +0x24, the mip +0x28, zeroed: no mip chain).
+     - Materials 0x555e00 (MW3 0x5363d0): same 0x2c layout and flags.
+       It appends at the current count (blocks 0x6114ec large); the
+       file's free and used heads are taken on the first load only.
+       Later loads relink each new material onto the used list (flag
+       0x20 clear) or the free list. Then textures, colours and cycles
+       are resolved in index order (MW3: the used list's order).
+     - Models 0x558ba0 (MW3 0x538e30): 0x68 each, appended the same
+       way (the free list through +0x64). Each one goes through
+       0x5587e0(f, model, material base).
+     - Nodes 0x516e90 / 0x5171a0 (MW3 0x4ff200 / 0x4feaf0): PM's node
+       layout (mech3ax `nodes/node/pm`, world, light, lod) plus the model
+       base. Left to read.
 2. **The world**: the light maps and lighting (`gmod_matl.c` 39 new; PM
    drops MW3's fog), `cls_clutter.cpp` (32 new), the world class
    (`cls_world.c` 20 new), the script interpreter's new commands (the
