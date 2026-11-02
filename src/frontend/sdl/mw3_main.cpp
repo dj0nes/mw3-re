@@ -1328,6 +1328,11 @@ int run(const Args& a, platform::VideoForWindows* vfw) {
             return 0;
           }, nullptr);
         }
+        // --net-soak: the objectives box's lines while shown (F12), once a second.
+        if (a.net_soak && s_menu_in_game && app.current() == &mech3::states().core && (menu_frames - s_menu_game_from) % 30 == 0) {
+          const std::string box = mech3::program_hud_objectives_text();
+          if (!box.empty()) std::printf("mw3: soak menus box: %s\n", box.c_str());
+        }
         if (a.fire_probe && s_menu_in_game && app.current() == &mech3::states().core) {
           int32_t trig = 0;
           float reload = 0;

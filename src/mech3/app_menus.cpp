@@ -1354,8 +1354,14 @@ void GameEngine::multiplayer_take_pilot(Handle first, Handle second) {
 
 // Mech3.exe 1.2 @ 0x0049b660 on the lobby: back from the mech lab.
 void GameEngine::multiplayer_resume(Handle screen) {
-  if (auto* l = dynamic_cast<LobbyScreen*>(screen_of(screen))) l->resume();
-  else Engine::multiplayer_resume(screen);
+  if (auto* l = dynamic_cast<LobbyScreen*>(screen_of(screen))) {
+    l->resume();
+    if (!quiet)  // ours: the mech the lab left in the game's slot (the tests)
+      if (MultiplayerGame* g = current_pilot() ? current_pilot()->multiplayer() : nullptr)
+        std::printf("mw3: lobby back from the lab, mech %d\n", static_cast<int>(g->slot.mech));
+  } else {
+    Engine::multiplayer_resume(screen);
+  }
 }
 
 }  // namespace mech3

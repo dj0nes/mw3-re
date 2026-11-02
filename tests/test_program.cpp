@@ -20474,6 +20474,36 @@ TEST(mission_c1m1_mode_change_moves_the_2d_target_headless) {
 }
 
 
+// Playtest W42: the mech lab from the lobby (MECHLAB, 0x0049b500) "lists no
+// mechs": the lab's slots came from the campaign and Instant Action only. A
+// network game's (vt+0x38 0x004a5270: one; vt+0x34 0x00437800: its +0x20).
+TEST(multiplayer_lab_has_the_players_mech_headless) {
+  SavedMounts keep;
+  zutl::mounts() = zutl::Mounts{};
+  zutl::set_write_dir(temp_dir("mp_lab_write"));
+  FakeWindow window;
+  FakeAlert alert;
+  FakeClock clock;
+  FakeScreen screen;
+  platform::SilentSoundOutput sound;
+  mech3::MountFiles files;
+  mech3::Platform p;
+  p.window = &window, p.alert = &alert, p.clock = &clock, p.movie_clock = &fast_movie_clock(), p.screen = &screen, p.sound = &sound, p.files = &files;
+  mech3::GameEngine engine(p, "mech3.exe -nofmv");
+  mech3::Pilot pilot("MP");
+  mech3::MultiplayerGame game(&pilot);
+  pilot.current = &game;
+  mech3::Pilot* was = mech3::current_pilot();
+  mech3::current_pilot() = &pilot;
+  const int32_t n = engine.lab_slot_count(0);
+  const zgame::Handle s0 = engine.lab_slot(0, 0);
+  std::printf("  a network game's lab: %d slots, its mech %d; the store %zu items\n", n, s0 ? engine.lab_slot_mech(s0) : -1,
+              game.store.items.size());
+  EXPECT(n == 1 && s0 && engine.lab_slot_mech(s0) == game.slot.mech && engine.lab_slot(0, 1) == 0);
+  mech3::current_pilot() = was;
+  pilot.current = nullptr;
+}
+
 // Playtest W37: the mech lab from Instant Action's briefing "shows no mech
 // and no ability to edit anything". The lab asks the game for its slots
 // (vt+0x38, vt+0x34); the port asked the campaign's only, so Instant

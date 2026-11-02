@@ -3053,6 +3053,7 @@ TEST(sdl_two_processes_lobby_game_and_back_twice) {
                                        "--click-players", "585,418@600/2", "--click-return", "183,430@100",
                                        "--click-return", "246,290@160", "--click-return", "515,446@220",
                                        "--click-return", "585,418@650", "--net-ahead", "50", "--net-kill-at", "8",
+                                       "--tap-ingame", "0x58@400:402",
                                        "--frames", "4400"},
                                       {"0x14", "0x12", "0x1f", "0x14"});
   va.insert(va.end(), common.begin(), common.end());
@@ -3097,6 +3098,60 @@ TEST(sdl_two_processes_lobby_game_and_back_twice) {
   EXPECT(a2 == b2 && a3 == b3 && a2 == a3);
   EXPECT(std::string(n1) == "best" && s1 == 1 && k1 == 1 && d1 == 0);
   EXPECT(std::string(n2) == "test" && s2 == 0 && k2 == 0 && d2 == 0);
+  // W43: F12 in the game shows the network scores (0xdd5, its columns, a line
+  // each player), not the campaign's MISSION COMPLETE.
+  const size_t box = la.find("mw3: soak menus box: ");
+  const std::string boxed = box == std::string::npos ? "" : la.substr(box + 21, la.find('\n', box) - box - 21);
+  std::printf("  A's F12 box: %s\n", boxed.c_str());
+  EXPECT(boxed.rfind("Network Game Scores | ", 0) == 0 && boxed.find("best") != std::string::npos &&
+         boxed.find("test") != std::string::npos && boxed.find("C O M P L E T E") == std::string::npos);
+}
+#endif
+
+#if !defined(_WIN32)  // posix_spawn, waitpid
+// Playtest W42: the mech lab from the lobby listed no mechs (the lab's slots
+// had no network game's, 0x004a5270 / 0x00437800). One mw3 hosting through
+// the menus: LOCK OPTIONS and its OK, MECHLAB (the Lab State), Avatar from
+// the stockpile, ACCEPT; back in the lobby the game's slot holds the Avatar
+// (mech 1), not the stock Bushwacker (3).
+TEST(sdl_lobby_mech_lab_picks_a_mech) {
+  const std::string install = MW3_GAME_DIR;
+  std::error_code ec;
+  if (!std::filesystem::exists(install + "/zbd/mechlib.zbd", ec)) return;
+  const std::string dir = std::string(MW3_TEST_TMP) + "/sdl_lobby_lab";
+  std::filesystem::remove_all(dir, ec);
+  std::filesystem::create_directories(dir, ec);
+  const int base = 44000 + static_cast<int>(getpid() % 2000) * 3;
+  std::vector<std::string> v = {MW3_BIN, "--install", install, "--no-launcher", "--hidden", "--nosound",
+                                "--net-bind", "127.0.0.1", "--frame-ms", "33", "--write-dir", dir, "--verbose",
+                                "--net-port", std::to_string(base), "--net-discovery", std::to_string(base + 1),
+                                "--click-at", "132,285@40", "--tap", "0x14@70", "--tap", "0x12@74", "--tap", "0x1f@78",
+                                "--tap", "0x14@82", "--click-at", "470,320@100", "--click-at", "421,406@180",
+                                "--click-at", "183,430@260", "--click-at", "246,290@320", "--click-at", "329,440@380",
+                                "--click-at", "470,93@560", "--click-at", "595,460@640", "--frames", "760"};
+  std::vector<char*> argv;
+  for (std::string& x : v) argv.push_back(x.data());
+  argv.push_back(nullptr);
+  const std::string log = dir + "/out.log";
+  posix_spawn_file_actions_t fa;
+  posix_spawn_file_actions_init(&fa);
+  posix_spawn_file_actions_addopen(&fa, 1, log.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
+  posix_spawn_file_actions_adddup2(&fa, 1, 2);
+  pid_t pid = 0;
+  if (posix_spawn(&pid, argv[0], &fa, nullptr, argv.data(), environ) != 0) pid = -1;
+  posix_spawn_file_actions_destroy(&fa);
+  int st = 0;
+  if (pid > 0) waitpid(pid, &st, 0);
+  std::string text;
+  if (std::FILE* f = std::fopen(log.c_str(), "r")) {
+    char buf[4096];
+    for (size_t n; (n = std::fread(buf, 1, sizeof buf, f)) > 0;) text.append(buf, n);
+    std::fclose(f);
+  }
+  auto has = [&](const char* w) { return text.find(w) != std::string::npos; };
+  std::printf("  the lab %s; back with %s\n", has("state Lab State") ? "opened" : "not opened",
+              has("lobby back from the lab, mech 1\n") ? "the Avatar" : "not the Avatar");
+  EXPECT(has("state Lab State") && has("lobby back from the lab, mech 1\n"));
 }
 #endif
 

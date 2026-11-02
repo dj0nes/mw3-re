@@ -211,7 +211,8 @@ bool program_net_wreck_fades();  // the dead list's net_fade: ALLOW RESPAWN's (t
 int32_t program_mech_anim_state(const void* mech);
 void* program_mech_part(void* mech, int32_t id);
 void program_part_set_internal(void* part, float v, int32_t section);
-void program_hud_scores_refill();  // app_hud.cpp: net_score_kill's 0x00446ad0 on the view's mech's open box
+void program_hud_scores_refill();
+std::string program_hud_objectives_text();  // app_hud.cpp: the shown objectives box's lines, " | " between ("" hidden)  // app_hud.cpp: net_score_kill's 0x00446ad0 on the view's mech's open box
 int32_t program_net_mech_count();  // [0x00605f88]: the remote mechs in the network game
 // Ours (W40's probe): the pilot's weapons' trigger (the manager's +0x00)
 // and the sum of their reloads (a shot raises one); false without a mech.

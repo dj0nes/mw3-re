@@ -1315,6 +1315,16 @@ void program_hud_objectives_fill(void* hud) {
 // 0x00470170's end: the view's mech's box filled again while it is shown
 // (+0x17970 bit 4 clear). FIX (bug): with the player's mech not the view's
 // target the exe reads the box through a null HUD; nothing here.
+std::string program_hud_objectives_text() {
+  Mech* m = static_cast<Mech*>(mech_mission_player());
+  Hud* h = m && m->pilot ? pilot_hud(*m->pilot) : nullptr;
+  std::string out;
+  if (!h || (h->objectives.flags >> 4 & 1)) return out;  // hidden
+  for (const ztwod::Text& t : h->objectives.lines)
+    if (t.text && *t.text) out += (out.empty() ? "" : " | ") + std::string(t.text);
+  return out;
+}
+
 void program_hud_scores_refill() {
   Mech* m = static_cast<Mech*>(mech_mission_player());
   if (!m || m != program_view_target() || !m->pilot) return;
