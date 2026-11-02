@@ -141,9 +141,22 @@ hold), strings (to the file's end), the text `.zrd` parser (an unclosed
 list), `gamez.zbd` (a bad signature, version or a cut file), the AI files,
 the mech definitions and the saved loadouts.
 
-**Not bounded yet** (M3, next sittings, one format each): `mechlib.zbd`,
-`motion.zbd`, the worlds' `anim.zbd`, the texture and image archives'
-contents, `interp.zbd`'s scripts and the sound archives. Their tables are
+**`mechlib.zbd`, bounded** (2026-11-01): the materials table and each
+model tree are read with the entry's end known (`cls_mechlib.cpp`): a count
+the bytes left cannot hold (materials, vertices, normals, morphs, polygons,
+a polygon's arrays, a node's children), a node of another class than
+object3d (the exe dereferenced null), a tree deeper than 64, or a polygon's
+vertex, normal or material index past its array refuse the tree (or the
+materials), named in the log; a refused tree is a mech without its model.
+`test_mechlib.py` still reads all 770 models, 442 materials and 57 trees as
+the original; `bounded_mechlib_reads_the_shipped_trees_whole` (57 of 57)
+and `bounded_mechlib_fuzz_never_crashes` (210 trees cut short, bytes flipped
+or words made huge, and 30 broken material tables: none crash, every one
+cut short refused; without the bound it crashes at once).
+
+**Not bounded yet** (M3, next sittings, one format each): `motion.zbd`, the
+worlds' `anim.zbd` (dev 2), the texture and image archives' contents,
+`interp.zbd`'s scripts and the sound archives (dev 1). Their tables are
 checked (above); a mod that replaces one with broken contents can still
 crash the game, and `--check-mod` says it did not look inside.
 
