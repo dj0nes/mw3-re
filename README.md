@@ -83,8 +83,11 @@ is not MechWarrior 3) it says so in plain words and changes nothing.
   desktop shortcut on Windows, the Mac's "MechWarrior 3.app", the Linux
   desktop entry), is the rebuild's own front screen: the games. It starts
   the game and closes as soon as the game's first frame is on screen (if
-  the game fails to start, it stays and says so). `mw3` (`mw3.exe`) also
-  starts the game directly.
+  the game fails to start, it stays and says so). **Game files** there
+  opens the same find-your-game screen at any time: to use another copy,
+  install again from your disc, or add movies and music it lacks. `mw3`
+  (`mw3.exe`) also starts the game directly. The arrow keys and a gamepad
+  work in the launcher as well as the mouse.
 - Before the first game it tells you anything worth knowing about your
   copy: no movies (a CD-type install leaves them on the disc), no music, or
   game files of an unknown version. **Add from my disc** there takes what

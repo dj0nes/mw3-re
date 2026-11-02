@@ -312,7 +312,7 @@ struct Button {
 };
 
 enum Id {
-  kMw3 = 1, kPm, kQuit, kMw1,
+  kMw3 = 1, kPm, kQuit, kMw1, kFiles,
   kFind = 10, kPickFile, kPickFolder, kPoint, kBack,
   kPatch,  // the 1.2 patch's zip: unreachable since the patch is built in (patch12.h), its code kept
   kAddDisc = 20, kDiscFile, kDiscFolder,
@@ -399,8 +399,10 @@ class Launcher {
   void use_install(const std::string& dir, const std::string& version, const std::string& summary);
   void play();
   void notes_refresh();
+  std::string in_use() const;
   void add_disc(const std::string& source);
   void present();
+  void nav(int action);  // 1 next, -1 previous, 2 press, 3 back (keys and a pad)
 
   LauncherOptions o_;
   SDL_Window* win_ = nullptr;
@@ -448,6 +450,8 @@ class Launcher {
   bool picking_ = false;       // the find screen after a search found nothing: a file or a folder to pick
   bool disc_picking_ = false;  // the notes after ADD FROM MY DISC found no disc in a drive: an image or a folder
   bool play_after_notes_ = false;  // the notes after an install: their OK starts the game
+  bool from_files_ = false;        // the find screen opened by GAME FILES: a new pick goes back to the games
+  int disc_back_ = 0;              // the screen ADD FROM MY DISC returns to (Screen)
   bool lacks_music_ = false, lacks_movies_ = false;
   LauncherChoice choice_;
   bool done_ = false;
@@ -659,7 +663,10 @@ void Launcher::layout() {
         game(kMw1, 2, 2, "MECHWARRIOR (1989)", by + (mw1_game_.empty() ? "click to pick your MechWarrior folder" : mw1_game_), true);
         buttons_.back().sub_keep = by.size();
       }
-      add(kQuit, {260, 384, 120, 34}, "QUIT");  // for fullscreen; Escape too
+      // GAME FILES (Owen, 2026-11-02): the find screen at any time, to pick
+      // or refresh the game's files; QUIT for fullscreen (Escape too).
+      add(kFiles, {196, 384, 120, 34}, "GAME FILES");
+      add(kQuit, {324, 384, 120, 34}, "QUIT");
       break;
     }
     case kSetupScreen: {
@@ -670,7 +677,15 @@ void Launcher::layout() {
         add(kFind, {130, 222, 380, 52}, "FIND MY GAME", "This computer and your disc drives are searched first");
       } else {
         add(kPickFile, {130, 222, 380, 46}, "A DISC IMAGE OR DOWNLOAD", ".iso .cue .zip .7z .rar, or Mech3.exe");
-        add(kPickFolder, {130, 276, 380, 46}, "A FOLDER", "Where the game is installed, or the disc's own folder");
+        add(kPickFolder, {130, 274, 380, 46}, "A FOLDER", "Where the game is installed, or the disc's own folder");
+      }
+      if (install_.ok && (lacks_music_ || lacks_movies_)) {  // what the install in use lacks, from the disc
+        if (!disc_picking_) {
+          add(kAddDisc, {130, 328, 380, 46}, "ADD FROM MY DISC", "Movies and music the install lacks");
+        } else {
+          add(kDiscFile, {130, 328, 186, 46}, "A DISC IMAGE", ".cue .iso");
+          add(kDiscFolder, {324, 328, 186, 46}, "THE DISC'S FOLDER");
+        }
       }
       add(kBack, {250, 384, 140, 34}, o_.setup_only ? "QUIT" : "BACK");
       break;
@@ -805,6 +820,8 @@ void Launcher::draw(float dt) {
       text_.draw_wrapped(canvas_, kFindWords, 13, kWhite, W / 2, 114, 480);
       if (!status_.empty())
         text_.draw_wrapped(canvas_, status_, 13, status_good_ ? kAmber : SDL_Color{240, 190, 180, 255}, W / 2, 184, 480);
+      else if (install_.ok)  // GAME FILES: the one in use, and what it lacks
+        text_.draw(canvas_, text_.fit(in_use(), 13, 480), 13, kDim, W / 2, 190);
       break;
     }
     case kNotes: {
@@ -924,6 +941,7 @@ void Launcher::picked(int what, const std::string& path) {
 // What the install lacks (the movies left on the CD, the music), taken from
 // the disc, a disc image or the disc's folder (setup::add_from_disc).
 void Launcher::add_disc(const std::string& source) {
+  disc_back_ = screen_;
   work_ = std::make_unique<Work>();
   work_->kind = Work::kAddDisc;
   const std::string video = lacks_movies_ ? (fs::path(o_.write_dir) / "video").string() : std::string();
@@ -949,6 +967,15 @@ void Launcher::notes_refresh() {
   notes_ = launcher_notes(install_.version, !lacks_music_, !lacks_movies_, text_.fit(dir, 14, 440));  // a long folder shortened
 }
 
+// GAME FILES' line: the install in use and what it lacks.
+std::string Launcher::in_use() const {
+  std::string s = "Using MechWarrior 3 " + install_.version + " at " + install_.dir;
+  if (lacks_movies_ && lacks_music_) s += ". No movies or music.";
+  else if (lacks_movies_) s += ". No movies.";
+  else if (lacks_music_) s += ". No music.";
+  return s;
+}
+
 // MechWarrior 3 started: by mw3launcher as the game's own program, else
 // (a plain mw3 start, or no game_bin) the window handed on.
 void Launcher::play() {
@@ -965,11 +992,27 @@ void Launcher::play() {
 // (Owen, 2026-11-02); when it lacks the movies or the music, or its data is
 // odd, the notes first, their OK the start (lead).
 void Launcher::use_install(const std::string& dir, const std::string& version, const std::string& summary) {
+  const std::string before = install_.ok ? install_.dir : std::string();
   install_ = {true, dir, version, summary};
   save_install(o_.write_dir, dir);
   status_ = summary, status_good_ = true;
   picking_ = false;
+  // GAME FILES moved to a copy used where it is: the launcher's own earlier
+  // copy (<write dir>/install) is no longer pointed at, so it goes (a disc
+  // or archive install replaces it in place, setup::swap_in_folder).
+  const fs::path own = fs::path(o_.write_dir) / "install";
+  std::error_code ec;
+  if (!o_.write_dir.empty() && !before.empty() && fs::equivalent(before, own, ec) && !fs::equivalent(dir, own, ec) &&
+      fs::exists(own / "mw3-install.txt", ec)) {
+    std::printf("mw3: launcher: the earlier copy in %s is no longer used: removed\n", own.string().c_str());
+    fs::remove_all(own, ec);
+  }
   notes_refresh();
+  if (from_files_) {  // GAME FILES: back to the games, the new files in use
+    from_files_ = false;
+    screen_ = kMain, layout();
+    return;
+  }
   if (!notes_.empty()) {
     play_after_notes_ = true, status_.clear();
     screen_ = kNotes, layout();
@@ -1039,7 +1082,7 @@ void Launcher::finish_work() {
     for (const std::string& w : r.warnings) status_ += " " + w;
     disc_picking_ = false;
     notes_refresh();
-    screen_ = kNotes, layout();
+    screen_ = disc_back_ == kSetupScreen ? kSetupScreen : kNotes, layout();
     return;
   }
   if (kind == Work::kLook) {
@@ -1084,9 +1127,13 @@ void Launcher::activate(int id) {
   switch (id) {
     case kMw3:
       if (install_.ok) play();
-      else screen_ = kSetupScreen, picking_ = false, status_.clear(), layout();  // its files to find first
+      else from_files_ = false, screen_ = kSetupScreen, picking_ = false, status_.clear(), layout();  // its files to find first
       break;
     case kQuit: done_ = true; break;
+    case kFiles:  // the find screen at any time (Owen): repick or refresh the game's files
+      from_files_ = true, picking_ = disc_picking_ = false, status_.clear();
+      screen_ = kSetupScreen, layout();
+      break;
     case kMw1:
       if (mw1_game_.empty()) {
         status_ = "Pick your MechWarrior (1989) folder: the one with BTECH.EXE.", status_good_ = true;
@@ -1098,7 +1145,8 @@ void Launcher::activate(int id) {
     case kBack:
       if (screen_ == kNotes) return activate(kNotesOk);  // Escape on the notes: as OK
       if (o_.setup_only && screen_ == kSetupScreen) done_ = true;  // a plain start's QUIT
-      else screen_ = screen_ == kConfirm ? kSetupScreen : kMain, status_.clear(), layout();
+      else if (screen_ == kConfirm) screen_ = kSetupScreen, layout();
+      else screen_ = kMain, from_files_ = picking_ = disc_picking_ = false, status_.clear(), layout();
       break;
     case kNotesOk:
       status_.clear(), disc_picking_ = false;
@@ -1143,6 +1191,24 @@ void Launcher::activate(int id) {
   }
 }
 
+void Launcher::nav(int action) {
+  const int n = static_cast<int>(buttons_.size());
+  const int at = focus_ >= 0 ? focus_ : hot_;
+  if (action == 1 || action == -1) {
+    int f = at;
+    for (int i = 0; i < n; ++i) {
+      f = ((f < 0 ? (action > 0 ? -1 : 0) : f) + action + n) % n;
+      if (buttons_[f].enabled) break;
+    }
+    focus_ = f, hot_t_ = 0;
+    if (f >= 0) sounds_.play(Sounds::kRollover);
+  } else if (action == 2 && at >= 0 && at < n && buttons_[at].enabled) {
+    activate(buttons_[at].id);
+  } else if (action == 3) {
+    activate(screen_ == kMain ? kQuit : kBack);
+  }
+}
+
 LauncherChoice Launcher::run() {
   const bool shot = !o_.shot.empty();
   // Where the start's time goes (Owen: "pretty slow"), in the log.
@@ -1165,7 +1231,8 @@ LauncherChoice Launcher::run() {
   notes_refresh();
   const bool first_start = o_.cfg_install.empty() && !notes_.empty();
   if (shot) {
-    if (o_.screen == "setup" || o_.screen == "pick") screen_ = kSetupScreen, picking_ = o_.screen == "pick";
+    if (o_.screen == "setup" || o_.screen == "pick" || o_.screen == "files")
+      screen_ = kSetupScreen, picking_ = o_.screen == "pick", from_files_ = o_.screen == "files";
     if (o_.screen == "pick") status_ = "Not found on this computer or in a disc drive. Show us where it is:";
     if (o_.screen == "notes" || o_.screen == "disc") screen_ = kNotes, disc_picking_ = o_.screen == "disc";
     if (o_.screen == "disc") status_ = "No disc in a drive. Show us your disc image or the disc's folder:";
@@ -1212,8 +1279,23 @@ LauncherChoice Launcher::run() {
   tex_ = SDL_CreateTexture(ren_, SDL_PIXELFORMAT_RGB565, SDL_TEXTUREACCESS_STREAMING, W, H);
   SDL_SetTextureScaleMode(tex_, SDL_SCALEMODE_LINEAR);
   Uint64 last = SDL_GetTicks();
+  SDL_InitSubSystem(SDL_INIT_GAMEPAD);  // a pad steps through the plates too (nav)
   if (o_.play) activate(kMw3);
-  // Checks: a pick as if made in POINT TO YOUR GAME's dialog, INSTALL pressed.
+  // Checks: keys or a pad as a list ("next,next,press"), each step logged.
+  if (const char* steps = SDL_getenv("MW3_LAUNCHER_NAV")) {
+    std::string all = steps;
+    for (size_t at = 0; at <= all.size();) {
+      const size_t comma = std::min(all.find(',', at), all.size());
+      const std::string s = all.substr(at, comma - at);
+      nav(s == "next" ? 1 : s == "prev" ? -1 : s == "press" ? 2 : s == "back" ? 3 : 0);
+      const int f = focus_;
+      if (f >= 0 && f < static_cast<int>(buttons_.size()) && s != "press" && s != "back")
+        std::printf("mw3: launcher: focus %s\n", buttons_[f].label.c_str());
+      at = comma + 1;
+    }
+  }
+  // Checks: a pick as if made in the find screen's dialog (after any NAV
+  // steps: GAME FILES), INSTALL and the notes' OK pressed.
   if (const char* pick = SDL_getenv("MW3_LAUNCHER_PICK"); pick && (screen_ == kSetupScreen || !install_.ok))
     auto_go_ = auto_ok_ = true, look_at(pick);
   if (o_.play_mw1) activate(kMw1), done_ = !asking_;
@@ -1241,23 +1323,26 @@ LauncherChoice Launcher::run() {
         }
       } else if (e.type == SDL_EVENT_MOUSE_BUTTON_UP && e.button.button == SDL_BUTTON_LEFT) {
         if (hot_ >= 0 && buttons_[hot_].enabled) activate(buttons_[hot_].id);
-      } else if (e.type == SDL_EVENT_KEY_DOWN) {
-        const SDL_Keycode k = e.key.key;
-        const int n = static_cast<int>(buttons_.size());
-        auto step = [&](int d) {
-          int f = focus_ >= 0 ? focus_ : hot_;
-          for (int i = 0; i < n; ++i) {
-            f = ((f < 0 ? (d > 0 ? -1 : 0) : f) + d + n) % n;
-            if (buttons_[f].enabled) break;
-          }
-          focus_ = f, hot_t_ = 0;
-          if (f >= 0) sounds_.play(Sounds::kRollover);
-        };
-        if (k == SDLK_DOWN || k == SDLK_TAB) step(1);
-        else if (k == SDLK_UP) step(-1);
-        else if ((k == SDLK_RETURN || k == SDLK_KP_ENTER || k == SDLK_SPACE) && (focus_ >= 0 ? focus_ : hot_) >= 0)
-          activate(buttons_[focus_ >= 0 ? focus_ : hot_].id);
-        else if (k == SDLK_ESCAPE) activate(screen_ == kMain ? kQuit : kBack);
+      } else if (e.type == SDL_EVENT_GAMEPAD_ADDED) {
+        SDL_OpenGamepad(e.gdevice.which);  // closed with the subsystem
+      } else if (e.type == SDL_EVENT_KEY_DOWN || e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN) {
+        // Keys and a pad alike: the arrows (and Tab) or the d-pad step through
+        // the plates, Enter or A presses, Escape or B goes back.
+        enum { kNone, kNext, kPrev, kPress, kEscape } a = kNone;
+        if (e.type == SDL_EVENT_KEY_DOWN) {
+          const SDL_Keycode k = e.key.key;
+          if (k == SDLK_DOWN || k == SDLK_RIGHT || k == SDLK_TAB) a = kNext;
+          else if (k == SDLK_UP || k == SDLK_LEFT) a = kPrev;
+          else if (k == SDLK_RETURN || k == SDLK_KP_ENTER || k == SDLK_SPACE) a = kPress;
+          else if (k == SDLK_ESCAPE) a = kEscape;
+        } else {
+          const int b = e.gbutton.button;
+          if (b == SDL_GAMEPAD_BUTTON_DPAD_DOWN || b == SDL_GAMEPAD_BUTTON_DPAD_RIGHT) a = kNext;
+          else if (b == SDL_GAMEPAD_BUTTON_DPAD_UP || b == SDL_GAMEPAD_BUTTON_DPAD_LEFT) a = kPrev;
+          else if (b == SDL_GAMEPAD_BUTTON_SOUTH || b == SDL_GAMEPAD_BUTTON_START) a = kPress;
+          else if (b == SDL_GAMEPAD_BUTTON_EAST || b == SDL_GAMEPAD_BUTTON_BACK) a = kEscape;
+        }
+        nav(a == kNext ? 1 : a == kPrev ? -1 : a == kPress ? 2 : a == kEscape ? 3 : 0);
       }
     }
     if (asking_) {

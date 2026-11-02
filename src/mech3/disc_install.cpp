@@ -179,6 +179,25 @@ bool Disc::open(const std::string& path, std::string* error) {
   return true;
 }
 
+bool swap_in_folder(const std::string& tmp, const std::string& out, std::error_code& ec) {
+  const fs::path old = out + ".old";
+  std::error_code e2;
+  fs::remove_all(old, e2);
+  const bool had = fs::exists(out, e2);
+  if (had) {
+    fs::rename(out, old, ec);
+    if (ec) return false;
+  }
+  fs::create_directories(fs::path(out).parent_path(), e2);
+  fs::rename(tmp, out, ec);
+  if (ec) {
+    if (had) fs::rename(old, out, e2);  // the old one back
+    return false;
+  }
+  fs::remove_all(old, e2);
+  return true;
+}
+
 DiscInstall install_from_disc(const std::string& source, const std::string& out_dir, const std::string& patch,
                               const std::string& music_dir, const DiscProgress& progress,
                               const std::string& movies_from) {
@@ -387,10 +406,8 @@ DiscInstall install_from_disc(const std::string& source, const std::string& out_
     fs::remove_all(music_tmp, ec);
     return abandon(DiscInstall::kCancelled, "cancelled");
   }
-  fs::remove_all(out, ec);
-  fs::create_directories(out.parent_path(), ec);
-  fs::rename(tmp, out, ec);
-  if (ec) return abandon(DiscInstall::kCannotWrite, "cannot rename " + tmp.string() + " to " + out_dir + ": " + ec.message());
+  if (!swap_in_folder(tmp.string(), out.string(), ec))
+    return abandon(DiscInstall::kCannotWrite, "cannot rename " + tmp.string() + " to " + out_dir + ": " + ec.message());
   if (r.music) {  // the tracks over the music folder's (other files there kept)
     fs::create_directories(music_dir, ec);
     for (const auto& e : fs::directory_iterator(music_tmp, ec)) {

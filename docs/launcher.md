@@ -34,7 +34,9 @@ found or installed. The launcher below is its own program, `mw3launcher`
    - **Pirate's Moon**: greyed, "Coming later".
    - **MechWarrior (1989)**: only when the MW1 port is found beside ours
      (below).
-   - **Quit** (for fullscreen; Escape too). No Setup entry (v1.0).
+   - **Game files** (Owen, 2026-11-02, after the rework): the find screen
+     at any time, to repick or refresh the game's files (below), and
+     **Quit** (for fullscreen; Escape too).
 5. MechWarrior 3 chosen: the launcher's textures are freed and the start
    goes on exactly as today in the same window (mounts, data version,
    movies helper or import, `run()`), so the intro movie is the next
@@ -73,7 +75,23 @@ so the Indeo helper plays the added AVIs on Windows; elsewhere the first
 start's import (`first_run_import`) converts the write dir's AVIs too, as
 the install's.
 
-Gone in v1.0: SETUP on the games screen, "A folder instead", "Search
+GAME FILES opens the same screen with the install in use ("Using
+MechWarrior 3 1.2 at <folder>. No music.") and, while it lacks movies or
+music, ADD FROM MY DISC (back to this screen after). A new pick goes back
+to the games, not into the game, its folder saved to mw3.cfg. A disc or
+archive install into `<write dir>/install` is built in `install.new` and
+swapped in only once complete (`swap_in_folder`: the old copy set aside as
+`install.old`, removed after the rename, put back if it fails), so a cancel
+or a failure leaves the old one working and no second copy stays. A copy
+picked to be used where it is leaves the launcher's own earlier copy
+unpointed-at (mw3.cfg holds one folder), so that is removed.
+`sdl_program_launcher_game_files_repicks`.
+
+Keys and a pad (`nav`): the arrows, Tab or the d-pad step through the
+plates (GAME FILES and QUIT included), Enter, Space, A or Start press,
+Escape, B or Back go back. MW3_LAUNCHER_NAV (checks) feeds them as a list.
+
+Gone in v1.0: the old Setup screen, "A folder instead", "Search
 again", "Apply the 1.2 patch" (the patch is built in, patch12.h, so a 1.0
 install needs nothing; `setup::apply_patch` and the launcher's kPatch pick
 are kept but unreachable). The installer has no "MechWarrior 3 (no

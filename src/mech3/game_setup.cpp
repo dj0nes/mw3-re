@@ -210,10 +210,7 @@ Result install_from_source(const source::Found& found, const std::string& out_di
       r.cancelled = true;
       return abandon("The installation was cancelled. Nothing was changed.");
     }
-    fs::remove_all(out, ec);
-    fs::create_directories(out.parent_path(), ec);
-    fs::rename(tmp, out, ec);
-    if (ec) return abandon("The game could not be written to " + out_dir + ": " + ec.message() + ".");
+    if (!swap_in_folder(tmp, out.string(), ec)) return abandon("The game could not be written to " + out_dir + ": " + ec.message() + ".");
     r = check_install(out_dir, write_dir);
     r.detail = found.detail;
     for (const std::string& l : s.log) r.detail += l + "\n";
