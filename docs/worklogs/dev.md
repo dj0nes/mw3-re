@@ -2669,4 +2669,10 @@ Assigned after 8b2 merged (fd3f05f). The lead asked for a section stepped at bot
   (mac4/bounded-tex).
 - W40's probe (mac4/w40): --fire-probe in any Core game, the mouse's
   capture, focus and buttons; Owen's run pending.
+- The overnight differential run's four (mac4/diff-fix): test_app_loop
+  (the probe records the now-ported poll 0x588930 as a boundary),
+  test_app_states (the quit box's move into the 2D named as the one
+  departure; the Escape frame's box update back after the frame),
+  test_veh_dock (the W8/W16 stuck check's start behind bugs), test_command
+  (CHAT_TEAM / CHAT_ALL back through the command's other hook).
 - Next: the lead's.

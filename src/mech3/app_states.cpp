@@ -423,7 +423,8 @@ bool CoreState::frame() {
     if (en.vcall(en.field32(en.pilot(), 0x6c), 0x2c, {}) != 3) return true;
     en.message_box_quit_prompt(message_box_);
   }
-  if (renderer_ != kHardware) en.vcall(message_box_, 0x00, {zgame::bits(en.frame_dt())});  // the hardware path's in its 2D (W46)
+  // The hardware path's, past its stop, is in its 2D with the HUD (W46).
+  if (renderer_ != kHardware || stop) en.vcall(message_box_, 0x00, {zgame::bits(en.frame_dt())});
   en.video_flip(0, 0, 0, 0);
   return false;
 }
