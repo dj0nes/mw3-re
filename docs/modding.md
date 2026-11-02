@@ -171,11 +171,17 @@ short refused; without the bound none is refused).
 A refused or missing motion is then taken from the next mount's copy of
 `motion.zbd` (normally the install's: `load_motion` over `zutl::find_all`),
 said in the log with the mod's archive and the motion's name; the rest of
-the mod's motions stay its own. With no good copy anywhere the mech is
-refused (`load_animations`: a gait 0..6 missing; the log names the mech and
-the motion) through the original's own failure: the mech's set-up fails, its
-error box names it (0xf30) and the briefing's Launch does not go on. A mech
-without its gaits can no longer crash (`pose_jump`, `load_animations`).
+the mod's motions stay its own. A gait a mod broke, with no whole copy
+anywhere, refuses the mech (`load_animations`, `motion_broken`; the log
+names the mech and the motion), and so does a step or walk missing from
+every copy (`load_animations` reads both right away, a crash in the exe
+too): the mech's set-up fails without the data
+box 0xf2d, so an AI mech is only a log line, and the player's mech gets the
+launch's error box (0xf30) and the briefing's Launch does not go on. Any other gait
+missing from every copy is not refused: the exe ran with it null, as the
+shipped Elemental does (there is no `elemental_limp`; 2026-11-02, the first
+rule refused it and the campaign's Elementals with it). A mech without its
+gaits can no longer crash (`pose_jump`, `load_animations`).
 Tests: `bounded_motion_falls_back_to_the_next_copy` (madcat_walk cut short
 in a mod: the install's frames, refused with no other copy, the mod's other
 motions its own) and `mod_broken_motion_falls_back_or_refuses_the_mech_headless`

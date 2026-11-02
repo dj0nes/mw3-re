@@ -1,4 +1,5 @@
 #include "mech3/mech_data.h"
+#include "mech3/mech_anim.h"
 #include "mech3/mech_skin.h"
 
 #include <cstdio>
@@ -351,6 +352,7 @@ void mech_data_refresh() {
 // soils load whatever happened; a failure shows the error box with no name.
 bool mech_data_load(MechData& p) {
   p.x20 = 0;
+  p.motion_refused = 0;
   for (int v = 0; v < 2; ++v) {
     p.models[v] = g_hooks->mech_model(p.roster, v);
     g_hooks->node_set_intersect(p.models[v], 1);
@@ -379,7 +381,7 @@ bool mech_data_load(MechData& p) {
   if (p.x20) g_hooks->animations(p);
   if (p.x20) load_effects(p);
   load_soils(p);
-  if (!p.x20) g_hooks->message_box(0, 0x1e0, 0xf2d, "");
+  if (!p.x20 && !p.motion_refused) g_hooks->message_box(0, 0x1e0, 0xf2d, "");  // ours: a refused motion is logged
   return p.x20 != 0;
 }
 
@@ -482,18 +484,23 @@ void load_animations(MechData& p) {
     g_calls.canned ? g_calls.canned(p, canned, i) : load_canned(p, canned, i);
   zrdr::Node* motion = zrdr::find(anims, "motion");
   for (int i : {2, 3, 4, 5, 6, 0, 1}) load_gait(p, motion, i);
-  // Ours (docs/modding.md, M3): a gait no mount has whole (a mod's broken
-  // motion and no good copy) refuses the mech, said with its motion's name;
-  // the exe always had its motions and read on through null.
+  // Ours (docs/modding.md, M3): a gait a mod broke, with no whole copy in
+  // any mount, refuses the mech, said with its motion's name (a log line;
+  // mech_data_load shows no box for it); so does a step or walk missing
+  // from every copy (the exe reads both just below). Any other missing gait
+  // stays null, as in the exe (the shipped data has no elemental_limp).
   for (int i = 0; i <= 6; ++i) {
     if (p.anims[i]) continue;
     const char* s = zrdr::get_string(zrdr::find(motion, gait_name(i)), "anim");
     char name[128];
     if (s) std::snprintf(name, sizeof name, "%s", s);
     else std::snprintf(name, sizeof name, "%s_%s", p.name, gait_name(i));
-    std::printf("mw3: the mech %s cannot be used: its motion %s is missing or broken in every copy of motion.zbd\n",
-                p.name, name);
+    const bool broken = motion_broken(name);
+    if (!broken && i != 3 && i != 4) continue;
+    std::printf("mw3: the mech %s cannot be used: its motion %s is %s\n", p.name, name,
+                broken ? "broken and no copy of motion.zbd has it whole" : "in no copy of motion.zbd");
     p.x20 = 0;
+    p.motion_refused = 1;
     return;
   }
   p.trans[2][1] = 0.01f;
