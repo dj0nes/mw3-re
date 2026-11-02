@@ -11,6 +11,8 @@ namespace zmod { struct Model; }
 
 namespace platform { class Alert; }
 
+namespace pm::zmod { struct Model; }
+
 namespace zcls {
 
 struct ListItem;
@@ -29,6 +31,12 @@ struct Node {                      // 0xd4-byte pool slot
   Node** parents = nullptr;        // +0x58
   Node** children = nullptr;       // +0x60
   ListItem* changed = nullptr;     // +0xcc  its item on list 7
+  // PM only (Pirate's Moon's node, docs/pm-map.md, gamez.zbd 41): its
+  // model (a pm::zmod::Model; `model` stays null), its virtual partition
+  // (+0x50, +0x52) and the box its +0x70 index picks (+0x74, +0x8c, +0xa4).
+  pm::zmod::Model* pm_model = nullptr;
+  int16_t pm_virtual[2] = {};
+  const float* pm_box = nullptr;
 
   template <typename T> T get(int off) const {
     T v;

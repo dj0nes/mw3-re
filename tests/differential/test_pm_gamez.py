@@ -4,6 +4,7 @@ against PM's exe, as its loader 0x00516bc0 calls them (docs/pm-map.md,
 gamez.zbd 41).
 
     cmake --build build && .venv/bin/python -P tests/differential/test_pm_gamez.py
+    PM_GAMEZ_ONLY=nodes ...  (textures, models or nodes: one part alone)
 
 Each of PM's four worlds read alone, then stacked: a world's materials on
 top of another's, the second file's textures found by name through its own
@@ -14,6 +15,7 @@ the free and used lists, and the cycles; past a failed read (which ends the
 load), each material's flags and links only.
 """
 import ctypes
+import os
 import struct
 import sys
 import tempfile
@@ -33,6 +35,10 @@ TEX_COUNT, TABLE, GROUP = 0x63e1e8, 0x63e1ec, 0x66a23c
 BLOCKS, NBLOCKS, CAPACITY, COUNT, FREE, USED = 0x68a8a0, 0x68a898, 0x68a89c, 0x68a8a4, 0x6114f0, 0x6114f4
 HANDLE = 0x44
 HEAP, HEAP_SIZE = 0x40000000, 0x20000000  # every case's allocations, from the start each case
+NODES, N_BLOCKS, N_NBLOCKS, N_CAPACITY, N_LIVE, N_FREE, N_BLOCK = 0x516e90, 0x6393c8, 0x6393c0, 0x6393c4, 0x6393cc, 0x60dc6c, 0x60dc68
+LIST_HEADS, ITEM_FREE = 0x60db00, 0x63939c
+LISTS = (6, 8, 9, 10, 13, 14, 15)
+DATA_SIZE = {1: 0x1e8, 2: 0xcc, 3: 0xf8, 4: 0x1c, 5: 0x90, 6: 0x5c, 9: 0x100, 10: 0x94}
 MODELS, STRIPS, UNSTRIP, D3D = 0x558ba0, 0x570b70, 0x5726f0, 0x8c1520
 M_BLOCKS, M_NBLOCKS, M_BLOCK, M_CAPACITY, M_COUNT, M_FREE = 0x8d4af4, 0x8d4aec, 0x8d4ae8, 0x8d4af0, 0x8d4af8, 0x8d4afc
 
@@ -113,6 +119,13 @@ class Emulated(test_pm_zar.Emulated):
         for a in (M_BLOCKS, M_NBLOCKS, M_CAPACITY, M_COUNT):
             self.w32(a, 0)
         self.w32(M_BLOCK, 750)
+        for a in (N_BLOCKS, N_NBLOCKS, N_CAPACITY, N_LIVE, ITEM_FREE):
+            self.w32(a, 0)
+        self.w32(N_FREE, -1)
+        self.w32(N_BLOCK, 2500)
+        for k in range(16):  # the class lists' heads
+            self.w32(self.i32(LIST_HEADS + 4 * k) & 0xffffffff, 0)
+            self.w32(self.i32(0x60db40 + 4 * k) & 0xffffffff, 0)
         self.w32(D3D, 1)  # Direct3D, as the port
         self.converted = []
         self.heap = HEAP
@@ -122,9 +135,9 @@ class Emulated(test_pm_zar.Emulated):
             self.thunks[addr] = self.cpu.code(b'\xb8' + struct.pack('<I', addr) + b'\xff\xe0')
         return self.thunks[addr]
 
-    def stack(self, paths, rb, gb, bb, models=False):
+    def stack(self, paths, rb, gb, bb, models=False, nodes=False):
         self.reset(rb, gb, bb)
-        self.unresolved = self.m_unread = 1 << 30
+        self.unresolved = self.m_unread = self.n_unread = 1 << 30
         out = b''
         for path in paths:
             self.data, self.pos = Path(path).read_bytes(), 0
@@ -155,13 +168,22 @@ class Emulated(test_pm_zar.Emulated):
                 mod = self.signed(self.call(MODELS, args=[HANDLE, mat]))
                 if mod < 0:
                     self.m_unread = mbefore  # a failed read's slots: their headers only
+            nod = 0
+            if nodes and tex >= 0 and mat >= 0 and mod >= 0:
+                self.pos = struct.unpack_from('<i', header, 0x24)[0]
+                nbefore = self.i32(N_CAPACITY)
+                nod = self.signed(self.call(NODES, args=[struct.unpack_from('<i', header, 0x1c)[0], HANDLE, mod]))
+                if nod < 0:
+                    self.n_unread = nbefore  # a failed read's slots only
             out += struct.pack('<ii', tex, mat) + (struct.pack('<i', mod) if models else b'')
+            out += struct.pack('<i', nod) if nodes else b''
             self.w32(OPEN, 0)
             self.w32(CURRENT, -1)
             self.w32(OWN, 0)
             if tex < 0 or mat < 0:
                 break
-        return out + self.tables() + (self.model_dump() if models else b'')
+        return (out + self.tables() + (self.model_dump() if models and not nodes else b'')
+                + (self.node_dump() if nodes else b''))
 
     def realloc_files(self, n):
         old = self.i32(FILES) & 0xffffffff
@@ -209,6 +231,86 @@ class Emulated(test_pm_zar.Emulated):
                     cycles += struct.pack('<i', self.tex_index(self.i32(arr + 4 * k)))
         return out + cycles
 
+
+    def pool_index(self, p, blocks_at, nblocks_at, per, size):
+        p &= 0xffffffff
+        if p == 0:
+            return -1
+        blocks = self.i32(blocks_at) & 0xffffffff
+        for b in range(self.i32(nblocks_at)):
+            base = self.i32(blocks + 4 * b) & 0xffffffff
+            if base <= p < base + per * size:
+                return b * per + (p - base) // size
+        return -2
+
+    def nodes_at(self, p, n, step=4):
+        return b''.join(struct.pack('<i', self.pool_index(self.i32(p + step * k), N_BLOCKS, N_NBLOCKS, 2500, 0xd4))
+                        for k in range(max(n, 0)))
+
+    def node_dump(self):
+        """Every node in PM's layout: the slot (its pointers as indices), the
+        live ones' links and class data, the partitions, the class lists."""
+        ptr = lambda a: self.i32(a) & 0xffffffff
+        cap = self.i32(N_CAPACITY)
+        out = struct.pack('<iii', cap, self.i32(N_LIVE), self.i32(N_FREE))
+        blocks = ptr(N_BLOCKS)
+        for i in range(cap):
+            s = ptr(blocks + 4 * (i // 2500)) + 0xd4 * (i % 2500)
+            r = bytearray(self.read(s, 0xd4))
+            cls, data = struct.unpack_from('<iI', r, 0x34)
+            np_, nc = struct.unpack_from('<hh', r, 0x54)
+            box = struct.unpack_from('<I', r, 0x70)[0]
+            sel = {s + 0x74: 0, s + 0x8c: 1, s + 0xa4: 2}.get(box, -1)
+            model = self.pool_index(struct.unpack_from('<I', r, 0x3c)[0], M_BLOCKS, M_NBLOCKS, 750, 0x68)
+            for off in (0x38, 0x3c, 0x48, 0x58, 0x5c, 0x70):
+                r[off:off + 4] = b'\0' * 4
+            out += bytes(r)
+            if i >= self.n_unread:
+                continue
+            out += struct.pack('<ii', sel, model)
+            live = r[0xd3] & 1
+            if not live:
+                continue
+            out += self.nodes_at(ptr(s + 0x58), np_) + self.nodes_at(ptr(s + 0x5c), nc)
+            if cls not in DATA_SIZE or not data:
+                continue
+            d = bytearray(self.read(data, DATA_SIZE[cls]))
+            extra = b''
+            if cls == 1:
+                extra = self.nodes_at(data, 4)
+                d[0:16] = b'\0' * 16
+            elif cls == 2:
+                rows, cols = struct.unpack_from('<i', d, 0x9c)[0], struct.unpack_from('<i', d, 0x98)[0]
+                nl, ns = struct.unpack_from('<i', d, 0xb0)[0], struct.unpack_from('<i', d, 0xbc)[0]
+                extra = self.nodes_at(ptr(data + 0xb4), nl) + self.nodes_at(ptr(data + 0xc0), ns)
+                for k in range(max(nl, 0)):  # the lights' data pointers, copied at the end
+                    extra += struct.pack('<i', int(ptr(ptr(data + 0xb8) + 4 * k) == ptr(ptr(ptr(data + 0xb4) + 4 * k) + 0x38)))
+                for z in range(max(rows, 0)):
+                    row = ptr(ptr(data + 0xa0) + 4 * z)
+                    for x in range(max(cols, 0)):
+                        pr = bytearray(self.read(row + 0x58 * x, 0x58))
+                        n, lst = struct.unpack_from('<h', pr, 0x3a)[0], struct.unpack_from('<I', pr, 0x3c)[0]
+                        pr[0x3c:0x40] = b'\0' * 4
+                        extra += bytes(pr)
+                        for k in range(max(n, 0)):
+                            e = self.read(lst + 12 * k, 12)
+                            extra += self.nodes_at(lst + 12 * k, 1) + e[4:]
+                for off in (0xa0, 0xb4, 0xb8, 0xc0, 0xc4):
+                    d[off:off + 4] = b'\0' * 4
+            elif cls == 9:
+                extra = self.nodes_at(ptr(data + 0xfc), struct.unpack_from('<i', d, 0xf8)[0])
+                d[0xfc:0x100] = b'\0' * 4
+            elif cls == 10:
+                extra = self.nodes_at(ptr(data + 0x90), struct.unpack_from('<i', d, 0x8c)[0])
+                d[0x90:0x94] = b'\0' * 4
+            out += bytes(d) + extra
+        for k in LISTS:  # each class list, head to tail
+            item, seq = ptr(ptr(LIST_HEADS + 4 * k)), []
+            while item:
+                seq.append(self.pool_index(self.i32(item), N_BLOCKS, N_NBLOCKS, 2500, 0xd4))
+                item = ptr(item + 8)
+            out += struct.pack(f'<i{len(seq)}i', len(seq), *seq)
+        return out
 
     def mat_index(self, p):
         p &= 0xffffffff
@@ -319,12 +421,23 @@ def main():
             + struct.pack('<9f', *([0.5] * 9)) + struct.pack('<iiI', 3, 1, 0))
     crafted.write_bytes(data[:mstart] + body)
     mcases += [[crafted], [worlds[2], crafted]]
+    # The nodes (0x00516e90, 0x005171a0) after the models: each world, a
+    # stack, and c1 cut in its nodes (the slots, the world's partitions, the
+    # last node's links).
+    ncases = [[w] for w in worlds] + [[worlds[2], worlds[0]]]
+    for k, cut in enumerate((nodes + 0xd4 * 1000 + 9, nodes + (len(data) - nodes) // 2, len(data) - 6)):
+        path = scratch / f'ncut{k}.zbd'
+        path.write_bytes(data[:cut])
+        ncases += [[path], [worlds[2], path]]
     emu = Emulated()
     runs = converted = 0
     for fmt in ((5, 6, 5), (5, 5, 5)):
-        for models, todo in ((0, cases), (1, mcases)):
+        only = os.environ.get('PM_GAMEZ_ONLY')  # textures, models or nodes: one part alone (development)
+        for models, todo in ((0, cases), (1, mcases), (2, ncases)):
+            if only and only != ('textures', 'models', 'nodes')[models]:
+                continue
             for case in todo:
-                want = emu.stack(case, *fmt, models=bool(models))
+                want = emu.stack(case, *fmt, models=bool(models), nodes=models == 2)
                 n = p.probe_pm_gamez_stack('|'.join(map(str, case)).encode(), *fmt, models, buf, len(buf))
                 if n < 0:
                     raise SystemExit(f'{case}: probe {n}')
@@ -338,11 +451,12 @@ def main():
                     raise SystemExit(1)
                 runs += 1
                 converted += len(emu.converted)
-                r = struct.unpack_from(f'<{(2 + models) * len(case)}i', want)
+                r = struct.unpack_from(f'<{(2 + min(models, 1) + (models == 2)) * len(case)}i', want)
                 print(f'{name} {fmt}{" models" if models else ""}: results {r}'
-                      + (f', {len(emu.converted)} models to the strip conversion' if models else ''))
+                      + (f', {len(emu.converted)} models to the strip conversion' if models == 1 else '')
+                      + (' nodes' if models == 2 else ''))
     print(f'ok: {runs} runs identical (textures and materials: 4 worlds, 3 stacks, 5 cut or short files; models: '
-          f'4 worlds, 2 stacks, 4 cut files, a crafted model alone and stacked; 2 colour formats); {converted} models went to PM\'s strip conversion, '
+          f'4 worlds, 2 stacks, 4 cut files, a crafted model alone and stacked; nodes: 4 worlds, a stack, 3 cut files alone and stacked; 2 colour formats); {converted} models went to PM\'s strip conversion, '
           f'which the port leaves out')
 
 if __name__ == '__main__':

@@ -63,6 +63,8 @@ struct ModelPool {
 };
 ModelPool& models();
 
+// Pirate's Moon 1.0 @ 0x00557ba0: the slot of an index, null below 0.
+Model* model_at(int32_t index);
 // Pirate's Moon 1.0 @ 0x00558ba0: a gamez.zbd's models appended in new blocks
 // (the count and free head taken on the first load only), each one's data
 // read (0x005587e0) with the file's material base. The first one's index, 0

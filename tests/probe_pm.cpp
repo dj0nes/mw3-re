@@ -9,6 +9,9 @@
 #include "gamez/zreader/zreader.h"
 #include "gamez/zutil/zutl_path.h"
 #include "gamez/zutil/zutl_zar.h"
+#include "gamez/zclass/cls_data.h"
+#include "gamez/zclass/cls_node.h"
+#include "gamez/zclass/list.h"
 #include "gamez/zimage/zimg_texture.h"
 #include "gamez/zmodel/gmod_matl.h"
 #include "gamez/zvideo/zvid_format.h"
@@ -217,17 +220,20 @@ int probe_pm_zrdr_query(const char* key, uint32_t fill, uint32_t* out, char* tex
 // material table (every slot; a used textured one's texture as an index),
 // then the cycles in index order. The bytes written, -1 when too small.
 int probe_pm_gamez_stack(const char* paths, int rb, int gb, int bb, int with_models, uint8_t* out, int cap) {
+  const bool with_nodes = with_models > 1;  // 2: the nodes too (then the models are not dumped)
   zvid::set_pixel_format(rb, gb, bb);
   ::zimg::TextureTable& tt = ::zimg::textures();
   tt.count = 0, tt.group = 0;
   ::zmod::materials() = ::zmod::MaterialTable{};
   pm::zmod::models() = pm::zmod::ModelPool{};
+  ::zcls::nodes() = ::zcls::NodePool{};
+  ::zcls::lists() = ::zcls::Lists{};
   pm::zcls::ZbdState& z = pm::zcls::zbd_state();
   z = pm::zcls::ZbdState{};
   std::string b;
   auto put = [&](const void* p, size_t n) { b.append(static_cast<const char*>(p), n); };
   std::string all = paths;
-  int32_t unresolved = 1 << 30, m_unread = 1 << 30;
+  int32_t unresolved = 1 << 30, m_unread = 1 << 30, n_unread = 1 << 30;
   for (size_t at = 0; at <= all.size();) {
     size_t bar = all.find('|', at);
     if (bar == std::string::npos) bar = all.size();
@@ -257,8 +263,16 @@ int probe_pm_gamez_stack(const char* paths, int rb, int gb, int bb, int with_mod
       mod = pm::zmod::read_models(f, mat);
       if (mod < 0) m_unread = mbefore;  // a failed read's slots: their headers only
     }
+    int32_t nod = 0;
+    if (with_nodes && tex >= 0 && mat >= 0 && mod >= 0) {
+      std::fseek(f, e.get(0x24), SEEK_SET);
+      const int32_t nbefore = ::zcls::nodes().capacity;
+      nod = pm::zcls::read_nodes(e.get(0x1c), f, mod);
+      if (nod < 0) n_unread = nbefore;  // a failed read's slots only
+    }
     put(&tex, 4), put(&mat, 4);
     if (with_models) put(&mod, 4);
+    if (with_nodes) put(&nod, 4);
     std::fclose(f);
     z.file = nullptr, z.current = -1, z.own_textures = false;
     if (tex < 0 || mat < 0) break;
@@ -295,7 +309,7 @@ int probe_pm_gamez_stack(const char* paths, int rb, int gb, int bb, int with_mod
       put(&idx, 4);
     }
   }
-  if (with_models) {
+  if (with_models == 1) {
     pm::zmod::ModelPool& mp = pm::zmod::models();
     put(&mp.capacity, 4), put(&mp.count, 4), put(&mp.free_head, 4);
     auto mat_index = [&](const ::zmod::Material* m) { return m ? t.index_of(m) : -1; };
@@ -331,6 +345,119 @@ int probe_pm_gamez_stack(const char* paths, int rb, int gb, int bb, int with_mod
         const int32_t mi = mat_index(r.material), first = r.polygon ? static_cast<int32_t>(r.polygon - m.polygons) : -1;
         put(&mi, 4), put(&r.usage_count, 4), put(&first, 4);
       }
+    }
+  }
+  if (with_nodes) {
+    ::zcls::NodePool& np = ::zcls::nodes();
+    put(&np.capacity, 4), put(&np.live, 4), put(&np.free_head, 4);
+    auto node_index = [&](const ::zcls::Node* n) -> int32_t {
+      if (!n) return -1;
+      for (size_t k = 0; k < np.blocks.size(); ++k)
+        if (n >= np.blocks[k].get() && n < np.blocks[k].get() + np.block_size)
+          return static_cast<int32_t>(k) * np.block_size + static_cast<int32_t>(n - np.blocks[k].get());
+      return -2;
+    };
+    auto model_index = [&](const pm::zmod::Model* m) -> int32_t {
+      if (!m) return -1;
+      pm::zmod::ModelPool& mp = pm::zmod::models();
+      for (size_t k = 0; k < mp.blocks.size(); ++k)
+        if (m >= mp.blocks[k].get() && m < mp.blocks[k].get() + mp.block)
+          return static_cast<int32_t>(k) * mp.block + static_cast<int32_t>(m - mp.blocks[k].get());
+      return -2;
+    };
+    auto nodes = [&](::zcls::Node* const* list, int32_t n) {
+      for (int32_t k = 0; k < n; ++k) {
+        const int32_t i = node_index(list ? list[k] : nullptr);
+        put(&i, 4);
+      }
+    };
+    for (int32_t i = 0; i < np.capacity; ++i) {
+      const ::zcls::Node& n = *::zcls::node_at(i);
+      uint8_t r[0xd4] = {};  // back into PM's layout
+      std::memcpy(r, n.raw, 0x4c);
+      const int16_t ax = static_cast<int16_t>(n.get<int32_t>(0x4c)), az = static_cast<int16_t>(n.get<int32_t>(0x50));
+      const int16_t pc = static_cast<int16_t>(n.parent_count()), cc = static_cast<int16_t>(n.child_count());
+      std::memcpy(r + 0x4c, &ax, 2), std::memcpy(r + 0x4e, &az, 2), std::memcpy(r + 0x50, n.pm_virtual, 4);
+      std::memcpy(r + 0x54, &pc, 2), std::memcpy(r + 0x56, &cc, 2);
+      std::memcpy(r + 0x60, n.raw + 0x64, 0x10);
+      std::memcpy(r + 0x74, n.raw + 0x74, 0xd0 - 0x74);
+      std::memcpy(r + 0xd0, &n.link, 4);
+      std::memset(r + 0x38, 0, 8), std::memset(r + 0x48, 0, 4), std::memset(r + 0x58, 0, 8), std::memset(r + 0x70, 0, 4);
+      const int32_t sel = !n.pm_box ? -1 : n.pm_box == reinterpret_cast<const float*>(n.raw + 0x74) ? 0
+                          : n.pm_box == reinterpret_cast<const float*>(n.raw + 0x8c) ? 1 : 2;
+      const int32_t mi = model_index(n.pm_model);
+      put(r, 0xd4);
+      if (i >= n_unread) continue;
+      put(&sel, 4), put(&mi, 4);
+      if (!(n.link & ::zcls::kNodeLive)) continue;
+      nodes(n.parents, pc), nodes(n.children, cc);
+      if (!n.data) continue;
+      switch (n.cls()) {
+        case 1: {
+          auto* c = static_cast<::zcls::Camera*>(n.data);
+          uint8_t d[0x1e8];
+          std::memcpy(d, c->raw, sizeof d), std::memset(d, 0, 16);
+          put(d, sizeof d), nodes(c->nodes, 4);
+          break;
+        }
+        case 2: {
+          auto* w = static_cast<::zcls::World*>(n.data);
+          uint8_t d[0xcc] = {};
+          std::memcpy(d, w->raw, 0x4c), std::memcpy(d + 0x4c, w->pm_area2, 0x10), std::memcpy(d + 0x5c, w->raw + 0x4c, 0xbc - 0x4c);
+          for (int off : {0xa0, 0xb4, 0xb8, 0xc0, 0xc4}) std::memset(d + off, 0, 4);
+          put(d, sizeof d);
+          const int32_t nl = w->get<int32_t>(0xa0), ns = w->get<int32_t>(0xac);
+          nodes(w->lights, nl), nodes(w->sounds, ns);
+          for (int32_t k = 0; k < nl; ++k) {
+            const int32_t same = w->light_data[k] == w->lights[k]->data ? 1 : 0;
+            put(&same, 4);
+          }
+          const int32_t rows = w->get<int32_t>(0x8c), cols = w->get<int32_t>(0x88);
+          for (int32_t z = 0; z < rows; ++z)
+            for (int32_t x = 0; x < cols; ++x) {
+              const ::zcls::Partition& pr = w->rows[z][x];
+              uint8_t q[0x58] = {};
+              std::memcpy(q, pr.raw, 0x48), std::memcpy(q + 0x48, pr.pm_tail, 0x10), std::memset(q + 0x3c, 0, 4);
+              put(q, sizeof q);
+              for (int16_t k = 0; k < pr.get<int16_t>(0x3a); ++k) {
+                const int32_t i2 = node_index(pr.nodes[k]);
+                put(&i2, 4), put(pr.pm_y[k], 8);
+              }
+            }
+          break;
+        }
+        case 3: put(static_cast<::zcls::Window*>(n.data)->raw, 0xf8); break;
+        case 4: put(static_cast<::zcls::Display*>(n.data)->raw, 0x1c); break;
+        case 5: put(static_cast<::zcls::Object3d*>(n.data)->raw, 0x90); break;
+        case 6: {
+          auto* l = static_cast<::zcls::Lod*>(n.data);
+          put(l->raw, 0x50), put(l->pm_tail, 0xc);
+          break;
+        }
+        case 9: {
+          auto* l = static_cast<::zcls::Light*>(n.data);
+          uint8_t d[0x100] = {};
+          std::memcpy(d, l->raw, 0xb0), std::memcpy(d + 0xb0, l->pm_colors, 0x30), std::memcpy(d + 0xe0, l->raw + 0xb0, 0x20);
+          std::memset(d + 0xfc, 0, 4);
+          put(d, sizeof d), nodes(l->nodes, l->get<int32_t>(0xc8));
+          break;
+        }
+        case 10: {
+          auto* s = static_cast<::zcls::Sound*>(n.data);
+          uint8_t d[0x94];
+          std::memcpy(d, s->raw, sizeof d), std::memset(d + 0x90, 0, 4);
+          put(d, sizeof d), nodes(s->nodes, s->get<int32_t>(0x8c));
+          break;
+        }
+        default: break;
+      }
+    }
+    for (int k : {6, 8, 9, 10, 13, 14, 15}) {
+      std::vector<int32_t> seq;
+      for (::zcls::ListItem* it = ::zcls::lists().list[k].head; it; it = it->next) seq.push_back(node_index(it->node));
+      const int32_t len = static_cast<int32_t>(seq.size());
+      put(&len, 4);
+      if (len) put(seq.data(), seq.size() * 4);
     }
   }
   if (static_cast<int>(b.size()) > cap) return -1;

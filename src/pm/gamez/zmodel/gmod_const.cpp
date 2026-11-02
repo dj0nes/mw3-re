@@ -29,6 +29,9 @@ T* read_array(std::FILE* f, size_t bytes) {
 
 ModelPool& models() { return g_pool; }
 
+// Pirate's Moon 1.0 @ 0x00557ba0
+Model* model_at(int32_t index) { return index < 0 ? nullptr : &g_pool.at(index); }
+
 // Pirate's Moon 1.0 @ 0x005587e0. MW3's 0x00538a70 with PM's polygons: the
 // material lists, UVs per material, the model's material refs.
 void read_model_data(std::FILE* f, Model& m, int32_t base) {

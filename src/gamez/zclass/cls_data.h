@@ -27,11 +27,14 @@ struct Camera : Raw<0x1e8> {
 
 struct Partition : Raw<0x48> {
   Node** nodes = nullptr;          // +0x3c  count i16 at +0x3a
+  uint8_t pm_tail[0x10] = {};      // PM only, +0x48..+0x57
+  float (*pm_y)[2] = nullptr;      // PM only: each entry's y range (its 12-byte entries, +4 and +8)
   uint8_t* fades = nullptr;        // +0x44  0x44-byte entries, count +0x40 (run time only)
 };
 
 struct World : Raw<0xbc> {
   uint32_t** area_pending = nullptr;  // +0x0c  count +0x04
+  float pm_area2[4] = {};          // PM only, +0x4c..+0x58 (a second area: left, bottom, right, top); PM's +0x5c on is MW3's +0x4c on
   Partition** rows = nullptr;      // +0x90  +0x8c rows of +0x88
   Node** lights = nullptr;         // +0xa4  count +0xa0
   void** light_data = nullptr;     // +0xa8
@@ -42,10 +45,13 @@ struct World : Raw<0xbc> {
 struct Window : Raw<0xf8> {};
 struct Display : Raw<0x1c> {};     // clear colour floats at +0x10
 struct Object3d : Raw<0x90> {};
-struct Lod : Raw<0x50> {};
+struct Lod : Raw<0x50> {
+  uint8_t pm_tail[0xc] = {};       // PM only, +0x50..+0x5b
+};
 
 struct Light : Raw<0xd0> {
   Node** nodes = nullptr;          // +0xcc  count +0xc8
+  float pm_colors[12] = {};        // PM only, +0xb0..+0xdf (ambient, diffuse mixed, ambient mixed, combined); PM's +0xe0 on is MW3's +0xb0 on
 };
 
 struct Sound : Raw<0x94> {
