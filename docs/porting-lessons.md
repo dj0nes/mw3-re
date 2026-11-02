@@ -53,7 +53,13 @@ first, then modernised, was weighed and rejected:
    works, status, what's left), the evidence in a section below it. Playtest
    reports as issues, one per bug with comments, not one table with
    paragraph-long cells. Easier for the owner, and for the community later.
-6. **Settle the agent setup early.** One long-lived worker and a lead who
+6. **List the event taps first when Mac input lags.** W40's second-late
+   mouse was another app's (Magnet's) filtering event tap on mouse-down,
+   found only after probes of SDL, relative mode and our pump.
+   `CGGetEventTapList` names every tap, whether it filters, and its
+   measured latency: a ten-line program, read-only, to run before anything
+   else when one input lags on one machine.
+7. **Settle the agent setup early.** One long-lived worker and a lead who
    reviews and merges worked; a second worker once things were steady. The
    early fan-outs to many short-lived subagents cost much of a week's usage
    for work that needed review anyway.
