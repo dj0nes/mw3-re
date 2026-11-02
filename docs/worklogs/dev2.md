@@ -591,3 +591,20 @@ works alongside it; stay out of its files.
   files) replaced by `build_deps.sh win` (mingw-w64, the same configure line
   as Mac/Linux; clock_gettime/nanosleep off to drop libwinpthread). INTRO
   and C1M1 converted alike (wav/fmv identical, m1v same frames, PSNR 53/66 dB).
+
+## 2026-11-02 (day): PM readers, movie shapes, path-guard
+
+- PM (a) zArchive 2 and (b) zrdr_main.cpp done (mac5/pm), with #include
+  confined to the mounts (4bdf775d; drop it when mw3pm sets
+  `Mounts::confined` from path-guard).
+- Movie shapes built in (mac5/movie-shapes, 01e55699): no first-play
+  freeze; checked on the PC hidden.
+- Path-guard (mac5/path-guard, 606cb749): names from data, mods and
+  scripts stay inside the mounts; the network carries numbers only.
+- After v1.0: the `--dialog` debug start ignores `--frames`, and a dialog
+  not found retries every frame, re-mounting the zbd folders each time
+  (4 GB in 3 minutes). Debug path only.
+- Next time in zutl_path.cpp: `outside()`'s `said` list is unlocked, and
+  the movie threads open files; make it thread-safe.
+- Break scripts: never run a game binary bare; only the test harness's
+  hidden runs (a bare build/mw3 opened a full game on Owen's Mac).
