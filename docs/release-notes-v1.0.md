@@ -17,7 +17,8 @@ affiliated with or endorsed by Microsoft or MicroProse. MechWarrior is a
 trademark of Microsoft.
 
 **No game files are included. You need your own MechWarrior 3**: an
-installed copy (1.0 or 1.2), the disc, or a disc image, which can be found on internet archive or myabandonware.com
+installed copy (1.0 or 1.2), the disc, or a disc image (.iso or .cue/.bin, or a zip
+of one). If you no longer have yours, you can find a copy on the internet.
 
 ## What 1.0 is
 
@@ -35,7 +36,8 @@ Moon, the expansion, is next, as a game of its own beside this one.
 | Linux | `MW3-Rebuild-1.0-x86_64.AppImage` | Make it executable and run it. |
 
 Start **MechWarrior 3**. It finds your install by itself; if it cannot,
-its SETUP screen takes whatever you have and sets the game up from it. Just provide the zip or ISO file and it'll take it from there.
+it asks for your game: point it at the disc image or zip and it takes it
+from there.
 The Mac app is not signed by Apple: the first time, right-click it and
 choose **Open**. Windows SmartScreen may warn about an unknown publisher:
 **More info**, then **Run anyway**. The README has the rest.
