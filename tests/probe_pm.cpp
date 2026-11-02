@@ -9,6 +9,12 @@
 #include "gamez/zreader/zreader.h"
 #include "gamez/zutil/zutl_path.h"
 #include "gamez/zutil/zutl_zar.h"
+#include "gamez/zimage/zimg_texture.h"
+#include "gamez/zmodel/gmod_matl.h"
+#include "gamez/zvideo/zvid_format.h"
+#include "pm/gamez/zclass/cls_zbd.h"
+#include "pm/gamez/zimage/zimg_texture.h"
+#include "pm/gamez/zmodel/gmod_matl.h"
 #include "pm/gamez/zreader/zrdr_main.h"
 #include "pm/gamez/zutil/zutl_zar.h"
 #include "pm/pm_game.h"
@@ -202,6 +208,86 @@ int probe_pm_zrdr_query(const char* key, uint32_t fill, uint32_t* out, char* tex
   if (static_cast<int>(t.size()) >= size) return -1;
   std::memcpy(text, t.c_str(), t.size() + 1);
   return k;
+}
+
+// gamez.zbd files read in turn as PM's loader 0x00516bc0 reads their
+// textures and materials (docs/pm-map.md, gamez.zbd 41): `paths` split by
+// '|'. Out: per file the two results, then the texture table and the
+// material table (every slot; a used textured one's texture as an index),
+// then the cycles in index order. The bytes written, -1 when too small.
+int probe_pm_gamez_stack(const char* paths, int rb, int gb, int bb, uint8_t* out, int cap) {
+  zvid::set_pixel_format(rb, gb, bb);
+  ::zimg::TextureTable& tt = ::zimg::textures();
+  tt.count = 0, tt.group = 0;
+  ::zmod::materials() = ::zmod::MaterialTable{};
+  pm::zcls::ZbdState& z = pm::zcls::zbd_state();
+  z = pm::zcls::ZbdState{};
+  std::string b;
+  auto put = [&](const void* p, size_t n) { b.append(static_cast<const char*>(p), n); };
+  std::string all = paths;
+  int32_t unresolved = 1 << 30;
+  for (size_t at = 0; at <= all.size();) {
+    size_t bar = all.find('|', at);
+    if (bar == std::string::npos) bar = all.size();
+    const std::string path = all.substr(at, bar - at);
+    at = bar + 1;
+    std::FILE* f = std::fopen(path.c_str(), "rb");
+    if (!f) return -2;
+    pm::zcls::ZbdFile e;
+    e.path = path;
+    if (std::fread(e.header, 0x28, 1, f) != 1) return -2;
+    z.files.push_back(e);
+    z.current = static_cast<int32_t>(z.files.size() - 1), z.file = f;
+    int32_t tex = 0, mat = 0;
+    if (tt.count == 0) {
+      std::fseek(f, e.get(0x10), SEEK_SET);
+      tex = pm::zimg::read_texture_directory(e.get(0xc), f);
+      z.own_textures = true;
+    }
+    std::fseek(f, e.get(0x14), SEEK_SET);
+    const int32_t before = ::zmod::materials().capacity;
+    if (tex >= 0) mat = pm::zmod::read_materials(f);
+    if (mat < 0) unresolved = before;  // a failed read's materials keep the file's indices
+    put(&tex, 4), put(&mat, 4);
+    std::fclose(f);
+    z.file = nullptr, z.current = -1, z.own_textures = false;
+    if (tex < 0 || mat < 0) break;
+  }
+  put(&tt.count, 4);
+  for (int i = 0; i < tt.count; ++i) {
+    const ::zimg::TextureEntry& e = tt.entries[i];
+    const int32_t mip = e.mip ? 1 : 0;
+    char name[20] = {};
+    std::memcpy(name, e.name, strnlen(e.name, 20));  // a C string: what follows its end is unread
+    put(name, 20), put(&e.state, 4), put(&e.group, 4), put(&mip, 4);
+  }
+  const ::zmod::MaterialTable& t = ::zmod::materials();
+  put(&t.capacity, 4), put(&t.count, 4), put(&t.free_head, 4), put(&t.used_head, 4);
+  auto index_of = [&](const ::zimg::TextureEntry* e) { return e ? static_cast<int32_t>(e - tt.entries) : -1; };
+  for (int i = 0; i < t.capacity; ++i) {
+    const ::zmod::Material& m = t.at(i);
+    if (i >= unresolved) {  // a failed read (which ends the load): its flags and links only
+      put(&m.alpha, 1), put(&m.flags, 1), put(&m.prev, 2), put(&m.next, 2);
+      continue;
+    }
+    put(&m.alpha, 1), put(&m.flags, 1), put(&m.rgb, 2), put(&m.r, 4), put(&m.g, 4), put(&m.b, 4);
+    const int32_t tex = (!(m.flags & 0x20) && (m.flags & 1)) ? index_of(m.texture) : static_cast<int32_t>(m.texture_index);
+    put(&tex, 4), put(m.unk_14, 12), put(&m.soil, 4), put(&m.prev, 2), put(&m.next, 2);
+  }
+  for (int i = 0; i < t.capacity; ++i) {
+    const ::zmod::Material& m = t.at(i);
+    if ((m.flags & 0x20) || !(m.flags & 4) || i >= unresolved) continue;  // the exe's cycles past a failed read are half read
+    const ::zmod::Cycle* c = m.cycle;
+    put(&c->looping, 4), put(&c->frame, 4), put(&c->index, 4), put(&c->speed, 4);
+    put(&c->texture_count, 4), put(&c->added, 4);
+    for (uint32_t k = 0; k < c->texture_count; ++k) {
+      const int32_t idx = index_of(c->textures[k]);
+      put(&idx, 4);
+    }
+  }
+  if (static_cast<int>(b.size()) > cap) return -1;
+  std::memcpy(out, b.data(), b.size());
+  return static_cast<int>(b.size());
 }
 
 }  // extern "C"

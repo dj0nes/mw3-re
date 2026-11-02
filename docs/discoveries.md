@@ -4097,6 +4097,13 @@ The screen after the pilot for INSTANT ACTION, 0x00488bc0 (details:
   Every entry in `motion.zbd`'s index says it is 1 byte long; the game
   jumps to where a motion starts and reads it until it ends.
   (docs/pm-map.md, The data formats)
+- **Pirate's Moon can build one world out of several world files.** Its
+  loader adds each `gamez.zbd` it reads to what is already loaded (the
+  materials, models and scene) instead of replacing it, as MechWarrior 3's
+  did. Only the first file's texture list is used; a later file's textures
+  are found by name. Every shipped world is still a single file, so this
+  looks like groundwork for the expansion's tools or for add-ons.
+  (docs/pm-map.md, gamez.zbd 41)
 - **Pirate's Moon's text data files can include other files.** Its reader
   takes `#include name.zrd` (MechWarrior 3's knows only `#ifdef`, `#else`
   and `#endif`): the named file is read right there, as if pasted in, up

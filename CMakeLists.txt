@@ -567,6 +567,9 @@ if(MW3_BUILD_PM)
     src/pm/pm_game.cpp
     src/pm/gamez/zutil/zutl_zar.cpp
     src/pm/gamez/zreader/zrdr_main.cpp
+    src/pm/gamez/zclass/cls_zbd.cpp
+    src/pm/gamez/zimage/zimg_texture.cpp
+    src/pm/gamez/zmodel/gmod_matl.cpp
   )
   target_link_libraries(pmcore PUBLIC mw3core)
   if(NOT MSVC)

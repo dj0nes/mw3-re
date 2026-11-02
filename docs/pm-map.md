@@ -313,7 +313,8 @@ functions PM changed, and PM's new ones.
        - `mw3pmtests`: `pm_text_files_take_include`, and
          `pm_include_stays_inside_the_mounts` (`..`, a full path and
          `sub/../..` read nothing; ours, for mods).
-   - **gamez.zbd 41 (in progress)**: PM's world file loader stacks files.
+   - **gamez.zbd 41 (in progress: (c1) textures and materials done,
+     (c2) models, (c3) nodes and the entry left)**: PM's world file loader stacks files.
      Every gamez.zbd read appends to the material, model and node pools
      (MW3's replaced them), so one world can be made of several files.
      - Entry 0x516bc0 (MW3 0x4ff520). It keeps a list of the loaded files
@@ -335,6 +336,20 @@ functions PM changed, and PM's new ones.
        Later loads relink each new material onto the used list (flag
        0x20 clear) or the free list. Then textures, colours and cycles
        are resolved in index order (MW3: the used list's order).
+     - (c1) ported (2026-11-02): `pm/gamez/zimage/zimg_texture`
+       (0x531920), `pm/gamez/zmodel/gmod_matl` (0x555e00),
+       `pm/gamez/zclass/cls_zbd` (the file list, 0x516ab0, 0x516ae0). A
+       later file's texture is its own directory's entry, read from the
+       file and found or added by name (0x532450, zimg::add_texture). The
+       name is passed from the entry's +0xc with no end of its own, so a
+       20-letter one runs on into the state's bytes (kept).
+       `test_pm_gamez.py` on PM's exe: the 4 worlds alone, 3 stacks, 4 copies
+       cut in the materials and one with 600 materials (every shipped file
+       has 1000), alone and stacked, in 5-6-5 and 5-5-5: 34 runs identical.
+       7 break tests caught (the file's texture state kept, a mip chain, the
+       header taken on every load, no relinking, the last block freed
+       downwards, the table's textures for every file, a short read's bytes
+       dropped).
      - Models 0x558ba0 (MW3 0x538e30): 0x68 each, appended the same
        way (the free list through +0x64). Each one goes through
        0x5587e0(f, model, material base).
