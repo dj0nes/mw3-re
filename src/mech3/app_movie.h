@@ -1,10 +1,12 @@
 #pragma once
 #include <cstdint>
+#include <atomic>
 #include <memory>
 #include <string>
 #include <vector>
 
 #include "gamez/zfmv/fmv_stream.h"
+#include "mech3/movie_shape.h"
 
 // The importer's movies as the movie player's Video for Windows streams
 // (docs/fmv.md, The imported movies). Our addition, not original code: FIX
@@ -56,5 +58,11 @@ class MovieStream {
   std::vector<uint8_t> rgb_;    // the last decoded MPEG frame, RGB
   bool have_rgb_ = false;
 };
+
+// Ours (movie_shape.h): every frame of the imported movie at `base`
+// measured, in order, its picture's size in `w`, `h`; false when it cannot
+// be read or `stop` is set on the way.
+bool scan_imported_movie(const std::string& base, std::vector<MovieFrameScan>* out, int32_t* w, int32_t* h,
+                         const std::atomic<bool>* stop = nullptr);
 
 }  // namespace mech3

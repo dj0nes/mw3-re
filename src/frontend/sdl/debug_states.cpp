@@ -193,6 +193,7 @@ bool DebugMovieState::enter() {
   }
   shown_at_start_ = engine_->frames_presented;
   engine_->movie_stats = {};
+  engine_->movie_shape_first = true;  // its shape known from the first frame (docs/fmv.md section 8)
   engine_->movie_play(movie_);
   return true;
 }

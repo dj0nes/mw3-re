@@ -33,6 +33,9 @@ every box here is ticked:
       C4WIN 640x240) shown without them, scaled to the screen's width, the
       whole picture kept; the 17 true-4:3 briefing movies centred with
       plain black sides.
+      The movies and the logo screens done 2026-11-01 (fmv.md section 8:
+      the shapes measured from the pictures; C4WIN is letterboxed but for
+      its 4:3 ending, which is centred like the briefings).
 - [ ] Moddable, simply (Owen, 2026-11-01): players and hobbyists can add
       their own game data without any change to the exe later. A `mods/`
       folder in the settings folder (one folder per mod, a small manifest,

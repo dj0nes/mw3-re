@@ -2790,6 +2790,14 @@ From the view and its cameras (0x40aca0, 0x430e70; details: `view.md`).
   on a PC left on for weeks their waits and fades would move in visible
   steps (a quarter second after 24 days). The rebuild counts from the
   game's start.
+- **The intro and the ending movie are widescreen hiding in a 4:3 frame.**
+  INTRO.AVI is a 640x320 picture (2:1) with black bars baked in above and
+  below; the ending (c4win) is mostly 640x240 (8:3, wider than a cinema
+  screen), with a framed inset of about 568x283 partway through, and it
+  switches to a full 4:3 picture for its last four seconds, the Mad Cat in
+  a soft vignette. Every briefing movie is plain 4:3. On a widescreen
+  monitor the rebuild shows the letterboxed parts across the whole width.
+  (docs/fmv.md, The movies on a wide screen)
 
 ## Keyboard, mouse and joystick
 
