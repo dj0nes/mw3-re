@@ -223,6 +223,16 @@ library: no crash, every cut copy keeps exactly the textures whose bytes it
 still has; table counts past the file or below 0 and an entry's offset or
 palette out of range refused).
 
+**`gamez.zbd`'s texture directory, bounded** (2026-11-02,
+`zimg_texture.cpp`): each entry's mip index must be -1 or a row of the
+table; one outside refuses the directory (the table as it was, named in the
+log), and the world fails to load as for a short read ("Error reading GameZ
+texture data."). The exe made a pointer of any index and followed it when
+the texture loaded. `test_gamez.py` and `test_texload.py` as the original;
+`bounded_gamez_texture_directory_mips` (300 garbled copies of c1's 553
+entries: every one with an index outside refused, every one read with each
+mip inside the table; without the bound none is refused).
+
 **The sounds, bounded** (2026-11-02; `soundsL.zbd`, `soundsH.zbd` and loose
 WAVs: `zsnd_create.cpp`). After the chunk walk, a WAV whose samples or cue
 points run past its bytes, or whose format no output can play (0 or more
