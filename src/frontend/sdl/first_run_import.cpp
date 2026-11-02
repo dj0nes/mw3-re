@@ -96,6 +96,7 @@ bool first_run_import(const std::string& install, const std::string& write_dir, 
     return false;
   }
   std::printf("mw3: converting %d movies (about 3 s each)\n", missing);
+  set_ready_status("Importing your movies (first start only)...");
   const char* args[] = {importer.c_str(), "--install", install.c_str(), "--write-dir", write_dir.c_str(), "--missing",
                         nullptr};
   SDL_Process* proc = start_child(args);
@@ -128,6 +129,9 @@ bool first_run_import(const std::string& install, const std::string& write_dir, 
       if (total > 0) std::snprintf(title, sizeof title, "MechWarrior 3: converting the movies (%d of %d)", done, total);
       else std::snprintf(title, sizeof title, "MechWarrior 3: converting the movies");
       SDL_SetWindowTitle(win, title);
+      if (total > 0)
+        set_ready_status("Importing your movies (first start only): " + std::to_string(done) + " of " +
+                         std::to_string(total) + "...");
     }
     if (ren) {
       SDL_SetRenderDrawColor(ren, 0, 0, 0, 255);
@@ -144,6 +148,7 @@ bool first_run_import(const std::string& install, const std::string& write_dir, 
     SDL_Delay(30);
   }
   reader.join();
+  set_ready_status("Starting MechWarrior 3...");
   int code = -1;
   SDL_WaitProcess(proc, true, &code);
   SDL_DestroyProcess(proc);

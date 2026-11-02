@@ -43,9 +43,25 @@ std::string g_ready_file;
 bool g_ready = false;
 }  // namespace
 void set_ready_file(const std::string& path) { g_ready_file = path, g_ready = false; }
+void set_ready_status(const std::string& text) {
+  if (g_ready_file.empty()) return;
+  const std::string path = g_ready_file + ".status";
+  if (text.empty()) {
+    std::remove(path.c_str());
+    return;
+  }
+  const std::string tmp = path + ".new";  // whole lines only: written aside, then moved over
+  if (std::FILE* f = std::fopen(tmp.c_str(), "wb")) {
+    std::fwrite(text.data(), 1, text.size(), f);
+    std::fclose(f);
+    std::remove(path.c_str());
+    std::rename(tmp.c_str(), path.c_str());
+  }
+}
 void mark_ready() {
   if (g_ready || g_ready_file.empty()) return;
   g_ready = true;
+  set_ready_status("");
   if (std::FILE* f = std::fopen(g_ready_file.c_str(), "wb")) std::fclose(f);
   std::printf("mw3: first frame shown %llu ms after the start (the launcher told)\n",
               static_cast<unsigned long long>(SDL_GetTicks()));
