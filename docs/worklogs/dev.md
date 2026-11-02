@@ -2762,3 +2762,15 @@ Assigned after 8b2 merged (fd3f05f). The lead asked for a section stepped at bot
   only in the same state with the CD still paused; the test checks the
   menu music is never heard between the movie and the briefing (break:
   resume at once). Three breaks.
+
+## The launcher's one picker (2026-11-02, before v1.0)
+
+- Owen: one option. FIND THE GAME searches (an installed copy or a disc in
+  a drive used with no picker); with nothing found it says so and opens one
+  file picker. sdlfe::pick_source: an image or archive is the source, any
+  other file its folder (install_of_pick: zbd\ and video\ up one), a .bin
+  its .cue. ADD FROM MY DISC: a drive first, then the same one picker. The
+  two-plate pick states are gone. SDL 3.4 has no file-or-folder dialog (the
+  Mac's panel included), so a folder is picked by one of its files.
+- launcher_one_picker_takes_a_file_for_its_folder (two breaks); the screen
+  tests on the new plates; mingw syntax check of the changed files.

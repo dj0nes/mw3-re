@@ -19,6 +19,13 @@ bool install_valid(const std::string& dir, std::string* missing = nullptr);
 // the file is in zbd/ or video/ (a picked reader.zbd).
 std::string install_of_pick(const std::string& file);
 
+// What the launcher's one picker means (Owen, 2026-11-02: one option): a
+// file of one of `kinds` (extensions, lower case, no dot) is itself the
+// source; any other file stands for its folder (Mech3.exe, or any file in an
+// installed copy or a disc's folder: install_of_pick, zbd\ and video\ up
+// one). A .bin with a .cue of its name beside it is that .cue.
+std::string pick_source(const std::string& file, const std::vector<std::string>& kinds);
+
 // The folder the installer's "Program" value names: a folder, or Mech3.exe's
 // full path (InstallShield's App Paths default).
 std::string install_of_program_value(std::string value);

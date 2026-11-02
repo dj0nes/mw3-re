@@ -50,6 +50,22 @@ std::string install_of_pick(const std::string& file) {
   return dir;
 }
 
+std::string pick_source(const std::string& file, const std::vector<std::string>& kinds) {
+  std::error_code ec;
+  if (fs::is_directory(file, ec)) return file;
+  const std::string ext = lower(fs::path(file).extension().string());
+  const std::string bare = ext.empty() ? ext : ext.substr(1);
+  if (bare == "bin") {  // a cue sheet's data file: the sheet
+    for (const char* c : {".cue", ".CUE"}) {
+      const fs::path cue = fs::path(file).replace_extension(c);
+      if (fs::is_regular_file(cue, ec)) return cue.string();
+    }
+  }
+  for (const std::string& k : kinds)
+    if (bare == k) return file;
+  return install_of_pick(file);
+}
+
 std::string install_of_program_value(std::string value) {
   if (value.size() >= 2 && value.front() == '"' && value.back() == '"') value = value.substr(1, value.size() - 2);
   value = trimmed(value);

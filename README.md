@@ -62,13 +62,13 @@ installed itself earlier. It says which version it found in its log.
 your game (a plain `mw3` start shows only that screen), and once the game
 is there it goes straight on into it:
 
-- **Find my game** searches this computer and your disc drives first and
-  uses what it finds. If there is nothing, it asks for:
-  - **A disc image or download**: an `.iso`, a `.cue` with its `.bin`
-    files (whose CD audio becomes the music), a `.zip`, `.7z` or `.rar`
-    holding any of those (even a zip inside a zip; nothing needs unpacking
-    by hand), or your installed copy's `Mech3.exe`;
-  - **A folder**: where the game is installed, or the disc's own folder.
+- **Find the game** searches this computer and your disc drives first and
+  uses what it finds, with nothing to pick. If there is nothing, one
+  picker opens: choose a disc image or download (an `.iso`, a `.cue` with
+  its `.bin` files, whose CD audio becomes the music, or a `.zip`, `.7z` or
+  `.rar` holding any of those, even a zip inside a zip; nothing needs
+  unpacking by hand), or `Mech3.exe` (or any file) in an installed copy,
+  which means that whole folder.
   It looks inside first and says what it found ("The MechWarrior 3 disc
   version 1.0, with its music (2 CD tracks)"), then copies what the game
   needs into a folder of the rebuild's own, with a progress bar and
