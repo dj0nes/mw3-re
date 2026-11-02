@@ -546,3 +546,14 @@ through the MCI notify path.
 - Movies (zFMV, Indeo 5).
 - The cursor (0x00579840) is not shown or hidden; the menus draw their own.
 - Shaders: MSL (Metal) and DXIL (Direct3D 12, windows.md); no SPIR-V (Vulkan) yet.
+- zEntity's list as memory (found 2026-11-01, dev 2's queue after the
+  modding work): the [0x0073655c..0x00736560] begin and end the app code
+  reads are never written (the list is `ai::entity_list()`), so two walks
+  over it never run: the screen-mode switch's cockpit refit
+  (`Engine::screen_mode_cockpits`, 0x004ab6b0's loop, app_hooks.cpp) and
+  `update_shadows`' per-entity pass (0x004814e0, app_states.cpp). The
+  shadows are drawn through the program's own vehicle and mech lists, so
+  the visible gap would be the cockpit not refitted after a screen-mode
+  change in a mission. The fix walks `ai::entity_list()` instead (each
+  entry's vt+0x2c itself, vt+0x50 a mech or 0: the stealth answers 0, as
+  in the exe).
