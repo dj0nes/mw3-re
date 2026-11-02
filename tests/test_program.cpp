@@ -765,6 +765,53 @@ TEST(mounts_absolute_host_paths_stay_as_given) {
   EXPECT(zutl::host("C:\\Games\\x") == "C:/Games/x");
 }
 
+// Confined (the program, once set up): a name from data, a mod or the
+// network that is absolute, holds a ':' or has a ".." part reads, writes and
+// lists nothing, though the file exists beside the mounts; game names still
+// work. Off (tools, tests), host paths stay as given.
+TEST(mounts_confined_names_stay_inside) {
+  SavedMounts keep;
+  const std::string d = temp_dir("confined");
+  touch(d + "/secret.zrd");
+  touch(d + "/install/zbd/c1/ok.zbd");
+  touch(d + "/install/zbd/c1/two.zrd");
+  const std::string abs = std::filesystem::absolute(d + "/secret.zrd").string();
+  zutl::mounts() = zutl::Mounts{};
+  zutl::mount(d + "/install");
+  zutl::set_write_dir(d + "/saves");
+  EXPECT(zutl::find(abs.c_str()) == abs);  // off: as given
+  EXPECT(zutl::find("..\\secret.zrd") == d + "/install/../secret.zrd");
+  zutl::mounts().confined = true;
+  for (const char* name : {"..\\secret.zrd", "zbd\\..\\..\\secret.zrd", "zbd/c1/../../../secret.zrd", "..",
+                           "C:\\secret.zrd", "secret.zrd:stream", "\\secret.zrd", abs.c_str()}) {
+    EXPECT(zutl::find(name).empty());
+    EXPECT(zutl::find_all(name).empty());
+    EXPECT(!zutl::exists(name));
+    EXPECT(zutl::open(name, "rb") == nullptr);
+    EXPECT(zutl::write_path(name).empty());
+    EXPECT(zutl::open(name, "wb") == nullptr);
+    EXPECT(zrdr::load(name) == nullptr);
+  }
+  EXPECT(zutl::list("..\\*.zrd").empty());
+  EXPECT(zutl::list("zbd\\c1\\..\\..\\..\\*.zrd").empty());
+  EXPECT(zutl::open("..\\secret.zrd.new", "wb") == nullptr && !std::filesystem::exists(d + "/secret.zrd.new"));
+  // Game names still read, ".\\" and "a..b" too.
+  EXPECT(zutl::find("zbd\\c1\\ok.zbd") == d + "/install/zbd/c1/ok.zbd");
+  EXPECT(zutl::find(".\\zbd\\c1\\ok.zbd") == d + "/install/./zbd/c1/ok.zbd");
+  EXPECT(zutl::list("zbd\\c1\\*.zrd").size() == 1);
+  EXPECT(zutl::write_path("pilots\\a..b.plt") == d + "/saves/pilots/a..b.plt");
+  // A world from a hostile lobby or a mod: the lobby sends numbers, which
+  // name only the table's folders ("none" past it); a mod world named with
+  // ".." (mods.cpp refuses one) still opens nothing.
+  for (const int32_t w : {-1, 255, 0x7fffffff, mech3::mission_dir_count()})
+    EXPECT(std::strcmp(mech3::mission_dir(w), "none") == 0);
+  mech3::mod_worlds().push_back("..\\..");
+  const std::string hostile = std::string("zbd\\") + mech3::mission_dir(mech3::mission_dir_count() - 1) + "\\secret.zrd";
+  EXPECT(zutl::find(hostile.c_str()).empty());
+  EXPECT(!zrdr::open_archive(hostile.c_str(), false));
+  mech3::mod_worlds().pop_back();
+}
+
 TEST(mounts_write_dir_first_then_mounts_in_order) {
   SavedMounts keep;
   const std::string d = temp_dir("mounts");

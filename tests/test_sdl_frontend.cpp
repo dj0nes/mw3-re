@@ -1945,6 +1945,38 @@ pid_t spawn_launcher(const std::vector<std::string>& args, const std::string& lo
 }
 }  // namespace
 
+// The program confines its names (zutl::Mounts::confined): a dialog named
+// "..\\secret.zrd" is refused though the file sits beside the write dir, and
+// the log says so; a dialog the game has still loads.
+TEST(sdl_program_names_stay_inside_the_game_folders) {
+  if (!have_fonts()) return;
+  const std::string root = std::string(MW3_TEST_TMP) + "/sdl_confined";
+  std::filesystem::remove_all(root);
+  std::filesystem::create_directories(root + "/wd");
+  if (std::FILE* f = std::fopen((root + "/secret.zrd").c_str(), "w")) std::fputs("(MAINMENU ())\n", f), std::fclose(f);
+  // The dialog start runs until Escape, so each run is stopped once its
+  // answer (the dialog bound, or not found) is in the log, or after 60 s.
+  auto run = [&](const char* file, const char* name) {
+    const std::string log = root + "/mw3.log";
+    const pid_t pid = spawn_mw3({"--dialog", file, name, "--nosound", "--hidden", "--write-dir", root + "/wd"}, log);
+    std::string out;
+    for (int i = 0; pid > 0 && i < 600; ++i) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(100));
+      std::ifstream in(log);
+      out.assign(std::istreambuf_iterator<char>(in), {});
+      if (out.find("not found") != std::string::npos || out.find("objects bound") != std::string::npos) break;
+    }
+    int status = 0;
+    if (pid > 0) kill(pid, SIGKILL), waitpid(pid, &status, 0);
+    return out;
+  };
+  const std::string out = run("..\\secret.zrd", "MAINMENU");
+  EXPECT(out.find("../secret.zrd is outside the game's folders, not opened") != std::string::npos);
+  EXPECT(out.find("not found") != std::string::npos);
+  const std::string ok = run("dialog.zrd", "MAINMENU");
+  EXPECT(ok.find("outside the game's folders") == std::string::npos && ok.find("objects bound") != std::string::npos);
+}
+
 TEST(sdl_program_screens_are_not_blank) {
   if (!have_fonts()) return;
   const std::vector<std::string> ia = {"--click-at", "60,210@40", "--tap", "0x14@70", "--tap", "0x12@74", "--tap",
