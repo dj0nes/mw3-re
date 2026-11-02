@@ -38,8 +38,10 @@ Moon, the expansion, is next, as a game of its own beside this one.
 Start **MechWarrior 3**. It finds your install by itself; if it cannot,
 it asks for your game: point it at the disc image or zip and it takes it
 from there.
-The Mac app is not signed by Apple: the first time, right-click it and
-choose **Open**. Windows SmartScreen may warn about an unknown publisher:
+The Mac app is not signed by Apple. The first time macOS says
+"MechWarrior 3 Not Opened": click **Done**, then on macOS 15 and later open
+**System Settings > Privacy & Security**, click **Open Anyway** and then
+**Open**; on macOS 12 to 14, right-click the app and choose **Open**. Windows SmartScreen may warn about an unknown publisher:
 **More info**, then **Run anyway**. The README has the rest.
 
 ## New since the playtest builds

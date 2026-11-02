@@ -43,10 +43,18 @@ From the [Releases](../../releases) page:
 | Linux | `MW3-Rebuild-<version>-x86_64.AppImage` | Make it executable (`chmod +x`) and run it. |
 
 **On a Mac, the first time:** the app is not signed by Apple, so macOS stops
-it the first time you open it. Right-click (or Control-click) the app, choose
-**Open**, then **Open** again. Or, after macOS has blocked it once, go to
-**System Settings > Privacy & Security** and click **Open Anyway**. macOS
-remembers your choice after that.
+it the first time you open it ("MechWarrior 3 Not Opened"; click **Done**,
+not Move to Trash).
+
+- **macOS 15 Sequoia and later:** open **System Settings > Privacy &
+  Security**, scroll down to the line about MechWarrior 3, click **Open
+  Anyway**, then **Open** (and your password if asked). Right-click > Open
+  no longer gets past it on these versions.
+- **macOS 12 to 14:** right-click (or Control-click) the app, choose
+  **Open**, then **Open** again. Open Anyway in Privacy & Security works
+  there too.
+
+macOS remembers your choice after that.
 
 **On Windows**, SmartScreen may warn about an unknown publisher: click
 **More info**, then **Run anyway**.
