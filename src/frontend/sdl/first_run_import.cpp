@@ -1,4 +1,5 @@
 #include "frontend/sdl/first_run_import.h"
+#include "frontend/sdl/movie_import.h"
 #include "frontend/sdl/sdl_child.h"
 
 #include <SDL3/SDL.h>
@@ -17,32 +18,6 @@ namespace fs = std::filesystem;
 
 namespace {
 
-std::string lower(std::string s) {
-  for (char& c : s) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-  return s;
-}
-
-// mw3import(.exe) in the program's own folder. In a Mac app SDL's base is
-// Contents/Resources, and the importer is beside mw3 in Contents/MacOS.
-std::string importer_path() {
-  const char* base = SDL_GetBasePath();
-  if (!base) return {};
-#if defined(_WIN32)
-  const fs::path p = fs::path(base) / "mw3import.exe";
-#else
-  const fs::path p = fs::path(base) / "mw3import";
-#endif
-  std::error_code ec;
-  if (fs::exists(p, ec)) return p.string();
-#if defined(__APPLE__)
-  const fs::path res = fs::path(base).parent_path();  // the base ends in '/'
-  if (res.filename() == "Resources") {
-    const fs::path q = res.parent_path() / "MacOS" / "mw3import";
-    if (fs::exists(q, ec)) return q.string();
-  }
-#endif
-  return {};
-}
 
 // What the importer's stdout says: "progress K N [name]".
 struct Progress {
@@ -70,16 +45,6 @@ void read_progress(SDL_IOStream* out, Progress* pr) {
 }
 
 }  // namespace
-
-int movies_missing(const std::string& install, const std::string& write_dir) {
-  std::error_code ec;
-  int n = 0;
-  for (const auto& e : fs::directory_iterator(fs::path(install) / "video", ec)) {
-    if (lower(e.path().extension().string()) != ".avi") continue;
-    if (!fs::exists(fs::path(write_dir) / "video" / (lower(e.path().stem().string()) + ".fmv"), ec)) ++n;
-  }
-  return n;
-}
 
 namespace {
 // The movies of `install`'s video\ not imported yet, imported.

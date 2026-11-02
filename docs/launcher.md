@@ -68,9 +68,25 @@ starts the game; Escape as OK). They say what is missing (launcher_notes:
 | Add from my disc | the notes (and GAME FILES' screen), when the movies or the music are missing | a disc in a drive first; else "No disc in a drive ..." and one picker (its image, or any file of the disc for its folder: `pick_source`); `setup::add_from_disc` on the worker ("ADDING FROM YOUR DISC"): the disc's VIDEO\*.AVI into `<write dir>/video` (`add_movies`, from a drive, the disc's folder, an .iso or a .cue's data track), the music from a .cue only (`add_music`; from a drive, a folder or an .iso it says the music needs a .cue). Back to the notes with what was added |
 
 The game finds movies in the write dir before the install's (zutl::find),
-so the Indeo helper plays the added AVIs on Windows; elsewhere the first
-start's import (`first_run_import`) converts the write dir's AVIs too, as
-the install's.
+so the Indeo helper plays the added AVIs on Windows. Elsewhere the movies
+are converted in the launcher (Owen's first start, 2026-11-02, sat 44 s on
+"Starting MechWarrior 3..." while mw3 did it with only a status line): before
+the game starts, and right after ADD FROM MY DISC, any AVI of the install or
+the write dir without its .fmv goes through mw3import on the work screen
+("CONVERTING THE MOVIES", "Converting the movies (K of N)", the movie's name,
+CANCEL; movie_import.h, its "progress K N name" lines). A cancel keeps the
+ones done; mw3's own first-run import (`first_run_import`, its small progress
+window) stays the fallback for a start without the launcher. None on Windows,
+nor with --no-import (passed on to the game) or MW3_NO_IMPORT; MW3_IMPORTER
+names a stand-in for the checks. `sdl_program_launcher_converts_the_movies_before_the_game`.
+
+The file picker (Owen: very slow to open on macOS 26): SDL shows NSOpenPanel
+as a sheet on the launcher's window, and the panel is another process that
+answers through the main run loop, which the launcher's vsync frame loop
+served once a frame. While a picker is up the launcher draws nothing and
+waits in SDL_WaitEventTimeout (the run loop serving the panel at once). The
+log times it: "the file picker asked for", "the picker took the focus N ms
+after", "the picker answered (...) N ms after".
 
 GAME FILES opens the same screen with the install in use ("Using
 MechWarrior 3 1.2 at <folder>. No music.") and, while it lacks movies or

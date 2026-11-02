@@ -4012,11 +4012,14 @@ LauncherRun run_launcher_with(const std::string& name, const std::string& script
   std::filesystem::permissions(game, std::filesystem::perms::owner_all, ec);
   setenv("MW3_GAME_BIN", game.c_str(), 1);
   if (ready_ms) setenv("MW3_LAUNCHER_READY_MS", ready_ms, 1);
-  for (const auto& [k, v] : env) setenv(k.c_str(), v.c_str(), 1);
+  bool importer = false;
+  for (const auto& [k, v] : env) setenv(k.c_str(), v.c_str(), 1), importer = importer || k == "MW3_IMPORTER";
+  if (!importer) setenv("MW3_NO_IMPORT", "1", 1);  // no movie conversion in the launcher unless a stand-in is given
   std::vector<std::string> args = {"--write-dir", dir + "/wd", "--window", "640x480", "--nosound", "--hidden"};
   if (play) args.insert(args.begin() + 2, "--launcher-play");
   const pid_t pid = spawn_launcher(args, dir + "/launcher.log");
   for (const auto& [k, v] : env) unsetenv(k.c_str());
+  unsetenv("MW3_NO_IMPORT");
   unsetenv("MW3_LAUNCHER_READY_MS");
   unsetenv("MW3_GAME_BIN");
   int status = 0;
@@ -4108,6 +4111,44 @@ TEST(sdl_program_launcher_finds_the_game_then_plays) {
   EXPECT(d.exited && !d.args.empty() && d.args[0] == cd);
   EXPECT(screen(d.log, "screen notes: ADD FROM MY DISC, OK\n") && screen(d.log, "no movies (they stayed on the CD) and no music"));
   std::filesystem::remove_all(cd, ec);
+}
+
+// The movies converted in the launcher (Owen's first start sat 44 s on
+// "Starting MechWarrior 3..." while mw3 did it): a found install's AVIs go
+// through the importer (here a stand-in, MW3_IMPORTER, as mw3import: its
+// "progress K N name" lines, the .fmv files) on the work screen before the
+// game starts; with them done, a later start goes straight in.
+TEST(sdl_program_launcher_converts_the_movies_before_the_game) {
+  auto seen = [](const std::string& log, const std::string& line) { return log.find(line) != std::string::npos; };
+  const std::string root = std::string(MW3_TEST_TMP) + "/launcher_convert";
+  std::error_code ec;
+  std::filesystem::remove_all(root, ec);
+  std::filesystem::create_directories(root + "/cd/video", ec);
+  std::filesystem::create_directory_symlink(std::string(MW3_GAME_DIR) + "/zbd", root + "/cd/zbd", ec);
+  for (const char* m : {"/cd/video/C1.AVI", "/cd/video/INTRO.AVI"}) std::ofstream(root + m) << "x";
+  const std::string importer = root + "/mw3import";
+  {
+    std::ofstream sh(importer);
+    sh << "#!/bin/sh\nS=; W=\nwhile [ $# -gt 0 ]; do case \"$1\" in --install) S=$2; shift;; --write-dir) W=$2; shift;; esac; shift; done\n"
+          "mkdir -p \"$W/video\"; echo progress 0 2; K=0\nfor F in \"$S\"/video/*.AVI; do N=$(basename \"$F\" .AVI | tr A-Z a-z); "
+          ": > \"$W/video/$N.fmv\"; K=$((K+1)); echo progress $K 2 $N; done\n";
+  }
+  std::filesystem::permissions(importer, std::filesystem::perms::owner_all, ec);
+  const auto env = std::vector<std::pair<std::string, std::string>>{{"MW3_FIND_INSTALL", "1"}, {"MW3_LAUNCHER_PICK", root + "/cd"},
+                                                                  {"MW3_LAUNCHER_FRAMES", "1800"}, {"MW3_IMPORTER", importer}};
+  auto music = [](const std::string& d) {
+    std::filesystem::create_directories(d + "/wd/music");
+    std::ofstream(d + "/wd/music/track02.wav") << "x";
+  };
+  const LauncherRun r = run_launcher_with("launcher_convert_run", "READY\nsleep 1", nullptr, env, music);
+  const std::string wd = std::string(MW3_TEST_TMP) + "/launcher_convert_run/wd";
+  std::printf("convert: work %d, both .fmv %d, before the game %d, started %d\n", seen(r.log, "work: CONVERTING THE MOVIES"),
+              std::filesystem::exists(wd + "/video/c1.fmv") && std::filesystem::exists(wd + "/video/intro.fmv"),
+              r.log.find("work: CONVERTING THE MOVIES") < r.log.find("the game's first frame"), !r.args.empty());
+  EXPECT(r.exited && !r.args.empty() && seen(r.log, "work: CONVERTING THE MOVIES") && seen(r.log, "the game's first frame"));
+  EXPECT(r.log.find("work: CONVERTING THE MOVIES") < r.log.find("the game's first frame"));
+  EXPECT(std::filesystem::exists(wd + "/video/c1.fmv") && std::filesystem::exists(wd + "/video/intro.fmv"));
+  std::filesystem::remove_all(root, ec);
 }
 
 // GAME FILES (Owen, 2026-11-02): the find screen at any time, by keys or a

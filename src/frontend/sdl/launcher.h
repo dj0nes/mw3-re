@@ -34,6 +34,7 @@ struct LauncherOptions {
   std::string game_bin;
   std::vector<std::string> game_args;
   bool hidden = false;  // --hidden: the window never shown (checks), passed on to the game
+  bool no_import = false;  // --no-import: no movie conversion here (passed on to the game)
   bool play = false;  // --launcher-play: MECHWARRIOR 3 pressed once the window is up (checks)
   bool quit_after_game = false;  // with play: quit when the game exits (checks)
   bool play_mw1 = false;  // --launcher-mw1: MECHWARRIOR (1989) pressed once, then quit when it returns (checks)

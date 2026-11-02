@@ -638,7 +638,7 @@ if(SDL3_FOUND)
   find_package(SDL3_ttf CONFIG QUIET)
   if(SDL3_ttf_FOUND)
     add_library(mw3text STATIC src/frontend/sdl/sdl_twod_host.cpp src/frontend/sdl/gdi_font_size.cpp
-                src/frontend/sdl/text_fit.cpp src/frontend/sdl/launcher_notes.cpp)
+                src/frontend/sdl/text_fit.cpp src/frontend/sdl/launcher_notes.cpp src/frontend/sdl/movie_import.cpp)
     target_link_libraries(mw3text PUBLIC mw3sdl SDL3_ttf::SDL3_ttf)
     add_executable(mw3
       src/frontend/sdl/mw3_main.cpp

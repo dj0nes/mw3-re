@@ -2774,3 +2774,20 @@ Assigned after 8b2 merged (fd3f05f). The lead asked for a section stepped at bot
   Mac's panel included), so a folder is picked by one of its files.
 - launcher_one_picker_takes_a_file_for_its_folder (two breaks); the screen
   tests on the new plates; mingw syntax check of the changed files.
+
+## The Mac's fresh-install findings (2026-11-02, before v1.0)
+
+- Gatekeeper on macOS 15+: README and release notes give Privacy &
+  Security > Open Anyway > Open; right-click Open for 12 to 14.
+- The 1.0 data warnings (BindPrimitive LINES1/OPTIONTEXT, BindButton
+  CALL_BUTTON/PLAYER_NAME, action_line6/7 not found): the same six lines
+  with 1.2 data (mw3 run on the 1.2 copy to the menus); both versions'
+  dialog.zrd name them, no data has the images, 1.2 changed only the MP
+  chat arrows there. The original data's own; nothing for patch12.
+- The movies converted in the launcher (movie_import.h shared with mw3's
+  fallback): before the game and after ADD FROM MY DISC, on the work
+  screen, cancelable; not on Windows; --no-import / MW3_NO_IMPORT /
+  MW3_IMPORTER (a stand-in for the test).
+- The picker: SDL's sheet NSOpenPanel answered through a main run loop the
+  vsync frame loop served once a frame; while it is up the launcher waits in
+  SDL_WaitEventTimeout and logs the call, the focus and the answer.

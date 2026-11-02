@@ -1,5 +1,6 @@
 #include "frontend/sdl/launcher.h"
 #include "frontend/sdl/launcher_notes.h"
+#include "frontend/sdl/movie_import.h"
 #include "frontend/sdl/text_fit.h"
 
 #include <SDL3/SDL.h>
@@ -340,13 +341,14 @@ struct Work {
   mech3::setup::Result result;
   std::atomic<bool> cancel{false}, done{false};
   std::string title;
-  enum Kind { kOther, kLook, kInstallIt, kAddDisc } kind = kOther;  // a picked source's look, its install, ADD FROM MY DISC
+  enum Kind { kOther, kLook, kInstallIt, kAddDisc, kConvert } kind = kOther;  // a look, an install, ADD FROM MY DISC, the movies
   ~Work() {
     cancel = true;
     if (th.joinable()) th.join();
   }
   void start(std::string t, std::function<mech3::setup::Result(const mech3::setup::ProgressFn&)> op) {
     title = std::move(t);
+    std::printf("mw3: launcher: work: %s\n", title.c_str());  // the checks follow it
     th = std::thread([this, op] {
       mech3::setup::Result r = op([this](const mech3::setup::Progress& p) {
         std::lock_guard<std::mutex> g(m);
@@ -406,6 +408,8 @@ class Launcher {
   void search();
   void use_install(const std::string& dir, const std::string& version, const std::string& summary);
   void play();
+  int movies_to_convert() const;
+  void convert_movies(std::function<void()> then);
   void notes_refresh();
   std::string in_use() const;
   void add_disc(const std::string& source);
@@ -450,6 +454,8 @@ class Launcher {
   std::unique_ptr<Work> work_;
   Pick pick_;
   bool asking_ = false;
+  Uint64 ask_at_ = 0;      // when the picker was asked for (its timing in the log)
+  bool ask_shown_ = false;  // the panel took the window's focus
   std::string confirm_text_, pending_source_;
   int confirm_go_ = 0;
   std::shared_ptr<mech3::source::Found> found_;  // the last look's (look_at)
@@ -457,6 +463,8 @@ class Launcher {
   bool auto_ok_ = false;  // and the notes' OK after it
   bool play_after_notes_ = false;  // the notes after an install: their OK starts the game
   bool from_files_ = false;        // the find screen opened by GAME FILES: a new pick goes back to the games
+  std::function<void()> after_convert_;  // where the movies' conversion goes on to
+  bool converted_ = false;               // tried once this start (a failure is not retried before the game)
   int disc_back_ = 0;              // the screen ADD FROM MY DISC returns to (Screen)
   bool lacks_music_ = false, lacks_movies_ = false;
   LauncherChoice choice_;
@@ -886,7 +894,8 @@ void Launcher::ask_file(int what, const SDL_DialogFileFilter* filters, int n) {
     std::lock_guard<std::mutex> g(pick_.m);
     pick_.what = what, pick_.path.clear(), pick_.answered = pick_.cancelled = false;
   }
-  asking_ = true;
+  asking_ = true, ask_shown_ = false, ask_at_ = SDL_GetTicksNS();
+  std::printf("mw3: launcher: the file picker asked for\n");
   SDL_ShowOpenFileDialog(Pick::done, &pick_, win_, filters, n, nullptr, false);
 }
 void Launcher::ask_folder(int what) {
@@ -894,7 +903,8 @@ void Launcher::ask_folder(int what) {
     std::lock_guard<std::mutex> g(pick_.m);
     pick_.what = what, pick_.path.clear(), pick_.answered = pick_.cancelled = false;
   }
-  asking_ = true;
+  asking_ = true, ask_shown_ = false, ask_at_ = SDL_GetTicksNS();
+  std::printf("mw3: launcher: the folder picker asked for\n");
   SDL_ShowOpenFolderDialog(Pick::done, &pick_, win_, nullptr, false);
 }
 
@@ -969,6 +979,14 @@ std::string Launcher::in_use() const {
 // MechWarrior 3 started: by mw3launcher as the game's own program, else
 // (a plain mw3 start, or no game_bin) the window handed on.
 void Launcher::play() {
+  // The movies converted here first, with the bar (Owen: a first start sat
+  // 44 s on "Starting MechWarrior 3..." while mw3 did it); mw3's own import
+  // stays the fallback for a start without the launcher.
+  if (!converted_ && movies_to_convert() > 0) {
+    converted_ = true;
+    convert_movies([this] { play(); });
+    return;
+  }
   if (!o_.setup_only && !o_.game_bin.empty()) {
     screen_ = kMain, layout();
     if (!game_) start_game();
@@ -976,6 +994,51 @@ void Launcher::play() {
   }
   choice_ = {LauncherChoice::kPlay, install_.dir};
   done_ = true;
+}
+
+// The movies the install and the write dir (ADD FROM MY DISC's) have not
+// converted for the player (mw3import); none on Windows, whose helper plays
+// the AVIs as they are, or without the importer or with MW3_NO_IMPORT.
+int Launcher::movies_to_convert() const {
+#if defined(_WIN32)
+  return 0;
+#else
+  if (!install_.ok || o_.no_import || SDL_getenv("MW3_NO_IMPORT") || importer_path().empty()) return 0;
+  std::error_code ec;
+  const bool same = fs::equivalent(install_.dir, o_.write_dir, ec);
+  return movies_missing(install_.dir, o_.write_dir) + (same ? 0 : movies_missing(o_.write_dir, o_.write_dir));
+#endif
+}
+
+// mw3import on the worker, the bar following its "progress" lines; CANCEL
+// stops it (the movies done stay; the rest wait for the next start).
+void Launcher::convert_movies(std::function<void()> then) {
+  after_convert_ = std::move(then);
+  work_ = std::make_unique<Work>();
+  work_->kind = Work::kConvert;
+  const std::string install = install_.dir, wd = o_.write_dir;
+  std::error_code ec;
+  const bool same = fs::equivalent(install, wd, ec);
+  work_->start("CONVERTING THE MOVIES", [install, wd, same](const mech3::setup::ProgressFn& f) {
+    mech3::setup::Result r;
+    const int a = movies_missing(install, wd), b = same ? 0 : movies_missing(wd, wd), total = a + b;
+    int base = 0, code = 0;
+    for (const auto& [src, n] : {std::pair<std::string, int>{install, a}, std::pair<std::string, int>{wd, b}}) {
+      if (n == 0) continue;
+      code = run_importer(src, wd, [&](int done, int, const std::string& name) {
+        return f(mech3::setup::Progress{"Converting the movies (" + std::to_string(base + done) + " of " + std::to_string(total) + ")",
+                                        total ? static_cast<double>(base + done) / total : 0, name});
+      });
+      if (code != 0) break;
+      base += n;
+    }
+    r.ok = code == 0, r.cancelled = code == 1, r.movies = total;
+    r.summary = r.ok          ? std::to_string(total) + " movies converted for this computer."
+                : r.cancelled ? "Converting the movies was stopped; the rest are done when the game starts."
+                              : "Some movies could not be converted; the game plays without them.";
+    return r;
+  });
+  screen_ = kWorking, layout();
 }
 
 // A found install used: saved to mw3.cfg, then straight on into the game
@@ -1066,11 +1129,23 @@ void Launcher::finish_work() {
   const Work::Kind kind = work_->kind;
   work_.reset();
   std::printf("mw3: launcher: %s%s%s\n", r.summary.c_str(), r.detail.empty() ? "" : " | ", r.detail.c_str());
+  if (kind == Work::kConvert) {  // on where it was going
+    std::function<void()> then = std::move(after_convert_);
+    after_convert_ = nullptr;
+    if (then) then();
+    return;
+  }
   if (kind == Work::kAddDisc) {  // back to the notes, saying what was added
     status_ = r.summary, status_good_ = r.ok || r.cancelled;
     for (const std::string& w : r.warnings) status_ += " " + w;
     notes_refresh();
-    screen_ = disc_back_ == kSetupScreen ? kSetupScreen : kNotes, layout();
+    const Screen back = disc_back_ == kSetupScreen ? kSetupScreen : kNotes;
+    if (r.ok && r.movies > 0 && movies_to_convert() > 0) {  // the movies just added, converted at once
+      const std::string said = status_;
+      convert_movies([this, back, said] { status_ = said, screen_ = back, layout(); });
+      return;
+    }
+    screen_ = back, layout();
     return;
   }
   if (kind == Work::kLook) {
@@ -1285,6 +1360,11 @@ LauncherChoice Launcher::run() {
     while (SDL_PollEvent(&e)) {
       SDL_ConvertEventToRenderCoordinates(ren_, &e);
       if (e.type == SDL_EVENT_QUIT) done_ = true;
+      if (asking_ && !ask_shown_ && e.type == SDL_EVENT_WINDOW_FOCUS_LOST) {  // the panel up (a sheet takes the focus)
+        ask_shown_ = true;
+        std::printf("mw3: launcher: the picker took the focus %.0f ms after it was asked for\n",
+                    static_cast<double>(SDL_GetTicksNS() - ask_at_) / 1e6);
+      }
       if (game_) continue;  // the game is starting or running
       if (asking_ || screen_ == kWorking) {
         if (screen_ == kWorking && e.type == SDL_EVENT_MOUSE_BUTTON_UP && e.button.button == SDL_BUTTON_LEFT)
@@ -1336,7 +1416,16 @@ LauncherChoice Launcher::run() {
       }
       if (answered) {
         asking_ = false;
+        std::printf("mw3: launcher: the picker answered (%s) %.0f ms after it was asked for\n", cancelled ? "cancelled" : "a pick",
+                    static_cast<double>(SDL_GetTicksNS() - ask_at_) / 1e6);
         if (!cancelled) picked(what, path);
+      } else {
+        // While the panel is up the launcher stops drawing and waits in the
+        // run loop: on the Mac the panel is another process answering through
+        // the main run loop, which a vsync frame loop served once a frame
+        // (Owen: the picker took a long time to open).
+        SDL_WaitEventTimeout(nullptr, 50);
+        continue;
       }
     }
     if (work_ && work_->done) finish_work();
