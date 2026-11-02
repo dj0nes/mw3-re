@@ -432,9 +432,25 @@ functions PM changed, and PM's new ones.
        the high-res model layer would use it too. It needs PM's draw
        code read first, for how a polygon's materials combine (blending,
        order).
-     - Nodes 0x516e90 / 0x5171a0 (MW3 0x4ff200 / 0x4feaf0): PM's node
-       layout (mech3ax `nodes/node/pm`, world, light, lod) plus the model
-       base. Left to read.
+     - Nodes 0x516e90 / 0x5171a0 (MW3 0x4ff200 / 0x4feaf0), (c3) in
+       progress. The pool appends in blocks ([0x60dc68] a block; blocks
+       0x6393c8, count 0x6393c0, capacity 0x6393c4); the last block's
+       rest is zeroed and freed (0x50c9d0); the live count 0x6393cc is
+       reset to 0 on every file (kept). Each node: +0x70, the box index
+       (0, 1, 2), becomes a pointer to its box (+0x74, +0x8c, +0xa4);
+       the model index plus the model base (0x557ba0); +0x48 cleared;
+       0x5171a0(node, f, node base); live flag 0x3000000 in +0xd0. The
+       worlds then copy their lights' and sounds' data pointers, as MW3.
+       PM's node is its own layout (mech3ax `nodes/node/pm`): the
+       parent and child counts are 16 bits each (+0x54, +0x56), the
+       arrays at +0x58 and +0x5c, the box centre +0x60, the box index
+       +0x70 (MW3: 32-bit counts at +0x54 and +0x5c, arrays at +0x58 and
+       +0x60). So the port gets `pm::zcls::Node`, as the models got PM's
+       own types. In 0x5171a0 every node index read is offset by the
+       node base (cameras' 4 nodes, the world's light, sound and
+       partition lists, 0x5178e0 and 0x517960 with 12-byte entries);
+       a world partition is 0x58 bytes. Ghidra mangles its switch: read
+       the jump table from pm.asm.
 2. **The world**: the light maps and lighting (`gmod_matl.c` 39 new; PM
    drops MW3's fog), `cls_clutter.cpp` (32 new), the world class
    (`cls_world.c` 20 new), the script interpreter's new commands (the
