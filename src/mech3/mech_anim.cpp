@@ -2,6 +2,7 @@
 
 #include <cmath>
 #include <cstdio>
+#include <set>
 #include <string>
 
 #include "gamez/zutil/zutl_path.h"
@@ -46,12 +47,14 @@ struct Lend {
 
 namespace {
 std::string g_motions_game_path;  // the path open_motions was given (the archive's own may be freed)
+std::set<std::string> g_broken;    // motions some copy has, broken, and none has whole
 }  // namespace
 
 // Mech3.exe 1.2 @ 0x005a9820. A failed open leaves no archive.
 bool open_motions(const char* path) {
   close_motions();
   g_motions_game_path = path ? path : "";
+  g_broken.clear();
   g_motions = new zutl_zar::Archive;
   zutl_zar::init(*g_motions);
   if (zutl_zar::open(*g_motions, path)) return true;
@@ -110,17 +113,22 @@ bool load_motion(zsis::Script& s, const char* name) {
     bool other_broken = false;
     const bool ok = zutl_zar::open(a, host.c_str()) && read_from(a, s, name, &other_broken);
     zutl_zar::destroy(a);
+    broken = broken || other_broken;
     if (ok) {
       std::printf("mw3: %s: its motion %s is %s; %s's instead\n", first.c_str(), name, broken ? "broken" : "missing",
                   host.c_str());
       return true;
     }
   }
-  if (broken)
+  if (broken) {
     std::printf("mw3: %s: its motion %s is broken (a count or keys past its end), and no other copy has it\n",
                 first.empty() ? "motion.zbd" : first.c_str(), name);
+    g_broken.insert(name);
+  }
   return false;
 }
+
+bool motion_broken(const char* name) { return name && g_broken.count(name) != 0; }
 
 // Mech3.exe 1.2 @ 0x0041f100
 MechAnim::MechAnim() { active = true; }

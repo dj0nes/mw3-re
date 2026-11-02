@@ -48,6 +48,7 @@ struct MechData {
   Handle model = nullptr;        // +0x014  the model tree each mech copies (= models[0])
   Handle models[2] = {};         // +0x018  mechlib's trees (0x00484760): mech_<name>, mech_<name>_1 (low detail)
   uint8_t x20 = 0;               // +0x020  loaded: each step clears it on failure
+  uint8_t motion_refused = 0;    // ours: refused for a broken motion (modding.md, M3); a log line, no box
   Handle cameras = nullptr;      // +0x024  the view's camera kinds (0x00430e70)
   Handle sounds[25] = {};        // +0x028  by slot (mech_data.cpp kSounds): engine, ..., the mech's own
   MechAnim* anims[13] = {};      // +0x08c  the gait animations by slot (movement.md); copied to each mech

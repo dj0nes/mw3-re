@@ -289,7 +289,12 @@ TEST(bounded_motion_falls_back_to_the_next_copy) {
   (void)walk_frames;
   EXPECT(whole > 0);
   EXPECT(load(true, "madcat_walk", &frames) && frames == whole);   // the install's copy
+  EXPECT(!mech3::motion_broken("madcat_walk"));
   EXPECT(!load(false, "madcat_walk", &frames));                    // no other copy: refused
+  EXPECT(mech3::motion_broken("madcat_walk"));                     // broken, so the mech is refused
   EXPECT(load(false, "madcat_run", &frames) && frames > 0);        // the mod's own others
+  // Missing from every copy (the shipped data has no elemental_limp): not
+  // broken, so the Elemental keeps the exe's null limp and is not refused.
+  EXPECT(!load(true, "elemental_limp", &frames) && !mech3::motion_broken("elemental_limp"));
   zutl::mounts() = saved;
 }
