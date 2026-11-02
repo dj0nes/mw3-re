@@ -208,6 +208,7 @@ add_library(mw3core STATIC
   src/mech3/veh_controls.cpp
   src/mech3/veh_move.cpp
   src/mech3/veh_stealth.cpp
+  src/mech3/game_editor.cpp
   src/mech3/mech_anim.cpp
   src/mech3/mech_net.cpp
   src/mech3/mech_reader.cpp
@@ -270,6 +271,8 @@ add_library(mw3core STATIC
   src/mech3/force_feedback.cpp
   src/mech3/app_fmv.cpp
   src/mech3/app_movie.cpp
+  src/mech3/movie_shape.cpp
+  src/mech3/mods.cpp
   third_party/pl_mpeg/pl_mpeg.c
   src/mech3/app_mission.cpp
   src/mech3/app_hook_census.cpp
@@ -536,6 +539,9 @@ add_executable(mw3tests
   tests/test_controls_cfg.cpp
   tests/test_pilot_names.cpp
   tests/test_program.cpp
+  tests/test_editor.cpp
+  tests/test_movie_shape.cpp
+  tests/test_mods.cpp
   tests/test_hooks.cpp
   tests/place_survey.cpp
 )

@@ -1,6 +1,7 @@
 #include "mech3/app_keys.h"
 
 #include "gamez/zinput/zinput.h"
+#include "mech3/game_editor.h"
 
 namespace mech3 {
 namespace {
@@ -18,6 +19,10 @@ void register_app_keys() {
   zin::set_callback(0x70, app_key);   // MESSAGE_TOGGLE (`)
   zin::set_callback(0x7e, debug_7e);  // 0x004abbc0
   zin::set_callback(0x6c, app_key);   // VMODE_TOGGLE (Shift+V)
+  if (g_calls.debug_camera) {  // ours: the game editor on Shift+F12 (debug only)
+    zin::bind(kEditorCommand, nullptr, kEditorKey, 0, 0, 0);
+    zin::set_callback(kEditorCommand, app_key);
+  }
 }
 
 // Mech3.exe 1.2 @ 0x0040dba0
@@ -31,6 +36,9 @@ void app_key(int32_t cmd) {
       break;
     case 0x70:
       if (g_calls.message_toggle) g_calls.message_toggle();
+      break;
+    case 0x9a:  // 0x0040e430; ours: again, the exit (docs/editor.md S4)
+      editor_key(cmd);
       break;
     default:
       break;

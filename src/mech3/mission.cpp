@@ -1,6 +1,8 @@
 #include "mech3/mission.h"
 
+
 #include "mech3/options.h"
+#include "crt/msvc_string.h"
 
 #include <cstdarg>
 #include <cstdio>
@@ -40,7 +42,18 @@ uint32_t MissionHooks::video_texture_memory(int32_t dev, uint32_t* total, uint32
 // Mech3.exe 1.2 @ 0x00484c50
 const char* mission_dir(int32_t index) {
   static const char* const kDirs[] = {"c1", "c2", "c3", "c4", "c4b", "t1", "lab", "dev1", "dev2"};
+  if (index >= 9 && index - 9 < static_cast<int32_t>(mod_worlds().size())) return mod_worlds()[static_cast<size_t>(index - 9)].c_str();
   return index >= 0 && index < 9 ? kDirs[index] : "none";
+}
+std::vector<std::string>& mod_worlds() {
+  static std::vector<std::string> w;
+  return w;
+}
+int32_t mission_dir_count() { return 9 + static_cast<int32_t>(mod_worlds().size()); }
+int32_t mission_dir_index(const char* dir) {
+  for (int32_t i = 0; dir && i < mission_dir_count(); ++i)
+    if (crt::msvc_stricmp(mission_dir(i), dir) == 0) return i;
+  return -1;
 }
 
 // Mech3.exe 1.2 @ 0x004902a0: the megabytes of textures to load, 0 in

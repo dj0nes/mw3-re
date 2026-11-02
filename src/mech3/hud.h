@@ -1061,6 +1061,7 @@ class Hud : public ztwod::Layer {
   explicit Hud(Mech* mech);          // 0x0043b190
   ~Hud() override;                   // 0x0043b860: the pieces', in the exe's order (members' reverse)
   static int32_t live();             // ours, for the tests: the HUDs made and not freed
+  static int32_t setups();           // ours, for the tests: setup's runs (the mode change's refit, 0x0041cdc0)
   void setup(Mech* m);               // 0x0043bb80: hud.zrd's layout for the video mode, the mech given out
   void set_active(int32_t on) override;  // +0x04  0x0043baf0: the radar shown or hidden
   // The mech's power down and up (Mech::finish_power_down, Mech::power):

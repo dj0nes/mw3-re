@@ -111,6 +111,7 @@
 #include "mech3/pilot.h"
 #include "mech3/mp_connect.h"
 #include "mech3/mp_lobby.h"
+#include "mech3/mods.h"
 #include "gamez/zutil/zutl_zar.h"
 #include "gamez/znetwork/znet_session.h"
 #include "mech3/briefing.h"
@@ -122,6 +123,9 @@
 #include "gamez/ztwod/twod.h"
 #include "gamez/ztwod/twod_host.h"
 #include "mech3/player.h"
+#include "mech3/game_editor.h"
+#include "mech3/app_keys.h"
+#include "mech3/mods.h"
 #include "mech3/sensors.h"
 #include "mech3/turret.h"
 #include "mech3/zai_brain.h"
@@ -3680,9 +3684,11 @@ TEST(net_lobby_screen_headless) {
     // The worlds: UNAVAILABLE, the eight, then c3's two add-ons; ours in our data.
     EXPECT(l->worlds.count() == 11 && l->worlds.value_at(1) == 0x100 && l->worlds.value_at(8) == 0x203);
     EXPECT(l->worlds.value_at(9) == 0x302 && l->worlds.value_at(10) == 0x402 && l->worlds.selected_value() == 0x100);
-    uint32_t mine[8] = {}, size = sizeof mine;
-    EXPECT(znet::get_player_data(1, mine, &size) && size == 0x18);
+    // Then our mods block: "MODS", the hash (0 with none), no names.
+    uint32_t mine[16] = {}, size = sizeof mine;
+    EXPECT(znet::get_player_data(1, mine, &size) && size == 0x28);
     EXPECT(mine[0] == 1 && mine[1] == 1 && mine[2] == 0 && mine[3] == 2 && mine[4] == 0x302 && mine[5] == 0x402);
+    EXPECT(mine[6] == 0x53444f4d && mine[7] == 0 && mine[8] == 0 && mine[9] == 0);
     // A step past the last world wraps over UNAVAILABLE (0x00496880).
     l->worlds.select(10);
     l->worlds.step(1);
@@ -4005,6 +4011,156 @@ TEST(net_lobby_rules_host_headless) {
   std::printf("  locked at 50 tons: mech %d, %d mechs in the store\n", r.game.slot.mech, mechs);
 }
 
+// The mods check (ours; dev 2's M1 mods): a player's lobby data carries its
+// gameplay mods' hash and names after the add-on worlds. LOCK is refused
+// while any player's hash is not the host's, the names in the message; a
+// joiner whose hash is not the host's is turned back with both sides' names.
+// The same hash, or 0 on both sides (string-only mods), changes nothing.
+namespace {
+std::vector<uint32_t> lobby_data_with_mods(uint64_t hash, std::initializer_list<const char*> names) {
+  std::vector<uint32_t> d = {1, 1, 2, 0, 0, 0x53444f4d, static_cast<uint32_t>(hash), static_cast<uint32_t>(hash >> 32),
+                             static_cast<uint32_t>(names.size())};
+  for (const char* n : names) {
+    const std::string s = n;
+    d.push_back(static_cast<uint32_t>(s.size()));
+    for (size_t k = 0; k < s.size(); k += 4) {
+      uint32_t w = 0;
+      for (size_t b = 0; b < 4 && k + b < s.size(); ++b) w |= static_cast<uint32_t>(static_cast<uint8_t>(s[k + b])) << (8 * b);
+      d.push_back(w);
+    }
+  }
+  return d;
+}
+}  // namespace
+
+TEST(net_lobby_mods_check_headless) {
+  if (!have_game()) return;
+  mech3::ModsIdentity& mine = mech3::mods_identity();
+  // The host: Bob with other mods, then the same.
+  {
+    LobbyRig r("net_mods_host_write");
+    EXPECT(r.l != nullptr);
+    if (!r.l) return;
+    mine = mech3::ModsIdentity{0x1111222233334444ull, {"Big Guns"}};
+    znet::SessionDesc d;
+    d.name = "Mine", d.max_players = 4, d.user[1] = mech3::kGameVersion;
+    EXPECT(znet::host_session(d, "Ann"));
+    znet::Transport* bob = r.hub.endpoint();
+    EXPECT(bob->join("loopback") && bob->create_player("Bob", "Bob") == 2);
+    std::vector<uint32_t> other = lobby_data_with_mods(0x5555666677778888ull, {"Clan Pack"});
+    bob->set_data(false, 2, other.data(), static_cast<uint32_t>(other.size() * 4));
+    znet::poll(-1);
+    r.enter();
+    mech3::g_lobby_dirty = 1;
+    r.l->update(0.1f);
+    r.boxes.clear();
+    r.l->lock();
+    const std::string refused = r.engine->last_box_text;
+    std::printf("  LOCK with other mods: \"%s\" (locked %d)\n", refused.c_str(), r.l->locked);
+    EXPECT(!r.l->locked && refused.find("Bob uses: Clan Pack.") != std::string::npos &&
+           refused.find("You use: Big Guns.") != std::string::npos);
+    std::vector<uint32_t> same = lobby_data_with_mods(0x1111222233334444ull, {"Big Guns"});
+    bob->set_data(false, 2, same.data(), static_cast<uint32_t>(same.size() * 4));
+    znet::poll(-1);
+    r.l->lock();
+    std::printf("  LOCK with the same mods: locked %d\n", r.l->locked);
+    EXPECT(r.l->locked == 1);
+  }
+  // String-only mods on both sides: hash 0, no names.
+  {
+    LobbyRig r("net_mods_zero_write");
+    if (!r.l) return;
+    mine = mech3::ModsIdentity{};
+    znet::SessionDesc d;
+    d.name = "Mine", d.max_players = 4, d.user[1] = mech3::kGameVersion;
+    EXPECT(znet::host_session(d, "Ann"));
+    znet::Transport* bob = r.hub.endpoint();
+    EXPECT(bob->join("loopback") && bob->create_player("Bob", "Bob") == 2);
+    std::vector<uint32_t> zero = lobby_data_with_mods(0, {});
+    bob->set_data(false, 2, zero.data(), static_cast<uint32_t>(zero.size() * 4));
+    znet::poll(-1);
+    r.enter();
+    r.l->lock();
+    std::printf("  LOCK with string-only mods on both sides: locked %d\n", r.l->locked);
+    EXPECT(r.l->locked == 1);
+  }
+  // A joiner: the host Bob with other mods turns us back; the same lets us stay.
+  for (const bool differ : {true, false}) {
+    LobbyRig r(differ ? "net_mods_join_write" : "net_mods_join_same_write");
+    if (!r.l) return;
+    mine = mech3::ModsIdentity{0x1111222233334444ull, {"Big Guns"}};
+    znet::Transport* bob = r.hub.endpoint();
+    znet::SessionDesc d;
+    d.name = "Bob's", d.max_players = 4, d.user[1] = mech3::kGameVersion;
+    EXPECT(bob->host(d) && bob->create_player("Bob", "Bob") == 1);
+    std::vector<uint32_t> hosts = differ ? lobby_data_with_mods(0x5555666677778888ull, {"Clan Pack", "Night Ops"})
+                                         : lobby_data_with_mods(0x1111222233334444ull, {"Big Guns"});
+    bob->set_data(false, 1, hosts.data(), static_cast<uint32_t>(hosts.size() * 4));
+    EXPECT(znet::join_session("loopback", "Ann") && znet::local_id() == 2);
+    const uint8_t host_msg[4] = {0x0d, 0, 4, 0};
+    bob->send(0, host_msg, 4, true, nullptr);
+    znet::poll(-1);
+    r.boxes.clear();
+    r.engine->last_box_text.clear();
+    r.enter();
+    r.l->update(0.1f);
+    std::printf("  joining %s: \"%s\"\n", differ ? "a host with other mods" : "a host with the same mods",
+                r.engine->last_box_text.c_str());
+    if (differ)
+      EXPECT(r.engine->last_box_text == "Your mods don't match the host's. The host uses: Clan Pack, Night Ops. You use: Big Guns.");
+    else
+      EXPECT(r.engine->last_box_text.empty() && r.l->mods_checked == 1);
+  }
+  mine = mech3::ModsIdentity{};
+}
+
+// A mod's world (M2's world=, index 9 on) with a readermp3.zbd: the lobby's
+// add-on scan goes on past the exe's six to it, named by its mpinfo.zrd.
+TEST(net_lobby_lists_a_mod_worlds_maps_headless) {
+  if (!have_game()) return;
+  LobbyRig r("net_mod_world_write");
+  EXPECT(r.l != nullptr);
+  if (!r.l) return;
+  const std::string wd = std::string(MW3_TEST_TMP) + "/net_mod_world_write";
+  const std::string mod = wd + "/mods/w";
+  std::filesystem::create_directories(mod + "/zbd/mymap");
+  std::ofstream(mod + "/mod.txt") << "name=W\nworld=mymap\n";
+  std::ofstream(mod + "/zbd/mymap/gamez.zbd") << "x";
+  {
+    // One entry, mpinfo.zrd: a list of db_name and its string.
+    auto u32 = [](std::string& b, uint32_t v) { b.append(reinterpret_cast<const char*>(&v), 4); };
+    std::string body;
+    u32(body, 4), u32(body, 3);
+    const std::string key = "db_name", name = "Moonbase Alpha";
+    u32(body, 3), u32(body, static_cast<uint32_t>(key.size())), body += key;
+    u32(body, 3), u32(body, static_cast<uint32_t>(name.size())), body += name;
+    zutl_zar::Entry e{};
+    e.length = static_cast<uint32_t>(body.size());
+    std::strncpy(e.name, "mpinfo.zrd", sizeof e.name - 1);
+    std::string data = body;
+    data.append(reinterpret_cast<const char*>(&e), sizeof e);
+    u32(data, 1), u32(data, 1);
+    std::ofstream(mod + "/zbd/mymap/readermp3.zbd", std::ios::binary) << data;
+  }
+  mech3::mod_worlds().clear();
+  mech3::mods_mount(wd, {"w"}, {});
+  EXPECT(mech3::mission_dir_count() == 10);
+  znet::SessionDesc d;
+  d.name = "Mine", d.max_players = 4, d.user[1] = mech3::kGameVersion;
+  EXPECT(znet::host_session(d, "Ann"));
+  r.enter();
+  // UNAVAILABLE, the eight, c3's two, then ours: readermp3 on world 9.
+  int32_t at = -1;
+  for (int32_t i = 0; i < r.l->worlds.count(); ++i)
+    if (r.l->worlds.value_at(i) == (3 << 8 | 9)) at = i;
+  std::printf("  the mod world's map: item %d of %d\n", at, r.l->worlds.count());
+  EXPECT(r.l->worlds.count() == 12 && at == 11 && std::string(r.l->worlds.item(at)->text) == "Moonbase Alpha");
+  // Our data lists it with c3's, as an add-on world the others must have.
+  uint32_t mine[32] = {}, size = sizeof mine;
+  EXPECT(znet::get_player_data(1, mine, &size) && mine[3] == 3 && mine[6] == (3 << 8 | 9));
+  mech3::mod_worlds().clear();
+}
+
 // A joiner's rules (piece 11b): the host's 0x20 shown and the boxes not
 // ours; a world we lack UNAVAILABLE; the lock taken (our mech fitted, the
 // block and CRC kept); a rules message from another player or cut short
@@ -4100,7 +4256,7 @@ TEST(net_lobby_start_host_headless) {
   znet::poll(-1);
   r.enter();
   auto my_state = [] {
-    uint32_t w[8] = {}, size = sizeof w;
+    uint32_t w[32] = {}, size = sizeof w;
     return znet::get_player_data(1, w, &size) ? static_cast<int32_t>(w[2]) : -1;
   };
   r.l->ready_box.set_checked(1);
@@ -10621,6 +10777,100 @@ TEST(mission_ia1_waves_headless) {
   mech3::options() = mech3::Options{};
 }
 
+namespace {
+bool& mod_world_reader_seen() {
+  static bool seen = false;
+  return seen;
+}
+}  // namespace
+
+// A mod's new world (docs/modding.md, M2): mods\mymap declares world=mymap
+// (its zbd\mymap\ the c1 world's files, linked; its mymap.gs sourcing
+// c1.gs) and ia_world=mymap; Instant Action on it (world 9) loads from the
+// mod's folder and reaches play with the player's mech.
+TEST(mod_world_plays_in_instant_action_headless) {
+  if (!have_game()) return;
+  namespace fs = std::filesystem;
+  SavedMounts keep;
+  const std::string wd = temp_dir("mod_world_write");
+  const fs::path mod = fs::path(wd) / "mods" / "mymap";
+  std::error_code ec;
+  fs::create_directories(mod / "zbd" / "mymap", ec);
+  for (fs::directory_iterator it(fs::path(MW3_GAME_DIR) / "zbd" / "c1", ec), end; !ec && it != end; it.increment(ec))
+    fs::create_symlink(it->path(), mod / "zbd" / "mymap" / it->path().filename(), ec);
+  std::ofstream(mod / "mod.txt") << "name=My Map\nworld=mymap\nia_world=mymap My Map\nworld=c1\n";
+  std::ofstream(mod / "mymap.gs") << "source c1.gs\n";
+  zutl::mounts() = zutl::Mounts{};
+  zutl::set_write_dir(wd);
+  mech3::mod_worlds().clear(), mech3::mod_ia_worlds().clear();
+  std::string log;
+  for (const std::string& l : mech3::mods_mount(wd, {"mymap"}, {MW3_GAME_DIR})) log += l + "\n";
+  zutl::mount(MW3_GAME_DIR);
+  std::printf("%s", log.c_str());
+  EXPECT(mech3::mission_dir_count() == 10 && std::string(mech3::mission_dir(9)) == "mymap" &&
+         mech3::mission_dir_index("MYMAP") == 9);
+  EXPECT(mech3::mod_ia_worlds().size() == 1 && mech3::mod_ia_worlds()[0].name == "My Map");
+  EXPECT(log.find("world c1: there is a world c1 already, left out") != std::string::npos);
+  EXPECT(zutl::find("zbd\\mymap\\gamez.zbd").find("/mods/mymap/") != std::string::npos);
+  mech3::reset_states();
+  reset_process_state();
+  mech3::missions() = mech3::Missions{};
+  mech3::mech_types_forget();
+  mech3::player_controls_instance() = nullptr;
+  mech3::options() = mech3::Options{};
+  FakeWindow window;
+  FakeAlert alert;
+  FakeClock clock;
+  FakeScreen screen;
+  platform::SilentSoundOutput sound;
+  mech3::MountFiles files;
+  mech3::Platform p;
+  p.window = &window, p.alert = &alert, p.clock = &clock, p.movie_clock = &fast_movie_clock(), p.screen = &screen, p.sound = &sound, p.files = &files;
+  bool played = false, from_mod = false;
+  {
+    mech3::GameEngine engine(p, "mech3.exe -nofmv");
+    engine.quiet = true;
+    mech3::Mech3App app(&engine);
+    mech3::set_app(&app);
+    EXPECT(app.init_instance());
+    mech3::ActionGame game(nullptr);
+    game.mode = 1, game.x6c = 1;
+    game.slot.mech = 9, game.slot.skin = 2;
+    game.add(14, 0, nullptr, 0);
+    mech3::GameEngine::Launch l;
+    l.type = 2, l.index = 9, l.number = 1;
+    l.action = &game;
+    engine.set_launch(l);
+    app.post_intro_ = &mech3::states().load;
+    int frames = 0;
+    engine.on_present = [&](int) {
+      if (app.current() != &mech3::states().core) return;
+      if (++frames == 3) played = mech3::mech_mission_player() != nullptr;
+    };
+    zrdr::set_load_hook([](const char* archive, const char*, zrdr::Node*) {
+      if (archive && std::string(archive).find("mymap") != std::string::npos) mod_world_reader_seen() = true;
+    });
+    mod_world_reader_seen() = false;
+    CountingPump pump;
+    pump.limit = 300;
+    pump.stop = [&] { return frames >= 3; };
+    app.run(pump);
+    from_mod = mod_world_reader_seen();
+    zrdr::set_load_hook(nullptr);
+    mech3::missions().cleanup(false);
+    app.stop_game();
+    app.exit_instance();
+    mech3::set_app(nullptr);
+  }
+  std::printf("  the mod's world: played %d, read from zbd\\mymap %d\n", played, from_mod);
+  EXPECT(played && from_mod);
+  mech3::mod_worlds().clear(), mech3::mod_ia_worlds().clear();
+  zrdr::close_archives(true);
+  mech3::reset_states();
+  reset_process_state();
+  mech3::options() = mech3::Options{};
+}
+
 // Instant Action through the menus (frontend-plan item 12b): INSTANT ACTION,
 // a new pilot, the Action screen (menus.md 13) set to Battle Progression
 // with a Champion lancemate, ACCEPT, the briefing's LAUNCH. Wave 1 (a
@@ -11796,6 +12046,156 @@ TEST(mission_c1m4_pocket_commander_sends_dominic_to_a_map_spot_headless) {
 static zgame::Handle follow_target_of(const mech3::ai::Brain& b) {
   auto* vp = dynamic_cast<mech3::ai::VehiclePart*>(b.orders.back().net.get());
   return dynamic_cast<mech3::ai::FollowState*>(b.orders.back().state.get()) && vp && vp->target ? vp->target->vehicle : 0;
+}
+
+// The game editor on Shift+F12 under --debug-camera (docs/editor.md S4): on
+// c1m1 the key puts the view on the stealth object with the editor's menu
+// up (its rows the exe's); THROTTLE_UP held for a second flies the stealth
+// (the original's movement keys, S3) and, as in the exe, drives the
+// player's mech too (its controls read the same commands: the editor's key
+// map is a copy of the game's); the key again closes it and (ours) gives
+// the view back. Without the flag the key does nothing. Its movement is
+// printed.
+namespace {
+struct EditorRun {
+  bool entered = false, menu_rows = false, view_on_stealth = false, closed = false, view_back = false;
+  float stealth_moved = 0, mech_moved = 0, seconds = 0;
+};
+EditorRun run_editor_on_c1m1(bool flag) {
+  EditorRun out;
+  SavedMounts keep;
+  zutl::mounts() = zutl::Mounts{};
+  zutl::mount(MW3_GAME_DIR);
+  zutl::set_write_dir(temp_dir(flag ? "editor_on_write" : "editor_off_write"));
+  mech3::reset_states();
+  reset_process_state();
+  mech3::missions() = mech3::Missions{};
+  mech3::mech_types_forget();
+  mech3::player_controls_instance() = nullptr;
+  mech3::options() = mech3::Options{};
+  mech3::editor_reset();
+  mech3::app_key_calls().debug_camera = flag;
+  struct Keys : platform::Input {
+    std::vector<platform::KeyEvent> queue;
+    uint32_t t = 0;
+    void key(uint32_t dik, bool down) { queue.push_back({dik, down ? 0x80u : 0u, ++t, t}); }
+    bool open(Device d) override { return d == kKeyboard; }
+    void close(Device) override {}
+    int32_t acquire(Device) override { return 0; }
+    int32_t unacquire(Device) override { return 0; }
+    int32_t keyboard_data(platform::KeyEvent* o, uint32_t* count) override {
+      const uint32_t n = std::min<uint32_t>(*count, static_cast<uint32_t>(queue.size()));
+      std::copy(queue.begin(), queue.begin() + n, o);
+      queue.erase(queue.begin(), queue.begin() + n);
+      *count = n;
+      return 0;
+    }
+    int32_t mouse_state(platform::MouseState*) override { return kNotAcquired; }
+    int32_t joystick_state(platform::JoyState*) override { return kNotAcquired; }
+  } keys;
+  FakeWindow window;
+  FakeAlert alert;
+  FakeClock clock;
+  FakeScreen screen;
+  platform::SilentSoundOutput sound;
+  mech3::MountFiles files;
+  mech3::Platform p;
+  p.window = &window, p.alert = &alert, p.clock = &clock, p.movie_clock = &fast_movie_clock(), p.screen = &screen, p.sound = &sound, p.files = &files;
+  p.input = &keys;
+  {
+    mech3::GameEngine engine(p, "mech3.exe -nofmv");
+    engine.quiet = true;
+    mech3::Mech3App app(&engine);
+    mech3::set_app(&app);
+    EXPECT(app.init_instance());
+    mech3::GameEngine::Launch l;  // c1 mission 1
+    l.index = 1, l.op = 1, l.number = 1;
+    engine.set_launch(l);
+    app.post_intro_ = &mech3::states().load;
+    app.lobby_flow_ = 1;
+    auto shift_f12 = [&] { keys.key(0x2a, true), keys.key(0x58, true), keys.key(0x58, false), keys.key(0x2a, false); };
+    int frames = 0, phase = 0;
+    void* player = nullptr;
+    float s0[3] = {}, m0[3] = {};
+    auto spot = [&](float* sp, float* mp) {
+      mech3::VehicleSummary vs;
+      if (mech3::program_stealth() && mech3::describe_vehicle(mech3::program_stealth(), &vs))
+        for (int i = 0; i < 3; ++i) sp[i] = vs.pos[i];
+      mech3::mech_world_position(player, mp);
+    };
+    auto dist = [](const float* a, const float* b) {
+      return std::sqrt((a[0] - b[0]) * (a[0] - b[0]) + (a[1] - b[1]) * (a[1] - b[1]) + (a[2] - b[2]) * (a[2] - b[2]));
+    };
+    engine.on_present = [&](int) {
+      if (app.current() != &mech3::states().core) return;
+      ++frames;
+      if (frames == 3) {
+        player = mech3::mech_mission_player();
+        shift_f12();
+        phase = 1;
+      } else if (phase == 1 && frames == 6) {
+        out.entered = mech3::editor_state().active != 0;
+        out.view_back = player && mech3::program_view_target() == player;  // without the flag: still on the mech
+        out.view_on_stealth = mech3::program_stealth() && mech3::program_view_target() == mech3::program_stealth();
+        if (out.entered) {
+          const mech3::EditorPanel& pn = mech3::editor_panel();
+          out.menu_rows = std::string(pn.rows[0]->text) == "PICK A COMMAND" && std::string(pn.rows[1]->text) == " EDIT AI NETS" &&
+                          std::string(pn.rows[7]->text) == " EXIT GAME EDIT" && pn.layer.active;
+        }
+        spot(s0, m0);
+        keys.key(0xc8, true);  // THROTTLE_UP (Up), held
+        phase = 2;
+      } else if (phase == 2) {
+        out.seconds += ztimer::state().dt;
+        if (out.seconds >= 1.0f) {
+          keys.key(0xc8, false);
+          float s1[3] = {}, m1[3] = {};
+          spot(s1, m1);
+          out.stealth_moved = dist(s0, s1), out.mech_moved = dist(m0, m1);
+          shift_f12();
+          phase = 3;
+        }
+      } else if (phase == 3) {
+        out.closed = mech3::editor_state().active == 0;
+        if (flag) out.view_back = player && mech3::program_view_target() == player;
+        phase = 4;
+      }
+    };
+    CountingPump pump;
+    pump.stop = [&] { return phase == 4; };
+    pump.limit = 1500;
+    app.run(pump);
+    mech3::missions().cleanup(false);
+    app.stop_game();
+    app.exit_instance();
+    mech3::set_app(nullptr);
+  }
+  mech3::app_key_calls().debug_camera = false;
+  mech3::editor_reset();
+  zrdr::close_archives(true);
+  mech3::reset_states();
+  reset_process_state();
+  mech3::options() = mech3::Options{};
+  return out;
+}
+}  // namespace
+
+TEST(mission_c1m1_game_editor_on_shift_f12_headless) {
+  if (!have_game()) return;
+  const EditorRun on = run_editor_on_c1m1(true);
+  std::printf("  editor: entered %d, view on the stealth %d, rows %d; THROTTLE_UP %.2f s: the stealth moved %.2f m, the "
+              "player's mech %.2f m; closed %d, view back %d\n",
+              on.entered, on.view_on_stealth, on.menu_rows, on.seconds, on.stealth_moved, on.mech_moved, on.closed, on.view_back);
+  EXPECT(on.entered && on.view_on_stealth && on.menu_rows);
+  EXPECT(on.stealth_moved > 1.0f);
+  EXPECT(on.closed && on.view_back);
+  const EditorRun off = run_editor_on_c1m1(false);
+  std::printf("  without the flag: entered %d, view on the mech %d; THROTTLE_UP %.2f s: the player's mech %.2f m\n",
+              off.entered, off.view_back, off.seconds, off.mech_moved);
+  EXPECT(!off.entered && off.view_back && !off.view_on_stealth);  // without the flag the key does nothing
+  // The mech under the stealth answers THROTTLE_UP as it does without the
+  // editor (the exe's: the player's tick runs the pilot's vehicle either way).
+  EXPECT(off.mech_moved > 0.1f && std::fabs(on.mech_moved - off.mech_moved) < 0.05f);
 }
 
 TEST(mission_c2m1_lance_order_keys_end_to_end_headless) {
@@ -15790,7 +16190,7 @@ TEST(vehicle_heading_from_its_record_is_the_float) {
 TEST(known_unported_keys_name_their_reason) {
   int n = 0;
   for (const char* k : {"0x005561a0", "0x005561e0", "0x00516f50", "[0x0072f3f0]",
-                        "0x0040e4b0", "vt+0x7c",
+                        "vt+0x7c",
                         "hudline.vt+0x7c", "0x0040f7f0", "0x0040f890", "0x0040fef0", "0x004b52e0", "0x0047f2b0",
                         "0x00518790", "0x005269e0", "0x004f8f20", "0x004f3540", "0x00557f90", "0x00558290",
                         "0x00576d90", "0x00576da0", "0x00576dc0", "0x00558070", "0x005a8390",
@@ -15806,7 +16206,7 @@ TEST(known_unported_keys_name_their_reason) {
            w.size() > 20);
     ++n;
   }
-  EXPECT(n == 39);  // 0x00586ce0, 0x00586c20, 0x00588930, 0x0046ef70, 0x0046f160 ported (multiplayer-port.md pieces 1, 2, 6a), 0x00493260 (9b), 0x00495f90 (11a), 0x0049bd80 (13), 0x0041ab90 (14a); 0x004ac860, 0x004a4de0, 0x005a84c0 (the stealth object, editor.md S1)
+  EXPECT(n == 38);  // 0x0040e4b0 (the game editor's frame, editor.md S4), 0x00586ce0, 0x00586c20, 0x00588930, 0x0046ef70, 0x0046f160 ported (multiplayer-port.md pieces 1, 2, 6a), 0x00493260 (9b), 0x00495f90 (11a), 0x0049bd80 (13), 0x0041ab90 (14a); 0x004ac860, 0x004a4de0, 0x005a84c0 (the stealth object, editor.md S1)
   for (const char* gap : {"0x00579ea0", "0x004f9fa0", "0x004fa0b0", "0x00479be0", "0x0051a300",
                           "[[0x0060861c]+0x14]", "0x004f3430", "0x005799f0", "0x0051d0c0",
                           "0x00556210", "game.vt", "0x00414000", "0x0047abe0", "0x004f8f50",
@@ -17004,7 +17404,8 @@ TEST(net_mobile_base_stations_c1mp1_headless) {
 // read-me's crash: Bob's respawn and then ours with our panel up, after
 // which the keys still type and the commands come back; 1.2's: a burst of
 // Shift-letters and '?' into the panel; a weapon's group kept through a
-// respawn; outside the boundary, the mech blown up.
+// respawn; outside the boundary, the mech blown up; a kill's score fills
+// the objectives box again while it is shown (0x00470170's 0x00446ad0).
 TEST(net_chat_panel_c1mp1_headless) {
   if (!have_game()) return;
   SavedMounts keep;
@@ -17031,7 +17432,8 @@ TEST(net_chat_panel_c1mp1_headless) {
   mech3::NetChatRespawnSeen rs;
   std::string burst_line;
   mech3::NetGroupsSeen gs;
-  bool groups_ran = false, boundary_set = false;
+  bool groups_ran = false, boundary_set = false, box_ran = false;
+  mech3::NetScoresBoxSeen box;
   int down_at = 0;
   {
     mech3::GameEngine engine(p, "mech3.exe -nofmv");
@@ -17051,6 +17453,7 @@ TEST(net_chat_panel_c1mp1_headless) {
       if (app.current() == &mech3::states().core && ++core_frames == 5) ran = mech3::program_net_chat_check(&seen);
       if (core_frames == 7) respawn_ran = mech3::program_net_chat_respawn_check(&rs);
       if (core_frames == 10) groups_ran = mech3::program_net_groups_check(&gs);
+      if (core_frames == 11) box_ran = mech3::program_net_scores_box_check(&box);
       // The read-me's boundary: outside it in a network game the mech blows up
       // (the mp objectives' fail on outside_c1m1, the loss's 0x0048f9e0).
       if (core_frames == 12)
@@ -17099,6 +17502,9 @@ TEST(net_chat_panel_c1mp1_headless) {
               gs.moved_to, gs.after, gs.respawned, gs.other_before, gs.other_after);
   EXPECT(groups_ran && gs.respawned && gs.moved_to != gs.moved_from && gs.after == gs.moved_to);
   EXPECT(gs.other_after == gs.other_before);
+  std::printf("  the kill's score: the open box refilled with %d lines (\"%s\"), the closed one %d\n", box.refilled_open,
+              box.header.c_str(), box.refilled_closed);
+  EXPECT(box_ran && box.refilled_open > 2 && box.header == "Network Game Scores" && box.refilled_closed == 0);
   std::printf("  boundary: outside_c1m1 set %d, the mech down %d frames on\n", boundary_set, down_at ? down_at - 12 : -1);
   EXPECT(boundary_set && down_at > 12);
   zrdr::close_archives(true);
@@ -17117,6 +17523,73 @@ TEST(net_chat_panel_c1mp1_headless) {
 // throttle, not the stream's places), then he stands where he stopped.
 // First a ping answer whose delay is past our round trip: his latency 0
 // (FIX (bug); unsigned, 2^32 ms, it threw his arms about as he walked).
+// The player's death in a campaign mission (14's census items, single
+// player): the zoom window locked open (keypad 0); a weapon destroyed plays
+// its name and "destroyed" voices (0x004e6dc0 through 0x00571cc0); the head
+// lost, the HUD goes off and the window closes, its lock let go
+// (0x0041b263..0x0041b30c); none of the three reaches the census.
+TEST(mission_c1m1_player_death_hud_and_voices_headless) {
+  if (!have_game()) return;
+  SavedMounts keep;
+  zutl::mounts() = zutl::Mounts{};
+  zutl::mount(MW3_GAME_DIR);
+  zutl::set_write_dir(temp_dir("player_death"));
+  mech3::reset_states();
+  reset_process_state();
+  mech3::missions() = mech3::Missions{};
+  mech3::mech_types_forget();
+  mech3::player_controls_instance() = nullptr;
+  mech3::options() = mech3::Options{};
+  FakeWindow window;
+  FakeAlert alert;
+  FakeClock clock;
+  FakeScreen screen;
+  platform::SilentSoundOutput sound;
+  mech3::MountFiles files;
+  mech3::Platform p;
+  p.window = &window, p.alert = &alert, p.clock = &clock, p.movie_clock = &fast_movie_clock(), p.screen = &screen,
+  p.sound = &sound, p.files = &files;
+  mech3::PlayerDeathSeen seen;
+  bool ran = false;
+  std::vector<std::string> gaps;
+  {
+    mech3::GameEngine engine(p, "mech3.exe -nofmv");
+    engine.quiet = true;
+    mech3::Mech3App app(&engine);
+    mech3::set_app(&app);
+    EXPECT(app.init_instance());
+    mech3::GameEngine::Launch l;  // c1m1, a campaign mission
+    engine.set_launch(l);
+    app.post_intro_ = &mech3::states().load;
+    int core_frames = 0;
+    engine.on_present = [&](int) {
+      if (app.current() == &mech3::states().core && ++core_frames == 10) ran = mech3::program_player_death_check(&seen);
+    };
+    CountingPump pump;
+    pump.limit = 3000;
+    pump.stop = [&] { return core_frames >= 40; };
+    app.run(pump);
+    for (const auto& [k, n] : engine.unported_counts())
+      if (k == "0x0041b263" || k == "0x004e6dc0" || k == "0x00446ad0") gaps.push_back(k);
+    mech3::missions().cleanup(false);
+    app.stop_game();
+    app.exit_instance();
+    mech3::set_app(nullptr);
+  }
+  std::printf("  HUD on %d -> %d; the zoom window locked %d -> %d, hidden %d; voices %d of %d; killed %d; census gaps %zu\n",
+              seen.hud_before, seen.hud_after, seen.locked_before, seen.locked_after, seen.hidden_after,
+              seen.voices_started, seen.voices_wanted, seen.killed, gaps.size());
+  EXPECT(ran && seen.killed);
+  EXPECT(seen.hud_before == 1 && seen.hud_after == 0);
+  EXPECT(seen.locked_before == 1 && seen.locked_after == 0 && seen.hidden_after == 1);
+  EXPECT(seen.voices_wanted > 0 && seen.voices_started == seen.voices_wanted);
+  EXPECT(gaps.empty());
+  zrdr::close_archives(true);
+  mech3::reset_states();
+  reset_process_state();
+  mech3::options() = mech3::Options{};
+}
+
 TEST(net_remote_pose_follows_the_states_c1mp1_headless) {
   if (!have_game()) return;
   SavedMounts keep;
@@ -19556,7 +20029,7 @@ struct WideMenus {
   int32_t ctl_accept = -1, ctl_reset = -1, ctl_keys = -1, ctl_lines_w = -1;
   int32_t popup_bar = -1, popup_label_dx = -1, popup_label_dy = -1;  // the load/save popup's name bar, its label from it
   int32_t pil_accept = -1, pil_bar_label_y = -1, pil_bar_label_x = -1, pil_up = -1, games_up = -1, pil_lines_w = -1;
-  int32_t map_w = -1, launch = -1, line_x = -1, waypoint_dx = -99;
+  int32_t map_w = -1, launch = -1, line_x = -1, waypoint_dx = -99, first_map_w = -2;
   bool pil_lines_alpha = false;  // LINES2 stretched (its alpha kept), not taken for a background
   int32_t win_bg = -1, win_continue = -1, win_abort = -1, win_card = -1, win_line = -1, win_line_end = -1;  // the debriefing
   int32_t lab_left_w = -1, lab_left_x = -1, lab_right_w = -1, lab_accept = -1, lab_view_x = -1, lab_view_w = -1;  // the lab
@@ -19568,6 +20041,8 @@ struct WideMenus {
   // The Multiplayer State's three screens (made with the main menu).
   int32_t cn_host = -1, cn_cancel = -1, cn_lines_w = -1, cn_lan = -1;  // the connection screen
   int32_t lb_start = -1, lb_cancel = -1, lb_mechlab = -1, lb_players = -1, lb_lines_w = -1;  // the lobby
+  int32_t lb_addr_x = -1, lb_addr_y = -1;  // the lobby's internet line (ours)
+  std::vector<std::pair<int32_t, int32_t>> mp_ripples;  // the multiplayer screens' ripple buttons: the ripple less the button's place
   int32_t tm_ok = -1, tm_backdrop = -1;  // the new team's dialog
 };
 WideMenus wide_menus_run(bool wide) {
@@ -19676,6 +20151,7 @@ WideMenus wide_menus_run(bool wide) {
         mech3::BriefingScreen* b = mech3::briefing_screen();
         if (!b || now != &st.load || !b->loaded) return;
         if (b->images[0].image) out.map_w = b->images[0].image->width;
+        out.first_map_w = b->first_map_w;
         out.launch = b->launch_btn.get_rect()->left;
         for (ztwod::Object2D* o = b->head; o; o = o->next) {
           if (auto* l = dynamic_cast<mech3::MapLine*>(o); l && out.line_x < 0 && l->count > 0) out.line_x = l->pts[0][0];
@@ -19796,6 +20272,11 @@ WideMenus wide_menus_run(bool wide) {
         }
         if (auto* ms = dynamic_cast<mech3::GameMenuState*>(engine.menu_state_of(engine.peek32(0x609860)))) {
           auto at = [](ztwod::Object2D& o) { return o.get_rect() ? o.get_rect()->left : o.get_x(); };  // some have no rect
+          for (int k = 0; k < 3; ++k)
+            if (auto* sc = dynamic_cast<mech3::MenuScreen*>(engine.screen_of(ms->screens[k])))
+              for (ztwod::Object2D* o = sc->head; o; o = o->next)
+                if (auto* sb = dynamic_cast<mech3::SlideButton*>(o))
+                  out.mp_ripples.push_back({sb->ripple.get_x() - sb->get_x(), sb->ripple.get_y() - sb->get_y()});
           if (auto* c = dynamic_cast<mech3::ConnectScreen*>(engine.screen_of(ms->screens[0]))) {
             out.cn_host = at(c->host_btn), out.cn_cancel = at(c->cancel_btn);
             for (ztwod::Image* im : {&c->lines1, &c->lines2})
@@ -19806,6 +20287,7 @@ WideMenus wide_menus_run(bool wide) {
             out.lb_start = at(l->start_btn), out.lb_cancel = at(l->cancel_btn);
             out.lb_mechlab = at(l->mechlab_btn), out.lb_players = l->players_list.get_x();
             if (l->lines1.image) out.lb_lines_w = l->lines1.image->width;
+            out.lb_addr_x = l->internet_line.get_x(), out.lb_addr_y = l->internet_line.get_y();
           }
           if (auto* t = dynamic_cast<mech3::TeamScreen*>(engine.screen_of(ms->screens[2])))
             out.tm_ok = at(t->ok_btn), out.tm_backdrop = t->backdrop.get_x();
@@ -19916,6 +20398,9 @@ TEST(menus_wide_spread_by_their_groups_headless) {
   std::printf("briefing: map %d / %d wide, LAUNCH %d / %d, a line at %d / %d, a waypoint %d / %d from its nav point\n",
               off.map_w, on.map_w, off.launch, on.launch, off.line_x, on.line_x, off.waypoint_dx, on.waypoint_dx);
   EXPECT(off.map_w == 640 && on.map_w == 640 + extra && on.launch == off.launch + extra / 2);
+  // Its first frame (the constructor's draw) only once widened.
+  std::printf("briefing's first frame: the map %d / %d wide\n", off.first_map_w, on.first_map_w);
+  EXPECT(off.first_map_w == 640 && on.first_map_w == 640 + extra);
   EXPECT(off.line_x >= 0 && on.line_x == off.line_x + extra / 2);
   EXPECT(off.waypoint_dx == 0 && on.waypoint_dx == extra / 2);
   // The debriefing (c1m2 won): the circuit board widened, ABORT and the
@@ -19962,6 +20447,17 @@ TEST(menus_wide_spread_by_their_groups_headless) {
   EXPECT(off.lb_start > 0 && on.lb_start == off.lb_start + extra && on.lb_cancel == off.lb_cancel);
   EXPECT(on.lb_mechlab == off.lb_mechlab + extra / 2 && on.lb_players == off.lb_players + extra);
   EXPECT(off.lb_lines_w == 640 && on.lb_lines_w == 640 + extra);
+  // The address lines (ours): under CANCEL at 640; wide, the middle column's band under the chat bar.
+  std::printf("lobby's address line at %d,%d / %d,%d\n", off.lb_addr_x, off.lb_addr_y, on.lb_addr_x, on.lb_addr_y);
+  EXPECT(off.lb_addr_x == 20 && off.lb_addr_y == 460 && on.lb_addr_x == 207 + extra / 2 && on.lb_addr_y == 379);
+  // W41: each ripple button's ripple at its centre after the move (baked ones too).
+  int32_t moved = 0;
+  for (size_t i = 0; i < on.mp_ripples.size() && i < off.mp_ripples.size(); ++i) moved += on.mp_ripples[i] != off.mp_ripples[i];
+  std::printf("multiplayer ripple buttons %zu / %zu, ripples off where 640 had them: %d (the first %d,%d / %d,%d)\n",
+              off.mp_ripples.size(), on.mp_ripples.size(), moved, off.mp_ripples.empty() ? 0 : off.mp_ripples[0].first,
+              off.mp_ripples.empty() ? 0 : off.mp_ripples[0].second, on.mp_ripples.empty() ? 0 : on.mp_ripples[0].first,
+              on.mp_ripples.empty() ? 0 : on.mp_ripples[0].second);
+  EXPECT(!off.mp_ripples.empty() && off.mp_ripples.size() == on.mp_ripples.size() && moved == 0);
   EXPECT(off.tm_ok > 0 && on.tm_ok == off.tm_ok + extra / 2 && off.tm_backdrop == 0 && on.tm_backdrop == 0);
   // The mech lab (from the briefing, before LAUNCH; one block): its edge
   // panels made wider outward (the left one staying at 0), ACCEPT half the
@@ -20015,6 +20511,8 @@ TEST(mission_c1m1_mode_change_keeps_the_camera_shape_headless) {
   p.window = &window, p.alert = &alert, p.clock = &clock, p.movie_clock = &fast_movie_clock(), p.screen = &screen, p.sound = &sound, p.files = &files;
   p.input = &input;
   float fov[3][2] = {};
+  int32_t reticle[3] = {-1, -1, -1};  // the HUD's reticle x
+  int32_t setups[3] = {};             // Hud::setup's runs: each mode change refits the player's HUD (0x004ab6b0's 0x0041cdc0)
   int got = 0;
   {
     mech3::GameEngine engine(p, "mech3.exe -nofmv");
@@ -20030,13 +20528,17 @@ TEST(mission_c1m1_mode_change_keeps_the_camera_shape_headless) {
     auto read = [&](int i) {
       auto* cam = static_cast<zcls::Node*>(engine.object_of(mech3::camera()));
       if (cam && zcls::camera_get_fov_angles(cam, &fov[i][0], &fov[i][1]) == 0) ++got;
+      int32_t ret[2] = {-1, -1};
+      float pt[3];
+      bool hit = false;
+      if (mech3::program_hud_aim(ret, pt, &hit)) reticle[i] = ret[0];
     };
     engine.on_present = [&](int) {
       if (app.current() != &mech3::states().core) return;
       ++core;
-      if (core == 5) read(0), engine.set_screen_mode(13);
-      if (core == 7) read(1), engine.set_screen_mode(5);
-      if (core == 9) read(2);
+      if (core == 5) read(0), setups[0] = mech3::Hud::setups(), engine.set_screen_mode(13);
+      if (core == 7) read(1), setups[1] = mech3::Hud::setups(), engine.set_screen_mode(5);
+      if (core == 9) read(2), setups[2] = mech3::Hud::setups();
     };
     CountingPump pump;
     pump.limit = 900;
@@ -20050,6 +20552,9 @@ TEST(mission_c1m1_mode_change_keeps_the_camera_shape_headless) {
   const double deg = 57.29577951308232;
   for (int i = 0; i < 3; ++i)
     std::printf("  camera %s: %.2f across, %.2f high\n", i == 1 ? "at 1920x1080" : "at 640x480", fov[i][0] * deg, fov[i][1] * deg);
+  std::printf("  the HUD's reticle at x %d, %d, %d; its setups %d, %d, %d\n", reticle[0], reticle[1], reticle[2], setups[0],
+              setups[1], setups[2]);
+  EXPECT(setups[1] == setups[0] + 1 && setups[2] == setups[1] + 1);
   EXPECT(got == 3);
   EXPECT(std::fabs(fov[0][0] * deg - 80.0) < 0.05 && std::fabs(fov[0][1] * deg - 60.0) < 0.05);
   EXPECT(std::fabs(fov[1][0] * deg - 96.4) < 0.1 && std::fabs(fov[1][1] * deg - 60.0) < 0.05);
@@ -20457,6 +20962,43 @@ TEST(mission_c1m1_mode_change_moves_the_2d_target_headless) {
   mech3::options() = mech3::Options{};
 }
 
+
+// Playtest W42: the mech lab from the lobby (MECHLAB, 0x0049b500) "lists no
+// mechs": the lab's slots came from the campaign and Instant Action only. A
+// network game's (vt+0x38 0x004a5270: one; vt+0x34 0x00437800: its +0x20).
+TEST(multiplayer_lab_has_the_players_mech_headless) {
+  SavedMounts keep;
+  zutl::mounts() = zutl::Mounts{};
+  zutl::set_write_dir(temp_dir("mp_lab_write"));
+  FakeWindow window;
+  FakeAlert alert;
+  FakeClock clock;
+  FakeScreen screen;
+  platform::SilentSoundOutput sound;
+  mech3::MountFiles files;
+  mech3::Platform p;
+  p.window = &window, p.alert = &alert, p.clock = &clock, p.movie_clock = &fast_movie_clock(), p.screen = &screen, p.sound = &sound, p.files = &files;
+  mech3::GameEngine engine(p, "mech3.exe -nofmv");
+  mech3::Pilot pilot("MP");
+  mech3::MultiplayerGame game(&pilot);
+  pilot.current = &game;
+  mech3::Pilot* was = mech3::current_pilot();
+  mech3::current_pilot() = &pilot;
+  const int32_t n = engine.lab_slot_count(0);
+  const zgame::Handle s0 = engine.lab_slot(0, 0);
+  std::printf("  a network game's lab: %d slots, its mech %d; the store %zu items\n", n, s0 ? engine.lab_slot_mech(s0) : -1,
+              game.store.items.size());
+  EXPECT(n == 1 && s0 && engine.lab_slot_mech(s0) == game.slot.mech && engine.lab_slot(0, 1) == 0);
+  // The lab asks the pilot's game (+0x6c) its type (vt+0x2c: the skins hidden
+  // in a network game); from the menus, before any launch, it was 0 (W42's
+  // "not ported: vt+0x2c( 0 )").
+  const zgame::Handle ph = engine.handle_of(&pilot);
+  const uint32_t type = engine.vcall(engine.field32(ph, 0x6c), 0x2c, {});
+  std::printf("  the pilot's game from the menus: %u\n", type);
+  EXPECT(engine.field32(ph, 0x6c) != 0 && type == 3);
+  mech3::current_pilot() = was;
+  pilot.current = nullptr;
+}
 
 // Playtest W37: the mech lab from Instant Action's briefing "shows no mech
 // and no ability to edit anything". The lab asks the game for its slots

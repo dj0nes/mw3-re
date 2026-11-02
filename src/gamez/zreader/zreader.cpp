@@ -1,6 +1,10 @@
 #include "gamez/zreader/zreader.h"
 
+#include <algorithm>
+#include <cstdio>
 #include <cstdlib>
+#include <string>
+#include <vector>
 #include <cstring>
 
 #include "crt/msvc_math.h"
@@ -41,9 +45,25 @@ Node* alloc_list(int32_t count) {
   return list;
 }
 
+// Ours (docs/modding.md, M3): an archive entry read with its own end known.
+// A list longer than the bytes left could hold (every node is at least 8),
+// a node of no type, or lists nested past 64 deep mark the entry broken
+// (the original read on into whatever followed, or allocated what the count
+// said); shipped entries read exactly as before.
+namespace {
+long g_entry_end = -1;  // -1: no end known (the original's read)
+int g_depth = 0;
+bool g_broken = false;
+}  // namespace
+
 // Mech3.exe 1.2 @ 0x00557180. Returns the bytes read.
 uint32_t read_node(std::FILE* file, Node* node) {
   uint32_t total = read4(file, &node->type);
+  if (g_entry_end >= 0 && (g_broken || std::ftell(file) > g_entry_end)) {
+    g_broken = true;
+    node->type = Int, node->i = 0;
+    return total;
+  }
   switch (node->type) {
     case Int:
       return total + read4(file, &node->i);
@@ -54,14 +74,27 @@ uint32_t read_node(std::FILE* file, Node* node) {
     case List: {
       int32_t count = 0;
       total += read4(file, &count);
+      if (g_entry_end >= 0) {
+        const long left = g_entry_end - std::ftell(file);
+        if (count < 0 || static_cast<long>(count) - 1 > left / 8 || g_depth >= 64) {
+          g_broken = true;
+          count = 0;
+        }
+      }
       node->list = alloc_list(count);
       node->list[0].i = count;
       node->list[0].type = Int;
+      ++g_depth;
       for (int32_t i = 1; i < node->list[0].i; ++i) total += read_node(file, &node->list[i]);
+      --g_depth;
       return total;
     }
     default:
       zerr::report(0x400, kFile, 0x4b4, "Invalid reader node type in zRdrReadNode");
+      if (g_entry_end >= 0) {
+        g_broken = true;
+        node->type = Int, node->i = 0;
+      }
       return 0;
   }
 }
@@ -627,16 +660,49 @@ void set_load_hook(LoadHook hook) { g_load_hook = hook; }
 MissingHook g_missing_hook = nullptr;
 void set_missing_hook(MissingHook hook) { g_missing_hook = hook; }
 
+// Ours (docs/modding.md): a mod's loose text copy of an archive's entry, in
+// the mod at the archive's own folder (zbd\c1\world.zrd for zbd\c1\reader.zbd's
+// world.zrd), read instead of the entry; "" without one. Each such file is
+// said once in the log.
+std::string mod_loose(const zutl_zar::Archive& a, const char* name) {
+  if (zutl::mounts().mods.empty() || !a.path) return {};
+  std::string dir = zutl::host(a.path);
+  const size_t slash = dir.rfind('/');
+  dir = slash == std::string::npos ? std::string{} : dir.substr(0, slash + 1);
+  const std::string found = zutl::find_in_mods(dir + zutl::host(name));
+  static std::vector<std::string> said;
+  if (!found.empty() && std::find(said.begin(), said.end(), found) == said.end()) {
+    said.push_back(found);
+    std::printf("mw3: mod: %s instead of %s's entry\n", found.c_str(), a.path);
+  }
+  return found;
+}
+
 Node* load(const char* path) {
   crt::msvc_splitpath_name(path, g_fname, g_ext);
   std::strncat(g_fname, g_ext, sizeof g_fname - std::strlen(g_fname) - 1);
   // find_in_archives, keeping which archive answered (for the load hook)
   for (size_t i = 0; g_state.archives_created && i < g_state.archives.size(); ++i) {
     zutl_zar::Archive* a = g_state.archives[i];
-    std::FILE* f = zutl_zar::seek(*a, zutl_zar::find(*a, g_fname), nullptr);
+    uint32_t length = 0;
+    std::FILE* f = zutl_zar::seek(*a, zutl_zar::find(*a, g_fname), &length);
     if (!f) continue;
+    if (const std::string loose = mod_loose(*a, g_fname); !loose.empty()) {
+      if (std::FILE* t = std::fopen(loose.c_str(), "rb")) {
+        Node* root = parse_text(t);
+        std::fclose(t);
+        if (root) return root;
+      }
+    }
     Node* root = new_nodes(List, 1);
+    g_entry_end = std::ftell(f) + static_cast<long>(length), g_depth = 0, g_broken = false;
     read_node(f, root);
+    g_entry_end = -1;
+    if (g_broken) {  // ours: a broken entry is read as no entry, said once
+      free_node(root);
+      std::printf("mw3: %s: its entry %s is broken (a count, type or nesting it cannot hold), not read\n", a->path, g_fname);
+      return g_missing_hook ? g_missing_hook(g_fname) : nullptr;
+    }
     if (g_load_hook) g_load_hook(a->path, g_fname, root);
     return root;
   }

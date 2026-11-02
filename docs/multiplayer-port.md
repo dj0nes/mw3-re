@@ -1245,6 +1245,17 @@ Ours, in three pieces:
      state). Test: `net_chat_panel_c1mp1_headless` (the valve set, the mech
      down a frame on; break caught: the torso left alone).
 
+- **The census's three** (the lead, after 14): the player's death on the
+  HUD (0x0041b263), a destroyed weapon's voices (0x004e6dc0) and the
+  objectives box's refill (0x00446ad0, which in a network game came from a
+  kill's score: 0x00470170, not the death). Ported, with the HUD hooks'
+  `multiplayer_game` (it answered 0) and their network scores and title;
+  hud.md 24b. Two FIX (bug): the refill's null HUD read, the score lines
+  as formats. A network game with a staged kill now reaches nothing
+  unported.
+- **The lobby's bottom row at 16:9 and the briefing's first frame** (the
+  lead): resolution.md section 12.
+
 - **16:9** (the lead, 2026-11-01, release.md): the three screens widened
   (resolution.md section 12): the connection screen (NET NAME, SESSIONS,
   CANCEL and JOIN left; CONNECT, HOST SETUP and HOST right; its 610x345
@@ -1256,6 +1267,26 @@ Ours, in three pieces:
   at 0. The briefing is one block on its widened map, as every briefing.
   Test: `menus_wide_spread_by_their_groups_headless`'s multiplayer line.
   Breaks caught: the backdrop moved, the lobby's table missing.
+- **The mods check** (the lead, 2026-11-01; ours, no original): each
+  player's kind-1 lobby data gains a block after its max(5, 4 + worlds)
+  words: "MODS" (0x53444f4d), the gameplay hash's low and high words, the
+  count (at most 16) and each name as a length (at most 64) and its bytes,
+  four to a word. A reader reads it only as far as the data goes, the count and
+  lengths capped (no block: hash 0, no names), so an original's data reads
+  as no mods.
+  The joiner checks the host's data once after entering (its box, then back
+  to the connection screen, as a refused add-on map); LOCK compares every
+  player's with ours before the add-on world check. Same hash or 0 on both:
+  no change. Test: `net_lobby_mods_check_headless` (refused at join and at
+  lock with both sides' names; equal hashes and two string-only mods pass).
+  Breaks caught: the joiner's check off, LOCK's check off.
+- **Mod worlds' maps** (the lead, 2026-11-01): the add-on scan in enter
+  (0x00497720, folders 0 to 5) goes on to `mission_dir_count()`, skipping
+  6 to 8 as the exe's bound did, so a mod world's `readermp<n>.zbd` maps are
+  listed and travel in the data as `n << 8 | world`. Test:
+  `net_lobby_lists_a_mod_worlds_maps_headless` (a mod world with a
+  readermp3 listed last, named from its mpinfo, in our data). Break caught:
+  the bound back at six.
 
 ## Open
 

@@ -121,6 +121,43 @@ void probe_stealth_layer(uint32_t* out) {
   m3::set_stealth_hooks(nullptr);
 }
 
+}  // extern "C"
+
+namespace {
+float g_fx = 0, g_fy = 0;
+struct FrameHooks : m3::StealthHooks {
+  uint32_t unported(const char* key, std::initializer_list<zgame::Arg> args) override {
+    return probe_app::call(key, args);
+  }
+  uint32_t command(int32_t cmd) override { return unported("0x0051d300", {cmd}); }
+  int32_t mouse(zin::MouseInfo* m) override {
+    m->fx = g_fx, m->fy = g_fy;
+    return static_cast<int32_t>(unported("0x0051ba60", {}));
+  }
+  float frame_dt() override { return zgame::from_bits(probe_app::call("peek32", {0x72c52c})); }
+};
+}  // namespace
+
+extern "C" {
+// 0x004a5280 on controls with these fields and the mouse at (fx, fy):
+// out the throttle, turn, in40, pitch_in, out48, pitch_out, mouse x, y (as
+// bits) and the answer.
+void probe_stealth_frame(float throttle, float turn, uint32_t ramp, float in40, float pitch_in, float pitch, float fx, float fy,
+                         uint32_t* out) {
+  FrameHooks h;
+  m3::set_stealth_hooks(&h);
+  m3::StealthControls c;
+  c.throttle = throttle, c.turn = turn, c.ramp = ramp, c.in40 = in40, c.pitch_in = pitch_in, c.angles.x = pitch;
+  g_fx = fx, g_fy = fy;
+  const int r = c.update(0.0f);
+  const float f[8] = {c.throttle, c.turn, c.in40, c.pitch_in, c.out48, c.pitch_out, c.mouse_x, c.mouse_y};
+  for (int i = 0; i < 8; ++i) out[i] = zgame::bits(f[i]);
+  out[8] = static_cast<uint32_t>(r);
+  m3::set_stealth_hooks(nullptr);
+}
+}  // extern "C"
+
+extern "C" {
 // The controls' answers: vt+0x08 (the goal), vt+0x1c (destroyed), vt+0x20.
 void probe_stealth_controls(int32_t* out) {
   m3::StealthControls c;
@@ -129,4 +166,46 @@ void probe_stealth_controls(int32_t* out) {
   out[2] = c.dynamics();
 }
 
+}  // extern "C"
+
+namespace {
+uint32_t g_step_ctl = 0, g_step_img = 0;
+struct StepHooks : FrameHooks {
+  void image_set(ztwod::Image&, const char*) override {}
+  void layer_off() override {}
+  void reticle_pick(ztwod::Image&) override { unported("0x004a58d0", {g_step_img}); }
+};
+struct StepControls : m3::StealthControls {
+  int update(float dt) override { return static_cast<int>(probe_app::call("ictl.vt+0x0c", {g_step_ctl + 0xa08, zgame::bits(dt)})); }
+};
+}  // namespace
+
+extern "C" {
+// 0x004a5050 on a stealth at `addr` (its controls at `ctl`, the overlay's
+// image at `img`) with the controls' mouse at (mx, my): the controls' frame,
+// the move and the matrix through the shared callback; out the reticle's
+// place.
+void probe_stealth_step(uint32_t addr, uint32_t ctl, uint32_t img, float mx, float my, float dt, int32_t* out) {
+  StepHooks h;
+  m3::set_stealth_hooks(&h);
+  probe_vb_hooks(1);
+  g_step_ctl = ctl, g_step_img = img;
+  auto* c = new StepControls;
+  c->mouse_x = mx, c->mouse_y = my;
+  auto* s = new m3::Stealth;
+  s->controls = c;
+  probe_vb_bind(static_cast<m3::BasicVehicle*>(s), addr);
+  s->layer = new m3::StealthLayer(s);
+  m3::stealth_frame(*s, dt);
+  out[0] = s->layer->image.x, out[1] = s->layer->image.y;
+  s->layer->remove(&s->layer->image);
+  delete s->layer;
+  s->layer = nullptr;
+  s->controls = nullptr;
+  delete c;
+  probe_vb_bind(nullptr, 0);
+  delete s;  // the C++ object only (the original's destructor 0x004a4fc0 is stealth_delete's)
+  probe_vb_hooks(0);
+  m3::set_stealth_hooks(nullptr);
+}
 }  // extern "C"

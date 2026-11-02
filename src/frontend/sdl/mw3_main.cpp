@@ -23,7 +23,8 @@
 //   --movie NAME         debug start playing one fmv.zrd block (INTRO, c1m2 ...); with
 //                        --nosound on a clock stepping 1/60 s each poll, so each
 //                        frame is shown once (--shot F --shot-frame N: the movie's
-//                        N-th frame, numbered from 1);
+//                        N-th frame, numbered from 1); a movie's shape on a wide
+//                        screen measured before its first frame (docs/fmv.md section 8);
 //                        the movies are the importer's (mw3import), in the write dir
 //   --shot FILE.bmp      save frame N (--shot-frame N, default 30) and quit; hides the window
 //     --shot-any         count every frame shown (the fade's too), not only the 3D scene's
@@ -85,8 +86,10 @@
 #include "gamez/zutil/zfix.h"
 #include "gamez/zutil/zutl_path.h"
 #include "mech3/app.h"
+#include "mech3/mods.h"
 #include "mech3/app_engine.h"
 #include "mech3/app_hud.h"
+#include "mech3/app_keys.h"
 #include "mech3/pilot.h"
 #include "mech3/app_mech.h"
 #include "mech3/app_vehicle.h"
@@ -133,7 +136,14 @@ struct Args {
   std::string cfg_install;  // mw3.cfg's install= (the command line's wins)
   std::string cfg_mw1_game;  // mw3.cfg's mw1_game= (ours: the launcher's MechWarrior 1989 folder)
   int wide_menus = -1, cfg_wide_menus = -1;  // --wide-menus / --no-wide-menus, mw3.cfg's widemenus= (ours)
+  bool debug_camera = false;  // --debug-camera or debugcamera=1 (ours, docs/editor.md S4): the game editor on Shift+F12
   std::vector<std::string> assets;
+  // Mods (ours, docs/modding.md): --mod NAME (repeatable, this run's list),
+  // else mw3.cfg's mod= lines, in order; --no-mods none; --mods lists them.
+  std::vector<std::string> mods, cfg_mods;
+  bool mods_given = false, no_mods = false, list_mods = false;
+  std::string check_mod;  // --check-mod DIR
+
   std::string original;  // -nofmv -seasick -cdN, passed on as the command line
   // The bug fixes (zfix bugs; fixes.md, The bug fixes switch): mw3.cfg's
   // bugfixes=0/1 (default 1), --original turns them off whatever it says.
@@ -164,11 +174,11 @@ struct Args {
   int win = 0;  // --win N (ours): the mission won N frames in, by its Exit Mission
   int frame_times = 0;  // --frame-times N (ours): each frame's wall time from the N-th frame shown, summed up at the end
   int lab_mech = -1;  // --lab-mech N (ours): the lab's 3D view shows chassis N (alone: through c1m2's briefing)
-  struct Tap { int down, up, dik; };
+  struct Tap { int down, up, dik, ingame = 0; };
   std::vector<Tap> taps;  // --tap DIK@N[:M]
   // group: a wide menu's left (0), middle (1) or right (2); players: N > 0
   // counts the frame from the first one the session holds N players (ours)
-  struct ClickAt { int frame, x, y, group = 0, players = 0, back = 0; };
+  struct ClickAt { int frame, x, y, group = 0, players = 0, back = 0, ingame = 0, hover = 0; };
   std::vector<ClickAt> clicks_at;  // --click-at X,Y@N (the game's 640 x 480 pixels)
   std::string briefing;  // --briefing NAME (ours): a campaign mission's briefing, as the menus reach it
   bool walk = false;  // --walk: full throttle (THROTTLE0's key) at the start (ours)
@@ -188,6 +198,8 @@ struct Args {
   int net_wait = 0, net_minutes = 0;
   int net_seconds = 0;  // --net-seconds: a network game the menus start lasts this long (each one)
   int net_kill_at = 0;  // --net-kill-at S: a kill staged on the pilot S seconds (of 30 frames) into each such game
+  int blur[2] = {0, 0};  // --blur-ingame N:MS (ours, W45): inactive at game frame N, a focus back MS ms later
+  bool fire_probe = false;  // --fire-probe (ours, W40): each menu game frame, the trigger and the reloads, timed
   int net_walk[2] = {0, 0};  // --net-walk A,B: the throttle held up from A to B seconds (of 30 frames) into each
   long long net_drive = -1;
   bool net_staged = true;  // --net-staged 0: the drive stages no kills
@@ -209,7 +221,7 @@ void usage() {
       "mw3 [install-dir] [--install DIR | --install-from DISC|ISO|CUE [--install-to DIR]] [--assets DIR]... [--write-dir DIR] [--version]\n"
       "    [--mission NAME | --fly NAME [--variant BLOCK]] [--pos X Y Z] [--look YAW PITCH] [--vehicle-ahead M [--vehicle-hold]] [--turret-ahead M] [--mech-ahead M] [--dialog FILE NAME]\n"
       "    [--shot FILE.bmp [--shot-frame N] [--shot-any] [--shot-series K]] [--fire N [--fire-group 1..5]] [--objectives N] [--win N] [--lab-mech N]\n"
-      "    [--windowed] [--original] [--import | --no-import] [--no-launcher] [--wide-menus | --no-wide-menus] [--patch ZIP|DIR] [--vfw-helper EXE | --no-vfw-helper] [--briefing c1m2] [--click N[:M]] [--click-at X,Y@N]... [--click-players X,Y@N/P]... [--click-return X,Y@N]... [--walk] [--tap DIK@N[:M]]... [--frames N] [--frame-ms N] [--frame-times N] [--seed N] [--window WxH] [--nosound] [--hidden] [--verbose]\n"
+      "    [--windowed] [--original] [--import | --no-import] [--no-launcher] [--debug-camera] [--wide-menus | --no-wide-menus] [--mod NAME]... [--no-mods] [--mods] [--check-mod DIR] [--patch ZIP|DIR] [--vfw-helper EXE | --no-vfw-helper] [--briefing c1m2] [--click N[:M]] [--click-at X,Y@N]... [--click-players X,Y@N/P]... [--click-return X,Y@N]... [--walk] [--tap DIK@N[:M]]... [--frames N] [--frame-ms N] [--frame-times N] [--seed N] [--window WxH] [--nosound] [--hidden] [--verbose]\n"
       "    [-nofmv] [-seasick] [-cdN]\n"
       "See docs/program.md.\n");
 }
@@ -229,6 +241,10 @@ bool parse(int argc, char** argv, Args& a) {
     else if (s == "--install" && next(1)) a.install = argv[++i];
     else if (s == "--assets" && next(1)) a.assets.emplace_back(argv[++i]);
     else if (s == "--write-dir" && next(1)) a.write_dir = argv[++i];
+    else if (s == "--mod" && next(1)) a.mods.emplace_back(argv[++i]), a.mods_given = true;
+    else if (s == "--no-mods") a.no_mods = true;
+    else if (s == "--mods") a.list_mods = true;
+    else if (s == "--check-mod" && next(1)) a.check_mod = argv[++i];
     else if (s == "--mission" && next(1)) a.mission = argv[++i];
     else if (s == "--fly" && next(1)) a.mission = argv[++i], a.fly = true;
     else if (s == "--variant" && next(1)) a.variant = argv[++i];
@@ -254,6 +270,8 @@ bool parse(int argc, char** argv, Args& a) {
     else if (s == "--net-minutes" && next(1)) a.net_minutes = std::atoi(argv[++i]);
     else if (s == "--net-seconds" && next(1)) a.net_seconds = std::atoi(argv[++i]);
     else if (s == "--net-kill-at" && next(1)) a.net_kill_at = std::atoi(argv[++i]);
+    else if (s == "--fire-probe") a.fire_probe = true;
+    else if (s == "--blur-ingame" && next(1)) std::sscanf(argv[++i], "%d:%d", &a.blur[0], &a.blur[1]);
     else if (s == "--net-walk" && next(1)) std::sscanf(argv[++i], "%d,%d", &a.net_walk[0], &a.net_walk[1]);
     else if (s == "--net-drive" && next(1)) a.net_drive = std::strtoll(argv[++i], nullptr, 10);
     else if (s == "--net-soak") a.net_soak = true;
@@ -284,6 +302,22 @@ bool parse(int argc, char** argv, Args& a) {
       if (std::sscanf(argv[++i], "%d,%d@%d/%d", &c.x, &c.y, &c.frame, &c.players) == 4 && c.players > 0)
         a.clicks_at.push_back(c);
     }
+    else if ((s == "--tap-ingame" || s == "--hold-ingame") && next(1)) {  // DIK@N[:M] / N:M (the left button), each game's frames
+      const bool hold = s == "--hold-ingame";
+      const char* v = argv[++i];
+      const char* at = hold ? v - 1 : std::strchr(v, '@');
+      const char* c = at ? std::strchr(at + 1, ':') : nullptr;
+      if (at) a.taps.push_back({std::atoi(at + 1), c ? std::atoi(c + 1) : std::atoi(at + 1) + 1,
+                                hold ? -1 : static_cast<int>(std::strtol(v, nullptr, 0)), 1});
+    }
+    else if (s == "--hover-at" && next(1)) {  // X,Y@N: the cursor there at frame N, no click (a rollover)
+      Args::ClickAt c{};
+      if (std::sscanf(argv[++i], "%d,%d@%d", &c.x, &c.y, &c.frame) == 3) c.hover = 1, a.clicks_at.push_back(c);
+    }
+    else if (s == "--click-ingame" && next(1)) {  // X,Y@N: N frames into each game the menus start
+      Args::ClickAt c{};
+      if (std::sscanf(argv[++i], "%d,%d@%d", &c.x, &c.y, &c.frame) == 3) c.ingame = 1, a.clicks_at.push_back(c);
+    }
     else if (s == "--click-return" && next(1)) {  // X,Y@N: N frames after each return to the lobby from a game
       Args::ClickAt c{};
       if (std::sscanf(argv[++i], "%d,%d@%d", &c.x, &c.y, &c.frame) == 3) c.back = 1, a.clicks_at.push_back(c);
@@ -307,6 +341,7 @@ bool parse(int argc, char** argv, Args& a) {
     else if (s == "--no-launcher") a.no_launcher = true;
     else if (s == "--ready-file" && next(1)) a.ready_file = argv[++i];
     else if (s == "--wide-menus") a.wide_menus = 1;
+    else if (s == "--debug-camera") a.debug_camera = true;
     else if (s == "--no-wide-menus") a.wide_menus = 0;
     else if (s == "--original") a.play_original = true;
     else if (s == "--import") a.force_import = true;
@@ -356,11 +391,13 @@ void read_config(const std::string& dir, Args& a) {
     if (line.rfind("install=", 0) == 0) a.cfg_install = line.substr(8);
     else if (line.rfind("mw1_game=", 0) == 0) a.cfg_mw1_game = line.substr(9);
     else if (line.rfind("assets=", 0) == 0) a.assets.push_back(line.substr(7));
+    else if (line.rfind("mod=", 0) == 0) a.cfg_mods.push_back(line.substr(4));
     else if (line == "windowed=1") a.windowed = true;
     else if (line == "bugfixes=0") a.cfg_bugfixes = 0;
     else if (line == "bugfixes=1") a.cfg_bugfixes = 1;
     else if (line == "widemenus=0") a.cfg_wide_menus = 0;
     else if (line == "widemenus=1") a.cfg_wide_menus = 1;
+    else if (line == "debugcamera=1") a.debug_camera = true;
   }
 }
 
@@ -585,12 +622,34 @@ int main(int argc, char** argv) {
   else if (!a.write_dir.empty() && run_log.open(a.write_dir))
     std::printf("mw3 (MechWarrior 3 rebuild) %s, log %s\n", MW3_VERSION, run_log.path().c_str());
   if (!a.write_dir.empty()) read_config(a.write_dir, a);
+  if (!a.mods_given) a.mods = a.cfg_mods;
+  if (a.no_mods) a.mods.clear();
+  if (!a.check_mod.empty()) {  // read the mod as the game would, nothing mounted into play
+    int errors = 0;
+    const std::string install = !a.install.empty() ? a.install : a.cfg_install;
+    for (const std::string& line : mech3::mod_check(a.check_mod, install, &errors)) std::printf("%s\n", line.c_str());
+    SDL_Quit();
+    return errors ? 1 : 0;
+  }
+  if (a.list_mods) {
+    const std::vector<mech3::ModInfo> found = mech3::mods_found(a.write_dir);
+    std::printf("mw3: mods in %s/mods: %zu\n", a.write_dir.c_str(), found.size());
+    for (const mech3::ModInfo& m : found) {
+      const auto at = std::find(a.mods.begin(), a.mods.end(), m.folder);
+      std::printf("  %s: %s%s%s\n", m.folder.c_str(), m.error.empty() ? (m.name + " " + m.version).c_str() : m.error.c_str(),
+                  at == a.mods.end() ? "" : ", enabled #", at == a.mods.end() ? "" : std::to_string(at - a.mods.begin() + 1).c_str());
+    }
+    SDL_Quit();
+    return 0;
+  }
   // Every play-changing bug fix off with --original or bugfixes=0 (ours; the
   // platform fixes that let it run stay on: fixes.md, The bug fixes switch).
   zfix::options().bugs = !a.play_original && a.cfg_bugfixes != 0;
   // The menus' 16:9 (a display choice, kept by --original): the command
   // line's, else mw3.cfg's widemenus=, else on.
   zfix::options().wide_menus = a.wide_menus >= 0 ? a.wide_menus != 0 : a.cfg_wide_menus != 0;
+  mech3::app_key_calls().debug_camera = a.debug_camera;
+  if (a.debug_camera) std::printf("mw3: --debug-camera: the game editor on Shift+F12 (docs/editor.md)\n");
   if (!zfix::options().bugs)
     std::printf("mw3: bug fixes off (%s): the original's play\n", a.play_original ? "--original" : "bugfixes=0 in mw3.cfg");
   // The launcher (ours: launcher.h, docs/launcher.md, games-layout.md): a
@@ -655,6 +714,11 @@ int main(int argc, char** argv) {
   for (const std::string& d : a.assets) zutl::mount(d);
   // The 1.2 patch's files, imported (ours: patch_import.h), over the install's.
   const std::string patch_dir = a.write_dir.empty() ? std::string() : a.write_dir + "/patch12";
+  // The enabled mods, in front of the patch and the install (docs/modding.md).
+  mech3::mods_identity_set(a.write_dir, a.mods);  // for the lobby: the gameplay mods every player must share
+  if (!a.mods.empty())
+    for (const std::string& line : mech3::mods_mount(a.write_dir, a.mods, {patch_dir, a.install}))
+      std::printf("mw3: %s\n", line.c_str());
   if (!a.patch.empty()) {
     const mech3::setup::Result r = mech3::setup::apply_patch(a.patch, a.write_dir, nullptr);
     if (a.verbose) std::printf("%s", r.detail.c_str());
@@ -1254,7 +1318,7 @@ int run(const Args& a, platform::VideoForWindows* vfw) {
             }
         };
         for (const Args::Tap& t : a.taps)
-          if (menu_frames == t.down || menu_frames == t.up) key(t.dik, menu_frames == t.down);
+          if (!t.ingame && (menu_frames == t.down || menu_frames == t.up)) key(t.dik, menu_frames == t.down);
         std::vector<Args::ClickAt> clicks = a.clicks_at;
         clicks.insert(clicks.end(), auto_clicks.begin(), auto_clicks.end());
         // --net-soak (ours) in a network game the menus started: the soak's
@@ -1287,6 +1351,46 @@ int run(const Args& a, platform::VideoForWindows* vfw) {
           s_walk_hooked = true;
           mech3::controls_calls().command = [](int cmd) { return zin::command(cmd) | (s_walk && cmd == 0x18 ? 1u : 0u); };
         }
+        // --tap-ingame and --hold-ingame: keys and the left button by each game's frames.
+        for (const Args::Tap& t : a.taps) {
+          const int f = s_menu_in_game ? menu_frames - s_menu_game_from : -1;
+          if (!t.ingame || (f != t.down && f != t.up)) continue;
+          if (t.dik >= 0) {
+            key(t.dik, f == t.down);
+          } else {
+            SDL_Event ev{};
+            ev.type = f == t.down ? SDL_EVENT_MOUSE_BUTTON_DOWN : SDL_EVENT_MOUSE_BUTTON_UP;
+            ev.button.button = SDL_BUTTON_LEFT;
+            ev.button.down = f == t.down;
+            SDL_PushEvent(&ev);
+          }
+        }
+        // --blur-ingame: the app deactivated as a lost focus does (without
+        // --frames' stays_active), and an SDL timer's focus event back, which
+        // must arrive whether frames run or not.
+        if (a.blur[1] > 0 && s_menu_in_game && menu_frames - s_menu_game_from == a.blur[0]) {
+          std::printf("mw3: blur at wall %lld\n", static_cast<long long>(std::chrono::duration_cast<std::chrono::milliseconds>(
+                                                         std::chrono::system_clock::now().time_since_epoch()).count()));
+          app.on_window_activate(0);
+          SDL_AddTimer(static_cast<Uint32>(a.blur[1]), [](void*, SDL_TimerID, Uint32) -> Uint32 {
+            SDL_Event ev{};
+            ev.type = SDL_EVENT_WINDOW_FOCUS_GAINED;
+            SDL_PushEvent(&ev);
+            return 0;
+          }, nullptr);
+        }
+        // --net-soak: the objectives box's lines while shown (F12), once a second.
+        if (a.net_soak && s_menu_in_game && app.current() == &mech3::states().core && (menu_frames - s_menu_game_from) % 30 == 0) {
+          const std::string box = mech3::program_hud_objectives_text();
+          if (!box.empty()) std::printf("mw3: soak menus box: %s\n", box.c_str());
+        }
+        if (a.fire_probe && s_menu_in_game && app.current() == &mech3::states().core) {
+          int32_t trig = 0;
+          float reload = 0;
+          if (mech3::program_pilot_fire_probe(&trig, &reload))
+            std::printf("mw3: fire probe frame %d ms %llu buttons %u trigger %d reload %.3f\n", menu_frames,
+                        static_cast<unsigned long long>(SDL_GetTicks()), input.mouse_buttons, trig, reload);
+        }
         if (a.net_kill_at > 0 && s_menu_in_game && !s_menu_killed && app.current() == &mech3::states().core &&
             menu_frames >= s_menu_game_from + 30 * a.net_kill_at) {
           s_menu_killed = true;
@@ -1295,7 +1399,9 @@ int run(const Args& a, platform::VideoForWindows* vfw) {
         if (a.net_soak && menu_net && app.current() == &mech3::states().core &&
             static_cast<uint64_t>(menu_frames) >= s_menu_net_line_at) {
           s_menu_net_line_at = static_cast<uint64_t>(menu_frames) + 15;  // half a second of game time
-          std::printf("mw3: soak menus clock %.1f rss %zu %s\n", mech3::missions().clock, sdlfe::resident_kb(),
+          const long long wall = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                     std::chrono::system_clock::now().time_since_epoch()).count();
+          std::printf("mw3: soak menus clock %.1f rss %zu wall %lld %s\n", mech3::missions().clock, sdlfe::resident_kb(), wall,
                       mech3::program_net_soak_line().c_str());
         }
         // --click-players: the first frame each player count was reached.
@@ -1313,6 +1419,8 @@ int run(const Args& a, platform::VideoForWindows* vfw) {
         }
         for (Args::ClickAt& c : clicks)
           if (c.back) c.frame = s_back_at >= 0 ? s_back_at + c.frame : -100;
+        for (Args::ClickAt& c : clicks)
+          if (c.ingame) c.frame = s_menu_in_game ? s_menu_game_from + c.frame : -100;
         for (const Args::ClickAt& c : clicks) {
           // The cursor put on the point (zInput's 0x0051b440, the game's
           // 640 x 480 about its centre), then the press and the release.
@@ -1329,7 +1437,7 @@ int run(const Args& a, platform::VideoForWindows* vfw) {
             const float px = static_cast<float>(c.x + ox), py = static_cast<float>(c.y + oy);
             zin::mouse_set((px - dw / 2) / (dw / 2), (py - dh / 2) / (dh / 2));
           }
-          if (menu_frames == c.frame + 1 || menu_frames == c.frame + 2) {
+          if (!c.hover && (menu_frames == c.frame + 1 || menu_frames == c.frame + 2)) {
             SDL_Event ev{};
             ev.type = menu_frames == c.frame + 1 ? SDL_EVENT_MOUSE_BUTTON_DOWN : SDL_EVENT_MOUSE_BUTTON_UP;
             ev.button.button = SDL_BUTTON_LEFT;

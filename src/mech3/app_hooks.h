@@ -211,6 +211,12 @@ class Engine : public zgame::AppHooks {
   virtual const char* version_number();                // 0x004af290
   // 0x004ac150 (cdecl): a message box from the message table; the fourth
   // argument (a format argument) is pushed only by some callers.
+  // Ours: the game's message box with our own text (no message id; the
+  // lobby's mods check). The answer as message_box's.
+  virtual uint32_t message_box_plain(int32_t a, int32_t caption, const std::string& text) {
+    (void)a, (void)caption, (void)text;
+    return 1;
+  }
   virtual uint32_t message_box(int32_t a, int32_t caption, int32_t text, int32_t arg = 0) {
     (void)arg;
     return unported("0x004ac150", {a, caption, text});

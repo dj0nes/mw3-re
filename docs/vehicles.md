@@ -1664,7 +1664,18 @@ THROTTLE_UP/DN 0x18/0x19, TURN_LEFT/RIGHT 2/3, PITCH_UP/DN 4/5,
 CENTER_TORSO 6) and the mouse (0x51ba60), each clamped to -1..1 and
 smoothed (0x4abcf0(x, 0.5, 1)) into the throttle and turn (IControls +0x20,
 +0x28) and two more axes (+0x9c0, +0x9bc). So the stealth is a camera flown
-with the original's own keys while the view is on it (editor.md S3). An
+with the original's own keys while the view is on it (editor.md S3).
+Ported 2026-11-01 (`stealth_controls_frame`). Read from the exe: the
+controls' base is the IControls less 0xa08, so the frame's fields are
++0x10 (a ramp switch: set, the throttle keys add or take the frame time,
+[0x72c52c], and a released key leaves the throttle; clear, a key gives 1
+or -1 and none 0), +0x40 / +0x48 (an input nothing here sets, clamped and
+smoothed), +0x44 / +0x4c (the pitch keys' 1 / -1 / 0; CENTER_TORSO minus
+the pitch's sign), +0xa4 / +0xa8 (the mouse's fx, fy; a device error,
+0x8007001e, zeroes them and ends the frame). TURN_RIGHT is read only when
+TURN_LEFT is not held. The curve 0x4abcf0(x, 0.5, 1): 2a^2 to 0.5, then
+1 - 2(a - 1)^2, 1 past 1, with x's sign. The throttle's curve goes to
+SetThrottle, the turn's to SetTurn. An
 earlier reading here (and in editor.md) took the basic vehicle's own
 controls for its: those are below.
 
@@ -1688,7 +1699,10 @@ before the one query from 500 up, picks within max(1 - that rise, 4) with
 water as ground, and refuses no empty record (its pick gives 0); the
 ground puts the vehicle at the highest support plus mode_alt and sets the
 turn rate's top to turns[1]. No shipped mission vehicle moves in BASIC; the
-stealth object does when the view is on it (editor.md S4).
+stealth object does when the view is on it, through its own frame 0x4a5050
+(the controls, the overlay's reticle 0x4a5a00, the move 0x4a1240, the
+matrix; no path test as a basic vehicle's 0x4a1040 has), ported 2026-11-01
+(editor.md S4).
 
 ## The basic vehicle's own controls (open; deferred 2026-11-01)
 

@@ -679,6 +679,10 @@ struct WiredPlayerHooks : PlayerHooks {
     if (m && is_launched_mech(m)) update_mech(m, dt);
     else PlayerHooks::vehicle_update(v, dt);
   }
+  void stealth_update(Handle s, float dt) override {  // vt+0x34 while the view is on it
+    if (s && e->object_of(s) == program_stealth()) program_stealth_frame(dt);
+    else PlayerHooks::stealth_update(s, dt);
+  }
   void entities_update(float dt) override { update_entities(dt); }  // 0x004a1140
   // 0x004d52b0 / 0x004d5300: every znet object's vt+0x2c / vt+0x30 (vt+0x28
   // is itself, 0x004d2a70). Only the waynets' begin (0x00479a50) changes the
@@ -2326,6 +2330,17 @@ MultiplayerGame* net_debug_game() {
 }
 }  // namespace
 
+MultiplayerGame* mission_multiplayer_game() { return net_debug_game(); }
+std::vector<std::string> mission_multiplayer_score_lines() {
+  std::vector<std::string> out;
+  MultiplayerGame* g = net_debug_game();
+  if (!g) return out;
+  g->rescore();
+  g->score_texts(0x14, 0xc);
+  for (const auto& l : g->score_lines) out.push_back(l->text);
+  return out;
+}
+
 void wire_mission_hooks(GameEngine* e) {
   g_mission_hooks.e = e;
   g_objective_hooks.e = e;
@@ -2339,7 +2354,9 @@ void wire_mission_hooks(GameEngine* e) {
       e ? +[]() -> void* { return g_mission_engine->object_of(missions().stations); } : nullptr,
       e ? +[](void* w) { missions().stations = w ? g_mission_engine->handle_of(w) : 0; } : nullptr);
   AppKeyCalls& keys = app_key_calls();
+  const bool debug_camera = keys.debug_camera;  // the program's flag, set before
   keys = AppKeyCalls{};
+  keys.debug_camera = debug_camera;
   if (e) {
     keys.cycle_camera = [] {  // 0x0040aed0 on [0x005f4c8c]
       if (PlayerView* v = program_view()) v->cycle_camera();
@@ -2684,6 +2701,9 @@ uint32_t GameEngine::vcall(Handle obj, uint32_t slot, std::initializer_list<Arg>
   // A mech answers vt+0x50 with itself (vehicles.md, Telling a mech).
   if (obj && slot == 0x50 && entity_is_mech(object_of(obj))) return obj;
   if (menu_vcall(obj, slot, args, &r)) return r;
+  // The chosen pilot's own game (its +0x6c from the menus, peek32): its type.
+  if (Pilot* p = current_pilot(); obj && obj != game_ && p && p->current && obj == handle_of(p->current) && slot == 0x2c)
+    return static_cast<uint32_t>(p->current->type());
   if (obj && obj == game_) {
     switch (slot) {
       case 0x2c: return static_cast<uint32_t>(launch_.type);
