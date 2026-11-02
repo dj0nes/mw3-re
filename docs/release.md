@@ -148,10 +148,12 @@ notes, the README) is checked before it goes up.
       be no match.
 - [x] **No team ID or signing identity.** The Mac app is signed ad hoc
       (above); the Windows files carry no certificate.
-- [ ] **No local paths.** No machine's folders in the binaries or the text:
+- [x] **No local paths.** No machine's folders in the binaries or the text:
       `strings -a <each binary> | grep -E '/Users/|/Volumes/|/home/|C:\\Users\\|E:\\'`
       must print nothing. (`MW3_PACKAGE=ON` keeps the game folder out; the
-      compilers' own `__FILE__` strings must be relative or absent.)
+      compilers' own `__FILE__` strings must be relative or absent.
+      The package scripts check this themselves (`check_paths.py`,
+      `check_dist.ps1`).)
 - [x] **No game files.** No `.zbd`, `.avi`, `.wav`, `.zrd` or other MicroProse
       data in any package; only our own launcher art (`assets/launcher`).
 - [x] **No logs or settings.** No `mw3.log`, `mw3.cfg`, `settings.reg`,
@@ -164,12 +166,14 @@ notes, the README) is checked before it goes up.
 Ticked above: what passed on the Mac DMG, the Windows folder and zip, and
 the Linux AppDir. Left, and why:
 
-- **Local paths: fails.** build_deps.sh configures FFmpeg with
-  `--prefix=<the build folder>`, and FFmpeg keeps its configure line in each
-  library (`avutil_configuration()`), so the Mac and Linux FFmpeg libraries
-  carry this machine's folder. The Windows FFmpeg (BtbN's) says
-  `/ffbuild/prefix`. Fix: configure with a neutral prefix and install with
-  `DESTDIR`. Our own binaries are clean on all three platforms.
+- **Local paths: fixed (2026-11-02).** FFmpeg keeps its configure line in
+  each library (`avutil_configuration()`), and build_deps.sh's real
+  `--prefix` put the build folder and user name into the Mac and Linux
+  FFmpeg. It is configured with `/ffbuild` now. make_app.sh and
+  make-appimage.sh run `tools/deps/check_paths.py` on what they ship, and
+  check_dist.ps1 does the same on Windows: any `/Volumes/`, `/Users/`,
+  `/home/`, `C:\Users\` or the building user's name fails the package.
+  Rebuilt and checked clean on the Mac and Linux.
 - Windows `--version` says `unknown` and the package `dev`: the PC copy it
   was built in is not a git checkout. The release build comes from a clone
   at the tag. The installer was built (Inno Setup 7 is on the PC); its
