@@ -10,7 +10,10 @@
 #include "gamez/zclass/list.h"
 #include "gamez/zerror/zerr.h"
 #include "gamez/zimage/zimg_texture.h"
+#include "gamez/zutil/zutl_path.h"
+#include "pm/gamez/zimage/zimg_texture.h"
 #include "pm/gamez/zmodel/gmod_const.h"
+#include "pm/gamez/zmodel/gmod_matl.h"
 
 namespace pm::zcls {
 
@@ -22,14 +25,14 @@ ZbdState g_state;
 ZbdState& zbd_state() { return g_state; }
 
 // Pirate's Moon 1.0 @ 0x00516ab0
-zimg::TextureEntry* texture_for(int32_t index) {
+::zimg::TextureEntry* texture_for(int32_t index) {
   if (g_state.own_textures) return ::zimg::texture_at(index);  // 0x00531840
   return file_texture(index);
 }
 
 // Pirate's Moon 1.0 @ 0x00516ae0. The name is the entry's +0xc on, as the exe
 // passes it (a 20-letter name runs on into the state's bytes).
-zimg::TextureEntry* file_texture(int32_t index) {
+::zimg::TextureEntry* file_texture(int32_t index) {
   if (!g_state.file || g_state.current < 0 || index < 0) return nullptr;
   const ZbdFile& z = g_state.files[static_cast<size_t>(g_state.current)];
   if (index >= z.get(0xc)) return nullptr;
@@ -300,6 +303,80 @@ int read_nodes(int32_t size, std::FILE* f, int32_t model_base) {
     for (int32_t i = 0; i < w->get<int32_t>(0xac); ++i) w->sound_data[i] = w->sounds[i]->data;
   }
   return p.capacity;
+}
+
+// Pirate's Moon 1.0 @ 0x005179e0. FIX (A): the mounts (zutl::open), as MW3's.
+std::FILE* open_zbd(const char* path, uint8_t header[0x28]) {
+  std::FILE* f = zutl::open(path, "rb");
+  if (!f) return nullptr;
+  int line;
+  const char* msg;
+  int32_t sig, version;
+  if (std::fread(header, 0x28, 1, f) != 1) {
+    line = 0x69e, msg = "Error reading GameZ header data.";
+  } else if (std::memcpy(&sig, header, 4), sig != 0x02971222) {
+    line = 0x6a7, msg = "Error reading GameZ header data; incompatible file type";
+  } else if (std::memcpy(&version, header + 4, 4), version != 0x29) {
+    line = 0x6d0, msg = "Error reading GameZ header data; incompatible file version";
+  } else {
+    return f;
+  }
+  zerr::report(0x200, kFile, line, msg);
+  std::fclose(f);
+  return nullptr;
+}
+
+namespace {
+// Pirate's Moon 1.0 @ 0x00517a70: the entry pushed for the file dropped.
+void drop_file(std::FILE* f) {
+  g_state.files.pop_back();
+  std::fclose(f);
+  g_state.file = nullptr, g_state.current = -1, g_state.own_textures = false;
+}
+
+int load_error(std::FILE* f, int line, const char* msg) {
+  zerr::report(0x200, kFile, line, msg);
+  drop_file(f);
+  return -1;
+}
+}  // namespace
+
+// Pirate's Moon 1.0 @ 0x00516bc0
+int read_zbd(const char* path) {
+  if (!path[0]) return -1;
+  ZbdFile entry;
+  std::FILE* f = open_zbd(path, entry.header);
+  g_state.file = f;
+  if (!f) return -1;
+  entry.path = path;
+  g_state.current = static_cast<int32_t>(g_state.files.size());
+  g_state.files.push_back(entry);
+  const ZbdFile& z = g_state.files.back();
+  if (::zimg::textures().count == 0) {  // 0x00531860: only the first file's directory
+    std::fseek(f, z.get(0x10), SEEK_SET);
+    if (pm::zimg::read_texture_directory(z.get(0xc), f) < 0) return load_error(f, 0x720, "Error reading GameZ texture data.");
+    g_state.own_textures = true;
+  }
+  std::fseek(f, z.get(0x14), SEEK_SET);
+  const int32_t materials = pm::zmod::read_materials(f);
+  if (materials < 0) return load_error(f, 0x72e, "Error reading GameZ material data.");
+  std::fseek(f, z.get(0x18), SEEK_SET);
+  const int32_t models = pm::zmod::read_models(f, materials);
+  if (models < 0) return load_error(f, 0x73a, "Error reading GameZ model3d data.");
+  std::fseek(f, z.get(0x24), SEEK_SET);
+  if (read_nodes(z.get(0x1c), f, models) < 0) return load_error(f, 0x746, "Error reading GameZ node data.");
+  std::fclose(f);
+  g_state.file = nullptr, g_state.current = -1, g_state.own_textures = false;
+  // Ours: shared code reads a node's `model` (MW3's type; docs/pm-map.md, the
+  // model's users), null for PM's nodes until the renderer's route is chosen.
+  static bool said = false;
+  int32_t with = 0;
+  for (int32_t i = 0; i < ::zcls::nodes().capacity; ++i) with += ::zcls::node_at(i)->pm_model != nullptr;
+  if (with && !said) {
+    said = true;
+    std::printf("mw3: %s: %d nodes have Pirate's Moon models, which nothing draws or collides with yet\n", path, with);
+  }
+  return 0;
 }
 
 }  // namespace pm::zcls

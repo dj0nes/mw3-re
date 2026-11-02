@@ -64,6 +64,20 @@ functions run unchanged on PM. So:
   2026-11-02: 515 get/put sites on Node, World, Light and Lod, 78 direct
   `raw[]` reads, 163 uses of the int32 count accessors, mostly in zClass.
 
+The route for PM's world files (the lead, 2026-11-02): PM's readers
+translate the file into the shared types as they are, in MW3's layout:
+the counts as MW3's int32 (+0x54, +0x5c), the box centre and diagonal at
++0x64/+0x70, World's rows, lights and sounds where MW3 keeps them. PM's
+extra fields are real C++ members outside the raw block (`Node::pm_virtual`,
+`pm_box`, `pm_model`; `World::pm_area2`, `Light::pm_colors`, `Lod::pm_tail`,
+`Partition::pm_tail` and `pm_y`), so MW3's raw readers never meet them.
+PM's ported functions use the shared accessors, never PM's raw offsets,
+with a one-line comment where the offset differs. A node's model is
+`model` (MW3's) or `pm_model` (PM's; `model` stays null): the shared code
+reading `model` (73 places: gamez/zeffect/zeff_anim_events.cpp 11, gamez/zclass/cls_di.cpp 8, gamez/zeffect/zeff_anim_save.cpp 7, gamez/zclass/cls_node.cpp 7, gamez/zclass/camera.cpp 6, gamez/zinterp/zinterp.cpp 5, gamez/zgeometry/zgeo_model.cpp 5, mech3/zainet_inout.cpp 3, gamez/zclass/cls_mechlib.cpp 3, gamez/zmodel/gmod_cull.cpp 2, gamez/zclass/cls_zbd.cpp 2, gamez/zclass/class.cpp 2, pm/gamez/zclass/cls_zbd.cpp 1, mech3/veh_controls.cpp 1, mech3/veh_basic_object.cpp 1, mech3/mech_skin.cpp 1, mech3/mech_build.cpp 1, mech3/app_turret.cpp 1, mech3/app_mech.cpp 1, gamez/zmodel/gmod_draw.cpp 1, gamez/zeffect/zeff_anim_run.cpp 1, gamez/zdeclient/zdec_crater.cpp 1, gamez/zclass/cls_util.cpp 1, gamez/zclass/cls_node.h 1) must be routed before a PM world is
+drawn or collided with. PM's loader says in the log how many nodes carry a
+PM model, so a PM world never silently draws nothing.
+
 ## The pieces on `mac5/pm` (2026-11-02)
 
 - **The game table**: `src/gamez/zgame/zgame_table.h`, `zgame::Table`,

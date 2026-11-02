@@ -3,6 +3,7 @@
 // functions after zinterp_parse.cpp's dispatcher. The exe names no file here;
 // this one is named for the module (docs/interp.md).
 #include "gamez/zinterp/zinterp.h"
+#include "gamez/zgame/zgame_table.h"
 #include "gamez/zmodel/gmod_init.h"
 
 #include <sys/stat.h>
@@ -84,7 +85,7 @@ Engine make_engine() {
   e.set_action_priority = zcls::node_set_priority;
   e.write_prepare_a = zcls::frame_update;
   e.write_prepare_b = [] { zcls::purge_lists(); };
-  e.read_zbd = zcls::read_zbd;
+  e.read_zbd = [](const char* path) { return zgame::game().zcls_read_zbd(path); };  // the running game's
   e.camera_set_active = zcls::node_set_active;  // 0x004f3420 is a jmp to it
   e.camera_set_clip = zcls::camera_set_clip;
   e.lod_add_child = zcls::node_link;            // 0x004fe0a0 is a jmp to it

@@ -5,6 +5,7 @@
 #include <cstring>
 #include <fstream>
 #include <string>
+#include <tuple>
 #include <vector>
 
 #include "check.h"
@@ -14,6 +15,12 @@
 #include "gamez/zutil/zutl_path.h"
 #include "gamez/zutil/zutl_zar.h"
 #include "mech3/mech_anim.h"
+#include "gamez/zclass/cls_node.h"
+#include "gamez/zclass/list.h"
+#include "gamez/zimage/zimg_texture.h"
+#include "gamez/zmodel/gmod_matl.h"
+#include "pm/gamez/zclass/cls_zbd.h"
+#include "pm/gamez/zmodel/gmod_const.h"
 #include "pm/gamez/zutil/zutl_zar.h"
 #include "pm/pm_game.h"
 
@@ -198,5 +205,68 @@ TEST(pm_include_stays_inside_the_mounts) {
   EXPECT(zrdr::get_int(root, "K", &v) && v == 5);
   EXPECT(!zrdr::get_int(root, "S", &v));
   zrdr::free_node(root);
+  zgame::set_game(zgame::mw3_table());
+}
+
+// The world loader 0x00516bc0 through the game table: c1 read, then c2
+// stacked on it (each pool grows by the file's; the file list keeps both
+// paths only while reading); a file of the wrong version or signature, or
+// MW3's version 27, is refused and leaves the list and the pools alone.
+TEST(pm_worlds_stack_through_the_table) {
+  const std::string c1 = std::string(MW3PM_GAME_DIR) + "/zbd/c1/gamez.zbd";
+  if (!std::filesystem::exists(c1)) {
+    std::printf("  skipped: no PM install\n");
+    return;
+  }
+  zutl::mounts() = {};
+  zutl::mount(MW3PM_GAME_DIR);
+  zgame::set_game(pm::table());
+  ::zimg::textures().count = 0;
+  ::zmod::materials() = ::zmod::MaterialTable{};
+  pm::zmod::models() = pm::zmod::ModelPool{};
+  ::zcls::nodes() = ::zcls::NodePool{};
+  ::zcls::lists() = ::zcls::Lists{};
+  pm::zcls::zbd_state() = pm::zcls::ZbdState{};
+  EXPECT(zgame::game().zcls_read_zbd("zbd/c1/gamez.zbd") == 0);
+  const int32_t textures = ::zimg::textures().count, materials = ::zmod::materials().capacity;
+  const int32_t models = pm::zmod::models().capacity, nodes = ::zcls::nodes().capacity;
+  EXPECT(textures == 437 && materials == 1000 && models == 3000 && nodes == 7500);
+  EXPECT(pm::zcls::zbd_state().files.size() == 1 && !pm::zcls::zbd_state().file);
+  EXPECT(zgame::game().zcls_read_zbd("zbd/c2/gamez.zbd") == 0);
+  EXPECT(::zimg::textures().count >= textures);  // c2's found by name, added past c1's
+  EXPECT(::zmod::materials().capacity == 2000 && pm::zmod::models().capacity == 3000 + 2250);
+  EXPECT(::zcls::nodes().capacity > nodes);
+  EXPECT(pm::zcls::zbd_state().files.size() == 2);
+  // A node of c2 links to c2's nodes and models, not c1's.
+  int linked = 0, wrong = 0;
+  for (int32_t i = nodes; i < ::zcls::nodes().capacity; ++i) {
+    const ::zcls::Node* n = ::zcls::node_at(i);
+    if (!(n->link & ::zcls::kNodeLive)) continue;
+    for (int32_t k = 0; k < n->parent_count(); ++k) {
+      ++linked;
+      const ::zcls::Node* q = n->parents[k];
+      wrong += q < ::zcls::node_at(nodes) && q >= ::zcls::node_at(0);
+    }
+    if (n->pm_model) wrong += n->pm_model < &pm::zmod::models().at(3000);
+  }
+  EXPECT(linked > 100 && wrong == 0);
+  // Refused files: the pools and the list stay as they are.
+  const std::string dir = std::string(MW3_TEST_TMP) + "/pm_worlds";
+  std::filesystem::create_directories(dir + "/zbd");
+  std::vector<char> bytes(static_cast<size_t>(std::filesystem::file_size(c1)));  // whole: only the header refuses it
+  {
+    std::ifstream in(c1, std::ios::binary);
+    in.read(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+  }
+  for (const auto& [name, off, value] : {std::tuple<const char*, int, int32_t>{"version27.zbd", 4, 27},
+                                         {"version40.zbd", 4, 40}, {"signature.zbd", 0, 0x12345678}}) {
+    std::vector<char> b = bytes;
+    std::memcpy(b.data() + off, &value, 4);
+    std::ofstream(dir + "/zbd/" + name, std::ios::binary).write(b.data(), static_cast<std::streamsize>(b.size()));
+    EXPECT(zgame::game().zcls_read_zbd((dir + "/zbd/" + name).c_str()) == -1);
+  }
+  EXPECT(zgame::game().zcls_read_zbd("") == -1);
+  EXPECT(zgame::game().zcls_read_zbd("zbd/none/gamez.zbd") == -1);
+  EXPECT(pm::zcls::zbd_state().files.size() == 2 && ::zmod::materials().capacity == 2000);
   zgame::set_game(zgame::mw3_table());
 }

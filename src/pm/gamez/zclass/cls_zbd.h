@@ -41,6 +41,15 @@ zimg::TextureEntry* texture_for(int32_t index);
 // outside the directory or with no file open.
 zimg::TextureEntry* file_texture(int32_t index);
 
+// Pirate's Moon 1.0 @ 0x00516bc0: a gamez.zbd stacked onto what is loaded:
+// the file's list entry, its textures (only while none are loaded), its
+// materials, models and nodes, each offset by the pools' bases. 0, or -1 (the
+// entry dropped again, 0x00517a70).
+int read_zbd(const char* path);
+// Pirate's Moon 1.0 @ 0x005179e0: the file open past its 0x28-byte header
+// (signature 0x02971222, version 41), null on an error.
+std::FILE* open_zbd(const char* path, uint8_t header[0x28]);
+
 // Pirate's Moon 1.0 @ 0x00516e90: `size` node slots appended to zcls's pool
 // in new blocks, then each one's data (0x005171a0), its model index offset
 // by `model_base`, its node indices by the pool's size before. PM's layout

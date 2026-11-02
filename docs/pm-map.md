@@ -318,6 +318,20 @@ functions run unchanged on PM. So:
   2026-11-02: 515 get/put sites on Node, World, Light and Lod, 78 direct
   `raw[]` reads, 163 uses of the int32 count accessors, mostly in zClass.
 
+The route for PM's world files (the lead, 2026-11-02): PM's readers
+translate the file into the shared types as they are, in MW3's layout:
+the counts as MW3's int32 (+0x54, +0x5c), the box centre and diagonal at
++0x64/+0x70, World's rows, lights and sounds where MW3 keeps them. PM's
+extra fields are real C++ members outside the raw block (`Node::pm_virtual`,
+`pm_box`, `pm_model`; `World::pm_area2`, `Light::pm_colors`, `Lod::pm_tail`,
+`Partition::pm_tail` and `pm_y`), so MW3's raw readers never meet them.
+PM's ported functions use the shared accessors, never PM's raw offsets,
+with a one-line comment where the offset differs. A node's model is
+`model` (MW3's) or `pm_model` (PM's; `model` stays null): the shared code
+reading `model` (73 places: gamez/zeffect/zeff_anim_events.cpp 11, gamez/zclass/cls_di.cpp 8, gamez/zeffect/zeff_anim_save.cpp 7, gamez/zclass/cls_node.cpp 7, gamez/zclass/camera.cpp 6, gamez/zinterp/zinterp.cpp 5, gamez/zgeometry/zgeo_model.cpp 5, mech3/zainet_inout.cpp 3, gamez/zclass/cls_mechlib.cpp 3, gamez/zmodel/gmod_cull.cpp 2, gamez/zclass/cls_zbd.cpp 2, gamez/zclass/class.cpp 2, pm/gamez/zclass/cls_zbd.cpp 1, mech3/veh_controls.cpp 1, mech3/veh_basic_object.cpp 1, mech3/mech_skin.cpp 1, mech3/mech_build.cpp 1, mech3/app_turret.cpp 1, mech3/app_mech.cpp 1, gamez/zmodel/gmod_draw.cpp 1, gamez/zeffect/zeff_anim_run.cpp 1, gamez/zdeclient/zdec_crater.cpp 1, gamez/zclass/cls_util.cpp 1, gamez/zclass/cls_node.h 1) must be routed before a PM world is
+drawn or collided with. PM's loader says in the log how many nodes carry a
+PM model, so a PM world never silently draws nothing.
+
 See docs/games-layout.md.
 
 ## A porting order
@@ -365,8 +379,8 @@ functions PM changed, and PM's new ones.
        - `mw3pmtests`: `pm_text_files_take_include`, and
          `pm_include_stays_inside_the_mounts` (`..`, a full path and
          `sub/../..` read nothing; ours, for mods).
-   - **gamez.zbd 41 (in progress: (c1) textures and materials and
-     (c2) models done; (c3) nodes and the entry left)**: PM's world file loader stacks files.
+   - **gamez.zbd 41 (done: (c1) textures and materials, (c2) models,
+     (c3) nodes and the entry)**: PM's world file loader stacks files.
      Every gamez.zbd read appends to the material, model and node pools
      (MW3's replaced them), so one world can be made of several files.
      - Entry 0x516bc0 (MW3 0x4ff520). It keeps a list of the loaded files
@@ -490,6 +504,28 @@ functions PM changed, and PM's new ones.
        error reports and gives -1 (0x51781d). The same as MW3's
        0x4feaf0 but for the node base, the three sizes, the light's list,
        the 16-bit counts and the partitions' 12-byte entries.
+     - (c3) ported (2026-11-02): `pm/gamez/zclass/cls_zbd` read_zbd
+       (0x516bc0), open_zbd (0x5179e0), the drop (0x517a70), read_nodes
+       (0x516e90), read_node (0x5171a0) and the node lists (0x5178e0,
+       0x517960), into the shared types (Shared types, forked logic,
+       above), calling MW3's setters (camera clip and fov, the fog, the
+       clear colour, the lists, free_node: at the one call the slot is
+       already zeroed, as PM's 0x50c9d0 zeroes it). PM sets and clears
+       bits 24 and 25 of +0xd0 (MW3: 24); 25's use is unknown. The table's
+       `zcls_read_zbd` (MW3 0x4ff520, PM 0x516bc0) takes the interpreter's
+       GameZReadZBDFile. `test_pm_gamez.py` (nodes): the 4 worlds, a stack
+       and 3 copies cut in the nodes, alone and stacked, both colour
+       formats: 22 runs identical, every node, its data, partitions, links
+       and the class lists (PM's changed camera setters give the same as
+       MW3's on these). 8 break tests caught (no node base in the
+       partitions or the links, the counts as int32, the world's tail
+       unshifted, the light's colours not skipped, 4-byte partition
+       entries, bit 25 not cleared, no model base); bit 25 not set cannot
+       show (the files carry it). `mw3pmtests`
+       `pm_worlds_stack_through_the_table`: c1 then c2 through the table,
+       c2's links and models in c2's part of the pools, versions 27 and 40
+       and a bad signature refused with nothing changed (break: version 27
+       accepted, caught).
 2. **The world**: the light maps and lighting (`gmod_matl.c` 39 new; PM
    drops MW3's fog), `cls_clutter.cpp` (32 new), the world class
    (`cls_world.c` 20 new), the script interpreter's new commands (the

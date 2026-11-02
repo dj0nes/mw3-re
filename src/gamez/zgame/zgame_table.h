@@ -30,6 +30,8 @@ struct Table {
   uint32_t (*zar_span)(const zutl_zar::Archive& a, int index);
   // zReader's loose text files (zreader.h): PM's adds #include.
   zrdr::Node* (*zrdr_parse_text)(std::FILE* file);  // 0x005563d0; PM 0x005782f0
+  // A world file, gamez.zbd (zcls/cls_zbd.h): PM's stacks onto what is loaded.
+  int (*zcls_read_zbd)(const char* path);  // 0x004ff520; PM 0x00516bc0
 };
 
 const Table& mw3_table();
