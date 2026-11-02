@@ -101,6 +101,12 @@ class SdlInput : public platform::Input {
   SDL_Keymod chord_held_ = SDL_KMOD_NONE;
   bool chord_armed_ = false, chord_spoiled_ = false;
   bool swallow_[4] = {};  // the recapturing click's buttons, kept from the game until let go
+  // Ours (playtest, Owen): a held mission's mouse comes back with the focus,
+  // no click needed; the click that brought it back (within kActivationNs of
+  // the focus) is still not the game's (input.md section 8).
+  static constexpr uint64_t kActivationNs = 250000000ull;
+  bool held_at_loss_ = false, activation_guard_ = false;
+  uint64_t gained_ns_ = 0;
   int32_t range_[8][2] = {{0, 65535}, {0, 65535}, {0, 65535}, {0, 65535},
                           {0, 65535}, {0, 65535}, {0, 65535}, {0, 65535}};
   uint32_t deadzone_[8] = {};

@@ -356,9 +356,13 @@ void SdlInput::on_event(const SDL_Event& e) {
   switch (e.type) {
     case SDL_EVENT_WINDOW_FOCUS_GAINED:
       focused_ = true;
-      refresh();  // in a window a mission stays let go until a click
+      if (held_at_loss_) released_ = false, activation_guard_ = true, gained_ns_ = e.common.timestamp;  // ours
+      held_at_loss_ = false;
+      refresh();  // a mission let go before (Ctrl+Alt) stays let go until a click
       break;
     case SDL_EVENT_WINDOW_FOCUS_LOST:
+      held_at_loss_ = win_ && mission_ && !released_;
+      activation_guard_ = false;
       focused_ = false;
       if (win_) released_ = true;
       chord_held_ = SDL_KMOD_NONE, chord_armed_ = false;
@@ -417,7 +421,11 @@ void SdlInput::on_event(const SDL_Event& e) {
                     : e.button.button == SDL_BUTTON_MIDDLE ? 2 : e.button.button == SDL_BUTTON_X1 ? 3 : -1;
       if (b < 0) break;
       const bool down = e.type == SDL_EVENT_MOUSE_BUTTON_DOWN;
-      if (down && muted() && focused_) {  // a click inside takes the mouse back, unseen by the game
+      const bool activating = down && activation_guard_ && e.button.timestamp < gained_ns_ + kActivationNs;
+      if (down) activation_guard_ = false;
+      if (activating) {  // the click that brought the focus back (the mouse already taken): not the game's
+        swallow_[b] = true;
+      } else if (down && muted() && focused_) {  // a click inside takes the mouse back, unseen by the game
         released_ = false;
         swallow_[b] = true;
         refresh();
