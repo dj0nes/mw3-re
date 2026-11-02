@@ -114,7 +114,9 @@ installed copy does not have. Two ways to get it back:
 - The game runs fullscreen at your desktop's resolution, widescreen
   included. **Alt+Enter** switches between fullscreen and a window.
 - In a window, press and release **Ctrl+Alt** to free the mouse; click in
-  the window to take it back.
+  the window to take it back. Switching away frees it too, and coming back
+  to a mission (Cmd+Tab, Alt+Tab or a click) takes it again at once; that
+  click does not fire.
 - Gamepads work as they did on Windows 98, and force feedback becomes rumble.
 - On a widescreen every screen uses the whole width: the missions, the
   menus, the mech lab, the briefings and the multiplayer screens. For the
