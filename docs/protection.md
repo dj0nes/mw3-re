@@ -18,6 +18,7 @@ nothing now. Each removal is marked `FIX (trap)` in the code and listed in
 | 2 Exe self-check | not ported; will not be (InitInstance and 0x47fed0 skip it) |
 | 3 Loadout checksum | removed: `Config::load` calls `validate(false)` (`mech_config.cpp`); the CRC is still written on save. The second compare in 0x4260c0 is not ported yet |
 | 4 Multiplayer rules check | left out (multiplayer-port.md piece 8, `FIX (trap)` in `net_send_event`'s ping) |
+| 6 Pirate's Moon's reader.zbd check | not ported for PM; will not be (the Intro state goes on as if both checks passed). Its checksum functions are ported (`src/pm/gamez/zutil/zutl_zar`) |
 | CPU-speed divide, line clamp | not ported; FIX (B) notes for when the system-info and software line code are |
 
 ## Summary
@@ -290,6 +291,30 @@ with any box ticked would fail the first check about 51 s in. Test on Owen's PC.
 **Rebuild:** delete the compare at 0x46fc08 (keep the setup and the CRC so the
 code stays shaped like the original; nothing else reads +0x88). No network
 compatibility issue, the CRC stays on the host.
+
+## 6. Pirate's Moon: reader.zbd's checksum (0x004876e0)
+
+PM's zArchive version 2 (docs/pm-map.md, The data formats) stores a CRC of
+every entry's data after the count. Only one place checks it:
+
+```
+4850a0  the Intro state's update (MW3's 0x482170), when the movies are done:
+4850eb    0x4876e0: 0x597af0("zbd\reader.zbd")    ; open, CRC of every entry == +0x18
+4850f4    0x4876f0: MW3's self-check 0x4854c0       ; the roster and structure tables
+4850fd    both true: state 12 (the next state, +0x1dc), else state 4 (Exit)
+```
+
+So PM keeps MW3's symptom (no message, the game closes after the intro)
+for a changed reader.zbd as well as a changed exe, and moves MW3's own
+self-check from InitInstance into the Intro state. The other readers'
+archives carry their CRCs too, but nothing checks them. mechlib, motion
+and the sounds hold 0.
+
+**Rebuild (PM):** the Intro state goes on to state 12 without either check
+(`FIX (trap)` when PM's Intro state is ported; mods of reader.zbd must
+work). The functions under it are ported for the tests and for tools: the
+table reader 0x597610, the CRC 0x597a30, its check 0x597a10 and the file
+check 0x597af0 (`test_pm_zar.py`).
 
 ## 5. Other things that look like protection but are not
 

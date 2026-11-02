@@ -79,10 +79,9 @@ bool read_from(zutl_zar::Archive& a, zsis::Script& s, const char* name, bool* br
   *broken = false;
   const int i = zutl_zar::find(a, name);
   if (i < 0) return false;  // the exe seeks to entry -1 and reads whatever is there
-  uint32_t length = 0;
-  std::FILE* f = zutl_zar::seek(a, i, &length);
+  std::FILE* f = zutl_zar::seek(a, i, nullptr);
   if (!f) return false;
-  const long end = std::ftell(f) + static_cast<long>(length);
+  const long end = std::ftell(f) + static_cast<long>(zutl_zar::span(a, i));
   if (s.read(f, end)) return true;
   *broken = s.part_count == 0 && !s.parts;
   return false;

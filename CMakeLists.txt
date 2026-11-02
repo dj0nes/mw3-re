@@ -565,6 +565,7 @@ add_test(NAME mw3tests COMMAND mw3tests)
 if(MW3_BUILD_PM)
   add_library(pmcore STATIC
     src/pm/pm_game.cpp
+    src/pm/gamez/zutil/zutl_zar.cpp
   )
   target_link_libraries(pmcore PUBLIC mw3core)
   if(NOT MSVC)
@@ -581,6 +582,11 @@ if(MW3_BUILD_PM)
                                               MW3_TEST_TMP_ROOT="${CMAKE_BINARY_DIR}"
                                               MW3_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
   add_test(NAME mw3pmtests COMMAND mw3pmtests)
+  # PM's ported functions behind a C interface, for the differential tests
+  # run against PM's exe (tests/differential/test_pm_*.py).
+  set_target_properties(pmcore PROPERTIES POSITION_INDEPENDENT_CODE ON)
+  add_library(pmprobe SHARED tests/probe_pm.cpp)
+  target_link_libraries(pmprobe PRIVATE pmcore mw3core)
 endif()
 
 # The SDL3 front end and the programs on it.

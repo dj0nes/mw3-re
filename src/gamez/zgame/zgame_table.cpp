@@ -1,8 +1,10 @@
 #include "gamez/zgame/zgame_table.h"
 
+#include "gamez/zutil/zutl_zar.h"
+
 namespace zgame {
 namespace {
-const Table kMw3 = {"MechWarrior 3", "Mech3.exe 1.2"};
+const Table kMw3 = {"MechWarrior 3", "Mech3.exe 1.2", zutl_zar::read_table, zutl_zar::write_table, zutl_zar::length_span};
 const Table* g_game = &kMw3;
 }  // namespace
 

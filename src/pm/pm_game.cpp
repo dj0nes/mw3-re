@@ -5,9 +5,11 @@
 #include <cstring>
 #include <filesystem>
 
+#include "pm/gamez/zutil/zutl_zar.h"
+
 namespace pm {
 namespace {
-const zgame::Table kPm = {"Pirate's Moon", "Pirate's Moon 1.0"};
+const zgame::Table kPm = {"Pirate's Moon", "Pirate's Moon 1.0", zar::read_table, zar::write_table, zar::span};
 }  // namespace
 
 const zgame::Table& table() { return kPm; }

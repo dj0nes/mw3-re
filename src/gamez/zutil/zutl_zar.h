@@ -31,12 +31,15 @@ struct Archive {
   int count = 0;                // +0x0c entries in use
   int capacity = 0;             // +0x10 entries allocated
   Entry* entries = nullptr;     // +0x14
+  uint32_t checksum = 0;        // +0x18 Pirate's Moon's only (0x1c bytes): version 2's CRC (src/pm)
 };
 
 void init(Archive& a);                         // 0x005764e0
 void destroy(Archive& a);                      // 0x00576500
-bool open(Archive& a, const char* path);       // 0x00576520
-bool read_table(Archive& a);                   // 0x005767b0
+// 0x00576520. It and close() read and write the table through the running
+// game's (zgame::game(): MW3's version 1, PM's version 2).
+bool open(Archive& a, const char* path);
+bool read_table(Archive& a);                   // 0x005767b0, MW3's
 void reserve(Archive& a, int count);           // 0x00576690
 bool close(Archive& a);                        // 0x00576650, writes the table when dirty
 bool create(Archive& a, const char* path);     // 0x005765b0, truncates
@@ -46,7 +49,11 @@ void add(Archive& a, const char* name, const void* data, uint32_t size);
 // 0x00576890: the same, the bytes written by `write` at the file's end; the
 // entry's length is what `write` returns.
 void add_written(Archive& a, const char* name, uint32_t (*write)(std::FILE* f, void* user), void* user);
-bool write_table(Archive& a);                  // 0x00576720
+bool write_table(Archive& a);                  // 0x00576720, MW3's
+// Ours: the bytes entry `index` may take for a bounded reader, by the
+// running game (zgame::Table::zar_span); 0 for no such entry.
+uint32_t span(const Archive& a, int index);
+uint32_t length_span(const Archive& a, int index);  // MW3's: its length
 void reset(Archive& a);                        // 0x005766d0
 int find(const Archive& a, const char* name);  // 0x00576a80, -1 if absent
 // 0x00576ae0: positions the file at entry `index` and returns it (the original

@@ -4081,3 +4081,19 @@ The screen after the pilot for INSTANT ACTION, 0x00488bc0 (details:
   end anything; instead your 'Mech's centre torso loses all its internal
   structure, and it blows up (then respawns, if respawn is on).
   (docs/multiplayer-port.md, the 1.2 read-me's six)
+
+## Pirate's Moon
+
+- **Pirate's Moon checks its reader file as well as itself.** MechWarrior
+  3 checks a few of its own tables when it starts, and if they were
+  changed it quietly closes after the intro movie. Pirate's Moon moves
+  that check to the end of the intro and adds a second one: a checksum
+  of everything in `zbd\reader.zbd` (the file of mech, weapon and mission
+  settings), stored in the file's own index. Edit that file and the game
+  closes after the intro, with no message. The campaign's other reader
+  files carry checksums too, but the game never checks them, so those can
+  be edited. (docs/protection.md, section 6)
+- **Pirate's Moon's motion file does not say how long each motion is.**
+  Every entry in `motion.zbd`'s index says it is 1 byte long; the game
+  jumps to where a motion starts and reads it until it ends.
+  (docs/pm-map.md, The data formats)

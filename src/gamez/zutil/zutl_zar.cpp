@@ -4,6 +4,7 @@
 #include <cstring>
 
 #include "crt/msvc_string.h"
+#include "gamez/zgame/zgame_table.h"
 #include "gamez/zutil/zutl_path.h"
 
 // FIX (A), whole file: CreateFileA / ReadFile / SetFilePointer / GetFileSize /
@@ -46,6 +47,7 @@ void init(Archive& a) {
   a.count = 0;
   a.capacity = 0;
   a.entries = nullptr;
+  a.checksum = 0;  // PM's 0x00597300
 }
 
 // Mech3.exe 1.2 @ 0x00576500
@@ -62,7 +64,7 @@ void destroy(Archive& a) {
 bool open(Archive& a, const char* path) {
   a.file = zutl::open(path, "rb");  // FIX (A): the mounts (zutl_path.h), not CreateFileA on a Windows path
   if (!a.file) return false;
-  bool ok = read_table(a);
+  bool ok = zgame::game().zar_read_table(a);
   a.path = strdup(path);
   return ok;
 }
@@ -101,7 +103,7 @@ void reserve(Archive& a, int count) {
 
 // Mech3.exe 1.2 @ 0x00576650
 bool close(Archive& a) {
-  if (a.dirty) write_table(a);
+  if (a.dirty) zgame::game().zar_write_table(a);
   if (a.file) std::fclose(a.file);
   a.file = nullptr;
   reset(a);
@@ -130,6 +132,11 @@ int find(const Archive& a, const char* name) {
     if (crt::msvc_stricmp(name, a.entries[i].name) == 0) return i;
   return -1;
 }
+
+uint32_t length_span(const Archive& a, int index) {
+  return index < 0 || a.count <= index ? 0 : a.entries[index].length;
+}
+uint32_t span(const Archive& a, int index) { return zgame::game().zar_span(a, index); }
 
 // Mech3.exe 1.2 @ 0x00576ae0
 std::FILE* seek(Archive& a, int index, uint32_t* length) {

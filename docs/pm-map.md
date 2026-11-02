@@ -280,6 +280,22 @@ functions PM changed, and PM's new ones.
    MW3's `zreader.cpp`); gamez.zbd 41 and its node, material and model
    changes (zClass 166 changed, zModel 54); anim.zbd 50 (zEffect 28);
    mechlib 41. Nothing loads before these.
+   - **zArchive 2: done** (2026-11-02, `src/pm/gamez/zutil/zutl_zar`, through
+     PM's `zgame::Table`):
+     - The table reader 0x597610 and writer 0x597570, the CRC of every entry
+       0x597a30, its check 0x597a10 and the file check 0x597af0. The object
+       is 0x1c bytes, with the checksum at +0x18.
+     - The only check is a tamper trap (protection.md section 6), left out
+       when PM's Intro state is ported.
+     - Motion's lengths of 1: PM's exe reads a motion from its start to its
+       end. The port's bounded reader takes PM's bound as up to the next
+       entry's start (else the table's), mech3ax's backfill. MW3 keeps an
+       entry's length. A broken PM motion is still refused.
+     - Tests:
+       - `test_pm_zar.py` on PM's exe: the 54 shipped archives, damaged
+         copies, 200 random reads and 50 writes, and mech3ax's rules on
+         every shipped file. 0 mismatches.
+       - `mw3pmtests`: all 364 motions load; a cut one is refused.
 2. **The world**: the light maps and lighting (`gmod_matl.c` 39 new; PM
    drops MW3's fog), `cls_clutter.cpp` (32 new), the world class
    (`cls_world.c` 20 new), the script interpreter's new commands (the
