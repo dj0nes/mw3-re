@@ -11,6 +11,7 @@
 
 #include "check.h"
 #include "gamez/zclass/cls_mechlib.h"
+#include "gamez/zeffect/zeff_anim_init.h"
 #include "gamez/zmodel/gmod_const.h"
 #include "gamez/zsiscript/si_script.h"
 #include "gamez/zutil/zutl_zar.h"
@@ -179,4 +180,62 @@ TEST(bounded_motion_fuzz_never_crashes) {
   }
   std::printf("  motion fuzz: %d motions, %d refused; cut short %d, refused %d\n", runs, refused, cut, cut_refused);
   EXPECT(runs == 300 && refused > 0 && cut_refused == cut);
+}
+
+// anim.zbd (a whole file, not an archive): copies of c1's cut short, bytes
+// flipped or words made huge, read with no world. Each read refuses the
+// file (no defs, its counts 0) or reads every def and fails at the first
+// lookup, the original's way; none crash or allocate what a count says.
+TEST(bounded_anim_fuzz_never_crashes) {
+  const std::string src = std::string(MW3_GAME_DIR) + "/zbd/c1/anim.zbd";
+  std::error_code ec;
+  if (!fs::exists(src, ec)) return;
+  std::vector<uint8_t> all(fs::file_size(src, ec));
+  if (std::FILE* f = std::fopen(src.c_str(), "rb")) {
+    const size_t n = std::fread(all.data(), 1, all.size(), f);
+    all.resize(n);
+    std::fclose(f);
+  }
+  const std::string dir = std::string(MW3_TEST_TMP) + "/bounded_anim";
+  fs::create_directories(dir, ec);
+  const std::string copy = dir + "/anim.zbd";
+  std::mt19937 r(777);
+  int runs = 0, refused = 0, cut = 0, cut_refused = 0;
+  for (int seed = 0; seed < 150; ++seed) {
+    std::vector<uint8_t> d = all;
+    const int kind = seed % 3;
+    // Past the 12-byte header and the source list, so most changes land in the defs.
+    std::vector<uint8_t> head(d.begin(), d.begin() + 12), body(d.begin() + 12, d.end());
+    mutate(body, r, kind);
+    d = head;
+    d.insert(d.end(), body.begin(), body.end());
+    if (std::FILE* f = std::fopen(copy.c_str(), "wb")) {
+      std::fwrite(d.data(), 1, d.size(), f);
+      std::fclose(f);
+    }
+    zeff::anim() = zeff::AnimState{};
+    zeff::anim_allow_loading(1);
+    zeff::anim_set_zbd_path(copy.c_str());
+    zeff::anim_read_zbd();
+    const bool was_refused = zeff::anim().defs == nullptr && zeff::anim().def_count() == 0;
+    ++runs, refused += was_refused;
+    if (kind == 0 && d.size() < all.size()) ++cut, cut_refused += was_refused;
+    zeff::anim_free_all();
+  }
+  std::printf("  anim fuzz: %d reads, %d refused; cut short %d, refused %d\n", runs, refused, cut, cut_refused);
+  EXPECT(runs == 150 && refused > 0 && cut_refused == cut);
+  // A source count of 0xfffffff0 in the header: refused before anything is
+  // allocated (unbounded, the list alone would be some 360 GB).
+  std::vector<uint8_t> d = all;
+  const uint32_t huge = 0xfffffff0u;
+  std::memcpy(&d[8], &huge, 4);
+  if (std::FILE* f = std::fopen(copy.c_str(), "wb")) {
+    std::fwrite(d.data(), 1, d.size(), f);
+    std::fclose(f);
+  }
+  zeff::anim() = zeff::AnimState{};
+  zeff::anim_allow_loading(1);
+  zeff::anim_set_zbd_path(copy.c_str());
+  EXPECT(zeff::anim_read_zbd() == -1 && zeff::anim().defs == nullptr);
+  zeff::anim_free_all();
 }

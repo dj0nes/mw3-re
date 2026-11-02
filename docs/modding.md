@@ -164,8 +164,22 @@ end; `bounded_motion_reads_the_shipped_motions_whole` (258 of 258) and
 `bounded_motion_fuzz_never_crashes` (300 copies: none crash, every one cut
 short refused; without the bound none is refused).
 
-**Not bounded yet** (M3, next sittings, one format each): the worlds'
-`anim.zbd` (dev 2), the texture and image archives' contents,
+**The worlds' `anim.zbd`, bounded** (2026-11-01; a whole file, not an
+archive): every count and size it holds (its source list, each def's
+lists, blobs and sequences, the messages) is checked against the bytes left
+in the file before anything is allocated (`zeff_anim_init.cpp`); a broken
+copy, or one cut short, is refused whole, named in the log, and the world
+has no animations (the original left what it had read in place, half
+bound). A def that cannot be bound to the scene (a lookup) still fails the
+original's way. `test_anim.py` (6 worlds and the 10 mismatched and failing
+runs), `test_anim_reset.py` and `test_anim_binder.py` as the original;
+`bounded_anim_fuzz_never_crashes` (150 copies of c1's: none crash, every one
+cut short refused; a source count of 0xfffffff0 refused before any
+allocation, where unbounded the run passes 4 GB and is stopped). What the
+anim run later makes of a garbled event stream inside a well-sized blob is
+not checked here.
+
+**Not bounded yet** (M3, dev 1's sittings): the texture and image archives' contents,
 `interp.zbd`'s scripts and the sound archives (dev 1). Their tables are
 checked (above); a mod that replaces one with broken contents can still
 crash the game, and `--check-mod` says it did not look inside.
