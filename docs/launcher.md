@@ -206,6 +206,14 @@ named install or `--install-from`/`--patch`; `--no-launcher` skips it):
   a picture yet") and the launcher keeps watching, closing at the frame if
   it comes. `--hidden` keeps its window unshown and goes on to the game
   (checks); `MW3_LAUNCHER_READY_MS` shortens the 20 s for them.
+  While the game works before its first frame it says what it is doing in
+  F.status (`sdlfe::set_ready_status`: its first start's movie import,
+  "Importing your movies (first start only)..." with the count when the
+  importer gives one, then "Starting MechWarrior 3..."; removed at the first
+  frame). The launcher reads it four times a second and shows it on its
+  status line in place of the 20 s "not shown a picture yet" (Owen,
+  2026-11-02: a first start sat a minute on "Starting MechWarrior 3...").
+  Test: `sdl_program_launcher_shows_the_games_status`.
   Tests: `sdl_program_launcher_starts_mw3_as_its_own_program` (the
   launcher's process ends at the ready file, the stand-in game still
   running) and `sdl_program_launcher_stays_when_the_game_fails_or_is_slow`.

@@ -25,6 +25,10 @@ bool log_to_file(const std::string& write_dir, const std::string& name = "mw3");
 // shown, and the launcher hides then, so there is no moment with neither.
 void set_ready_file(const std::string& path);
 void mark_ready();  // the first call writes it; later ones do nothing
+// What the game is doing before its first frame, for the launcher's status
+// line (PATH.status beside the ready file); "" removes it. Nothing without
+// --ready-file.
+void set_ready_status(const std::string& text);
 
 // The process's resident memory in KB (the soak test's lines); 0 where unknown.
 size_t resident_kb();
