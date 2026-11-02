@@ -4100,9 +4100,8 @@ The screen after the pilot for INSTANT ACTION, 0x00488bc0 (details:
 - **Pirate's Moon's disc check accepts the MechWarrior 3 disc.** The
   expansion looks for a file called `data.tag` on any CD drive, and both
   games' discs have one (the installer's), so with MechWarrior 3's disc in
-  the drive Pirate's Moon starts as if its own were there. It never reads
-  anything else from the disc it finds. (docs/pm-map.md, Does PM need
-  MW3?)
+  the drive Pirate's Moon starts as if its own were there. (docs/pm-map.md,
+  Does PM need MW3?)
 - **Pirate's Moon can build one world out of several world files.** Its
   loader adds each `gamez.zbd` it reads to what is already loaded (the
   materials, models and scene) instead of replacing it, as MechWarrior 3's

@@ -270,7 +270,10 @@ complete install (game/pm). What the exe reaches outside its folder:
   discs), so the original took an MW3 disc for PM's. MW3's own check looks
   for `video\c1.avi`. Not ported (the trap list, protection.md).
 - A file not found where named is looked for on the CD-ROM drives
-  (0x5c9bb0 through 0x5968d0): the movies, as MW3's.
+  (0x5c9bb0 through 0x5968d0), the movies among them, as MW3's. PM's
+  disc has no VIDEO folder; whether a movie name PM's install lacks could
+  be found on an MW3 disc is unchecked (the port plays imported movies
+  only, so it cannot).
 - The search paths are relative to the run folder (`zbd`, and
   `..\data\...` from the developer's tree).
 
