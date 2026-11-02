@@ -4090,5 +4090,5 @@ The screen after the pilot for INSTANT ACTION, 0x00488bc0 (details:
   closing the game with the box still up (Alt-F4, say) saves the controls
   with the left button bound to nothing: the mouse no longer fires in any
   game after, until the controls are reset or rebound. (Found from the
-  code; the rebuild puts the button back before it saves. docs/fixes.md,
-  playtest W40)
+  code; the rebuild saves the controls only when you set them in the
+  controls menus. docs/fixes.md, playtest W40)

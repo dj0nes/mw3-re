@@ -1,5 +1,7 @@
 #include "mech3/options.h"
 
+#include "mech3/controls_cfg.h"
+
 #include <algorithm>
 #include <cmath>
 #include <cstring>
@@ -760,7 +762,7 @@ int32_t load_options(const char* path) {
 
 // Mech3.exe 1.2 @ 0x0040cb20, from the app's destructor 0x0047fab0.
 void save_options() {
-  zreg::write_all();
+  controls_write_settings();  // FIX (bug), W40: zreg::write_all with the kept map
   g_hooks->controls_free();
 }
 

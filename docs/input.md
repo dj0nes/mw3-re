@@ -110,16 +110,37 @@ entry named for the map (0x00597d90, type 7, per user), so they are saved
 with the other settings (settings.md; `zin::Host::settings_block`, which the
 SDL host answers from the store; null keeps them in the map).
 
-Because the map is the saved block, whatever it holds when the program
-closes is saved: a quit box (0x0048e2d0) still up then saved mouse button 1
-unbound, and the mouse never fired again (playtest W40). The port closes
-the box before the save, and mends a map an older build saved that way when
-it loads (after the options' registry read and the controls file, 0x0040c420):
-TRIGGER1 with no mouse button and button 1 on no command get button 1 back
-on TRIGGER1, with a log line (`mech3::controls_repair_mouse_fire`; fixes.md).
-The registry's read fills the bindings only: the reverse tables stay the
-defaults' until the next rebuild, so the mend sets the word and the table
-entry itself.
+Because the map is the saved block, the original saved whatever it held
+at each settings write (the exit's 0x0040cb20, the options' ACCEPT
+0x00437f60): a quit box (0x0048e2d0) still up at exit saved mouse button 1
+unbound, and the mouse never fired again (playtest W40). FIX (bug): the
+port writes a kept copy instead (`mech3::controls_keep_saved`,
+`controls_write_settings`), taken at the load and when the controls menus
+set the map: the screen's ACCEPT, and its load/save box's load, save and
+the two resets (all through 0x0042d0b0); CANCEL reads the set back through
+the same box. The live map itself is never written.
+
+The live map's changes outside those menus, none of them meant to last:
+
+- the start: the defaults (0x00411150), the registry's read, the active
+  controls file (0x004120a0); the kept copy is taken after them;
+- the quit box (0x0048e2d0): mouse button 1 while it is up (bug fixes off);
+  with them on (ours, W46) the Y and N keys' commands while it is up;
+- the game editor's Shift+F12 (ours, debug builds only, `register_app_keys`),
+  bound at each start;
+- the interp console (0x005a40b0) and the debug keys (0x0040e430) push a
+  copy of the map (`push_map`), so the block is not touched;
+- `set_callback` and the controls' mode (0x00426650) change callbacks and
+  the axis table, not the bindings.
+
+The registry's read fills the bindings only, and without a controls file
+the original rebuilt nothing, so the reverse tables (key, joystick and
+mouse button to command) stayed the defaults': the quit box's
+`mouse_command(1)` named the defaults' command. The port rebuilds them after
+the read (FIX (bug), `zin::map_refresh`). Then, ours: a map an older build
+saved with the box's unbind (TRIGGER1 with no mouse button, button 1 on no
+command) gets button 1 back on TRIGGER1, with a log line
+(`mech3::controls_repair_mouse_fire`; fixes.md).
 
 - `bind(cmd, name, key1, key2, joy, mouse)` 0x0051c190 (0x0051d2c0): each
   input taken from the command that had it, the command's old one freed.

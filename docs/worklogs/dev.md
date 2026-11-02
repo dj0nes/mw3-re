@@ -2702,4 +2702,15 @@ Assigned after 8b2 merged (fd3f05f). The lead asked for a section stepped at bot
   defaults' (mouse_command(1) still 0x3d), so it sets the word and the
   table entry, not bind_mouse. Tests: the unit one in test_controls_cfg,
   and the playtest test's damaged and rebound saved maps; three breaks.
+- The lead's sturdier version (Owen): the live map is never written. A
+  kept copy (controls_keep_saved) is taken at the load (after the read,
+  the file, the tables' rebuild and the repair) and at the controls
+  screen's ACCEPT and its load/save box (load, save, both resets, CANCEL's
+  re-read); both settings writes (0x40cb20, the options' ACCEPT) go
+  through controls_write_settings. The exit close of the quit box is gone.
+  The tables are rebuilt after the read (zin::map_refresh), so the box
+  frees the button really bound and the repair uses bind_mouse.
+- Tests: the playtest one (box at exit, a broken map, a rebound one) and
+  the controls screen's ACCEPT saved and read back, CANCEL not saved; four
+  breaks (the live map written, no keep at ACCEPT, no rebuild, no repair).
 - The blink/clickthrough candidate is held on mac4/w40-candidate.

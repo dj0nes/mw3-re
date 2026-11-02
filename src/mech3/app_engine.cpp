@@ -31,7 +31,6 @@
 #include "mech3/controls_cfg.h"
 #include "mech3/options.h"
 #include "mech3/pocket_panel.h"
-#include "mech3/quit_box.h"
 
 #include <algorithm>
 #include <cstdio>
@@ -112,7 +111,11 @@ struct WiredOptionsHooks : OptionsHooks {
   void controls_set_defaults() override { mech3::controls_set_defaults(); }        // 0x00411150
   void controls_load(const char* name) override {  // 0x004120a0, after the saved map is read
     mech3::controls_load(name);
+    // FIX (bug), W40: the registry's read filled the bindings only; without a
+    // controls file the reverse tables stayed the defaults' (input.md).
+    zin::map_refresh();
     mech3::controls_repair_mouse_fire();  // ours (W40): an older build's damage undone
+    mech3::controls_keep_saved();         // the map the settings save (W40)
   }
   void controls_free() override { mech3::controls_free_groups(); }                 // 0x00410a80
   Handle player_view() override { return g_engine ? g_engine->player_view() : 0; }  // [0x005f4c8c]
@@ -489,12 +492,7 @@ void GameEngine::reader_init(const char*) { zrdr::init(); }
 void GameEngine::reader_open_archive(const char* path, int32_t current) { zrdr::open_archive(path, current != 0); }
 void GameEngine::reader_close_archives(int32_t all) { zrdr::close_archives(all != 0); }
 // The app's end (0x0047fab0): zInput's maps and names, then the reader.
-// FIX (bug), playtest W40: a quit box still up gives mouse button 1 its
-// command back first, as the map is the saved settings' (fixes.md).
-void GameEngine::input_maps_free() {
-  if (quit_box_) quit_box_->close();
-  zin::shutdown();
-}
+void GameEngine::input_maps_free() { zin::shutdown(); }
 // The app's stop (0x004808a0, the Exit state's): the mechs' module.
 void GameEngine::mechs_shutdown() { mech3::mechs_shutdown(); }
 void GameEngine::reader_shutdown() { zrdr::shutdown(); }
