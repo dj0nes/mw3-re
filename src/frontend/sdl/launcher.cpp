@@ -401,6 +401,7 @@ class Launcher {
   int quit_after_ = SDL_getenv("MW3_LAUNCHER_FRAMES") ? std::atoi(SDL_getenv("MW3_LAUNCHER_FRAMES")) : 0;
   double draw_ms_ = 0, present_ms_ = 0;
   int ring_for_ = -1, ring_radius_ = 0;
+  bool drew_ripple_ = false, drew_edge_ = false;  // the last frame's hover (the shot's log)
   float ring_carry_ = 0, ring_amp_ = 0, ring_phase_ = 0;
   // The ripple's centre: a game's badge, else the plate's middle.
   SDL_Point ring_centre(const Button& b) const {
@@ -731,6 +732,15 @@ void Launcher::plate(const Button& b, bool hot) {
   } else {
     SDL_FillSurfaceRect(canvas_, &r, SDL_MapSurfaceRGB(canvas_, b.enabled ? 70 : 40, b.enabled ? 72 : 40, b.enabled ? 78 : 44));
   }
+  if (hot) {  // a square plate lights its edge in the frame's amber (the ripple is the round badges'; Owen)
+    const uint32_t amber = SDL_MapSurfaceRGB(canvas_, 255, 176, 64), soft = SDL_MapSurfaceRGB(canvas_, 150, 104, 40);
+    const SDL_Rect outer[4] = {{r.x, r.y, r.w, 1}, {r.x, r.y + r.h - 1, r.w, 1}, {r.x, r.y, 1, r.h}, {r.x + r.w - 1, r.y, 1, r.h}};
+    const SDL_Rect inner[4] = {{r.x + 1, r.y + 1, r.w - 2, 1}, {r.x + 1, r.y + r.h - 2, r.w - 2, 1},
+                               {r.x + 1, r.y + 1, 1, r.h - 2}, {r.x + r.w - 2, r.y + 1, 1, r.h - 2}};
+    SDL_FillSurfaceRects(canvas_, outer, 4, amber);
+    SDL_FillSurfaceRects(canvas_, inner, 4, soft);
+    drew_edge_ = true;
+  }
   const SDL_Color c = !b.enabled ? kGrey : hot ? kAmber : kWhite;
   const int cx = r.x + r.w / 2, cy = r.y + r.h / 2;
   const int big = r.h >= 50 ? 22 : r.h >= 40 ? 20 : 18;
@@ -799,16 +809,18 @@ void Launcher::draw(float dt) {
     }
   }
   const int hot = focus_ >= 0 ? focus_ : hot_;
+  drew_ripple_ = drew_edge_ = false;
   for (size_t i = 0; i < buttons_.size(); ++i) plate(buttons_[i], static_cast<int>(i) == hot && buttons_[i].enabled);
   // The main menu's own ripple (its step, mech3::menu_ripple_step, and its
-  // draw 0x00558dd0) round the button under the mouse, started afresh on
-  // each new one as SlideButton's on_enter does.
+  // draw 0x00558dd0) round the round button (a game's badge) under the
+  // mouse, started afresh on each new one as SlideButton's on_enter does;
+  // a square plate lights its edge instead (plate).
   hot_t_ += dt;
   if (hot != ring_for_) {
     ring_for_ = hot, ring_radius_ = mech3::MenuRipple::kStartRadius, ring_carry_ = 0.0f;
     ring_amp_ = mech3::MenuRipple::kStartAmplitude, ring_phase_ = 0.0f;
   }
-  if (hot >= 0 && hot < static_cast<int>(buttons_.size()) && buttons_[hot].enabled &&
+  if (hot >= 0 && hot < static_cast<int>(buttons_.size()) && buttons_[hot].enabled && buttons_[hot].badge >= 0 &&
       mech3::menu_ripple_step(ring_radius_, ring_carry_, ring_amp_, ring_phase_, mech3::MenuRipple::kSpeed,
                               mech3::MenuRipple::kWavelength, mech3::MenuRipple::kMaxRadius, dt)) {
     const SDL_Point c = ring_centre(buttons_[hot]);
@@ -816,6 +828,7 @@ void Launcher::draw(float dt) {
     zrndr::set_finish_target(static_cast<uint16_t*>(canvas_->pixels), W, H, canvas_->pitch);
     zrndr::ripple(c.x, c.y, static_cast<int32_t>(static_cast<float>(ring_radius_) - wl * 3.0f), ring_radius_,
                   static_cast<int32_t>(ring_amp_), wl, ring_phase_, nullptr, zrndr::X87::k53);
+    drew_ripple_ = true;
   }
 }
 
@@ -1084,6 +1097,8 @@ LauncherChoice Launcher::run() {
     const Uint64 td = SDL_GetTicksNS();
     draw(0.0f);
     for (int i = 0; i < 6; ++i) draw(1.0f / 30.0f);  // 0.2 s on: the hovered entry's ripple spreading
+    if (hot_ >= 0)
+      std::printf("mw3: launcher: hover %s:%s%s\n", buttons_[hot_].label.c_str(), drew_ripple_ ? " ripple" : "", drew_edge_ ? " edge" : "");
     std::printf("mw3: launcher: first frame drawn %.0f ms after the start (its draw %.1f ms)\n", ms(t0, SDL_GetTicksNS()),
                 ms(td, SDL_GetTicksNS()));
     SDL_SaveBMP(canvas_, o_.shot.c_str());

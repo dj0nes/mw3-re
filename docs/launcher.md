@@ -143,6 +143,13 @@ named install or `--install-from`/`--patch`; `--no-launcher` skips it):
   `badge_mw3.png`, `badge_pm.png`, `badge_mw1.png` (assets/launcher, ours,
   their prompts in its README), each with its name and line beside it,
   the ripple from the badge's centre.
+- Only the round badges ripple (2026-11-02, Owen after the PC's fresh
+  install: the ripple belongs to a circle, as in the original's menus). A
+  square plate hovered is brightened and lights its edge in the frame's
+  amber (a line, a softer one inside); the rollover sound as before. The
+  shot logs what the hovered entry drew (`hover <label>: ripple|edge`),
+  and `sdl_program_launcher_screens` checks it on each screen with the
+  edge's pixel.
 - The ripple is the main menu's own (Owen: "much slower than the original
   ripple"): `mech3::menu_ripple_step` (menu_ripple.h), the one SlideButton
   runs (0x00485650): from 20 pixels, 120 a second, the amplitude 7 less 0.3

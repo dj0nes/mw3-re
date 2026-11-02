@@ -3727,13 +3727,20 @@ TEST(sdl_program_launcher_screens) {
   std::filesystem::remove_all(dir, ec);
   std::filesystem::create_directories(dir + "/wd", ec);
   std::filesystem::create_directories(dir + "/wd2", ec);
+  // The first entry hovered (Owen, the PC's fresh install): the ripple only
+  // round a round badge; a square plate lights its edge (at edge_x, edge_y,
+  // the plate's top) in amber instead.
   struct Shot {
     const char* screen;
     bool none;
     const char* says;
+    const char* hover;
+    int edge_x, edge_y;
   };
-  for (const Shot& s : {Shot{"main", false, "launcher: Found MechWarrior 3"}, Shot{"setup", true, "no MechWarrior 3 install found"},
-                        Shot{"work", false, "launcher: Found MechWarrior 3"}, Shot{"notes", false, "launcher: note: No music yet"}}) {
+  for (const Shot& s : {Shot{"main", false, "launcher: Found MechWarrior 3", "hover MECHWARRIOR 3: ripple\n", -1, -1},
+                        Shot{"setup", true, "no MechWarrior 3 install found", "hover POINT TO YOUR GAME: edge\n", 320, 170},
+                        Shot{"work", false, "launcher: Found MechWarrior 3", "hover CANCEL: edge\n", 320, 372},
+                        Shot{"notes", false, "launcher: note: No music yet", "hover OK: edge\n", 320, 380}}) {
     const std::string bmp = dir + "/" + s.screen + ".bmp", log = dir + "/" + s.screen + ".log";
     if (s.none) setenv("MW3_FIND_INSTALL", "1", 1);
     const pid_t pid = spawn_launcher({"--write-dir", dir + (s.none ? "/wd2" : "/wd"), "--launcher-shot", bmp, "--launcher-screen", s.screen}, log);
@@ -3744,8 +3751,13 @@ TEST(sdl_program_launcher_screens) {
     const std::string text((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
     SDL_Surface* img = SDL_LoadBMP(bmp.c_str());
     int lit = 0, n = 0;
+    bool edge = s.edge_x < 0;
     if (img) {
       SDL_Surface* c = SDL_ConvertSurface(img, SDL_PIXELFORMAT_ARGB8888);
+      if (c && s.edge_x >= 0) {
+        const uint32_t p = static_cast<const uint32_t*>(c->pixels)[s.edge_y * (c->pitch / 4) + s.edge_x];
+        edge = (p >> 16 & 0xff) > 230 && (p >> 8 & 0xff) > 150 && (p >> 8 & 0xff) < 200 && (p & 0xff) < 100;  // amber
+      }
       for (int y = 0; c && y < c->h; y += 7)
         for (int x = 0; x < c->w; x += 7) {
           const uint32_t p = static_cast<const uint32_t*>(c->pixels)[y * (c->pitch / 4) + x];
@@ -3757,6 +3769,7 @@ TEST(sdl_program_launcher_screens) {
     }
     EXPECT(img && img->w == 640 && img->h == 480 && lit > n / 4);
     EXPECT(text.find(s.says) != std::string::npos);
+    EXPECT(text.find(s.hover) != std::string::npos && edge);
     if (img) SDL_DestroySurface(img);
   }
 }
