@@ -81,7 +81,9 @@ int movies_missing(const std::string& install, const std::string& write_dir) {
   return n;
 }
 
-bool first_run_import(const std::string& install, const std::string& write_dir, bool force) {
+namespace {
+// The movies of `install`'s video\ not imported yet, imported.
+bool import_from(const std::string& install, const std::string& write_dir, bool force) {
   const int missing = movies_missing(install, write_dir);
   if (missing == 0) return true;
   std::error_code ec;
@@ -167,6 +169,16 @@ bool first_run_import(const std::string& install, const std::string& write_dir, 
   fs::remove(failed, ec);
   std::printf("mw3: %d movies imported\n", missing);
   return true;
+}
+}  // namespace
+
+bool first_run_import(const std::string& install, const std::string& write_dir, bool force) {
+  bool ok = import_from(install, write_dir, force);
+  // Ours: the movies a disc gave the write dir's video\ (the launcher's ADD
+  // FROM MY DISC, for an install whose movies stayed on the CD).
+  std::error_code ec;
+  if (!fs::equivalent(install, write_dir, ec)) ok = import_from(write_dir, write_dir, force) && ok;
+  return ok;
 }
 
 }  // namespace sdlfe

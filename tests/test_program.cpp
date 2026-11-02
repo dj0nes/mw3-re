@@ -658,6 +658,58 @@ TEST(setup_api_probes_installs_cancels_and_explains) {
   std::error_code ec;
   std::filesystem::remove_all(tmp, ec);
 }
+// An install whose movies stayed on the CD, and with no music (the
+// launcher's ADD FROM MY DISC, lead 2026-11-02): the disc's VIDEO\*.AVI into
+// the write dir's video\ from an .iso, a .cue/.bin (with its music) or the
+// disc's folder; a cancel leaves nothing; a source without movies says so;
+// music asked of an .iso is explained, the movies still taken.
+TEST(setup_add_from_disc_takes_the_movies_and_the_music) {
+  const std::string tmp = temp_dir("setup_add_from_disc");
+  MadeDisc disc;
+  disc.root = {{"README.TXT", std::vector<uint8_t>(100, 'r')}};
+  disc.video = {{"C1.AVI", std::vector<uint8_t>(2048 * 40, 3)}, {"INTRO.AVI", std::vector<uint8_t>(2048 * 9 + 5, 4)}};
+  const std::vector<uint8_t> iso = disc.iso();
+  spit_file(tmp + "/disc.iso", iso);
+  spit_file(tmp + "/t1.bin", raw_mode1(iso));
+  spit_file(tmp + "/t2.bin", std::vector<uint8_t>(2352 * 400, 5));
+  const std::string cue = "FILE \"t1.bin\" BINARY\n  TRACK 01 MODE1/2352\n    INDEX 01 00:00:00\n"
+                          "FILE \"t2.bin\" BINARY\n  TRACK 02 AUDIO\n    INDEX 01 00:00:00\n";
+  spit_file(tmp + "/disc.cue", std::vector<uint8_t>(cue.begin(), cue.end()));
+  std::filesystem::create_directories(tmp + "/folder/VIDEO");
+  spit_file(tmp + "/folder/VIDEO/C1.AVI", disc.video[0].second);
+  std::filesystem::create_directories(tmp + "/empty");
+  spit_file(tmp + "/empty/README.TXT", {'x'});
+  namespace su = mech3::setup;
+  auto same = [&](const std::string& dir) {
+    return slurp_file(dir + "/C1.AVI") == disc.video[0].second && slurp_file(dir + "/INTRO.AVI") == disc.video[1].second;
+  };
+  const su::Result i = su::add_from_disc(tmp + "/disc.iso", tmp + "/w1/video", "", nullptr);
+  EXPECT(i.ok && i.movies == 2 && same(tmp + "/w1/video") && !std::filesystem::exists(tmp + "/w1/video.new"));
+  double last = 0;
+  bool forward = true;
+  const su::Result c = su::add_from_disc(tmp + "/disc.cue", tmp + "/w2/video", tmp + "/w2/music", [&](const su::Progress& g) {
+    forward = forward && g.fraction >= last - 1e-9, last = g.fraction;
+    return true;
+  });
+  std::printf("  cue: %s\n", c.summary.c_str());
+  EXPECT(c.ok && c.movies == 2 && c.music_tracks == 1 && same(tmp + "/w2/video") && forward);
+  EXPECT(std::filesystem::exists(tmp + "/w2/music/track02.wav"));
+  const su::Result f = su::add_from_disc(tmp + "/folder", tmp + "/w3/video", "", nullptr);
+  EXPECT(f.ok && f.movies == 1 && slurp_file(tmp + "/w3/video/C1.AVI") == disc.video[0].second);
+  const su::Result m = su::add_from_disc(tmp + "/disc.cue", "", tmp + "/w4/music", nullptr);  // the music alone
+  EXPECT(m.ok && m.music_tracks == 1 && !std::filesystem::exists(tmp + "/w4/video"));
+  const su::Result im = su::add_from_disc(tmp + "/disc.iso", tmp + "/w5/video", tmp + "/w5/music", nullptr);
+  EXPECT(im.ok && im.movies == 2 && !im.warnings.empty() && im.warnings[0].find(".cue") != std::string::npos);
+  EXPECT(!std::filesystem::exists(tmp + "/w5/music"));
+  const su::Result none = su::add_from_disc(tmp + "/empty", tmp + "/w6/video", "", nullptr);
+  std::printf("  none: %s\n", none.summary.c_str());
+  EXPECT(!none.ok && none.summary.find("VIDEO") != std::string::npos && !std::filesystem::exists(tmp + "/w6/video"));
+  const su::Result stop = su::add_from_disc(tmp + "/disc.iso", tmp + "/w7/video", "", [](const su::Progress&) { return false; });
+  EXPECT(!stop.ok && stop.cancelled && !std::filesystem::exists(tmp + "/w7/video") && !std::filesystem::exists(tmp + "/w7/video.new"));
+  std::error_code ec;
+  std::filesystem::remove_all(tmp, ec);
+}
+
 // The MechWarrior 3 disc itself, when given (MW3_DISC: its .iso, a .cue, or
 // the drive): the install is game/mw3-1.0's files byte for byte (unshield's,
 // every file group merged) with the disc's VIDEO, its data the 1.0 disc's by
@@ -763,6 +815,53 @@ TEST(mounts_absolute_host_paths_stay_as_given) {
   EXPECT(zutl::write_path("\\\\server\\share\\d.zbd") == "//server/share/d.zbd");
   EXPECT(zutl::write_path("zbd\\e.zbd") == "wd/zbd/e.zbd");  // a game path: the write dir's
   EXPECT(zutl::host("C:\\Games\\x") == "C:/Games/x");
+}
+
+// Confined (the program, once set up): a name from data, a mod or the
+// network that is absolute, holds a ':' or has a ".." part reads, writes and
+// lists nothing, though the file exists beside the mounts; game names still
+// work. Off (tools, tests), host paths stay as given.
+TEST(mounts_confined_names_stay_inside) {
+  SavedMounts keep;
+  const std::string d = temp_dir("confined");
+  touch(d + "/secret.zrd");
+  touch(d + "/install/zbd/c1/ok.zbd");
+  touch(d + "/install/zbd/c1/two.zrd");
+  const std::string abs = std::filesystem::absolute(d + "/secret.zrd").string();
+  zutl::mounts() = zutl::Mounts{};
+  zutl::mount(d + "/install");
+  zutl::set_write_dir(d + "/saves");
+  EXPECT(zutl::find(abs.c_str()) == abs);  // off: as given
+  EXPECT(zutl::find("..\\secret.zrd") == d + "/install/../secret.zrd");
+  zutl::mounts().confined = true;
+  for (const char* name : {"..\\secret.zrd", "zbd\\..\\..\\secret.zrd", "zbd/c1/../../../secret.zrd", "..",
+                           "C:\\secret.zrd", "secret.zrd:stream", "\\secret.zrd", abs.c_str()}) {
+    EXPECT(zutl::find(name).empty());
+    EXPECT(zutl::find_all(name).empty());
+    EXPECT(!zutl::exists(name));
+    EXPECT(zutl::open(name, "rb") == nullptr);
+    EXPECT(zutl::write_path(name).empty());
+    EXPECT(zutl::open(name, "wb") == nullptr);
+    EXPECT(zrdr::load(name) == nullptr);
+  }
+  EXPECT(zutl::list("..\\*.zrd").empty());
+  EXPECT(zutl::list("zbd\\c1\\..\\..\\..\\*.zrd").empty());
+  EXPECT(zutl::open("..\\secret.zrd.new", "wb") == nullptr && !std::filesystem::exists(d + "/secret.zrd.new"));
+  // Game names still read, ".\\" and "a..b" too.
+  EXPECT(zutl::find("zbd\\c1\\ok.zbd") == d + "/install/zbd/c1/ok.zbd");
+  EXPECT(zutl::find(".\\zbd\\c1\\ok.zbd") == d + "/install/./zbd/c1/ok.zbd");
+  EXPECT(zutl::list("zbd\\c1\\*.zrd").size() == 1);
+  EXPECT(zutl::write_path("pilots\\a..b.plt") == d + "/saves/pilots/a..b.plt");
+  // A world from a hostile lobby or a mod: the lobby sends numbers, which
+  // name only the table's folders ("none" past it); a mod world named with
+  // ".." (mods.cpp refuses one) still opens nothing.
+  for (const int32_t w : {-1, 255, 0x7fffffff, mech3::mission_dir_count()})
+    EXPECT(std::strcmp(mech3::mission_dir(w), "none") == 0);
+  mech3::mod_worlds().push_back("..\\..");
+  const std::string hostile = std::string("zbd\\") + mech3::mission_dir(mech3::mission_dir_count() - 1) + "\\secret.zrd";
+  EXPECT(zutl::find(hostile.c_str()).empty());
+  EXPECT(!zrdr::open_archive(hostile.c_str(), false));
+  mech3::mod_worlds().pop_back();
 }
 
 TEST(mounts_write_dir_first_then_mounts_in_order) {

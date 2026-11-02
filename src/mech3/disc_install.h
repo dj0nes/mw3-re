@@ -68,6 +68,11 @@ struct DiscInstall {
 // source_install.h), moved into video/ before the install is marked complete.
 // The stage, the fraction of the whole (0..1) and the current file; false cancels.
 using DiscProgress = std::function<bool(const std::string& stage, double fraction, const std::string& message)>;
+
+// A finished `tmp` folder made `out`: the old `out` set aside (out.old) and
+// removed only once the new one is in place, put back if the rename fails,
+// so a failure leaves the old install working. False with `ec` on failure.
+bool swap_in_folder(const std::string& tmp, const std::string& out, std::error_code& ec);
 DiscInstall install_from_disc(const std::string& source, const std::string& out_dir, const std::string& patch,
                               const std::string& music_dir, const DiscProgress& progress,
                               const std::string& movies_from = "");
