@@ -168,6 +168,20 @@ a loop time not over 0, or a part's keys past the end refuse the motion
 end; `bounded_motion_reads_the_shipped_motions_whole` (258 of 258) and
 `bounded_motion_fuzz_never_crashes` (300 copies: none crash, every one cut
 short refused; without the bound none is refused).
+A refused or missing motion is then taken from the next mount's copy of
+`motion.zbd` (normally the install's: `load_motion` over `zutl::find_all`),
+said in the log with the mod's archive and the motion's name; the rest of
+the mod's motions stay its own. With no good copy anywhere the mech is
+refused (`load_animations`: a gait 0..6 missing; the log names the mech and
+the motion) through the original's own failure: the mech's set-up fails, its
+error box names it (0xf30) and the briefing's Launch does not go on. A mech
+without its gaits can no longer crash (`pose_jump`, `load_animations`).
+Tests: `bounded_motion_falls_back_to_the_next_copy` (madcat_walk cut short
+in a mod: the install's frames, refused with no other copy, the mod's other
+motions its own) and `mod_broken_motion_falls_back_or_refuses_the_mech_headless`
+(Instant Action in a Mad Cat: it plays on the install's walk; with an install
+of links lacking motion.zbd it is refused, no player mech, no crash; without
+the check the refusal case segfaults).
 
 **The worlds' `anim.zbd`, bounded** (2026-11-01; a whole file, not an
 archive): every count and size it holds (its source list, each def's

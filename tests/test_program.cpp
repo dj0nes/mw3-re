@@ -10801,6 +10801,107 @@ bool& mod_world_reader_seen() {
 }
 }  // namespace
 
+// A mod's motion.zbd with the Mad Cat's walk cut short (docs/modding.md,
+// M3): Instant Action in a Mad Cat plays, the walk taken from the install's
+// copy; and with the install's motion.zbd out of reach (an install of links
+// without it) the Mad Cat is refused, the mission plays without it, nothing
+// crashes.
+namespace {
+bool ia_madcat_with(const std::string& wd, const std::string& install) {
+  zutl::mounts() = zutl::Mounts{};
+  zutl::set_write_dir(wd);
+  mech3::mods_mount(wd, {"brokenwalk"}, {install});
+  zutl::mount(install);
+  mech3::reset_states();
+  reset_process_state();
+  mech3::missions() = mech3::Missions{};
+  mech3::mech_types_forget();
+  mech3::player_controls_instance() = nullptr;
+  mech3::options() = mech3::Options{};
+  FakeWindow window;
+  FakeAlert alert;
+  FakeClock clock;
+  FakeScreen screen;
+  platform::SilentSoundOutput sound;
+  mech3::MountFiles files;
+  mech3::Platform p;
+  p.window = &window, p.alert = &alert, p.clock = &clock, p.movie_clock = &fast_movie_clock(), p.screen = &screen, p.sound = &sound, p.files = &files;
+  bool played = false;
+  {
+    mech3::GameEngine engine(p, "mech3.exe -nofmv");
+    engine.quiet = true;
+    mech3::Mech3App app(&engine);
+    mech3::set_app(&app);
+    EXPECT(app.init_instance());
+    mech3::ActionGame game(nullptr);
+    game.mode = 1, game.x6c = 1;
+    game.slot.mech = 9, game.slot.skin = 2;  // a Mad Cat
+    game.add(14, 0, nullptr, 0);
+    mech3::GameEngine::Launch l;
+    l.type = 2, l.index = 0, l.number = 1;
+    l.action = &game;
+    engine.set_launch(l);
+    app.post_intro_ = &mech3::states().load;
+    int frames = 0;
+    engine.on_present = [&](int) {
+      if (app.current() != &mech3::states().core) return;
+      if (++frames == 3) played = mech3::mech_mission_player() != nullptr;
+    };
+    CountingPump pump;
+    pump.limit = 300;
+    pump.stop = [&] { return frames >= 3; };
+    app.run(pump);
+    mech3::missions().cleanup(false);
+    app.stop_game();
+    app.exit_instance();
+    mech3::set_app(nullptr);
+  }
+  zrdr::close_archives(true);
+  mech3::reset_states();
+  reset_process_state();
+  mech3::options() = mech3::Options{};
+  return played;
+}
+}  // namespace
+
+TEST(mod_broken_motion_falls_back_or_refuses_the_mech_headless) {
+  if (!have_game()) return;
+  namespace fs = std::filesystem;
+  SavedMounts keep;
+  std::error_code ec;
+  const std::string install = MW3_GAME_DIR;
+  const std::string wd = temp_dir("mod_motion_write");
+  fs::create_directories(wd + "/mods/brokenwalk/zbd", ec);
+  std::ofstream(wd + "/mods/brokenwalk/mod.txt") << "name=Broken walk\n";
+  {  // the install's motion.zbd with madcat_walk cut to half
+    zutl_zar::Archive in, out;
+    zutl_zar::init(in), zutl_zar::init(out);
+    EXPECT(zutl_zar::open(in, (install + "/zbd/motion.zbd").c_str()));
+    EXPECT(zutl_zar::create(out, (wd + "/mods/brokenwalk/zbd/motion.zbd").c_str()));
+    for (int i = 0; i < in.count; ++i) {
+      std::vector<uint8_t> d(in.entries[i].length);
+      uint32_t size = in.entries[i].length;
+      zutl_zar::read(in, i, d.data(), &size);
+      if (std::string(in.entries[i].name) == "madcat_walk") d.resize(d.size() / 2);
+      zutl_zar::add(out, in.entries[i].name, d.data(), static_cast<uint32_t>(d.size()));
+    }
+    zutl_zar::close(out);
+    zutl_zar::destroy(in), zutl_zar::destroy(out);
+  }
+  const bool fell_back = ia_madcat_with(wd, install);
+  // An install of links without zbd/motion.zbd: the broken copy is the only one.
+  const std::string bare = temp_dir("mod_motion_install");
+  for (fs::directory_iterator it(install, ec), end; !ec && it != end; it.increment(ec))
+    if (it->path().filename() != "zbd") fs::create_symlink(it->path(), fs::path(bare) / it->path().filename(), ec);
+  fs::create_directories(fs::path(bare) / "zbd", ec);
+  for (fs::directory_iterator it(fs::path(install) / "zbd", ec), end; !ec && it != end; it.increment(ec))
+    if (it->path().filename() != "motion.zbd") fs::create_symlink(it->path(), fs::path(bare) / "zbd" / it->path().filename(), ec);
+  const bool refused_played = ia_madcat_with(wd, bare);
+  std::printf("  a broken madcat_walk: with the install's copy the Mad Cat plays %d; with none it is refused (played %d), no crash\n",
+              fell_back, refused_played);
+  EXPECT(fell_back && !refused_played);
+}
+
 // A mod's new world (docs/modding.md, M2): mods\mymap declares world=mymap
 // (its zbd\mymap\ the c1 world's files, linked; its mymap.gs sourcing
 // c1.gs) and ia_world=mymap; Instant Action on it (world 9) loads from the
