@@ -257,7 +257,7 @@ log (the exe read on into the next script). Each include keeps its own end.
 scripts as before; a first line reaching into the next script ends the
 script there, the others unchanged; an offset past the file refused).
 
-**Not bounded yet**: `gamez.zbd`'s texture directory takes each entry's mip index unchecked (dev 1's next sitting). Every other format a mod can replace is read with its end known.
+**Every format a mod can replace is now read with its end known** (M3 complete, 2026-11-02): a broken file or entry is refused and named in the log, never read past its end.
 
 **`mw3 --check-mod DIR`** reads a mod as the game would without mounting it
 into play, and exits 1 when anything would be refused, else 0. It reports:
