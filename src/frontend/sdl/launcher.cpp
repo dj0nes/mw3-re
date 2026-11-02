@@ -167,16 +167,23 @@ struct Text {
     if (it != fonts.end()) return it->second;
     return fonts[size] = TTF_OpenFont(path.c_str(), static_cast<float>(size));
   }
+  // `s` as drawn and measured: a narrow space doubled (widen_spaces).
+  std::string shown(TTF_Font* f, int size, const std::string& s) {
+    int adv = 0;
+    if (!TTF_GetGlyphMetrics(f, ' ', nullptr, nullptr, nullptr, nullptr, &adv)) return s;
+    return widen_spaces(s, adv, size);
+  }
   // `s` at (x, y): align -1 left, 0 centred, 1 right of x; y its middle.
   void draw(SDL_Surface* dst, const std::string& s, int size, SDL_Color c, int x, int y, int align = 0) {
     TTF_Font* f = font(size);
     if (!f || s.empty()) return;
-    SDL_Surface* t = TTF_RenderText_Blended(f, s.c_str(), 0, c);
+    const std::string text = shown(f, size, s);
+    SDL_Surface* t = TTF_RenderText_Blended(f, text.c_str(), 0, c);
     if (!t) return;
     SDL_Rect r{x, y - t->h / 2, t->w, t->h};
     if (align == 0) r.x -= t->w / 2;
     if (align > 0) r.x -= t->w;
-    SDL_Surface* shadow = TTF_RenderText_Blended(f, s.c_str(), 0, SDL_Color{0, 0, 0, 255});
+    SDL_Surface* shadow = TTF_RenderText_Blended(f, text.c_str(), 0, SDL_Color{0, 0, 0, 255});
     if (shadow) {
       SDL_Rect sr{r.x + 1, r.y + 2, r.w, r.h};
       SDL_BlitSurface(shadow, nullptr, dst, &sr), SDL_DestroySurface(shadow);
@@ -191,7 +198,7 @@ struct Text {
     if (!f) return s;
     auto w_of = [&](const std::string& t) {
       int w = 0, h = 0;
-      TTF_GetStringSize(f, t.c_str(), 0, &w, &h);
+      TTF_GetStringSize(f, shown(f, size, t).c_str(), 0, &w, &h);
       return w;
     };
     return fit_middle(s, keep, width, w_of);
@@ -204,7 +211,7 @@ struct Text {
     std::string line, word;
     auto fits = [&](const std::string& t) {
       int w = 0, h = 0;
-      TTF_GetStringSize(f, t.c_str(), 0, &w, &h);
+      TTF_GetStringSize(f, shown(f, size, t).c_str(), 0, &w, &h);
       return w <= width;
     };
     auto flush_word = [&] {

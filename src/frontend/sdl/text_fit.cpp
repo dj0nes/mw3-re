@@ -13,4 +13,15 @@ std::string fit_middle(const std::string& s, size_t keep, int width, const std::
   return head + "...";
 }
 
+std::string widen_spaces(const std::string& s, int space_advance, int size) {
+  if (space_advance * 5 >= size || s.find(' ') == std::string::npos) return s;
+  std::string out;
+  out.reserve(s.size() * 2);
+  for (char c : s) {
+    out += c;
+    if (c == ' ') out += ' ';
+  }
+  return out;
+}
+
 }  // namespace sdlfe

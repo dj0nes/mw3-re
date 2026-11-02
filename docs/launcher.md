@@ -143,6 +143,13 @@ named install or `--install-from`/`--patch`; `--no-launcher` skips it):
   `badge_mw3.png`, `badge_pm.png`, `badge_mw1.png` (assets/launcher, ours,
   their prompts in its README), each with its name and line beside it,
   the ripple from the badge's centre.
+- Spaces (2026-11-02, the lead from setup.png: "No MechWarrior 3was
+  found"): DIN Condensed's space is 2 pixels at 13 and its digits draw a
+  pixel past their advance, so a space after a digit vanished. A font
+  whose space is under a fifth of its size has each space doubled, drawn
+  and measured alike, in the launcher's one text path (`Text::shown`,
+  `widen_spaces` in text_fit.h); the gap after "3" goes from 2 pixels to 4
+  (the font's own "a g" is 3). `launcher_narrow_spaces_widen`.
 - Only the round badges ripple (2026-11-02, Owen after the PC's fresh
   install: the ripple belongs to a circle, as in the original's menus). A
   square plate hovered is brightened and lights its edge in the frame's

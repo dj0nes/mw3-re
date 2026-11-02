@@ -27,6 +27,7 @@
 #include "frontend/sdl/sdl_fit.h"
 #include "frontend/sdl/launcher_notes.h"
 #include "frontend/sdl/text_fit.h"
+#include <SDL3_ttf/SDL_ttf.h>
 #include "frontend/sdl/sdl_force.h"
 #include "frontend/sdl/sdl_input.h"
 #include "mech3/controls_cfg.h"
@@ -3715,6 +3716,45 @@ TEST(launcher_long_path_fits_the_button) {
   EXPECT(fit.size() > 44 && fit.compare(fit.size() - 7, 7, "mw3-1.2") == 0);  // its name, and as much as fits
   EXPECT(sdlfe::fit_middle("short", 0, 50, chars) == "short");
   EXPECT(sdlfe::fit_middle(ready + path, ready.size(), 10, chars) == ready + "...");  // too narrow: the words alone
+}
+
+// The launcher's narrow spaces (lead, setup.png: "No MechWarrior 3was
+// found"): DIN Condensed's space is 2 pixels at 13 and its digits draw a
+// pixel past their advance, so the space after a digit vanished. A space
+// under a fifth of the size is doubled; with the Mac's font, the blank gap
+// after "3" is then as wide as the font's own between "a" and "g".
+TEST(launcher_narrow_spaces_widen) {
+  EXPECT(sdlfe::widen_spaces("MechWarrior 3 was", 2, 13) == "MechWarrior  3  was");
+  EXPECT(sdlfe::widen_spaces("MechWarrior 3 was", 3, 13) == "MechWarrior 3 was");  // wide enough: as is
+  EXPECT(sdlfe::widen_spaces("none", 1, 13) == "none");
+  const char* din = "/System/Library/Fonts/Supplemental/DIN Condensed Bold.ttf";
+  if (!std::filesystem::exists(din) || !TTF_Init()) return;
+  TTF_Font* f = TTF_OpenFont(din, 13.0f);
+  EXPECT(f != nullptr);
+  if (!f) return;
+  auto gap = [&](const std::string& s) {  // blank columns between the first two inked runs
+    SDL_Surface* t = TTF_RenderText_Blended(f, s.c_str(), 0, SDL_Color{255, 255, 255, 255});
+    SDL_Surface* c = t ? SDL_ConvertSurface(t, SDL_PIXELFORMAT_ARGB8888) : nullptr;
+    int blank = 0, best = -1;
+    bool run = false;
+    for (int x = 0; c && x < c->w && best < 0; ++x) {
+      bool ink = false;
+      for (int y = 0; y < c->h; ++y) ink |= (static_cast<const uint32_t*>(c->pixels)[y * (c->pitch / 4) + x] >> 24) > 32;
+      if (ink && run && blank) best = blank;
+      else if (ink) run = true, blank = 0;
+      else if (run) ++blank;
+    }
+    if (c) SDL_DestroySurface(c);
+    if (t) SDL_DestroySurface(t);
+    return best;
+  };
+  int adv = 0;
+  TTF_GetGlyphMetrics(f, ' ', nullptr, nullptr, nullptr, nullptr, &adv);
+  const int before = gap("3 w"), after = gap(sdlfe::widen_spaces("3 w", adv, 13)), word = gap("a g");
+  std::printf("  DIN 13: space %d px; the gap after 3 %d, widened %d, a to g %d\n", adv, before, after, word);
+  EXPECT(adv * 5 < 13 && after > before && after >= word - 1);
+  TTF_CloseFont(f);
+  TTF_Quit();
 }
 
 // The launcher (ours, docs/launcher.md), drawn once into a BMP: with the
