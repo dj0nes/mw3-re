@@ -296,6 +296,30 @@ mech3ax reads PM (`GameType::PM`). Checked against the PM install's files:
 | models, nodes | MW | PM layouts | `gamez/model/pm`, `nodes/pm` (13 files) | to port from the exe, with mech3ax as the check, as for MW3 |
 | interp.zbd, motions, textures | | the same (textures: a third field) | no PM variant | read by the port today |
 
+## Shared types, forked logic
+
+Shared types by field, fork only logic (the lead, 2026-11-02). The same
+1999 source means shared code in ours. A struct that grew between the games
+is a binary artefact, not a reason to fork: pmdiff's "compiler only, other
+offsets" functions (1,102) are MW3's source compiled over larger structs,
+and the port names its fields (offsets only in comments), so those
+functions run unchanged on PM. So:
+
+- One type per engine struct (zcls::Node, World, Light, Lod and the rest),
+  holding the union of both games' fields by name; a field only one game
+  has is commented "PM only, +0x..". A file's layout (PM's 16-bit counts)
+  is the reader's business, not the struct's.
+- Readers are per game: PM's fill the shared types from PM's files.
+- A function is forked only where PM's logic changed, through the game
+  table (zgame::Table), as the archive and the text reader are.
+- Shared code that reads a struct by raw offset (`get<T>(0x..)`,
+  `raw[0x..]`) couples it to one game's layout; those reads become named
+  fields, module by module, with MW3's tests as the guard. The count on
+  2026-11-02: 515 get/put sites on Node, World, Light and Lod, 78 direct
+  `raw[]` reads, 163 uses of the int32 count accessors, mostly in zClass.
+
+See docs/games-layout.md.
+
 ## A porting order
 
 Each step is a sitting or a few, as for MW3; the counts are the port's
