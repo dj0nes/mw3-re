@@ -26,6 +26,11 @@ void put(const fs::path& p, const std::string& text) {
   fs::create_directories(p.parent_path(), ec);
   std::ofstream(p) << text;
 }
+// The same file, whatever the separators (Windows' test folder has \\).
+bool same(const std::string& a, const std::string& b) {
+  std::error_code ec;
+  return !a.empty() && fs::equivalent(a, b, ec);
+}
 std::string tmp(const char* name) {
   const std::string d = std::string(MW3_TEST_TMP) + "/" + name;
   std::error_code ec;
@@ -82,9 +87,9 @@ TEST(mods_mount_in_order_and_game_data_only) {
   for (const std::string& l : log) text += l + "\n";
   std::printf("%s", text.c_str());
   EXPECT(zutl::mounts().mods.size() == 2 && zutl::mounts().read.size() == 3);
-  EXPECT(zutl::find("zbd\\a.zbd") == wd + "/mods/two/zbd/a.zbd");     // the first named wins
-  EXPECT(zutl::find("zbd\\b.zbd") == wd + "/mods/two/zbd/b.zbd");
-  EXPECT(zutl::find("zbd\\new.zbd") == wd + "/mods/one/zbd/new.zbd");  // added
+  EXPECT(same(zutl::find("zbd\\a.zbd"), wd + "/mods/two/zbd/a.zbd"));     // the first named wins
+  EXPECT(same(zutl::find("zbd\\b.zbd"), wd + "/mods/two/zbd/b.zbd"));
+  EXPECT(same(zutl::find("zbd\\new.zbd"), wd + "/mods/one/zbd/new.zbd"));  // added
   EXPECT(zutl::find("pilots\\me.pil").empty());                        // a mod serves no pilot
   EXPECT(zutl::find("pilots\\keep.pil") == wd + "/pilots/keep.pil");   // the player's own
   EXPECT(zutl::find("mw3.cfg").empty() || zutl::find("mw3.cfg").find("/mods/") == std::string::npos);

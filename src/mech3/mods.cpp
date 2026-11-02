@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cstring>
 #include <cctype>
+#include <cerrno>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -62,7 +63,7 @@ std::vector<ModInfo> mods_found(const std::string& write_dir) {
     if (!it->is_directory(ec)) continue;
     ModInfo m;
     m.folder = it->path().filename().string();
-    m.path = it->path().string();
+    m.path = it->path().generic_string();  // zutl's / (its joins and the mods' prefixes)
     std::ifstream f(it->path() / "mod.txt");
     if (!f) {
       m.error = "no mod.txt";
@@ -93,7 +94,7 @@ std::vector<std::string> mods_mount(const std::string& write_dir, const std::vec
     done.push_back(want);
     const auto it = std::find_if(found.begin(), found.end(), [&](const ModInfo& m) { return m.folder == want; });
     if (it == found.end()) {
-      log.push_back("mod " + want + ": not in " + (fs::path(write_dir) / "mods").string() + ", left out");
+      log.push_back("mod " + want + ": not in " + (fs::path(write_dir) / "mods").generic_string() + ", left out");
       continue;
     }
     if (!it->error.empty()) {
@@ -213,8 +214,9 @@ std::vector<std::string> mods_apply_strings(std::map<int32_t, std::string>& text
       int32_t id = -1;
       if (!key.empty() && std::isdigit(static_cast<unsigned char>(key[0]))) {
         char* end = nullptr;
-        const long v = std::strtol(key.c_str(), &end, 0);
-        if (end && *end == 0 && v >= 0 && v <= 0x7fffffff) id = static_cast<int32_t>(v);
+        errno = 0;
+        const long long v = std::strtoll(key.c_str(), &end, 0);  // long is 32 bits on Windows: it would saturate
+        if (errno != ERANGE && end && *end == 0 && v >= 0 && v <= 0x7fffffff) id = static_cast<int32_t>(v);
       } else if (const auto it = ids.find(key); it != ids.end()) {
         id = it->second;
       }
@@ -231,18 +233,18 @@ std::vector<std::string> mods_apply_strings(std::map<int32_t, std::string>& text
         }
       }
       if (eq == std::string::npos || id < 0) {
-        log.push_back("  " + (fs::path(*m) / "strings.txt").string() + " line " + std::to_string(n) + ": no id= here, left out");
+        log.push_back("  " + (fs::path(*m) / "strings.txt").generic_string() + " line " + std::to_string(n) + ": no id= here, left out");
         continue;
       }
       if (!zutl::game_text(value, &game)) {
-        log.push_back("  " + (fs::path(*m) / "strings.txt").string() + " line " + std::to_string(n) +
+        log.push_back("  " + (fs::path(*m) / "strings.txt").generic_string() + " line " + std::to_string(n) +
                       ": a character the game cannot show, left out");
         continue;
       }
       text[id] = game.substr(0, 0x1ff);  // the original's 0x200-byte buffers
       ++used;
     }
-    log.insert(log.end() - 0, "mod strings: " + std::to_string(used) + " from " + (fs::path(*m) / "strings.txt").string());
+    log.insert(log.end() - 0, "mod strings: " + std::to_string(used) + " from " + (fs::path(*m) / "strings.txt").generic_string());
   }
   return log;
 }
@@ -294,7 +296,7 @@ std::vector<std::string> mod_check(const std::string& dir, const std::string& in
     }
     const bool over = !install.empty() && fs::is_regular_file(fs::path(install) / rel, ec);
     out.push_back(rel + (install.empty() ? "" : over ? ": replaces the game's" : ": added"));
-    const std::string host = (fs::path(dir) / rel).string();
+    const std::string host = (fs::path(dir) / rel).generic_string();
     const std::string name = low.substr(low.rfind('/') == std::string::npos ? 0 : low.rfind('/') + 1);
     if (name.size() > 4 && name.compare(name.size() - 4, 4, ".zbd") == 0) {
       zutl_zar::Archive a;
