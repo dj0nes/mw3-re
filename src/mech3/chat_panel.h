@@ -23,6 +23,9 @@ class ChatPanel : public ztwod::Console {
   void line_entered() override;        // +0xd0  0x0041e660: sent (none when empty), then closed
   uint8_t to_all;                      // +0x718
   Mech* mech;                          // +0x71c
+
+ protected:
+  ChatPanel(const char* title, Mech* mech);  // ours: the cheat box's (mech3/cheats)
 };
 
 void mech_chat_open(Mech& m, bool to_all);  // 0x0041e4e0: in a network game; to all without team play

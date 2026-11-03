@@ -1,5 +1,6 @@
 #include "mech3/app_hud.h"
 #include "mech3/chat_panel.h"
+#include "mech3/cheats.h"
 #include "mech3/app_sensors.h"
 #include "mech3/app_turret.h"
 #include "mech3/turret.h"
@@ -532,6 +533,8 @@ struct ProgramHudHooks : HudHooks {
   int32_t mech_contact_count(Mech* m) override { return static_cast<int32_t>(m->contacts.size()); }
   void* mech_contact(Mech* m, int32_t i) override { return m->contacts[static_cast<size_t>(i)]; }
   bool contact_on_radar(void* c) override { return (static_cast<ai::Contact*>(c)->flags & 1) != 0; }
+  bool radar_all(Mech* m) override { return cheats().radar_all && m == mech3::world().mission_player; }
+  std::vector<void*> radar_unsensed(Mech* m) override { return mech3::radar_unsensed(m); }
   bool contact_same(void* a, void* b) override {
     return static_cast<ai::Contact*>(a)->entity == static_cast<ai::Contact*>(b)->entity;
   }
@@ -957,7 +960,10 @@ void wire_hud() {
       radar_light(m);
       return;
     }
-    if (cmd == 0x76 || cmd == 0x77) return mech_chat_open(m, cmd == 0x77);  // 0x0041e4e0, CHAT_TEAM / CHAT_ALL
+    if (cmd == 0x76 || cmd == 0x77) {  // CHAT_TEAM / CHAT_ALL
+      if (&m == world().mission_player && cheat_open(m)) return;  // ours: the cheat box in single player (cheats.h)
+      return mech_chat_open(m, cmd == 0x77);  // 0x0041e4e0
+    }
     // The rest stay unported, recorded as the handler would (docs/keybindings.md).
     const char* key = cmd >= 0x36 && cmd <= 0x38 ? "[0x00609980] vtable +0x60..+0x68"
                       : cmd == 0x3e              ? "0x0041d070"

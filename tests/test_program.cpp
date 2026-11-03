@@ -83,6 +83,7 @@
 #include "mech3/zai_target.h"
 #include "mech3/zai_valve.h"
 #include "mech3/zainet_region.h"
+#include "mech3/cheats.h"
 #include "mech3/cockpit_sound.h"
 #include "mech3/app_sensors.h"
 #include "mech3/patch12.h"
@@ -19508,6 +19509,343 @@ TEST(mission_c1m2_destroy_objectives_met_by_mech_kills_headless) {
   mech3::reset_states();
   reset_process_state();
   mech3::options() = mech3::Options{};
+}
+
+// The cheat codes (ours, cheats.h; docs/cheats.md) in a mission, typed into
+// the box as a player would: `step` runs on each core frame, with the engine
+// and the keyboard, `other` on the frames after the mission in other states,
+// until one says done or `limit` frames pass.
+struct CheatKeys : platform::Input {
+  std::vector<platform::KeyEvent> queue;
+  uint32_t t = 0;
+  void key(uint32_t dik, bool down) { queue.push_back({dik, down ? 0x80u : 0u, ++t, t}); }
+  void press(uint32_t dik) { key(dik, true), key(dik, false); }
+  bool open(Device d) override { return d == kKeyboard; }
+  void close(Device) override {}
+  int32_t acquire(Device) override { return 0; }
+  int32_t unacquire(Device) override { return 0; }
+  int32_t keyboard_data(platform::KeyEvent* out, uint32_t* count) override {
+    const uint32_t n = std::min<uint32_t>(*count, static_cast<uint32_t>(queue.size()));
+    std::copy(queue.begin(), queue.begin() + n, out);
+    queue.erase(queue.begin(), queue.begin() + n);
+    *count = n;
+    return 0;
+  }
+  int32_t mouse_state(platform::MouseState*) override { return kNotAcquired; }
+  int32_t joystick_state(platform::JoyState*) override { return kNotAcquired; }
+};
+int cheat_mission(const char* write, int32_t index, int32_t number, int limit,
+                  const std::function<bool(int, mech3::GameEngine&, CheatKeys&)>& step,
+                  const std::function<bool(mech3::GameEngine&, mech3::Mech3App&)>& other = nullptr) {
+  SavedMounts keep;
+  zutl::mounts() = zutl::Mounts{};
+  zutl::mount(MW3_GAME_DIR);
+  zutl::set_write_dir(temp_dir(write));
+  mech3::reset_states();
+  reset_process_state();
+  mech3::missions() = mech3::Missions{};
+  mech3::mech_types_forget();
+  mech3::player_controls_instance() = nullptr;
+  mech3::options() = mech3::Options{};
+  FakeWindow window;
+  FakeAlert alert;
+  FakeClock clock;
+  FakeScreen screen;
+  platform::SilentSoundOutput sound;
+  mech3::MountFiles files;
+  CheatKeys keys;
+  mech3::Platform p;
+  p.window = &window, p.alert = &alert, p.clock = &clock, p.movie_clock = &fast_movie_clock(), p.screen = &screen, p.sound = &sound, p.files = &files;
+  p.input = &keys;
+  int frames = 0;
+  {
+    mech3::GameEngine engine(p, "mech3.exe -nofmv");
+    engine.quiet = true;
+    mech3::Mech3App app(&engine);
+    mech3::set_app(&app);
+    EXPECT(app.init_instance());
+    mech3::GameEngine::Launch l;
+    l.index = index, l.number = number;
+    engine.set_launch(l);
+    app.post_intro_ = &mech3::states().load;
+    bool done = false;
+    engine.on_present = [&](int) {
+      if (done) return;
+      if (app.current() == &mech3::states().core) done = step(++frames, engine, keys);
+      else if (frames > 0 && other) done = other(engine, app);
+    };
+    CountingPump pump;
+    pump.limit = limit;
+    pump.stop = [&] { return done; };
+    app.run(pump);
+    mech3::missions().cleanup(false);
+    app.stop_game();
+    app.exit_instance();
+    mech3::set_app(nullptr);
+  }
+  zrdr::close_archives(true);
+  mech3::reset_states();
+  reset_process_state();
+  mech3::options() = mech3::Options{};
+  return frames;
+}
+
+// Food for thought: a mech that lost a leg comes whole and a vehicle's
+// weapons come, whatever the coin says.
+TEST(cheat_food_for_thought_wins_the_salvage_coins) {
+  mech3::cheats_clear();
+  mech3::SalvageCalls tails;
+  tails.rand = [] { return 0; };  // every coin lost
+  auto mechs = [](const mech3::Store& s) {
+    int32_t n = 0;
+    for (const mech3::ConfigItem* it : s.items) n += it->kind() == 0 ? it->count : 0;
+    return n;
+  };
+  mech3::SalvageMech m;
+  m.has_data = true, m.type = 0, m.leg_gone[0] = true;
+  mech3::Store off, on;
+  mech3::add_salvage(off, m, tails);
+  // A vehicle: without the coin nothing is read (true); with it, its weapons
+  // (none here: no manager, false).
+  mech3::SalvageMech v;
+  const bool vehicle_off = mech3::add_vehicle_salvage(off, v, tails);
+  mech3::cheats().max_salvage = true;
+  mech3::add_salvage(on, m, tails);
+  const bool vehicle_on = mech3::add_vehicle_salvage(on, v, tails);
+  mech3::cheats_clear();
+  EXPECT(mechs(off) == 0 && mechs(on) == 1);
+  EXPECT(vehicle_off && !vehicle_on);
+}
+
+
+// Each code typed into the box: keypad * and - and Shift+Enter open it (Enter
+// alone still the next weapon, the box not opened), Escape closes it with
+// nothing on, a wrong line does nothing; power overwhelming, black sheep wall
+// (every mech and vehicle on the radar), operation cwal (the reload and heat
+// dissipation 10x), food for thought on and off again, game over man (the
+// loss); then the next mission starts with none on.
+TEST(mission_c1m2_cheat_codes_headless) {
+  if (!have_game()) return;
+  std::vector<std::string> lines;
+  void (*kept_line)(float, const char*) = nullptr;
+  static std::vector<std::string>* g_lines = nullptr;
+  g_lines = &lines;
+  void* me = nullptr;
+  bool star_opens = false, minus_opens = false, shift_enter_opens = false, enter_opens = false, enter_weapon = false;
+  bool escape_closes = false, escape_nothing = false, wrong_closes = false, wrong_nothing = false;
+  bool invincible = false, invincible_off = false;
+  int32_t blips_off = -1, blips_on = -1, unsensed = -1;
+  float heat_off = 0, heat_on = 0, drop_off = 0, drop_on = 0;
+  bool salvage_on = false, salvage_off = false, lost = false, lost_line = false;
+  const void* weapon_before = nullptr;
+  float reload_was = 0;
+  int32_t trigger = 0;  // the probe's, unread
+  auto launched = [](void* m) {
+    mech3::LaunchedMech d;
+    mech3::describe_mech(m, &d);
+    return d;
+  };
+  auto blips = [] {
+    mech3::HudReport r;
+    if (!mech3::program_hud_report(&r)) return -1;
+    return r.blips + r.vehicle_blips;
+  };
+  auto none_on = [] {
+    const mech3::Cheats& c = mech3::cheats();
+    return !c.radar_all && !c.invincible && !c.max_salvage && !c.fast && !c.whole;
+  };
+  const int frames = cheat_mission("cheat_codes_write", 0, 2, 3000, [&](int f, mech3::GameEngine&, CheatKeys& k) {
+    if (f == 1) {
+      me = mech3::mission_player_mech();
+      kept_line = mech3::cheat_calls().hud_line;
+      mech3::cheat_calls().hud_line = [](float s, const char* t) { g_lines->push_back(t); (void)s; };
+    }
+    if (f == 5) k.press(0x37);  // keypad *: CHAT_ALL in a network game
+    if (f == 7) {
+      star_opens = mech3::cheat_box_open(me);
+      mech3::cheat_box_type(me, "  Power   OVERWHELMING ");
+      invincible = !mech3::cheat_box_open(me) && launched(me).invincible && mech3::cheats().invincible;
+      weapon_before = launched(me).weapon;
+      k.press(0x1c);  // Enter alone: NEXT_WEAPON (0x27)
+    }
+    if (f == 9) {
+      enter_opens = mech3::cheat_box_open(me);
+      enter_weapon = launched(me).weapon != weapon_before;
+      k.key(0x2a, true), k.press(0x1c), k.key(0x2a, false);  // Shift+Enter
+    }
+    if (f == 11) {
+      shift_enter_opens = mech3::cheat_box_open(me);
+      mech3::cheat_box_type(me, "\x1b");
+      escape_closes = !mech3::cheat_box_open(me);
+      escape_nothing = lines.size() == 1;
+      k.press(0x4a);  // keypad -: CHAT_TEAM
+    }
+    if (f == 13) {
+      minus_opens = mech3::cheat_box_open(me);
+      mech3::cheat_box_type(me, "black sheep");
+      wrong_closes = !mech3::cheat_box_open(me);
+      wrong_nothing = lines.size() == 1 && !mech3::cheats().radar_all;
+    }
+    // The radar: one frame's blips without, then with, black sheep wall.
+    if (f == 20) blips();
+    if (f == 21) blips_off = blips();
+    if (f == 22) {
+      unsensed = static_cast<int32_t>(mech3::radar_unsensed(me).size());
+      k.press(0x37);
+    }
+    if (f == 24) {
+      mech3::cheat_box_type(me, "BLACK SHEEP WALL");
+      blips();
+    }
+    if (f == 25) blips_on = blips();
+    // The reload: the selected group fired, its drop a frame, without and with cwal.
+    if (f == 30) {
+      const uint32_t fire = zin::key1_of(0x3d) & 0xff;  // CMD_FIRE
+      k.key(fire, true), k.key(fire, false);
+    }
+    if (f == 34) mech3::program_pilot_fire_probe(&trigger, &reload_was);
+    if (f == 35) {
+      float r = 0;
+      mech3::program_pilot_fire_probe(&trigger, &r);
+      drop_off = reload_was - r;
+      heat_off = mech3::mech_heat_dissipation(me);
+      k.press(0x37);
+    }
+    // On, fired again (the short reload empties in two frames at 10x): the
+    // largest drop of a frame that left some reload.
+    if (f == 37) {
+      mech3::cheat_box_type(me, "operation cwal");
+      const uint32_t fire = zin::key1_of(0x3d) & 0xff;
+      k.key(fire, true), k.key(fire, false);
+    }
+    if (f >= 38 && f <= 41) {
+      float r = 0;
+      mech3::program_pilot_fire_probe(&trigger, &r);
+      if (f > 38 && r > 0 && reload_was - r > drop_on) drop_on = reload_was - r;
+      reload_was = r;
+    }
+    if (f == 41) {
+      heat_on = mech3::mech_heat_dissipation(me);
+      k.press(0x37);
+    }
+    if (f == 43) {
+      mech3::cheat_box_type(me, "food for thought");
+      salvage_on = mech3::cheats().max_salvage;
+      k.press(0x37);
+    }
+    if (f == 45) {
+      mech3::cheat_box_type(me, "Food For Thought");
+      salvage_off = !mech3::cheats().max_salvage;
+      k.press(0x37);
+    }
+    if (f == 47) {
+      mech3::cheat_box_type(me, "power overwhelming");
+      invincible_off = !launched(me).invincible && !mech3::cheats().invincible;
+      k.press(0x37);
+    }
+    if (f == 49) {
+      mech3::cheat_box_type(me, "game over man");
+      lost = mech3::missions().aborting == 1 && mech3::missions().ended == 1;
+      lost_line = !lines.empty() && lines.back() == "Cheat enabled: game over man";
+      mech3::cheat_calls().hud_line = kept_line;
+      return true;
+    }
+    return false;
+  });
+  std::string all;
+  for (const std::string& l : lines) all += " | " + l;
+  std::printf("  cheats in c1m2 (%d frames): keypad * %d, - %d, Shift+Enter %d, Enter %d (next weapon %d); Escape %d "
+              "(%d), a wrong line %d (%d)\n",
+              frames, star_opens, minus_opens, shift_enter_opens, enter_opens, enter_weapon, escape_closes,
+              escape_nothing, wrong_closes, wrong_nothing);
+  std::printf("  power overwhelming %d then %d; radar blips %d, then %d with %d unsensed; reload drop %.4f then %.4f, "
+              "heat dissipation %.4f then %.4f; food for thought %d then %d; game over man %d (%d)\n  lines%s\n",
+              invincible, invincible_off, blips_off, blips_on, unsensed, drop_off, drop_on, heat_off, heat_on,
+              salvage_on, salvage_off, lost, lost_line, all.c_str());
+  EXPECT(star_opens && minus_opens && shift_enter_opens);
+  EXPECT(!enter_opens && enter_weapon);
+  EXPECT(escape_closes && escape_nothing && wrong_closes && wrong_nothing);
+  EXPECT(invincible && invincible_off);
+  EXPECT(!lines.empty() && lines[0] == "Cheat enabled: power overwhelming");
+  EXPECT(unsensed > 0 && blips_on >= blips_off + unsensed);
+  EXPECT(drop_off > 0 && std::fabs(drop_on / drop_off - 10.0f) < 0.05f);
+  EXPECT(heat_off > 0 && std::fabs(heat_on / heat_off - 10.0f) < 0.05f);
+  EXPECT(salvage_on && salvage_off);
+  EXPECT(lost && lost_line);
+  // The next mission: none on.
+  bool cleared = false;
+  cheat_mission("cheat_codes_next_write", 0, 2, 600, [&](int f, mech3::GameEngine&, CheatKeys&) {
+    if (f < 2) return false;
+    cleared = none_on() && !launched(mech3::mission_player_mech()).invincible;
+    return true;
+  });
+  std::printf("  the next mission: none on %d\n", cleared);
+  EXPECT(cleared);
+}
+
+// There is no cow level in c1m2: every enemy mech and vehicle killed by the
+// player and salvaged whole (each mech in the salvage), the objectives done,
+// the mission won; Exit Mission brings the debriefing as a win.
+TEST(mission_c1m2_no_cow_level_headless) {
+  if (!have_game()) return;
+  void* me = nullptr;
+  std::vector<uint32_t> mechs, vehicles;
+  std::map<int32_t, int32_t> types;  // the enemy mechs' types, by count
+  int32_t alive_after = -1, objectives_open = -1;
+  bool won = false, debriefed = false, failed = true;
+  std::map<int32_t, int32_t> salvaged;
+  auto open = [](const mech3::Objective& o, auto& self) -> int32_t {
+    int32_t n = o.done ? 0 : 1;
+    if (auto* g = dynamic_cast<const mech3::ObjectiveGroup*>(&o))
+      for (const auto& c : g->items) n += self(*c, self);
+    return n;
+  };
+  cheat_mission("cheat_cow_write", 0, 2, 3000, [&](int f, mech3::GameEngine& engine, CheatKeys& k) {
+    if (f == 5) {
+      me = mech3::mission_player_mech();
+      for (const mech3::ChainTarget& t : mech3::chain_hostiles()) {
+        if (std::string(t.kind) == "mech") {
+          mechs.push_back(t.h);
+          mech3::LaunchedMech d;
+          mech3::describe_mech(engine.object_of(t.h), &d);
+          ++types[d.roster];
+        } else if (std::string(t.kind) == "vehicle") {
+          vehicles.push_back(t.h);
+        }
+      }
+      k.press(0x37);
+    }
+    if (f == 7) {
+      mech3::cheat_box_type(me, "there is no cow level");
+      alive_after = 0;
+      for (uint32_t h : mechs) alive_after += mech3::chain_alive(h) ? 1 : 0;
+      for (uint32_t h : vehicles) alive_after += mech3::chain_alive(h) ? 1 : 0;
+      const mech3::Objectives& o = mech3::mission_objectives();
+      objectives_open = (o.primary ? open(*o.primary, open) : 0) + (o.secondary ? open(*o.secondary, open) : 0);
+      for (const mech3::ConfigItem* it : mech3::mission_salvage().items)
+        if (it->kind() == 0) salvaged[it->id()] += it->count;
+      won = mech3::missions().ended == 1 && mech3::missions().aborting == 0;
+      mech3::missions().on_command(0x71);  // Exit Mission
+    }
+    return false;
+  }, [&](mech3::GameEngine& engine, mech3::Mech3App& app) {
+    if (app.current() != &mech3::states().end_win) return false;
+    auto* d = dynamic_cast<mech3::DebriefScreen*>(engine.screen_of(mech3::states().end_win.screen_));
+    if (!d) return false;
+    debriefed = true;
+    failed = engine.mission_failed();
+    return true;
+  });
+  std::string got;
+  for (const auto& [t, n] : salvaged) got += " " + std::to_string(t) + "x" + std::to_string(n);
+  std::printf("  no cow level in c1m2: %zu mechs and %zu vehicles, %d alive after; %d objectives open; won %d; "
+              "debriefed %d (failed %d); mechs salvaged:%s\n",
+              mechs.size(), vehicles.size(), alive_after, objectives_open, won, debriefed, failed,
+              got.c_str());
+  EXPECT(!mechs.empty() && alive_after == 0);
+  EXPECT(objectives_open == 0 && won);
+  for (const auto& [t, n] : types) EXPECT(salvaged[t] >= n);
+  EXPECT(debriefed && !failed);
 }
 
 TEST(mission_c1m1_won_and_lost_by_its_objectives_headless) {

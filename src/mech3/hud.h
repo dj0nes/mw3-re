@@ -945,6 +945,10 @@ class HudHooks : public zgame::Unported {
     return ptr(unported("peek32", {unported("peek32", {id(m) + 0xac}) + 4u * i}));
   }
   virtual bool contact_on_radar(void* c) { return (unported("peek8", {id(c) + 0x2c}) & 1) != 0; }
+  // Ours: black sheep wall (cheats.h) on the mech's radar: every contact
+  // shown, and the mechs and vehicles it has none of.
+  virtual bool radar_all(Mech* m) { (void)m; return false; }
+  virtual std::vector<void*> radar_unsensed(Mech* m) { (void)m; return {}; }
   virtual bool contact_same(void* a, void* b) {
     return unported("peek32", {id(a) + 8}) == unported("peek32", {id(b) + 8}) &&
            unported("peek32", {id(a)}) == unported("peek32", {id(b)});

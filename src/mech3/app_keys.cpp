@@ -1,6 +1,7 @@
 #include "mech3/app_keys.h"
 
 #include "gamez/zinput/zinput.h"
+#include "mech3/cheats.h"
 #include "mech3/game_editor.h"
 
 namespace mech3 {
@@ -19,6 +20,7 @@ void register_app_keys() {
   zin::set_callback(0x70, app_key);   // MESSAGE_TOGGLE (`)
   zin::set_callback(0x7e, debug_7e);  // 0x004abbc0
   zin::set_callback(0x6c, app_key);   // VMODE_TOGGLE (Shift+V)
+  register_cheat_key();               // ours: the cheat box on Shift+Enter (cheats.h)
   if (g_calls.debug_camera) {  // ours: the game editor on Shift+F12 (debug only)
     zin::bind(kEditorCommand, nullptr, kEditorKey, 0, 0, 0);
     zin::set_callback(kEditorCommand, app_key);

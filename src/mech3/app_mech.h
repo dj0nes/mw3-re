@@ -290,6 +290,7 @@ void mech_types_close();
 void mech_types_forget();
 void mech_canned_nodes_free();
 void mission_lose();
+void mission_win();  // Missions::complete 0x0048f740 (the cheats')
 void mission_controls_free(void* controls);  // app_mission.cpp: an AI mech's controls (and brain) deleted
 // A mech (one on zEntity's list) deleted (vtable +0 with 1); false for anything else.
 bool mech_free(void* obj);
@@ -622,6 +623,12 @@ void* mission_map();
 // item 12): +0x630, the weapons' 0x004b0220, the torso's +0xa0, the
 // controls' +0x3f, the control mode 0x0041cf30.
 void program_mech_set_invincible(void* mech, bool on);
+void wire_cheats(bool on);  // app_cheats.cpp: the cheat codes' calls (cheats.h)
+// For the tests: the cheat box open on the mech, a line typed into it (each
+// character, then Enter; "\x1b" alone is Escape), the mech's heat dissipation.
+bool cheat_box_open(void* mech);
+void cheat_box_type(void* mech, const char* text);
+float mech_heat_dissipation(void* mech);
 void* program_mech_weapons(void* mech);
 void program_weapons_set_unlimited(void* weapons, bool on);
 void program_mech_set_torso_absolute(void* mech, bool on);

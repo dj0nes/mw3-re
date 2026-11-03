@@ -530,6 +530,20 @@ std::vector<ChainTarget> chain_hostiles() {
 
 void* chain_object(uint32_t h) { return object(h); }
 
+std::vector<void*> radar_unsensed(const void* m) {
+  std::vector<void*> out;
+  const auto* me = static_cast<const Mech*>(m);
+  if (!me) return out;
+  for (const uint32_t e : ai::entity_list()) {
+    void* o = mech(e) ? object(e) : vehicle(e);
+    if (!o || o == m || !chain_alive(e) || hud_object_hidden(o)) continue;
+    bool sensed = false;
+    for (const ai::Contact* c : me->contacts) sensed = sensed || hud_contact_vehicle(c) == o;
+    if (!sensed) out.push_back(o);
+  }
+  return out;
+}
+
 std::vector<int32_t> chain_weapon_types(uint32_t h) { return salvage_weapon_types(object(h)); }
 
 void* chain_weapon() {

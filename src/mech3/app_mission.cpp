@@ -59,6 +59,7 @@
 #include "gamez/zutil/ztimer.h"
 #include "gamez/zweapon/zweapon.h"
 #include "gamez/zentity/zent_init.h"
+#include "mech3/cheats.h"
 #include "mech3/cockpit_sound.h"
 #include "mech3/landmines.h"
 #include "mech3/entity_classes.h"
@@ -1687,6 +1688,7 @@ struct WiredMissionHooks : MissionHooks {
   // (0x004cfe40); each independent of the others.
   void fn_4e7b40() override {
     pocket_mission_start();
+    cheats_clear();  // ours: the cheats last one mission (cheats.h)
     reset_ready_times();
     ai::deploy_mission_load();
     ai::inout_mission_load();  // the boundary's slot +0x04 (above)
@@ -2256,6 +2258,7 @@ const AiMechMade* mission_ai_mechs(int32_t* count) {
 }
 
 void mission_lose() { missions().lose(); }
+void mission_win() { missions().complete(); }
 Objectives& mission_objectives() { return g_objective_hooks.objs; }
 ObjectiveHooks& mission_objective_hooks() { return g_objective_hooks; }
 void* mission_sun() { return missions().world.sun ? missions().world.sun->node : nullptr; }

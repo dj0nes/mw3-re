@@ -221,6 +221,7 @@ add_library(mw3core STATIC
   src/mech3/hud.cpp
   src/mech3/message_panel.cpp
   src/mech3/mech_hud.cpp
+  src/mech3/app_cheats.cpp
   src/mech3/app_hud.cpp
   src/mech3/app_keys.cpp
   src/mech3/pilot.cpp
@@ -230,6 +231,7 @@ add_library(mw3core STATIC
   src/mech3/mp_connect.cpp
   src/mech3/mp_lobby.cpp
   src/mech3/chat_panel.cpp
+  src/mech3/cheats.cpp
   src/mech3/briefing.cpp
   src/mech3/debriefing.cpp
   src/mech3/salvage_screen.cpp

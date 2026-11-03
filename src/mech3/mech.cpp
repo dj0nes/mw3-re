@@ -9,6 +9,7 @@
 #include "mech3/mech_skis.h"
 #include "mech3/mission_world.h"
 #include "mech3/weapon.h"
+#include "mech3/cheats.h"
 
 namespace mech3 {
 
@@ -196,6 +197,7 @@ void update_heat(Mech& m, float dt) {
   if (m.foot(0)->soil == kLava || m.foot(1)->soil == kLava)
     m.heat_added += zfix::options().per_second ? dt * (0.05f * zfix::kReferenceFps) : 0.05f;
   m.heat_dissipation *= m.heat_sinks.rate();
+  m.heat_dissipation *= cheat_rate(&m == g_world.mission_player);  // ours: operation cwal (cheats.h)
 
   if ((g_calls.heat_option && g_calls.heat_option()) || game_type() == kMultiplayer) {
     m.heat -= dt * m.heat_dissipation;

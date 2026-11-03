@@ -184,6 +184,28 @@ To play exactly as the original did, turn the fixes off: start with
 `--original`, or put the line `bugfixes=0` in `mw3.cfg` (in the folder
 below). The changes the game needs to run on a modern computer stay on.
 
+### Cheat codes
+
+The rebuild adds cheat codes (ours, not in the original) for the campaign,
+Instant Action and training; a network game refuses them. In a mission,
+press **Shift+Enter** (or **Keypad \*** or **Keypad −**) to open a one-line
+box, type a code and press **Enter**; **Esc** closes it. The mission keeps
+running while you type. Capitals and extra spaces don't matter. A code
+lasts until the mission ends; the ones that switch something on switch it
+off when typed again. The message panel says what was turned on or off.
+
+| Code | What it does |
+|---|---|
+| `black sheep wall` | Every mech and vehicle on the radar, at any range |
+| `power overwhelming` | Your mech takes no damage |
+| `operation cwal` | Your weapons reload and your mech cools ten times as fast |
+| `food for thought` | Maximum salvage: every chance in the salvage goes your way |
+| `there is no cow level` | Wins the mission: every enemy mech and vehicle destroyed by you and salvaged whole, every objective done |
+| `game over man` | Loses the mission |
+
+A mission won with a code counts as won. In a network game the keypad keys
+stay the chat's. More in [docs/cheats.md](docs/cheats.md).
+
 ## Mods
 
 The rebuild loads mods: folders of game data in a `mods` folder inside the
