@@ -159,7 +159,6 @@ DamageCalls.controls_killed	fallback: unset runs the port (+0x37c's second base,
 DamageCalls.ff	no effect: force feedback on [0x00608620]; set with the object (app_force.cpp), made only when zInput's joystick has force feedback
 DamageCalls.last_hit	fallback: unset runs the port (0x0041d130)
 DamageCalls.fly_off	fallback: unset runs the port (part vtable +0x60)
-DamageCalls.free_part	fallback: unset runs the port (vtable +0 (1); unset deletes)
 DamageCalls.anim_ok	fallback: unset runs the port (0x00416780; test hook, unset runs Mech::queue_action)
 DamageCalls.hip_reset	fallback: unset runs the port (test hook (0x004621f0): unset runs Hip::set_crouch)
 DamageCalls.canned	fallback: unset runs the port (test hook (0x00432830 on +0x684): unset runs canned_effect)

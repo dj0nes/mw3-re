@@ -251,6 +251,10 @@ void reset_process_state() {
   zeff::anim_log().save_on = zeff::anim_log().net_on = 1;
   zvid::display().clear_on = 1;
   zcls::scene_walk().hidden_surface = 1;
+  // zInput's power-on globals, while it is stopped: the joystick's ready flag
+  // (0x0063c4a4) is only ever set, so a test whose input had a stick left one
+  // to every later test (the c3m5 homing fight played the stick's axes).
+  if (zin::state().window == 0) zin::reset_state();
 }
 
 // The data version (ours; assets.md, Data versions): the install's, then a
@@ -21841,6 +21845,8 @@ struct HomingRun {
 HomingRun homing_run(const char* dir, bool kill, int limit) {
   HomingRun r;
   SavedMounts keep;
+  const zfix::Options fix_was = zfix::options();
+  zfix::options() = zfix::Options{};  // play's switches, whatever a test before left
   zutl::mounts() = zutl::Mounts{};
   zutl::mount(dir);
   zutl::set_write_dir(temp_dir("homing_write"));
@@ -22064,6 +22070,7 @@ HomingRun homing_run(const char* dir, bool kill, int limit) {
   mech3::reset_states();
   reset_process_state();
   mech3::options() = mech3::Options{};
+  zfix::options() = fix_was;
   return r;
 }
 

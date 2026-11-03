@@ -98,6 +98,12 @@ From the damage code (damage.md).
   (engine hit in the torso, instant death in the head, a limp in a leg).
 - **Lasers never cause criticals.** Every laser is a beam weapon, and beams are
   excluded from the critical roll; PPCs, autocannons, missiles and Gauss can.
+- **Losing an arm makes the game read memory it just freed.** When an arm is
+  shot off, the game deletes its hand, then in the same frame asks every
+  weapon whether its part is under water, and the hand's weapons still point
+  at the deleted hand. Windows 98's memory manager left the old bytes in
+  place, so nothing happened; the rebuild keeps the hand's memory until the
+  next mission instead. (docs/fixes.md)
 - **A critical replaces the hit's damage.** When a critical is rolled, that
   hit's armor and structure damage is skipped, even if the critical has nothing
   to destroy.
