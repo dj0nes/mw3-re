@@ -12,6 +12,7 @@
 #include "mech3/app_mech.h"
 #include "mech3/app_vehicle.h"
 #include "mech3/chat_panel.h"
+#include "mech3/cheats.h"
 #include "mech3/app_turret.h"
 #include "mech3/turret.h"
 
@@ -1894,6 +1895,7 @@ void wire_mech_build(const MechWiring* w) {
     update_calls().stop_cockpit_sound = nullptr;
     collide_calls().touch = nullptr, collide_calls().node_touchable = nullptr, collide_calls().hit_box = nullptr;
     unwire_hud();
+    wire_cheats(false);
     unwire_weapons();
     set_mech_build_hooks(nullptr);
     set_shade_hooks(nullptr);
@@ -1941,6 +1943,7 @@ void wire_mech_build(const MechWiring* w) {
   wire_mech_frame();
   wire_mech_parts();
   wire_hud();
+  wire_cheats(true);
   wire_weapons([](const char* key) { return g_w.unported ? g_w.unported(g_w.engine, key, {}) : 0u; });
   WeaponCalls& c = weapon_calls();
   // (A mech's manager is made while the mech is built, before zEntity knows
@@ -2261,6 +2264,11 @@ SalvageMech salvage_view(Mech& m) {
   for (int id = 0; id < 16; ++id) {
     const MechPart* p = part_by_id(m, id);
     v.parts[id] = p ? (p->destroyed ? 2 : 1) : 0;
+  }
+  if (cheats().whole) {  // ours: there is no cow level's kills, as if undamaged (cheats.h)
+    v.torso_gone = v.head_gone = v.leg_gone[0] = v.leg_gone[1] = false;
+    for (int8_t& p : v.parts)
+      if (p == 2) p = 1;
   }
   v.sink_tech = m.heat_sinks.tech;
   v.sinks = m.heat_sinks.count;

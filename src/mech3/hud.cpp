@@ -2612,6 +2612,7 @@ void HudRadar::update_contacts(float dt, float static_px) {
     radar_turn(sd, mtx, v);
     return len;
   };
+  const bool all = h.radar_all(m);  // ours (cheats.h)
   for (int32_t i = 0; i < h.mech_contact_count(m); ++i) {
     void* c = h.mech_contact(m, i);
     void* o = h.contact_vehicle(c);
@@ -2620,7 +2621,7 @@ void HudRadar::update_contacts(float dt, float static_px) {
       void* t = h.slot_contact(hd->target.target);
       selected = t == c || (t && c && h.contact_same(t, c));
     }
-    if (!selected && !h.contact_on_radar(c)) continue;
+    if (!selected && !all && !h.contact_on_radar(c)) continue;
     float p[3];
     h.object_position(o, p);
     // FIX (bug): a targets.zrd building's node sits at the world's origin, its
@@ -2675,6 +2676,35 @@ void HudRadar::update_contacts(float dt, float static_px) {
     tri.color = colour;
     tri.set_scale(5.773503f);  // 0x40b8c08e
     tri.update(dt);
+  }
+  // Ours: black sheep wall (cheats.h): the mechs and vehicles with no
+  // contact, by their distance.
+  if (all) {
+    for (void* o : h.radar_unsensed(m)) {
+      float p[3], me[3];
+      h.object_position(o, p);
+      radar_jitter(p, static_px);
+      float v[3] = {};
+      if (!active) {
+        h.mech_position(m, me);
+        const float d[3] = {p[0] - me[0], p[1] - me[1], p[2] - me[2]};
+        float s = std::sqrt(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]) * k;
+        if (s > static_cast<float>(radius)) s = static_cast<float>(radius);
+        offset(p, s, v);
+      }
+      const uint32_t team = h.object_team(o);
+      void* blip = h.object_blip(o, (team & h.mech_allies(m)) ? 0 : (team & h.mech_enemies(m)) ? 1 : 2);
+      if (!blip) continue;
+      int32_t pt[2];
+      if (active) {
+        h.map_point(h.radar_map(), p, pt);
+      } else {
+        pt[1] = radar_px(get_y(), v[2]);
+        pt[0] = radar_px(get_x(), v[0]);
+      }
+      h.blip_place(blip, pt[0], pt[1]);
+      h.blip_draw(blip);
+    }
   }
   // The network player's marker, with its name and distance in TEXT2.
   if (void* e = h.network_marker()) {

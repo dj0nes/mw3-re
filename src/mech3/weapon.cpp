@@ -14,6 +14,7 @@
 #include "gamez/zutil/zfix.h"
 #include "gamez/zweapon/zweapon.h"
 #include "mech3/mech_names.h"
+#include "mech3/cheats.h"
 
 #pragma STDC FP_CONTRACT OFF
 
@@ -1350,6 +1351,7 @@ void Weapon::update(float dt) {
     part = part_of(owner, firepoint);
     node = node_of(part);
   }
+  dt *= cheat_rate(manager->owner && manager->owner == g_world.mission_player);  // ours: operation cwal (cheats.h)
   if (reload > dt) {
     reload = reload - dt;
     if (manager->owner == g_world.mission_player && t->recharge_sound && !recharge_sound && g_calls.play_loop)
