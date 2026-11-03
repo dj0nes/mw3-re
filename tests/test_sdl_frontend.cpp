@@ -3759,6 +3759,32 @@ TEST(launcher_long_path_fits_the_button) {
   EXPECT(sdlfe::fit_middle(ready + path, ready.size(), 10, chars) == ready + "...");  // too narrow: the words alone
 }
 
+// The launcher's one picker (Owen, 2026-11-02: one option): an image or a
+// download is itself the source; any other file stands for its folder
+// (Mech3.exe or any file of an installed copy, zbd\ and video\ up one, or a
+// disc's folder); a .bin with its .cue beside it is the .cue.
+TEST(launcher_one_picker_takes_a_file_for_its_folder) {
+  const std::string dir = std::string(MW3_TEST_TMP) + "/launcher_pick";
+  std::error_code ec;
+  std::filesystem::remove_all(dir, ec);
+  std::filesystem::create_directories(dir + "/mw3/zbd", ec);
+  std::filesystem::create_directories(dir + "/disc/VIDEO", ec);
+  for (const char* f : {"/mw3/Mech3.exe", "/mw3/readme.txt", "/mw3/zbd/reader.zbd", "/disc/VIDEO/C1.AVI", "/disc/DATA1.HDR",
+                        "/game.zip", "/disc.cue", "/disc.bin", "/lone.bin", "/disc.iso"})
+    std::ofstream(dir + f) << "x";
+  const std::vector<std::string> kinds = {"iso", "cue", "img", "zip", "7z", "rar"};
+  EXPECT(sdlfe::pick_source(dir + "/mw3/Mech3.exe", kinds) == dir + "/mw3");
+  EXPECT(sdlfe::pick_source(dir + "/mw3/readme.txt", kinds) == dir + "/mw3");
+  EXPECT(sdlfe::pick_source(dir + "/mw3/zbd/reader.zbd", kinds) == dir + "/mw3");  // a valid install: zbd\ is not it
+  EXPECT(sdlfe::pick_source(dir + "/disc/VIDEO/C1.AVI", kinds) == dir + "/disc");  // video\ up one
+  EXPECT(sdlfe::pick_source(dir + "/disc/DATA1.HDR", kinds) == dir + "/disc");
+  EXPECT(sdlfe::pick_source(dir + "/game.zip", kinds) == dir + "/game.zip");
+  EXPECT(sdlfe::pick_source(dir + "/disc.iso", kinds) == dir + "/disc.iso");
+  EXPECT(sdlfe::pick_source(dir + "/disc.bin", kinds) == dir + "/disc.cue");  // its sheet
+  EXPECT(sdlfe::pick_source(dir + "/lone.bin", kinds) == dir);                // no sheet: a file, its folder
+  EXPECT(sdlfe::pick_source(dir + "/disc", kinds) == dir + "/disc");          // a folder as it is
+}
+
 // The launcher's narrow spaces (lead, setup.png: "No MechWarrior 3was
 // found"): DIN Condensed's space is 2 pixels at 13 and its digits draw a
 // pixel past their advance, so the space after a digit vanished. A space
@@ -3819,12 +3845,11 @@ TEST(sdl_program_launcher_screens) {
     int edge_x, edge_y;
   };
   for (const Shot& s : {Shot{"main", false, "screen main: MECHWARRIOR 3, PIRATE'S MOON, GAME FILES, QUIT\n", "hover MECHWARRIOR 3: ripple\n", -1, -1},
-                        Shot{"setup", true, "screen find: FIND MY GAME, BACK\n", "hover FIND MY GAME: edge\n", 320, 222},
-                        Shot{"pick", true, "screen find: A DISC IMAGE OR DOWNLOAD, A FOLDER, BACK\n",
-                             "hover A DISC IMAGE OR DOWNLOAD: edge\n", 320, 222},
+                        Shot{"setup", true, "screen find: FIND THE GAME, BACK\n", "hover FIND THE GAME: edge\n", 320, 222},
+                        Shot{"pick", true, "screen find: FIND THE GAME, BACK\n", "hover FIND THE GAME: edge\n", 320, 222},
                         Shot{"work", false, "launcher: Found MechWarrior 3", "hover CANCEL: edge\n", 320, 372},
                         Shot{"notes", false, "screen notes: ADD FROM MY DISC, OK\n", "hover ADD FROM MY DISC: edge\n", 320, 318},
-                        Shot{"disc", false, "screen notes: A DISC IMAGE, THE DISC'S FOLDER, OK\n", "hover A DISC IMAGE: edge\n", 200, 318}}) {
+                        Shot{"disc", false, "screen notes: ADD FROM MY DISC, OK\n", "hover ADD FROM MY DISC: edge\n", 320, 318}}) {
     const std::string bmp = dir + "/" + s.screen + ".bmp", log = dir + "/" + s.screen + ".log";
     if (s.none) setenv("MW3_FIND_INSTALL", "1", 1);
     const pid_t pid = spawn_launcher({"--write-dir", dir + (s.none ? "/wd2" : "/wd"), "--launcher-shot", bmp, "--launcher-screen", s.screen}, log);
@@ -3987,11 +4012,14 @@ LauncherRun run_launcher_with(const std::string& name, const std::string& script
   std::filesystem::permissions(game, std::filesystem::perms::owner_all, ec);
   setenv("MW3_GAME_BIN", game.c_str(), 1);
   if (ready_ms) setenv("MW3_LAUNCHER_READY_MS", ready_ms, 1);
-  for (const auto& [k, v] : env) setenv(k.c_str(), v.c_str(), 1);
+  bool importer = false;
+  for (const auto& [k, v] : env) setenv(k.c_str(), v.c_str(), 1), importer = importer || k == "MW3_IMPORTER";
+  if (!importer) setenv("MW3_NO_IMPORT", "1", 1);  // no movie conversion in the launcher unless a stand-in is given
   std::vector<std::string> args = {"--write-dir", dir + "/wd", "--window", "640x480", "--nosound", "--hidden"};
   if (play) args.insert(args.begin() + 2, "--launcher-play");
   const pid_t pid = spawn_launcher(args, dir + "/launcher.log");
   for (const auto& [k, v] : env) unsetenv(k.c_str());
+  unsetenv("MW3_NO_IMPORT");
   unsetenv("MW3_LAUNCHER_READY_MS");
   unsetenv("MW3_GAME_BIN");
   int status = 0;
@@ -4039,7 +4067,7 @@ TEST(sdl_program_launcher_stays_when_the_game_fails_or_is_slow) {
 
 // The launcher for v1.0 (Owen and the lead, 2026-11-02; docs/launcher.md):
 // the games and QUIT only; MECHWARRIOR 3 without its files opens the find
-// screen (FIND MY GAME, BACK; no Setup, Search, Folder or Patch); a game
+// screen (FIND THE GAME, BACK; no Setup, Search, Folder or Patch); a game
 // found there starts at once, through the notes when the install lacks
 // movies or music (their ADD FROM MY DISC), the notes' OK the start.
 TEST(sdl_program_launcher_finds_the_game_then_plays) {
@@ -4048,10 +4076,11 @@ TEST(sdl_program_launcher_finds_the_game_then_plays) {
   // No install: the games, then the find screen; nothing started.
   const LauncherRun a = run_launcher_with("launcher_v1_none", "READY\nsleep 1", nullptr, none);
   std::printf("no install: main %d, find %d, game started %d\n", screen(a.log, "screen main: MECHWARRIOR 3, PIRATE'S MOON, GAME FILES, QUIT\n"),
-              screen(a.log, "screen find: FIND MY GAME, BACK\n"), !a.args.empty());
+              screen(a.log, "screen find: FIND THE GAME, BACK\n"), !a.args.empty());
   EXPECT(a.exited && a.args.empty());
-  EXPECT(screen(a.log, "screen main: MECHWARRIOR 3, PIRATE'S MOON, GAME FILES, QUIT\n") && screen(a.log, "screen find: FIND MY GAME, BACK\n"));
-  for (const char* gone : {"SETUP", "SEARCH AGAIN", "A FOLDER INSTEAD", "APPLY THE 1.2 PATCH", "POINT TO YOUR GAME"})
+  EXPECT(screen(a.log, "screen main: MECHWARRIOR 3, PIRATE'S MOON, GAME FILES, QUIT\n") && screen(a.log, "screen find: FIND THE GAME, BACK\n"));
+  for (const char* gone : {"SETUP", "SEARCH AGAIN", "A FOLDER INSTEAD", "APPLY THE 1.2 PATCH", "POINT TO YOUR GAME",
+                           "A DISC IMAGE OR DOWNLOAD", ", A FOLDER,", "THE DISC'S FOLDER"})
     EXPECT(!screen(a.log, gone));
   // Found (an installed copy picked), music there: straight into the game.
   const auto pick = std::vector<std::pair<std::string, std::string>>{{"MW3_FIND_INSTALL", "1"}, {"MW3_LAUNCHER_PICK", MW3_GAME_DIR},
@@ -4084,6 +4113,44 @@ TEST(sdl_program_launcher_finds_the_game_then_plays) {
   std::filesystem::remove_all(cd, ec);
 }
 
+// The movies converted in the launcher (Owen's first start sat 44 s on
+// "Starting MechWarrior 3..." while mw3 did it): a found install's AVIs go
+// through the importer (here a stand-in, MW3_IMPORTER, as mw3import: its
+// "progress K N name" lines, the .fmv files) on the work screen before the
+// game starts; with them done, a later start goes straight in.
+TEST(sdl_program_launcher_converts_the_movies_before_the_game) {
+  auto seen = [](const std::string& log, const std::string& line) { return log.find(line) != std::string::npos; };
+  const std::string root = std::string(MW3_TEST_TMP) + "/launcher_convert";
+  std::error_code ec;
+  std::filesystem::remove_all(root, ec);
+  std::filesystem::create_directories(root + "/cd/video", ec);
+  std::filesystem::create_directory_symlink(std::string(MW3_GAME_DIR) + "/zbd", root + "/cd/zbd", ec);
+  for (const char* m : {"/cd/video/C1.AVI", "/cd/video/INTRO.AVI"}) std::ofstream(root + m) << "x";
+  const std::string importer = root + "/mw3import";
+  {
+    std::ofstream sh(importer);
+    sh << "#!/bin/sh\nS=; W=\nwhile [ $# -gt 0 ]; do case \"$1\" in --install) S=$2; shift;; --write-dir) W=$2; shift;; esac; shift; done\n"
+          "mkdir -p \"$W/video\"; echo progress 0 2; K=0\nfor F in \"$S\"/video/*.AVI; do N=$(basename \"$F\" .AVI | tr A-Z a-z); "
+          ": > \"$W/video/$N.fmv\"; K=$((K+1)); echo progress $K 2 $N; done\n";
+  }
+  std::filesystem::permissions(importer, std::filesystem::perms::owner_all, ec);
+  const auto env = std::vector<std::pair<std::string, std::string>>{{"MW3_FIND_INSTALL", "1"}, {"MW3_LAUNCHER_PICK", root + "/cd"},
+                                                                  {"MW3_LAUNCHER_FRAMES", "1800"}, {"MW3_IMPORTER", importer}};
+  auto music = [](const std::string& d) {
+    std::filesystem::create_directories(d + "/wd/music");
+    std::ofstream(d + "/wd/music/track02.wav") << "x";
+  };
+  const LauncherRun r = run_launcher_with("launcher_convert_run", "READY\nsleep 1", nullptr, env, music);
+  const std::string wd = std::string(MW3_TEST_TMP) + "/launcher_convert_run/wd";
+  std::printf("convert: work %d, both .fmv %d, before the game %d, started %d\n", seen(r.log, "work: CONVERTING THE MOVIES"),
+              std::filesystem::exists(wd + "/video/c1.fmv") && std::filesystem::exists(wd + "/video/intro.fmv"),
+              r.log.find("work: CONVERTING THE MOVIES") < r.log.find("the game's first frame"), !r.args.empty());
+  EXPECT(r.exited && !r.args.empty() && seen(r.log, "work: CONVERTING THE MOVIES") && seen(r.log, "the game's first frame"));
+  EXPECT(r.log.find("work: CONVERTING THE MOVIES") < r.log.find("the game's first frame"));
+  EXPECT(std::filesystem::exists(wd + "/video/c1.fmv") && std::filesystem::exists(wd + "/video/intro.fmv"));
+  std::filesystem::remove_all(root, ec);
+}
+
 // GAME FILES (Owen, 2026-11-02): the find screen at any time, by keys or a
 // pad as by the mouse (MW3_LAUNCHER_NAV); with the install in use lacking
 // its music, ADD FROM MY DISC there too. A repick to a copy used where it
@@ -4104,10 +4171,10 @@ TEST(sdl_program_launcher_game_files_repicks) {
   };
   const LauncherRun a = run_launcher_with("launcher_files_keys", "READY", nullptr, keys, own_copy, false);
   std::printf("GAME FILES by keys: focus %d, find screen %d\n", seen(a.log, "focus GAME FILES"),
-              seen(a.log, "screen find: FIND MY GAME, ADD FROM MY DISC, BACK\n"));
+              seen(a.log, "screen find: FIND THE GAME, ADD FROM MY DISC, BACK\n"));
   EXPECT(a.exited && a.args.empty());
   EXPECT(seen(a.log, "screen main: MECHWARRIOR 3, PIRATE'S MOON, GAME FILES, QUIT\n") && seen(a.log, "focus MECHWARRIOR 3\n") &&
-         seen(a.log, "focus GAME FILES\n") && seen(a.log, "screen find: FIND MY GAME, ADD FROM MY DISC, BACK\n"));
+         seen(a.log, "focus GAME FILES\n") && seen(a.log, "screen find: FIND THE GAME, ADD FROM MY DISC, BACK\n"));
   // GAME FILES, then the development copy picked (used where it is).
   const auto repick = std::vector<std::pair<std::string, std::string>>{{"MW3_FIND_INSTALL", "1"},
                                                                      {"MW3_LAUNCHER_FRAMES", "600"},

@@ -181,6 +181,19 @@ PLAYMCI (vtable 0x005cf8b0, 0x0059a220): an MCI movie in the window, played
 at start (0x0059b080), its end grabs and clears the screen (0x0059a3d0). No
 block uses it; the port's ends at once.
 
+### The CD music under a movie (ours, playtest W47)
+
+The original's code leaves the CD audio playing under every movie but the
+attract one (0x00482330 pauses it); on a 1999 machine the drive, reading
+the movie off the disc, stopped the audio itself. The port's movie hooks do
+it: `GameEngine::movie_play` pauses the CD music if it is playing,
+`movie_playing` turning false, `movie_stop` or `movie_delete` mark its
+resume (`movie_cd_resume`, only the movie that paused it), which the next
+pass's `timer_update` makes only if the game is still in the same state and
+the CD still paused (`movie_cd_pending_step`): the campaign movie's end goes
+straight on to the briefing, whose start stops the CD, so no frame of menu
+music is heard between them. FIX (A), fixes.md.
+
 ## 4. The blur passes
 
 0x0055a540 (ECX rect or null, EDX kind): 1 along the rows (0x0055a3b0), 2

@@ -2744,3 +2744,56 @@ Assigned after 8b2 merged (fd3f05f). The lead asked for a section stepped at bot
 - Open for the lead: after the notes' OK nothing offers ADD FROM MY DISC
   again (no Setup); the first-run import of the write dir's movies has no
   unit test (mw3-only code).
+
+## W47: the menu music under the campaign's movie (2026-11-02)
+
+- Headless: Campaign, a pilot, ACCEPT; the CD looped through fmv.zrd's
+  "campaign" movie (played from the campaign GameMenuState, which has no
+  screen for shell_resume to reactivate) and stopped at the Load state (the
+  main menu's end, 0x485780). The original's code does the same: its CD
+  stops are 0x47fa10, 0x481fc0, 0x485780, 0x4ac290, 0x590bd0 and
+  play_sounds 0x59ef60 (stop_sounds is only called with 0); its movie code
+  uses MCI only for MPEGVideo. In 1999 the drive reading the movie stopped
+  the audio.
+- FIX (A): GameEngine's movie hooks pause the CD music under a movie and
+  resume it after (only the movie that paused it, only while still
+  paused); the attract movie's own pause left alone. Test and two breaks.
+- The lead: no blip. The resume waits a pass (timer_update) and happens
+  only in the same state with the CD still paused; the test checks the
+  menu music is never heard between the movie and the briefing (break:
+  resume at once). Three breaks.
+
+## The launcher's one picker (2026-11-02, before v1.0)
+
+- Owen: one option. FIND THE GAME searches (an installed copy or a disc in
+  a drive used with no picker); with nothing found it says so and opens one
+  file picker. sdlfe::pick_source: an image or archive is the source, any
+  other file its folder (install_of_pick: zbd\ and video\ up one), a .bin
+  its .cue. ADD FROM MY DISC: a drive first, then the same one picker. The
+  two-plate pick states are gone. SDL 3.4 has no file-or-folder dialog (the
+  Mac's panel included), so a folder is picked by one of its files.
+- launcher_one_picker_takes_a_file_for_its_folder (two breaks); the screen
+  tests on the new plates; mingw syntax check of the changed files.
+
+## The Mac's fresh-install findings (2026-11-02, before v1.0)
+
+- Gatekeeper on macOS 15+: README and release notes give Privacy &
+  Security > Open Anyway > Open; right-click Open for 12 to 14.
+- The 1.0 data warnings (BindPrimitive LINES1/OPTIONTEXT, BindButton
+  CALL_BUTTON/PLAYER_NAME, action_line6/7 not found): the same six lines
+  with 1.2 data (mw3 run on the 1.2 copy to the menus); both versions'
+  dialog.zrd name them, no data has the images, 1.2 changed only the MP
+  chat arrows there. The original data's own; nothing for patch12.
+- The movies converted in the launcher (movie_import.h shared with mw3's
+  fallback): before the game and after ADD FROM MY DISC, on the work
+  screen, cancelable; not on Windows; --no-import / MW3_NO_IMPORT /
+  MW3_IMPORTER (a stand-in for the test).
+- The picker: SDL's sheet NSOpenPanel answered through a main run loop the
+  vsync frame loop served once a frame; while it is up the launcher waits in
+  SDL_WaitEventTimeout and logs the call, the focus and the answer.
+- Mouse sensitivity (Owen): a slider of ours under INVERT MOUSE Y
+  (patch12::apply_ours: our own record edits on any data, the graphics
+  screen's slider art, the label spaced like the original's), MouseAccelX and
+  Y's magnitude with Y keeping the invert sign, 0.5..3.0 in tenths, 1.3 by
+  default; bound only in the program (options_sensitivity_slider), so the
+  probes run the original's screen. Menus keep 1.3 (CoreState::leave).

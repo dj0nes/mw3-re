@@ -199,6 +199,7 @@ void Engine::set_throttle_const(int32_t v) { mech3::set_throttle_const(v); }
 int32_t Engine::mw2_jump_jets() { return mech3::mw2_jump_jets(); }
 void Engine::set_mw2_jump_jets(int32_t v) { mech3::set_mw2_jump_jets(v); }
 void Engine::set_mouse_accel_y(float v) { options().mouse_accel[1] = v; }
+void Engine::set_mouse_accel_x(float v) { options().mouse_accel[0] = v; }
 void Engine::settings_write() { mech3::controls_write_settings(); }  // W40: zreg::write_all with the kept map
 float Engine::cd_volume() { return mech3::cd_volume(); }
 void Engine::set_cd_volume(float v) { mech3::set_cd_volume(v); }

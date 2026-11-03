@@ -1,5 +1,6 @@
 #include "mech3/options_menu.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 
@@ -85,6 +86,7 @@ GameOptionsScreen::GameOptionsScreen(Engine& e, Handle s)
     bind_button(&throttle, "THROTTLE_CONST");
     bind_button(&jump_jets, "MW2JJETS");
     bind_button(&invert_y, "CMD_INVERT_MOUSE_Y");
+    if (options_sensitivity_slider()) has_sensitivity = bind_button(&sensitivity, "MOUSE_SENSITIVITY");  // ours
     unload();
   }
   set_flags_all(0);
@@ -115,6 +117,7 @@ void GameOptionsScreen::apply(int32_t to_options) {
     throttle.select(e.throttle_const() != 0);
     jump_jets.select(e.mw2_jump_jets() != 0);
     invert_y.select(e.mouse_accel_y() < 0.0f);
+    if (has_sensitivity) sensitivity.set_value(slider_of_sensitivity(std::fabs(e.mouse_accel_x())));
     return;
   }
   e.set_game_intensity(difficulty.selected_value());
@@ -125,7 +128,28 @@ void GameOptionsScreen::apply(int32_t to_options) {
   e.set_torso_auto_return(torso.selected_value());
   e.set_throttle_const(throttle.selected_value());
   e.set_mw2_jump_jets(jump_jets.selected_value());
+  if (has_sensitivity) {  // ours: both from the slider, Y with the invert box's sign
+    const float s = sensitivity_of_slider(sensitivity.value);
+    e.set_mouse_accel_x(s);
+    e.set_mouse_accel_y(invert_y.selected_value() != 0 ? -s : s);
+    return;
+  }
   e.set_mouse_accel_y(mouse_y_accel(e.mouse_accel_y(), invert_y.selected_value() != 0));
+}
+
+bool& options_sensitivity_slider() {
+  static bool on = false;
+  return on;
+}
+
+float sensitivity_of_slider(float v) {
+  v = std::clamp(v, 0.0f, 1.0f);
+  return std::round((kSensitivityLow + v * (kSensitivityHigh - kSensitivityLow)) * 10.0f) / 10.0f;
+}
+
+float slider_of_sensitivity(float s) {
+  if (s == 0.0f) s = 1.3f;  // a zero (an old registry) as the original's
+  return std::clamp((s - kSensitivityLow) / (kSensitivityHigh - kSensitivityLow), 0.0f, 1.0f);
 }
 
 // ---- the graphics and audio options ----

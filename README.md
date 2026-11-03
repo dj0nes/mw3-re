@@ -43,10 +43,18 @@ From the [Releases](../../releases) page:
 | Linux | `MW3-Rebuild-<version>-x86_64.AppImage` | Make it executable (`chmod +x`) and run it. |
 
 **On a Mac, the first time:** the app is not signed by Apple, so macOS stops
-it the first time you open it. Right-click (or Control-click) the app, choose
-**Open**, then **Open** again. Or, after macOS has blocked it once, go to
-**System Settings > Privacy & Security** and click **Open Anyway**. macOS
-remembers your choice after that.
+it the first time you open it ("MechWarrior 3 Not Opened"; click **Done**,
+not Move to Trash).
+
+- **macOS 15 Sequoia and later:** open **System Settings > Privacy &
+  Security**, scroll down to the line about MechWarrior 3, click **Open
+  Anyway**, then **Open** (and your password if asked). Right-click > Open
+  no longer gets past it on these versions.
+- **macOS 12 to 14:** right-click (or Control-click) the app, choose
+  **Open**, then **Open** again. Open Anyway in Privacy & Security works
+  there too.
+
+macOS remembers your choice after that.
 
 **On Windows**, SmartScreen may warn about an unknown publisher: click
 **More info**, then **Run anyway**.
@@ -62,13 +70,13 @@ installed itself earlier. It says which version it found in its log.
 your game (a plain `mw3` start shows only that screen), and once the game
 is there it goes straight on into it:
 
-- **Find my game** searches this computer and your disc drives first and
-  uses what it finds. If there is nothing, it asks for:
-  - **A disc image or download**: an `.iso`, a `.cue` with its `.bin`
-    files (whose CD audio becomes the music), a `.zip`, `.7z` or `.rar`
-    holding any of those (even a zip inside a zip; nothing needs unpacking
-    by hand), or your installed copy's `Mech3.exe`;
-  - **A folder**: where the game is installed, or the disc's own folder.
+- **Find the game** searches this computer and your disc drives first and
+  uses what it finds, with nothing to pick. If there is nothing, one
+  picker opens: choose a disc image or download (an `.iso`, a `.cue` with
+  its `.bin` files, whose CD audio becomes the music, or a `.zip`, `.7z` or
+  `.rar` holding any of those, even a zip inside a zip; nothing needs
+  unpacking by hand), or `Mech3.exe` (or any file) in an installed copy,
+  which means that whole folder.
   It looks inside first and says what it found ("The MechWarrior 3 disc
   version 1.0, with its music (2 CD tracks)"), then copies what the game
   needs into a folder of the rebuild's own, with a progress bar and
@@ -116,6 +124,7 @@ installed copy does not have. Two ways to get it back:
   the window to take it back. Switching away frees it too, and coming back
   to a mission (Cmd+Tab, Alt+Tab or a click) takes it again at once; that
   click does not fire.
+- **Options > Mouse sensitivity** (ours) sets how fast the mouse aims in a mission; it starts at the original's setting.
 - Gamepads work as they did on Windows 98, and force feedback becomes rumble.
 - On a widescreen every screen uses the whole width: the missions, the
   menus, the mech lab, the briefings and the multiplayer screens. For the

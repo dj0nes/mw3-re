@@ -30,6 +30,20 @@ class CameraCycle : public CycleButton {
 // The game options' MouseAccelY for the invert box (0x00438100's ACCEPT).
 float mouse_y_accel(float current, bool inverted);
 
+// Ours (Owen, 2026-11-02): MOUSE SENSITIVITY, MouseAccelX and Y's magnitude
+// (Y keeping the invert box's sign), 0.5 to 3.0 in tenths, the original's 1.3
+// by default; its slider (our record edit, patch12::apply_ours) bound only
+// where the program turns it on (the probes run the original's screen).
+constexpr float kSensitivityLow = 0.5f, kSensitivityHigh = 3.0f;
+float sensitivity_of_slider(float v);   // the slider's 0..1 to a magnitude, in tenths
+float slider_of_sensitivity(float s);   // and back
+bool& options_sensitivity_slider();     // on in the program (GameEngine)
+
+class SensitivitySlider : public ztwod::Slider {
+ public:
+  void on_left_up() override { set_from_mouse(); }
+};
+
 class GameOptionsScreen : public MenuScreen {
  public:
   GameOptionsScreen(Engine& e, Handle state);  // 0x004379f0
@@ -63,6 +77,8 @@ class GameOptionsScreen : public MenuScreen {
   OnOffCycle throttle;               // +0x12ec0  THROTTLE_CONST
   OnOffCycle jump_jets;              // +0x132e4  MW2JJETS
   OnOffCycle invert_y;               // +0x13708  CMD_INVERT_MOUSE_Y: MouseAccelY's sign
+  SensitivitySlider sensitivity;     // ours: MOUSE_SENSITIVITY (options_sensitivity_slider)
+  bool has_sensitivity = false;      // bound
   PushButton gfx_audio;              // +0x13b2c  GFX_AUDIO_OPTIONS
   PushButton controls;               // +0x13d18  CONTROLS_CFG
   ztwod::Image lines{0};             // +0x13f04  LINES

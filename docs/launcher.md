@@ -53,9 +53,7 @@ folder; your disc and any installed copy are left untouched."
 
 | plate | shown | what it does |
 | --- | --- | --- |
-| Find my game | first | the finder (mw3.cfg's, the installer's places: an install found is used at once), then a disc in a drive (`find_discs`) looked at; with neither, "Not found on this computer or in a disc drive. Show us where it is:" and the two below in its place |
-| A disc image or download | after a search found nothing | a file picker (.iso .cue .zip .7z .rar .., or Mech3.exe); `source::map_source` on the worker ("LOOKING AT YOUR GAME", its bar, CANCEL), then an installed copy on disk is used where it is, anything else INSTALL / BACK under its summary and `setup::install_from_source` into `<write dir>/install`, a cue's music into `<write dir>/music` |
-| A folder | after a search found nothing | a folder picker (an installed copy, a drive or the disc's files), then as above |
+| Find the game | always (one option, Owen 2026-11-02) | the finder (mw3.cfg's, the installer's places) and a disc in a drive (`find_discs`) first: either is used at once, no picker. With neither, "Not found on this computer or in a disc drive. Pick it: a disc image, a download, or Mech3.exe." and one file picker opens (.iso .cue .bin .zip .7z .rar .., Mech3.exe, any file). `pick_source`: an image or archive is the source; any other file stands for its folder (Mech3.exe or any file of an installed copy, zbd\\ and video\\ up one; a disc's folder), a .bin for its .cue. Then `source::map_source` on the worker ("LOOKING AT YOUR GAME", its bar, CANCEL): an installed copy on disk is used where it is, anything else INSTALL / BACK under its summary and `setup::install_from_source` into `<write dir>/install`, a cue's music into `<write dir>/music`. SDL3 has no file-or-folder dialog on the three systems (none on the Mac's panel either through SDL 3.4), so a folder is picked by one of its files |
 | Back | always | the games (QUIT on a plain mw3 start) |
 
 Once found or installed the game starts at once (`use_install`, `play`).
@@ -67,13 +65,28 @@ starts the game; Escape as OK). They say what is missing (launcher_notes:
 
 | plate | shown | what it does |
 | --- | --- | --- |
-| Add from my disc | the notes, when the movies or the music are missing | a disc in a drive first; else "No disc in a drive ...:" and the two below; `setup::add_from_disc` on the worker ("ADDING FROM YOUR DISC"): the disc's VIDEO\*.AVI into `<write dir>/video` (`add_movies`, from a drive, the disc's folder, an .iso or a .cue's data track), the music from a .cue only (`add_music`; from a drive, a folder or an .iso it says the music needs a .cue). Back to the notes with what was added |
-| A disc image / The disc's folder | after no disc was in a drive | a .cue/.iso picker, a folder picker; then as above |
+| Add from my disc | the notes (and GAME FILES' screen), when the movies or the music are missing | a disc in a drive first; else "No disc in a drive ..." and one picker (its image, or any file of the disc for its folder: `pick_source`); `setup::add_from_disc` on the worker ("ADDING FROM YOUR DISC"): the disc's VIDEO\*.AVI into `<write dir>/video` (`add_movies`, from a drive, the disc's folder, an .iso or a .cue's data track), the music from a .cue only (`add_music`; from a drive, a folder or an .iso it says the music needs a .cue). Back to the notes with what was added |
 
 The game finds movies in the write dir before the install's (zutl::find),
-so the Indeo helper plays the added AVIs on Windows; elsewhere the first
-start's import (`first_run_import`) converts the write dir's AVIs too, as
-the install's.
+so the Indeo helper plays the added AVIs on Windows. Elsewhere the movies
+are converted in the launcher (Owen's first start, 2026-11-02, sat 44 s on
+"Starting MechWarrior 3..." while mw3 did it with only a status line): before
+the game starts, and right after ADD FROM MY DISC, any AVI of the install or
+the write dir without its .fmv goes through mw3import on the work screen
+("CONVERTING THE MOVIES", "Converting the movies (K of N)", the movie's name,
+CANCEL; movie_import.h, its "progress K N name" lines). A cancel keeps the
+ones done; mw3's own first-run import (`first_run_import`, its small progress
+window) stays the fallback for a start without the launcher. None on Windows,
+nor with --no-import (passed on to the game) or MW3_NO_IMPORT; MW3_IMPORTER
+names a stand-in for the checks. `sdl_program_launcher_converts_the_movies_before_the_game`.
+
+The file picker (Owen: very slow to open on macOS 26): SDL shows NSOpenPanel
+as a sheet on the launcher's window, and the panel is another process that
+answers through the main run loop, which the launcher's vsync frame loop
+served once a frame. While a picker is up the launcher draws nothing and
+waits in SDL_WaitEventTimeout (the run loop serving the panel at once). The
+log times it: "the file picker asked for", "the picker took the focus N ms
+after", "the picker answered (...) N ms after".
 
 GAME FILES opens the same screen with the install in use ("Using
 MechWarrior 3 1.2 at <folder>. No music.") and, while it lacks movies or
@@ -97,7 +110,7 @@ install needs nothing; `setup::apply_patch` and the launcher's kPatch pick
 are kept but unreachable). The installer has no "MechWarrior 3 (no
 launcher)" shortcut any more; mw3.exe is still installed.
 
-Each screen logs its plates ("mw3: launcher: screen find: FIND MY GAME,
+Each screen logs its plates ("mw3: launcher: screen find: FIND THE GAME,
 BACK"), which the checks follow.
 
 Each operation runs on a worker thread; its `Progress` (stage, fraction,

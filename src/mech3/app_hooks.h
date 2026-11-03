@@ -102,6 +102,7 @@ class Engine : public zgame::AppHooks {
   virtual int32_t mw2_jump_jets();                     // 0x0040d1e0
   virtual void set_mw2_jump_jets(int32_t v);           // 0x0040d1c0
   virtual void set_mouse_accel_y(float v);             // *[0x005f4d30] = v (no setter)
+  virtual void set_mouse_accel_x(float v);             // ours: *[0x005f4d2c] = v (the sensitivity slider)
   virtual void settings_write();                       // 0x00597a60, ported: zreg::write_all
   // The graphics and audio screen's, ported.
   virtual float cd_volume();                           // 0x0040dae0

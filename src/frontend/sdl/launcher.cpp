@@ -1,5 +1,6 @@
 #include "frontend/sdl/launcher.h"
 #include "frontend/sdl/launcher_notes.h"
+#include "frontend/sdl/movie_import.h"
 #include "frontend/sdl/text_fit.h"
 
 #include <SDL3/SDL.h>
@@ -236,6 +237,14 @@ struct Text {
 
 const SDL_Color kWhite{228, 230, 232, 255}, kAmber{255, 176, 64, 255}, kGrey{120, 124, 130, 255}, kDim{190, 190, 180, 255};
 
+// The one picker's filters (Owen: one option): the sources first, any file
+// as well (an installed copy or the disc's folder by one of its files).
+const SDL_DialogFileFilter kGameFiles[] = {
+    {"Your game: a disc image, a download, or Mech3.exe", "iso;cue;bin;img;zip;7z;rar;tar;gz;tgz;xz;exe"},
+    {"All files", "*"}};
+const SDL_DialogFileFilter kDiscFiles[] = {{"Your disc: its image (.cue, .iso) or any file of it", "cue;iso;bin;img"},
+                                           {"All files", "*"}};
+
 // The find screen's words (Owen, 2026-11-02): what the game needs, and that
 // nothing of the player's is changed.
 const char* const kFindWords =
@@ -313,9 +322,9 @@ struct Button {
 
 enum Id {
   kMw3 = 1, kPm, kQuit, kMw1, kFiles,
-  kFind = 10, kPickFile, kPickFolder, kPoint, kBack,
+  kFind = 10, kPoint, kBack,
   kPatch,  // the 1.2 patch's zip: unreachable since the patch is built in (patch12.h), its code kept
-  kAddDisc = 20, kDiscFile, kDiscFolder,
+  kAddDisc = 20,
   kGo = 30, kCancel, kNotesOk,
 };
 
@@ -332,13 +341,14 @@ struct Work {
   mech3::setup::Result result;
   std::atomic<bool> cancel{false}, done{false};
   std::string title;
-  enum Kind { kOther, kLook, kInstallIt, kAddDisc } kind = kOther;  // a picked source's look, its install, ADD FROM MY DISC
+  enum Kind { kOther, kLook, kInstallIt, kAddDisc, kConvert } kind = kOther;  // a look, an install, ADD FROM MY DISC, the movies
   ~Work() {
     cancel = true;
     if (th.joinable()) th.join();
   }
   void start(std::string t, std::function<mech3::setup::Result(const mech3::setup::ProgressFn&)> op) {
     title = std::move(t);
+    std::printf("mw3: launcher: work: %s\n", title.c_str());  // the checks follow it
     th = std::thread([this, op] {
       mech3::setup::Result r = op([this](const mech3::setup::Progress& p) {
         std::lock_guard<std::mutex> g(m);
@@ -398,6 +408,8 @@ class Launcher {
   void search();
   void use_install(const std::string& dir, const std::string& version, const std::string& summary);
   void play();
+  int movies_to_convert() const;
+  void convert_movies(std::function<void()> then);
   void notes_refresh();
   std::string in_use() const;
   void add_disc(const std::string& source);
@@ -442,15 +454,17 @@ class Launcher {
   std::unique_ptr<Work> work_;
   Pick pick_;
   bool asking_ = false;
+  Uint64 ask_at_ = 0;      // when the picker was asked for (its timing in the log)
+  bool ask_shown_ = false;  // the panel took the window's focus
   std::string confirm_text_, pending_source_;
   int confirm_go_ = 0;
   std::shared_ptr<mech3::source::Found> found_;  // the last look's (look_at)
   bool auto_go_ = false;  // MW3_LAUNCHER_PICK (checks): its look's INSTALL pressed too
   bool auto_ok_ = false;  // and the notes' OK after it
-  bool picking_ = false;       // the find screen after a search found nothing: a file or a folder to pick
-  bool disc_picking_ = false;  // the notes after ADD FROM MY DISC found no disc in a drive: an image or a folder
   bool play_after_notes_ = false;  // the notes after an install: their OK starts the game
   bool from_files_ = false;        // the find screen opened by GAME FILES: a new pick goes back to the games
+  std::function<void()> after_convert_;  // where the movies' conversion goes on to
+  bool converted_ = false;               // tried once this start (a failure is not retried before the game)
   int disc_back_ = 0;              // the screen ADD FROM MY DISC returns to (Screen)
   bool lacks_music_ = false, lacks_movies_ = false;
   LauncherChoice choice_;
@@ -670,23 +684,13 @@ void Launcher::layout() {
       break;
     }
     case kSetupScreen: {
-      // Find your game (Owen, 2026-11-02): one plate that searches first; if
-      // nothing is found, a file or a folder to pick. The 1.2 patch is built
-      // in (patch12.h), so a 1.0 install needs nothing more.
-      if (!picking_) {
-        add(kFind, {130, 222, 380, 52}, "FIND MY GAME", "This computer and your disc drives are searched first");
-      } else {
-        add(kPickFile, {130, 222, 380, 46}, "A DISC IMAGE OR DOWNLOAD", ".iso .cue .zip .7z .rar, or Mech3.exe");
-        add(kPickFolder, {130, 274, 380, 46}, "A FOLDER", "Where the game is installed, or the disc's own folder");
-      }
-      if (install_.ok && (lacks_music_ || lacks_movies_)) {  // what the install in use lacks, from the disc
-        if (!disc_picking_) {
-          add(kAddDisc, {130, 328, 380, 46}, "ADD FROM MY DISC", "Movies and music the install lacks");
-        } else {
-          add(kDiscFile, {130, 328, 186, 46}, "A DISC IMAGE", ".cue .iso");
-          add(kDiscFolder, {324, 328, 186, 46}, "THE DISC'S FOLDER");
-        }
-      }
+      // Find the game (Owen, 2026-11-02: one option): the search first (an
+      // installed copy or a disc in a drive used at once), else one picker:
+      // an image or a download, or any file of an installed copy (its
+      // folder; pick_source). The 1.2 patch is built in (patch12.h).
+      add(kFind, {130, 222, 380, 52}, "FIND THE GAME", "A disc image, a download (.zip .iso), or Mech3.exe in an installed copy");
+      if (install_.ok && (lacks_music_ || lacks_movies_))  // what the install in use lacks, from the disc
+        add(kAddDisc, {130, 318, 380, 46}, "ADD FROM MY DISC", "A disc in a drive first, else its image or any file of the disc");
       add(kBack, {250, 384, 140, 34}, o_.setup_only ? "QUIT" : "BACK");
       break;
     }
@@ -698,14 +702,8 @@ void Launcher::layout() {
       add(kCancel, {250, 372, 140, 34}, "CANCEL");
       break;
     case kNotes:
-      if (lacks_music_ || lacks_movies_) {  // what the install lacks, from the disc (lead, 2026-11-02)
-        if (!disc_picking_) {
-          add(kAddDisc, {130, 318, 380, 46}, "ADD FROM MY DISC", "A disc in a drive is used first");
-        } else {
-          add(kDiscFile, {130, 318, 186, 46}, "A DISC IMAGE", ".cue .iso");
-          add(kDiscFolder, {324, 318, 186, 46}, "THE DISC'S FOLDER");
-        }
-      }
+      if (lacks_music_ || lacks_movies_)  // what the install lacks, from the disc (lead, 2026-11-02)
+        add(kAddDisc, {130, 318, 380, 46}, "ADD FROM MY DISC", "A disc in a drive first, else its image or any file of the disc");
       add(kNotesOk, {250, 384, 140, 34}, "OK");
       break;
   }
@@ -896,7 +894,8 @@ void Launcher::ask_file(int what, const SDL_DialogFileFilter* filters, int n) {
     std::lock_guard<std::mutex> g(pick_.m);
     pick_.what = what, pick_.path.clear(), pick_.answered = pick_.cancelled = false;
   }
-  asking_ = true;
+  asking_ = true, ask_shown_ = false, ask_at_ = SDL_GetTicksNS();
+  std::printf("mw3: launcher: the file picker asked for\n");
   SDL_ShowOpenFileDialog(Pick::done, &pick_, win_, filters, n, nullptr, false);
 }
 void Launcher::ask_folder(int what) {
@@ -904,7 +903,8 @@ void Launcher::ask_folder(int what) {
     std::lock_guard<std::mutex> g(pick_.m);
     pick_.what = what, pick_.path.clear(), pick_.answered = pick_.cancelled = false;
   }
-  asking_ = true;
+  asking_ = true, ask_shown_ = false, ask_at_ = SDL_GetTicksNS();
+  std::printf("mw3: launcher: the folder picker asked for\n");
   SDL_ShowOpenFolderDialog(Pick::done, &pick_, win_, nullptr, false);
 }
 
@@ -923,11 +923,11 @@ void Launcher::picked(int what, const std::string& path) {
     run_mw1();
     return;
   }
-  if (what == kPoint) {
-    look_at(path);
+  if (what == kPoint) {  // an image or archive as it is, any other file for its folder
+    look_at(pick_source(path, {"iso", "cue", "img", "zip", "7z", "rar", "tar", "gz", "tgz", "xz"}));
     return;
   } else if (what == kAddDisc) {
-    add_disc(path);
+    add_disc(pick_source(path, {"iso", "cue", "img"}));
     return;
   } else if (what == kPatch) {  // unreachable (kPatch has no plate since the patch is built in); kept
     work_ = std::make_unique<Work>();
@@ -979,6 +979,14 @@ std::string Launcher::in_use() const {
 // MechWarrior 3 started: by mw3launcher as the game's own program, else
 // (a plain mw3 start, or no game_bin) the window handed on.
 void Launcher::play() {
+  // The movies converted here first, with the bar (Owen: a first start sat
+  // 44 s on "Starting MechWarrior 3..." while mw3 did it); mw3's own import
+  // stays the fallback for a start without the launcher.
+  if (!converted_ && movies_to_convert() > 0) {
+    converted_ = true;
+    convert_movies([this] { play(); });
+    return;
+  }
   if (!o_.setup_only && !o_.game_bin.empty()) {
     screen_ = kMain, layout();
     if (!game_) start_game();
@@ -986,6 +994,51 @@ void Launcher::play() {
   }
   choice_ = {LauncherChoice::kPlay, install_.dir};
   done_ = true;
+}
+
+// The movies the install and the write dir (ADD FROM MY DISC's) have not
+// converted for the player (mw3import); none on Windows, whose helper plays
+// the AVIs as they are, or without the importer or with MW3_NO_IMPORT.
+int Launcher::movies_to_convert() const {
+#if defined(_WIN32)
+  return 0;
+#else
+  if (!install_.ok || o_.no_import || SDL_getenv("MW3_NO_IMPORT") || importer_path().empty()) return 0;
+  std::error_code ec;
+  const bool same = fs::equivalent(install_.dir, o_.write_dir, ec);
+  return movies_missing(install_.dir, o_.write_dir) + (same ? 0 : movies_missing(o_.write_dir, o_.write_dir));
+#endif
+}
+
+// mw3import on the worker, the bar following its "progress" lines; CANCEL
+// stops it (the movies done stay; the rest wait for the next start).
+void Launcher::convert_movies(std::function<void()> then) {
+  after_convert_ = std::move(then);
+  work_ = std::make_unique<Work>();
+  work_->kind = Work::kConvert;
+  const std::string install = install_.dir, wd = o_.write_dir;
+  std::error_code ec;
+  const bool same = fs::equivalent(install, wd, ec);
+  work_->start("CONVERTING THE MOVIES", [install, wd, same](const mech3::setup::ProgressFn& f) {
+    mech3::setup::Result r;
+    const int a = movies_missing(install, wd), b = same ? 0 : movies_missing(wd, wd), total = a + b;
+    int base = 0, code = 0;
+    for (const auto& [src, n] : {std::pair<std::string, int>{install, a}, std::pair<std::string, int>{wd, b}}) {
+      if (n == 0) continue;
+      code = run_importer(src, wd, [&](int done, int, const std::string& name) {
+        return f(mech3::setup::Progress{"Converting the movies (" + std::to_string(base + done) + " of " + std::to_string(total) + ")",
+                                        total ? static_cast<double>(base + done) / total : 0, name});
+      });
+      if (code != 0) break;
+      base += n;
+    }
+    r.ok = code == 0, r.cancelled = code == 1, r.movies = total;
+    r.summary = r.ok          ? std::to_string(total) + " movies converted for this computer."
+                : r.cancelled ? "Converting the movies was stopped; the rest are done when the game starts."
+                              : "Some movies could not be converted; the game plays without them.";
+    return r;
+  });
+  screen_ = kWorking, layout();
 }
 
 // A found install used: saved to mw3.cfg, then straight on into the game
@@ -996,7 +1049,6 @@ void Launcher::use_install(const std::string& dir, const std::string& version, c
   install_ = {true, dir, version, summary};
   save_install(o_.write_dir, dir);
   status_ = summary, status_good_ = true;
-  picking_ = false;
   // GAME FILES moved to a copy used where it is: the launcher's own earlier
   // copy (<write dir>/install) is no longer pointed at, so it goes (a disc
   // or archive install replaces it in place, setup::swap_in_folder).
@@ -1060,11 +1112,11 @@ void Launcher::search() {
     look_at(discs.front().path);
     return;
   }
-  status_ = "Not found on this computer or in a disc drive. Show us where it is:";
+  status_ = "Not found on this computer or in a disc drive. Pick it: a disc image, a download, or Mech3.exe.";
   status_good_ = true;
-  picking_ = true;
   screen_ = kSetupScreen;
   layout();
+  ask_file(kPoint, kGameFiles, 2);  // the one picker (an installed copy by any of its files)
 }
 
 void Launcher::finish_work() {
@@ -1077,12 +1129,23 @@ void Launcher::finish_work() {
   const Work::Kind kind = work_->kind;
   work_.reset();
   std::printf("mw3: launcher: %s%s%s\n", r.summary.c_str(), r.detail.empty() ? "" : " | ", r.detail.c_str());
+  if (kind == Work::kConvert) {  // on where it was going
+    std::function<void()> then = std::move(after_convert_);
+    after_convert_ = nullptr;
+    if (then) then();
+    return;
+  }
   if (kind == Work::kAddDisc) {  // back to the notes, saying what was added
     status_ = r.summary, status_good_ = r.ok || r.cancelled;
     for (const std::string& w : r.warnings) status_ += " " + w;
-    disc_picking_ = false;
     notes_refresh();
-    screen_ = disc_back_ == kSetupScreen ? kSetupScreen : kNotes, layout();
+    const Screen back = disc_back_ == kSetupScreen ? kSetupScreen : kNotes;
+    if (r.ok && r.movies > 0 && movies_to_convert() > 0) {  // the movies just added, converted at once
+      const std::string said = status_;
+      convert_movies([this, back, said] { status_ = said, screen_ = back, layout(); });
+      return;
+    }
+    screen_ = back, layout();
     return;
   }
   if (kind == Work::kLook) {
@@ -1119,19 +1182,15 @@ void Launcher::finish_work() {
 
 void Launcher::activate(int id) {
   sounds_.play(Sounds::kSelect);
-  static const SDL_DialogFileFilter kGame[] = {
-      {"Your game: a disc image, a download or Mech3.exe", "iso;cue;bin;img;zip;7z;rar;tar;gz;tgz;xz;exe"},
-      {"All files", "*"}};
   static const SDL_DialogFileFilter kZip[] = {{"The 1.2 patch (.zip, .exe)", "zip;exe"}, {"All files", "*"}};
-  static const SDL_DialogFileFilter kDiscImage[] = {{"Your disc image (.cue, .iso)", "cue;iso"}, {"All files", "*"}};
   switch (id) {
     case kMw3:
       if (install_.ok) play();
-      else from_files_ = false, screen_ = kSetupScreen, picking_ = false, status_.clear(), layout();  // its files to find first
+      else from_files_ = false, screen_ = kSetupScreen, status_.clear(), layout();  // its files to find first
       break;
     case kQuit: done_ = true; break;
     case kFiles:  // the find screen at any time (Owen): repick or refresh the game's files
-      from_files_ = true, picking_ = disc_picking_ = false, status_.clear();
+      from_files_ = true, status_.clear();
       screen_ = kSetupScreen, layout();
       break;
     case kMw1:
@@ -1146,10 +1205,10 @@ void Launcher::activate(int id) {
       if (screen_ == kNotes) return activate(kNotesOk);  // Escape on the notes: as OK
       if (o_.setup_only && screen_ == kSetupScreen) done_ = true;  // a plain start's QUIT
       else if (screen_ == kConfirm) screen_ = kSetupScreen, layout();
-      else screen_ = kMain, from_files_ = picking_ = disc_picking_ = false, status_.clear(), layout();
+      else screen_ = kMain, from_files_ = false, status_.clear(), layout();
       break;
     case kNotesOk:
-      status_.clear(), disc_picking_ = false;
+      status_.clear();
       if (play_after_notes_) {
         play_after_notes_ = false;
         play();
@@ -1157,21 +1216,18 @@ void Launcher::activate(int id) {
         screen_ = kMain, layout();
       }
       break;
-    case kFind: search(); break;  // the usual places and the drives first, then a pick
-    case kPickFile: ask_file(kPoint, kGame, 2); break;
-    case kPickFolder: ask_folder(kPoint); break;
-    case kAddDisc: {  // a disc in a drive first, then a disc image or the disc's folder
+    case kFind: search(); break;  // the usual places and the drives first, then the one picker
+    case kAddDisc: {  // a disc in a drive first, then one picker: its image or any file of the disc
       const std::vector<mech3::setup::DiscSource> discs = mech3::setup::find_discs();
       if (!discs.empty()) {
         add_disc(discs.front().path);
       } else {
-        status_ = "No disc in a drive. Show us your disc image or the disc's folder:", status_good_ = true;
-        disc_picking_ = true, layout();
+        status_ = "No disc in a drive. Pick its image (.cue .iso) or any file of the disc.", status_good_ = true;
+        layout();
+        ask_file(kAddDisc, kDiscFiles, 2);
       }
       break;
     }
-    case kDiscFile: ask_file(kAddDisc, kDiscImage, 2); break;
-    case kDiscFolder: ask_folder(kAddDisc); break;
     case kPatch: ask_file(kPatch, kZip, 2); break;  // unreachable: no plate (the patch is built in)
     case kGo: {
       work_ = std::make_unique<Work>();
@@ -1232,10 +1288,10 @@ LauncherChoice Launcher::run() {
   const bool first_start = o_.cfg_install.empty() && !notes_.empty();
   if (shot) {
     if (o_.screen == "setup" || o_.screen == "pick" || o_.screen == "files")
-      screen_ = kSetupScreen, picking_ = o_.screen == "pick", from_files_ = o_.screen == "files";
-    if (o_.screen == "pick") status_ = "Not found on this computer or in a disc drive. Show us where it is:";
-    if (o_.screen == "notes" || o_.screen == "disc") screen_ = kNotes, disc_picking_ = o_.screen == "disc";
-    if (o_.screen == "disc") status_ = "No disc in a drive. Show us your disc image or the disc's folder:";
+      screen_ = kSetupScreen, from_files_ = o_.screen == "files";
+    if (o_.screen == "pick") status_ = "Not found on this computer or in a disc drive. Pick it: a disc image, a download, or Mech3.exe.";
+    if (o_.screen == "notes" || o_.screen == "disc") screen_ = kNotes;
+    if (o_.screen == "disc") status_ = "No disc in a drive. Pick its image (.cue .iso) or any file of the disc.";
     if (o_.screen == "work") {
       screen_ = kWorking;
       work_ = std::make_unique<Work>();
@@ -1304,6 +1360,11 @@ LauncherChoice Launcher::run() {
     while (SDL_PollEvent(&e)) {
       SDL_ConvertEventToRenderCoordinates(ren_, &e);
       if (e.type == SDL_EVENT_QUIT) done_ = true;
+      if (asking_ && !ask_shown_ && e.type == SDL_EVENT_WINDOW_FOCUS_LOST) {  // the panel up (a sheet takes the focus)
+        ask_shown_ = true;
+        std::printf("mw3: launcher: the picker took the focus %.0f ms after it was asked for\n",
+                    static_cast<double>(SDL_GetTicksNS() - ask_at_) / 1e6);
+      }
       if (game_) continue;  // the game is starting or running
       if (asking_ || screen_ == kWorking) {
         if (screen_ == kWorking && e.type == SDL_EVENT_MOUSE_BUTTON_UP && e.button.button == SDL_BUTTON_LEFT)
@@ -1355,7 +1416,16 @@ LauncherChoice Launcher::run() {
       }
       if (answered) {
         asking_ = false;
+        std::printf("mw3: launcher: the picker answered (%s) %.0f ms after it was asked for\n", cancelled ? "cancelled" : "a pick",
+                    static_cast<double>(SDL_GetTicksNS() - ask_at_) / 1e6);
         if (!cancelled) picked(what, path);
+      } else {
+        // While the panel is up the launcher stops drawing and waits in the
+        // run loop: on the Mac the panel is another process answering through
+        // the main run loop, which a vsync frame loop served once a frame
+        // (Owen: the picker took a long time to open).
+        SDL_WaitEventTimeout(nullptr, 50);
+        continue;
       }
     }
     if (work_ && work_->done) finish_work();

@@ -16389,6 +16389,204 @@ TEST(playtest_w40_controls_screen_accept_saves_cancel_does_not_headless) {
   EXPECT(w40_mouse(cancelled, kW40Trigger1) != 3);  // the cancelled change never saved
 }
 
+// MOUSE SENSITIVITY (ours, Owen 2026-11-02): a slider on the options screen
+// (our record edit under INVERT MOUSE Y) sets MouseAccelX and Y's magnitude,
+// 0.5 to 3.0 in tenths, Y keeping the invert box's sign; untouched, the
+// original's 1.3. The mission's mouse reads scale by it (zInput's accel,
+// set from the options when a mission starts, 0x00480df0's 282).
+TEST(options_mouse_sensitivity_slider_headless) {
+  if (!have_game()) return;
+  EXPECT(mech3::sensitivity_of_slider(mech3::slider_of_sensitivity(1.3f)) == 1.3f);  // the default round-trips
+  EXPECT(mech3::sensitivity_of_slider(0.0f) == 0.5f && mech3::sensitivity_of_slider(1.0f) == 3.0f);
+  EXPECT(std::fabs(mech3::sensitivity_of_slider(0.5f) - 1.8f) < 1e-6f);  // tenths
+  SavedMounts keep;
+  zutl::mounts() = zutl::Mounts{};
+  zutl::mount(MW3_GAME_DIR);
+  zutl::set_write_dir(temp_dir("sensitivity_write"));
+  mech3::reset_states();
+  reset_process_state();
+  mech3::options() = mech3::Options{};
+  FakeWindow window;
+  FakeAlert alert;
+  FakeClock clock;
+  FakeScreen screen;
+  platform::SilentSoundOutput sound;
+  mech3::MountFiles files;
+  mech3::Platform p;
+  p.window = &window, p.alert = &alert, p.clock = &clock, p.movie_clock = &fast_movie_clock(), p.screen = &screen, p.sound = &sound, p.files = &files;
+  int stage = 0;
+  bool bound = false, default_kept = false, set_both = false, invert_after = false, sens_after = false;
+  {
+    mech3::GameEngine engine(p, "mech3.exe -nofmv");
+    engine.quiet = true;
+    BoxHost host;
+    host.e = &engine;
+    ztwod::set_host(&host);
+    mech3::Mech3App app(&engine);
+    mech3::set_app(&app);
+    EXPECT(app.init_instance());
+    engine.on_present = [&](int) {
+      auto* os = dynamic_cast<mech3::OptionsState*>(app.current());
+      auto* g = os ? dynamic_cast<mech3::GameOptionsScreen*>(engine.screen_of(os->screen_)) : nullptr;
+      if (stage == 0 && app.current() == &mech3::states().main && mech3::main_menu()) {
+        const_cast<mech3::MainMenu*>(mech3::main_menu())->buttons[mech3::MainMenuButton::kOptions].on_left_up();
+        stage = 1;
+      } else if (stage == 1 && g) {
+        float* accel = mech3::options().mouse_accel;
+        bound = g->has_sensitivity;
+        // Untouched: the original's 1.3 both ways.
+        g->apply(0);
+        g->apply(1);
+        default_kept = accel[0] == 1.3f && accel[1] == 1.3f;
+        // The slider at 2.5, inverted: X 2.5, Y -2.5.
+        g->sensitivity.set_value(mech3::slider_of_sensitivity(2.5f));
+        g->invert_y.select(1);
+        g->apply(1);
+        set_both = accel[0] == 2.5f && accel[1] == -2.5f;
+        // Invert off after it: the magnitude stays.
+        g->apply(0);
+        g->invert_y.select(0);
+        g->apply(1);
+        invert_after = accel[0] == 2.5f && accel[1] == 2.5f;
+        // Inverted, then the sensitivity changed: the sign stays.
+        g->invert_y.select(1);
+        g->apply(1);
+        g->apply(0);
+        g->sensitivity.set_value(mech3::slider_of_sensitivity(0.8f));
+        g->apply(1);
+        sens_after = std::fabs(accel[0] - 0.8f) < 1e-6f && std::fabs(accel[1] + 0.8f) < 1e-6f;
+        stage = 2;
+      }
+    };
+    CountingPump pump;
+    pump.limit = 400;
+    pump.stop = [&] { return stage == 2; };
+    app.run(pump);
+    app.stop_game();
+    app.exit_instance();
+    mech3::set_app(nullptr);
+    ztwod::set_host(nullptr);
+  }
+  zrdr::close_archives(true);
+  mech3::reset_states();
+  reset_process_state();
+  mech3::options() = mech3::Options{};
+  std::printf("  sensitivity: bound %d, default kept %d, both set %d, invert after %d, sensitivity after %d\n", bound,
+              default_kept, set_both, invert_after, sens_after);
+  EXPECT(stage == 2 && bound && default_kept && set_both && invert_after && sens_after);
+  // The mission's step: zInput's read counts times the acceleration (cut toward zero).
+  zin::State& st = zin::state();
+  const zin::MouseInfo keep_mouse = st.mouse;
+  const int32_t keep_w = st.width, keep_h = st.height;
+  const float keep_ax = st.accel_x, keep_ay = st.accel_y;
+  for (const float a : {1.3f, 2.5f}) {
+    st.mouse = zin::MouseInfo{};
+    st.width = st.height = 100000;
+    zin::mouse_set_accel(a, -a);
+    st.mouse.dx = 10, st.mouse.dy = 10;
+    zin::mouse_integrate();
+    EXPECT(st.mouse.dx == static_cast<int32_t>(10 * a) && st.mouse.dy == static_cast<int32_t>(10 * -a));
+  }
+  st.mouse = keep_mouse, st.width = keep_w, st.height = keep_h, st.accel_x = keep_ax, st.accel_y = keep_ay;
+}
+
+// Playtest W47 (docs/playtest.md): Campaign, a new pilot, ACCEPT plays the
+// campaign's opening movie while the menu's CD music played on under it.
+// FIX (A): a movie pauses the CD music while it plays (the original's drive,
+// reading the movie off the disc, fell silent); it comes back after unless
+// stopped meanwhile: here the briefing's start (the main menu's end,
+// 0x00485780) stops it; the resume waits a pass in the same state, so the
+// menu music is never heard between the movie and the briefing. A movie
+// started with the CD already paused (the attract movie, 0x00482330) is
+// left alone.
+TEST(playtest_w47_campaign_movie_pauses_the_menu_music_headless) {
+  if (!have_game()) return;
+  SavedMounts keep;
+  zutl::mounts() = zutl::Mounts{};
+  zutl::mount(MW3_GAME_DIR);
+  zutl::set_write_dir(temp_dir("w47_write"));
+  mech3::reset_states();
+  reset_process_state();
+  mech3::options() = mech3::Options{};
+  FakeWindow window;
+  FakeAlert alert;
+  FakeClock clock;
+  FakeScreen screen;
+  platform::SilentSoundOutput sound;
+  mech3::MountFiles files;
+  mech3::Platform p;
+  p.window = &window, p.alert = &alert, p.clock = &clock, p.movie_clock = &fast_movie_clock(), p.screen = &screen, p.sound = &sound, p.files = &files;
+  int stage = 0, after = 0, paused_under_movie = 0, playing_under_movie = 0, stopped_at_briefing = 0;
+  int played_before_briefing = 0;  // the menu music heard again after the movie, before the briefing (a blip)
+  bool movie_seen = false;
+  bool left_alone = false;
+  {
+    mech3::GameEngine engine(p, "mech3.exe");  // movies on
+    engine.quiet = true;
+    BoxHost host;
+    host.e = &engine;
+    ztwod::set_host(&host);
+    mech3::Mech3App app(&engine);
+    mech3::set_app(&app);
+    EXPECT(app.init_instance());
+    engine.on_present = [&](int) {
+      const zsnd_cd::State& cd = zsnd_cd::state();
+      if (stage == 3) {
+        if (engine.movie_paused_cd_ && cd.mode == zsnd_cd::Paused) ++paused_under_movie, movie_seen = true;
+        if (movie_seen && app.current() != &mech3::states().load && cd.mode >= zsnd_cd::Once) ++played_before_briefing;
+        if (engine.movie_paused_cd_ && cd.mode >= zsnd_cd::Once) ++playing_under_movie;
+        if (app.current() == &mech3::states().load && cd.mode == zsnd_cd::Stopped) ++stopped_at_briefing;
+      }
+      if (stage == 0 && app.current() == &mech3::states().main && mech3::main_menu()) {
+        // A movie with the CD paused by its caller (the attract movie's way): not ours to resume.
+        zsnd_cd::state().flags |= 2, zsnd_cd::state().mode = zsnd_cd::Paused;
+        const mech3::Handle m = engine.movie_new();
+        engine.movie_play(m);
+        left_alone = engine.movie_paused_cd_ == 0;
+        engine.movie_delete(m);
+        engine.movie_cd_pending_step();  // the next pass's (a held-back resume would come here)
+        left_alone = left_alone && zsnd_cd::state().mode == zsnd_cd::Paused;
+        zsnd_cd::state().mode = zsnd_cd::Stopped;
+        const_cast<mech3::MainMenu*>(mech3::main_menu())->buttons[1].on_left_up();  // NEW CAMPAIGN
+        stage = 1;
+      } else if (stage == 1) {
+        auto* ps = dynamic_cast<mech3::PilotState*>(app.current());
+        if (!ps || !ps->screen) return;
+        ps->screen->new_bar.set_text("Music");
+        ps->screen->new_bar.on_return();
+        stage = 2;
+      } else if (stage == 2) {
+        auto* ps = dynamic_cast<mech3::PilotState*>(app.current());
+        if (!ps || !ps->screen || !ps->screen->chosen) return;
+        zsnd_cd::state().flags |= 2, zsnd_cd::state().mode = zsnd_cd::Loop, zsnd_cd::state().track = 2;  // the menu's music on
+        ps->screen->on_button(0x18, 0, 0);  // ACCEPT: the campaign's movie
+        stage = 3;
+      } else if (stage == 3 && ++after > 120) {
+        stage = 4;
+      }
+    };
+    CountingPump pump;
+    pump.limit = 900;
+    pump.stop = [&] { return stage == 4; };
+    app.run(pump);
+    app.stop_game();
+    app.exit_instance();
+    mech3::set_app(nullptr);
+    ztwod::set_host(nullptr);
+  }
+  zrdr::close_archives(true);
+  zsnd_cd::state() = zsnd_cd::State{};
+  mech3::reset_states();
+  reset_process_state();
+  mech3::options() = mech3::Options{};
+  std::printf("  W47: paused under the movie %d frames, playing under it %d, after it before the briefing %d, stopped at the "
+              "briefing %d, attract's left alone %d\n",
+              paused_under_movie, playing_under_movie, played_before_briefing, stopped_at_briefing, left_alone);
+  EXPECT(stage == 4 && paused_under_movie > 0 && playing_under_movie == 0 && stopped_at_briefing > 0);
+  EXPECT(played_before_briefing == 0);
+  EXPECT(left_alone);
+}
+
 // Playtest #3 (docs/playtest.md): Escape in a mission pushes the Pause State,
 // whose screen (0x00492750) is made over a grab of the frame shown; RESUME
 // (0x00492d70) goes back through the state's +0x28, and so does Escape on the

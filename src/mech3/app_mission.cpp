@@ -2530,6 +2530,7 @@ void GameEngine::anim_enable(int32_t on) { zeff::anim_enable_save(on); }
 void GameEngine::weapons_set_mode(int32_t v) { zwep::set_network(v); }
 
 void GameEngine::timer_update() {
+  movie_cd_pending_step();  // ours (W47): a movie's held-back CD resume
   ztimer::update();
   sync_frame_step(ztimer::state().dt, ztimer::state().total_scaled);
 }
