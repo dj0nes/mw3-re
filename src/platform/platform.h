@@ -148,6 +148,8 @@ class Input {
   static constexpr int32_t kObjectNotFound = static_cast<int32_t>(0x80070002);
   static constexpr int32_t kUnsupported = static_cast<int32_t>(0x80004001);
   virtual int32_t joystick_caps(uint32_t* flags, uint32_t* axes) { *flags = *axes = 0; return 0; }
+  // Ours: the joystick is a gamepad read in DirectInput's XInput layout (W56).
+  virtual bool joystick_gamepad() const { return false; }
   virtual int32_t joystick_object_name(uint32_t, char* name, uint32_t) { name[0] = 0; return kObjectNotFound; }
   virtual int32_t joystick_set_range(uint32_t, int32_t, int32_t) { return kUnsupported; }
   virtual int32_t joystick_get_range(uint32_t, int32_t* min, int32_t* max) { *min = kAxisMin, *max = kAxisMax; return 0; }

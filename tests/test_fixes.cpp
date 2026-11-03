@@ -24,7 +24,10 @@
 #include "mech3/mech_hud.h"
 #include "mech3/lance_orders.h"
 #include "mech3/mech.h"
+#include "gamez/zinput/zinput.h"
+#include "mech3/controls_cfg.h"
 #include "mech3/mech_control.h"
+#include "platform/platform.h"
 #include "mech3/mech_fieldbase.h"
 #include "mech3/mech_pocket.h"
 #include "mech3/pocket_panel.h"
@@ -1582,4 +1585,86 @@ TEST(fix_exp_neg_eases_on_fast_frames) {
     EXPECT(zmth::exp_neg(6.0f) == 0.0f && zmth::exp_neg(-1.0f) == 1.0f);  // the bounds, both ways
   }
   zfix::options().per_second = was;
+}
+
+// W56 (ours, FIX (bug) behind bugs and throttle_reverse; Reddit v1.0, a
+// T.16000M: "I can accelerate but can't go in reverse with the slider"): the
+// stick's throttle lever over the whole range, through PlayerControls' frame
+// with a fake stick: full reverse at the bottom, stop at 37.5% of the travel
+// with 5% either side, full ahead at the top; a slider bound the popup's way;
+// a gamepad's triggers and the switch off as before; a lever left at its end
+// does not back the mech off at the start.
+namespace {
+platform::JoyState g_lever;
+zin::JoyAxis g_lever_axes[6];
+bool g_lever_pad = false;
+// The throttle target after `frames` at 30 fps with the lever's Z (or the
+// slider) at `z`, after a first frame at `first`.
+float lever_target(const mech3::AxisBinding& b, int32_t first, int32_t z, bool slider = false) {
+  static mech3::Mech m;
+  static mech3::PlayerControls c;
+  m = mech3::Mech{};
+  c = mech3::PlayerControls{};
+  c.owner = &m;
+  m.controls = &c;
+  for (zin::JoyAxis& a : g_lever_axes) a = zin::JoyAxis{}, a.min = -1000, a.max = 1000, a.scale = 0.001f, a.centre = 0;
+  const mech3::AxisTable kept = mech3::axis_table();
+  mech3::axis_table().axes[0] = b;
+  mech3::ControlsCalls& k = mech3::controls_calls();
+  k.command = [](int) { return 0u; };
+  k.joy_present = [] { return true; };
+  k.joy_gamepad = [] { return g_lever_pad; };
+  k.joy_state = [] { return static_cast<const void*>(&g_lever); };
+  k.joy_config = [] { return static_cast<const void*>(g_lever_axes); };
+  auto set = [slider](int32_t v) {
+    g_lever = platform::JoyState{};
+    if (slider) g_lever.slider[0] = v;
+    else g_lever.z = v;
+  };
+  set(first);
+  c.update(1.0f / 30);
+  set(z);
+  for (int i = 0; i < 3; ++i) c.update(1.0f / 30);
+  k = mech3::ControlsCalls{};
+  mech3::axis_table() = kept;
+  return c.throttle_target;
+}
+}  // namespace
+
+TEST(fix_throttle_lever_reaches_reverse) {
+  const mech3::AxisBinding z{3, -0.5f, 0.5f, 0.05f};  // the defaults' throttle (0x00410950): Z, the top full
+  auto near = [](float a, float b) { return std::fabs(a - b) < 1e-3f; };
+  auto at = [](float u) { return static_cast<int32_t>(std::lround(1000.0f - 2000.0f * u)); };  // u up the travel
+  const float lo = mech3::kLeverStop - mech3::kLeverStopZone, hi = mech3::kLeverStop + mech3::kLeverStopZone;
+  const float top = lever_target(z, 0, -1000), bottom = lever_target(z, 0, 1000);
+  const float stop = lever_target(z, 0, at(mech3::kLeverStop));
+  const float in_lo = lever_target(z, 0, at(lo + 0.01f)), in_hi = lever_target(z, 0, at(hi - 0.01f));
+  const float past = lever_target(z, 0, at(hi + 0.1f)), under = lever_target(z, 0, at(lo - 0.1f));
+  std::printf("  lever: top %.3f bottom %.3f stop %.3f zone %.3f %.3f; past it %.3f, under %.3f\n", top, bottom, stop,
+              in_lo, in_hi, past, under);
+  EXPECT(near(top, 1.0f) && near(bottom, -1.0f));
+  EXPECT(stop == 0.0f && in_lo == 0.0f && in_hi == 0.0f);
+  EXPECT(near(past, 0.1f / (1.0f - hi)) && near(under, -0.1f / lo));
+  // A kph the same travel both ways: reverse runs at 0.6 (Gait 0x004181c0).
+  EXPECT(std::fabs(0.6f / lo - 1.0f / (1.0f - hi)) < 0.15f * (1.0f / (1.0f - hi)));
+  // A slider (DirectInput's 0..65535) bound as the popup binds the throttle:
+  // -0.5 / 32767.5 and 0.5 + 0.5; its low end full ahead, as Z's.
+  const mech3::AxisBinding s{7, -0.5f / 32767.5f, 1.0f, 0.0f};
+  EXPECT(near(lever_target(s, 40000, 0, true), 1.0f) && near(lever_target(s, 40000, 65535, true), -1.0f));
+  EXPECT(lever_target(s, 1000, static_cast<int32_t>(65535 * (1.0f - mech3::kLeverStop)), true) == 0.0f);
+  // Left at the bottom from the start: not counted until it moves; left
+  // ahead, it drives at once, as the original's (a centred stick walks).
+  EXPECT(lever_target(z, 1000, 1000) == 0.0f);
+  EXPECT(near(lever_target(z, -1000, -1000), 1.0f));
+  // A gamepad's triggers, the switch off, the bug fixes off: as before (the
+  // defaults' 0..1: the top full, the bottom stop).
+  g_lever_pad = true;
+  EXPECT(near(lever_target(z, 0, 1000), 0.0f) && near(lever_target(z, 0, 0), 0.5f));
+  g_lever_pad = false;
+  zfix::options().throttle_reverse = false;
+  EXPECT(near(lever_target(z, 0, 1000), 0.0f) && near(lever_target(z, 0, -1000), 1.0f));
+  zfix::options().throttle_reverse = true;
+  zfix::options().bugs = false;
+  EXPECT(near(lever_target(z, 0, 1000), 0.0f) && near(lever_target(z, 0, -1000), 1.0f));
+  zfix::options().bugs = true;
 }

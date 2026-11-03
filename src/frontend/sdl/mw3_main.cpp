@@ -150,6 +150,7 @@ struct Args {
   // bugfixes=0/1 (default 1), --original turns them off whatever it says.
   bool play_original = false;
   int cfg_bugfixes = 1;
+  int cfg_throttle_reverse = 1;  // mw3.cfg's throttle_reverse= (ours, W56: zfix.h)
   bool first_start = false;   // the install found by the search, not mw3.cfg's (ours: the first start's notes)
   float pos[3] = {0, 60, 0};
   float look[2] = {0, -2.9f};
@@ -400,6 +401,8 @@ void read_config(const std::string& dir, Args& a) {
     else if (line == "bugfixes=1") a.cfg_bugfixes = 1;
     else if (line == "widemenus=0") a.cfg_wide_menus = 0;
     else if (line == "widemenus=1") a.cfg_wide_menus = 1;
+    else if (line == "throttle_reverse=0") a.cfg_throttle_reverse = 0;
+    else if (line == "throttle_reverse=1") a.cfg_throttle_reverse = 1;
     else if (line == "debugcamera=1") a.debug_camera = true;
   }
 }
@@ -651,6 +654,7 @@ int main(int argc, char** argv) {
   // The menus' 16:9 (a display choice, kept by --original): the command
   // line's, else mw3.cfg's widemenus=, else on.
   zfix::options().wide_menus = a.wide_menus >= 0 ? a.wide_menus != 0 : a.cfg_wide_menus != 0;
+  zfix::options().throttle_reverse = a.cfg_throttle_reverse != 0;  // with bugs (lever_reverse_on)
   mech3::app_key_calls().debug_camera = a.debug_camera;
   if (a.debug_camera) std::printf("mw3: --debug-camera: the game editor on Shift+F12 (docs/editor.md)\n");
   if (!zfix::options().bugs)

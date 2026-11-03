@@ -83,6 +83,7 @@ uint32_t joy_close() {
 
 // Mech3.exe 1.2 @ 0x0051dc10
 bool joy_present() { return state().joy_ready == 1; }
+bool joy_gamepad() { return state().di && joy_present() && state().di->joystick_gamepad(); }
 
 // Mech3.exe 1.2 @ 0x0051dc20
 // Rotations the stick does not have read as 0.

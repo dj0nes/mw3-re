@@ -158,6 +158,16 @@ view 4), right 0x63, down 0x64, left 0x62, each 0x66 in camera view 0, 5, 1.
 The exe also writes 2 over its copy of the camera view in view 1, where the
 hat is not read: no effect.
 
+Reverse on a stick, in the exe: the throttle axis's value times -1 while the
+reverse flag is set, and the flag is set only by SetThrottle's sign (the
+keys) or THROTTLE_REV (0x1a, Backspace and button 10: the target's sign
+flipped, or at 0 the flag toggled; 0x004274d0); the stick's own value goes
+into the target straight (+0x3c) and never touches it. So the defaults' 0..1
+lever drives 0..-1 after Backspace. The axis popup's OK (0x0042e5b0) takes
+the lever's place at OK as 0: pressed with the lever centred, its lower half
+is reverse; at an end, stop to full only. Ours (W56, fixes.md): with bugs the
+lever covers reverse itself (`lever_throttle`).
+
 FIX (B): the throttle keys' 0.025 is per 1/30 s (`zfix::frame_steps`;
 fixes.md).
 
