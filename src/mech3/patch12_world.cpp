@@ -212,7 +212,7 @@ bool rebuild_c3_world(std::vector<uint8_t>& data) {
   std::vector<uint8_t> out(b.begin(), b.begin() + static_cast<long>(w.models.empty() ? w.nodes_at : w.models[0].start));
   for (size_t i = 0; i < w.models.size(); ++i) {
     const ParsedWorld::Model& m = w.models[i];
-    if (static_cast<int32_t>(i) < used) put_i32(out, m.header, static_cast<int32_t>(out.size()));
+    if (static_cast<int32_t>(i) < used) put_i32(out, m.header + 0x5c, static_cast<int32_t>(out.size()));
     if (replaced[i]) out.insert(out.end(), payload[i].begin(), payload[i].end());
     else out.insert(out.end(), b.begin() + static_cast<long>(m.start), b.begin() + static_cast<long>(m.end));
   }

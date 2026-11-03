@@ -151,6 +151,12 @@ parses equal to 1.2's, and 1.2's are left alone.
    (pointers aside), and each object's model as its faces (points, normals,
    UVs, colours, flags, material by texture or colour and soil): all 20,000
    nodes and 7,306 objects match, and the loader reads the rebuilt world.
+   Each model header's payload offset goes at +0x5c. Until 2026-11-02 it
+   went to +0x00, the model's type, which no face or record check covered.
+   On 1.0 data every c3 model then had a junk type: no bounding box (the
+   field bases' treads, covers and cab culled at their pivots near the
+   screen's edges, playtest W48) and the facades drawn unturned. The test
+   now also checks each header's type and offset.
 
 ## Found on the way (in discoveries.md, What the 1.2 patch changed)
 
