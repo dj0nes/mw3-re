@@ -107,6 +107,11 @@ std::unordered_set<const void*>& mech_objects() {
   static std::unordered_set<const void*> s;
   return s;
 }
+// The parts freed in the mission (the FIX (A) on d.free_part below).
+std::vector<std::unique_ptr<MechPart>>& freed_parts() {
+  static std::vector<std::unique_ptr<MechPart>> v;
+  return v;
+}
 Mech* entity_mech(ai::Handle h);
 Vec3 mech_position(Mech& m);
 }  // namespace
@@ -709,6 +714,11 @@ void wire_mech_parts() {
   d.weapons_lost = [](Mech& m, int part) {                         // 0x004b1040 on +0xd4
     if (auto* wm = static_cast<WeaponManager*>(m.ammo)) wm->part_lost(part);
   };
+  // FIX (A): an arm's loss frees its hand (0x00466c50), which the arm
+  // restriction (0x004b2da0 -> 0x004b2f90's in-water test) reads again that
+  // frame through its weapons' part; Win32's heap kept the bytes, so the
+  // memory is kept here until the next mission starts (fixes.md).
+  d.free_part = [](MechPart* p) { freed_parts().emplace_back(p); };
   d.weapons_critical = [](Mech& m, int part, int ammo) {           // 0x004b0de0 on +0xd4
     auto* wm = static_cast<WeaponManager*>(m.ammo);
     return wm && wm->critical(part, ammo != 0);
@@ -2311,7 +2321,10 @@ const char* mech_brain_name(void* mech) {
 void* mech_mission_player() { return world().mission_player; }
 bool entity_is_mech(const void* o) { return o && mech_objects().count(o) != 0; }
 
-void mech_entities_forget() { mech_objects().clear(); }
+void mech_entities_forget() {
+  mech_objects().clear();
+  freed_parts().clear();
+}
 
 void program_mech_set_invincible(void* mech, bool on) {
   if (entity_is_mech(mech)) static_cast<Mech*>(mech)->invincible = on;  // +0x630

@@ -252,6 +252,10 @@ void reset_process_state() {
   zeff::anim_log().save_on = zeff::anim_log().net_on = 1;
   zvid::display().clear_on = 1;
   zcls::scene_walk().hidden_surface = 1;
+  // zInput's power-on globals, while it is stopped: the joystick's ready flag
+  // (0x0063c4a4) is only ever set, so a test whose input had a stick left one
+  // to every later test (the c3m5 homing fight played the stick's axes).
+  if (zin::state().window == 0) zin::reset_state();
 }
 
 // The data version (ours; assets.md, Data versions): the install's, then a
@@ -22151,4 +22155,316 @@ TEST(instant_action_lab_has_the_players_mech_headless) {
   EXPECT(n == 3 && s0 && engine.lab_slot_mech(s0) == 9 && s1 && engine.lab_slot_mech(s1) == 5);
   mech3::current_pilot() = was;
   pilot.current = nullptr;
+}
+
+// Homing in a real fight (playtest: lancemates' LRMs "all over" once their
+// target died, or with none; weapons.md, Homing). c3m5 with the lance and
+// the player put 300 m from the first enemies, every live shot of every
+// projectile weapon watched each frame (a retired slot keeps state 1 in the
+// pool: the active lists are read). Optionally the mech a lancemate's first
+// locked salvo is on is killed 10 frames after the launch.
+namespace {
+struct HomingRun {
+  int frames = 0, locked = 0, unlocked = 0;
+  int wrong_entity = 0;       // locked on another than the shooter's selected target
+  int off_at_launch = 0;      // launched over 10 degrees off its aim (the part's facing, out of its cone)
+  int jumps = 0, away = 0, garbage = 0;  // aim moved over 30 m in a frame, over 60 m from its target, not finite
+  int unlocked_turns = 0;     // an unlocked shot's direction changed
+  int unlocked_with_aim = 0;  // a shot without a lock entity that has an aim point
+  int probes = 0, grounded = 0, under = 0;  // ground probes under flying shots; found; found above the shot
+  int zone_border = 0;        // of those not found, over ground in a zone outside the shot's set (the original's zones)
+  bool killed = false;
+  bool player_had_target = true;
+  int player_shots = 0, player_locked = 0, player_turns = 0;  // the player's LRMs fired at frame 30 with no target
+  int salvo = 0, salvo_reached = 0;  // the killed mech's salvo in flight: shots, and those that came within 10 m of the wreck's aim
+  float worst_reach = 0;
+};
+
+HomingRun homing_run(const char* dir, bool kill, int limit) {
+  HomingRun r;
+  SavedMounts keep;
+  const zfix::Options fix_was = zfix::options();
+  zfix::options() = zfix::Options{};  // play's switches, whatever a test before left
+  zutl::mounts() = zutl::Mounts{};
+  zutl::mount(dir);
+  zutl::set_write_dir(temp_dir("homing_write"));
+  mech3::reset_states();
+  reset_process_state();
+  mech3::missions() = mech3::Missions{};
+  mech3::mech_types_forget();
+  mech3::player_controls_instance() = nullptr;
+  mech3::options() = mech3::Options{};
+  FakeWindow window;
+  FakeAlert alert;
+  FakeClock clock;
+  FakeScreen screen;
+  platform::SilentSoundOutput sound;
+  mech3::MountFiles files;
+  mech3::Platform p;
+  p.window = &window, p.alert = &alert, p.clock = &clock, p.movie_clock = &fast_movie_clock(), p.screen = &screen, p.sound = &sound, p.files = &files;
+  struct Keys : platform::Input {  // the player's LRMs fired once with no target selected
+    std::vector<platform::KeyEvent> queue;
+    uint32_t t = 0;
+    void key(uint32_t dik, bool down) { queue.push_back({dik, down ? 0x80u : 0u, ++t, t}); }
+    bool open(Device d) override { return d == kKeyboard; }
+    void close(Device) override {}
+    int32_t acquire(Device) override { return 0; }
+    int32_t unacquire(Device) override { return 0; }
+    int32_t keyboard_data(platform::KeyEvent* out, uint32_t* count) override {
+      const uint32_t n = std::min<uint32_t>(*count, static_cast<uint32_t>(queue.size()));
+      std::copy(queue.begin(), queue.begin() + n, out);
+      queue.erase(queue.begin(), queue.begin() + n);
+      *count = n;
+      return 0;
+    }
+    int32_t mouse_state(platform::MouseState*) override { return kNotAcquired; }
+    int32_t joystick_state(platform::JoyState*) override { return kNotAcquired; }
+  } keys;
+  p.input = &keys;
+  auto flying = [] {
+    std::vector<const zwep::Projectile*> out;
+    for (const zwep::WeaponDef& d : zwep::state().defs)
+      if (!(d.flags & zwep::kBeam))  // a beam def's list holds beams
+        for (const zwep::Projectile* q = d.active; q; q = q->next) out.push_back(q);
+    return out;
+  };
+  struct Track { zwep::Vec3f3 at{}, dir{}, spawn{}; bool have = false; float reach = 1e9f; bool in_salvo = false, player = false; int frames_seen = 0; };
+  std::map<const zwep::Projectile*, Track> seen;
+  {
+    mech3::GameEngine engine(p, "mech3.exe -nofmv");
+    engine.quiet = true;
+    mech3::Mech3App app(&engine);
+    mech3::set_app(&app);
+    EXPECT(app.init_instance());
+    mech3::GameEngine::Launch l;
+    l.index = 2, l.number = 5;
+    engine.set_launch(l);
+    app.post_intro_ = &mech3::states().load;
+    void *player = nullptr, *victim = nullptr;
+    int fired_at = -1;
+    engine.on_present = [&](int) {
+      if (app.current() != &mech3::states().core) return;
+      ++r.frames;
+      int32_t made = 0;
+      const mech3::AiMechMade* ai = mech3::mission_ai_mechs(&made);
+      if (r.frames == 5) {
+        player = engine.object_of(engine.field32(engine.pilot(), 0x14));
+        mech3::LaunchedMech me, e0;
+        mech3::describe_mech(player, &me);
+        mech3::describe_mech(ai[0].mech, &e0);
+        int n = 0;
+        for (int32_t k = 0; k < made; ++k) {
+          mech3::LaunchedMech o;
+          mech3::describe_mech(ai[k].mech, &o);
+          if (o.team != me.team) continue;
+          const float x = e0.pos[0] + 300.0f, z = e0.pos[2] + 30.0f * n++;
+          const float at[3] = {x, ground_under(x, e0.pos[1] + 120.0f, z), z};
+          mech3::move_mech(ai[k].mech, at, -1.5707964f);
+        }
+        const float x = e0.pos[0] + 340.0f, z = e0.pos[2];
+        const float at[3] = {x, ground_under(x, e0.pos[1] + 120.0f, z), z};
+        mech3::move_mech(player, at, -1.5707964f);
+      }
+      if (r.frames < 5) return;
+      static uint32_t fire = 0;
+      if (r.frames == 30) {
+        for (int32_t g = 0; g < 5; ++g)
+          if (mech3::mech_group_names(player, g).find("LRM") != std::string::npos) {
+            mech3::mech_select_group(player, g);
+            break;
+          }
+        r.player_had_target = mech3::mech_target_object(player) != nullptr;
+        fire = zin::key1_of(0x3d) & 0xff;  // CMD_FIRE
+        keys.key(fire, true);
+      }
+      if (r.frames == 31) keys.key(fire, false);
+      const auto live = flying();
+      for (auto it = seen.begin(); it != seen.end();) {
+        if (std::find(live.begin(), live.end(), it->first) != live.end()) {
+          ++it;
+          continue;
+        }
+        if (it->second.in_salvo) {  // the killed mech's salvo: did it reach the wreck
+          ++r.salvo;
+          if (it->second.reach <= 10.0f) ++r.salvo_reached;
+          r.worst_reach = std::max(r.worst_reach, it->second.reach);
+        }
+        it = seen.erase(it);
+      }
+      // The first locked salvo of a lancemate on an AI mech: its target killed 10 frames on.
+      if (kill && fired_at < 0)
+        for (const zwep::Projectile* q : live)
+          for (int32_t k = 0; k < made && fired_at < 0; ++k)
+            if (q->target_at && q->owner != mech3::mech_node(player) && ai[k].mech == q->lock_entity) fired_at = r.frames, victim = ai[k].mech;
+      if (kill && fired_at > 0 && r.frames == fired_at + 10) {
+        mech3::mech_kill(victim, nullptr);
+        r.killed = true;
+        for (const zwep::Projectile* q : live)
+          if (q->target_at && q->lock_entity == victim) seen[q].in_salvo = true;
+      }
+      for (const zwep::Projectile* q : live) {
+        const zwep::Projectile& s = *q;
+        Track& t = seen[q];
+        if (t.have && (t.spawn.x != s.spawn_at.x || t.spawn.y != s.spawn_at.y || t.spawn.z != s.spawn_at.z)) t = Track{};
+        t.spawn = s.spawn_at;
+        const zwep::Vec3f3 d = s.direction;
+        if (zwep::run_hooks().ground && s.speed > 0.0f) {
+          zwep::HitList g;
+          uint8_t zones[4];  // the shot's zone set, as the update sets it around its probe (0x00585710)
+          std::memcpy(zones, zmod::zones().list, 4);
+          if ((s.zone & 0xff) != 4) std::memcpy(zmod::zones().list, &s.zone, 4);
+          zwep::run_hooks().ground(&s.position, &g);
+          ++r.probes;
+          if (!g.count) {  // allowed only where the ground there is in a zone the shot's set leaves out
+            const int32_t mode = zmod::zones().mode;
+            zmod::zones().mode = 0;
+            zwep::HitList all;
+            zwep::run_hooks().ground(&s.position, &all);
+            zmod::zones().mode = mode;
+            const uint8_t* zs = reinterpret_cast<const uint8_t*>(&s.zone);
+            bool in_set = false;
+            if (all.count && all.rec[0].node)
+              for (int k = 1; k <= zs[0] && k < 4; ++k) in_set |= zs[k] == static_cast<zcls::Node*>(all.rec[0].node)->raw[0x30];
+            if (all.count && !in_set) ++r.zone_border;
+          }
+          if (!g.count && std::getenv("MW3_HOMING_VERBOSE"))
+          {
+            zwep::Vec3f3 hi = s.position;
+            hi.y += 100.0f;
+            zwep::HitList g2;
+            zwep::run_hooks().ground(&hi, &g2);
+            const int32_t mode = zmod::zones().mode;
+            zmod::zones().mode = 0;
+            zwep::HitList g3;
+            zwep::run_hooks().ground(&s.position, &g3);
+            zmod::zones().mode = mode;
+            std::printf("    no ground under a shot at %.1f %.1f %.1f (frame %d, zones %08x); from 100 m higher: %d; zones off: %d %.1f %s zone %d\n", s.position.x,
+                        s.position.y, s.position.z, r.frames, s.zone, g2.count, g3.count, g3.count ? g3.rec[0].point.y : 0.0f,
+                        g3.count && g3.rec[0].node ? static_cast<zcls::Node*>(g3.rec[0].node)->name() : "-",
+                        g3.count && g3.rec[0].node ? static_cast<zcls::Node*>(g3.rec[0].node)->raw[0x30] : -1);
+          }
+          if (g.count) {
+            ++r.grounded;
+            if (g.rec[0].point.y > s.position.y + 0.5f) ++r.under;
+          }
+          std::memcpy(zmod::zones().list, zones, 4);
+        }
+        if (!t.have && s.owner == mech3::mech_node(player) && r.frames <= 120) ++r.player_shots, t.player = true;
+        if (t.player && s.target_at) ++r.player_locked;
+        if (t.player) {
+          t.frames_seen++;
+          if (t.have && d.x * t.dir.x + d.y * t.dir.y + d.z * t.dir.z < 0.9999f) ++r.player_turns;
+        }
+        if (!s.target_at) {
+          if (!t.have) ++r.unlocked;
+          else if (d.x * t.dir.x + d.y * t.dir.y + d.z * t.dir.z < 0.9999f) ++r.unlocked_turns;
+          t.dir = d, t.have = true;
+          continue;
+        }
+        if (!s.lock_entity) ++r.unlocked_with_aim;
+        const zwep::Vec3f3 at = *s.target_at;
+        if (!std::isfinite(at.x) || !std::isfinite(at.y) || !std::isfinite(at.z) || std::fabs(at.x) > 1e5f ||
+            std::fabs(at.y) > 1e5f || std::fabs(at.z) > 1e5f) {
+          ++r.garbage;
+          t.have = true;
+          continue;
+        }
+        const float wx = at.x - s.position.x, wy = at.y - s.position.y, wz = at.z - s.position.z;
+        const float wl = std::sqrt(wx * wx + wy * wy + wz * wz);
+        if (!t.have) {
+          ++r.locked;
+          // The lock is the shooter's selected target (+0x6c's object): what
+          // the shot leaves toward may differ, a part's weapon firing along
+          // its facing when the target is over 27 degrees off (0x004b36e0).
+          void* shooter = s.owner == mech3::mech_node(player) ? player : nullptr;
+          for (int32_t k = 0; k < made && !shooter; ++k)
+            if (mech3::mech_node(ai[k].mech) == s.owner) shooter = ai[k].mech;
+          if (shooter && mech3::mech_target_object(shooter) != s.lock_entity) ++r.wrong_entity;
+          if (wl > 1.0f && (wx * d.x + wy * d.y + wz * d.z) / wl < std::cos(10.0f / 57.29578f)) ++r.off_at_launch;
+        } else {
+          const float dx = at.x - t.at.x, dy = at.y - t.at.y, dz = at.z - t.at.z;
+          if (dx * dx + dy * dy + dz * dz > 30.0f * 30.0f) ++r.jumps;
+        }
+        if (s.lock_entity) {
+          float e[3];
+          mech3::hud_object_place(s.lock_entity, e);
+          const float dx = at.x - e[0], dy = at.y - e[1], dz = at.z - e[2];
+          if (dx * dx + dy * dy + dz * dz > 60.0f * 60.0f) ++r.away;
+        }
+        t.reach = std::min(t.reach, wl);
+        t.at = at, t.dir = d, t.have = true;
+      }
+    };
+    CountingPump pump;
+    pump.stop = [&] { return r.frames >= limit; };
+    pump.limit = limit + 3000;
+    app.run(pump);
+    mech3::missions().cleanup(false);
+    app.stop_game();
+    app.exit_instance();
+    mech3::set_app(nullptr);
+  }
+  zrdr::close_archives(true);
+  mech3::reset_states();
+  reset_process_state();
+  mech3::options() = mech3::Options{};
+  zfix::options() = fix_was;
+  return r;
+}
+
+void print_homing(const char* what, const HomingRun& r) {
+  std::printf("  %s: %d frames, %d locked shots (%d on another entity, %d aims jumped, %d away, %d garbage), %d unlocked "
+              "(%d turned, %d with an aim); %d launched off their aim; ground under %d of %d shots (%d above them, %d over another zone's ground)",
+              what, r.frames, r.locked, r.wrong_entity, r.jumps, r.away, r.garbage, r.unlocked, r.unlocked_turns,
+              r.unlocked_with_aim, r.off_at_launch, r.grounded, r.probes, r.under, r.zone_border);
+  std::printf("; the player's free salvo: %d shots (target %d), %d locked, %d turns", r.player_shots, r.player_had_target, r.player_locked, r.player_turns);
+  if (r.killed) std::printf("; the killed mech's salvo: %d of %d shots reached the wreck (worst %.1f m)", r.salvo_reached, r.salvo, r.worst_reach);
+  std::printf("\n");
+}
+
+void expect_homing(const HomingRun& r) {
+  EXPECT(r.locked > 20 && r.unlocked > 50);  // the fight happened
+  EXPECT(r.wrong_entity == 0 && r.jumps == 0 && r.away == 0 && r.garbage == 0);
+  EXPECT(r.unlocked_turns == 0 && r.unlocked_with_aim == 0);
+  EXPECT(!r.player_had_target && r.player_shots >= 2 && r.player_locked == 0 && r.player_turns == 0);  // no target: straight
+  EXPECT(r.probes > 1000 && r.grounded + r.zone_border == r.probes && r.under == 0);
+}
+
+// The 1.0 install beside the 1.2 one (game/mw3-1.0), when there is one.
+std::string homing_dir_10() {
+  const std::filesystem::path d = std::filesystem::path(MW3_GAME_DIR).parent_path() / "mw3-1.0";
+  return std::filesystem::exists(d / "zbd") ? d.string() : std::string();
+}
+}  // namespace
+
+// The fight on 1.2: every lock on what was fired at, its aim on the target
+// (a live pointer into the target node's world matrix) and finite; the
+// unlocked shots straight; the ground found under every flying shot.
+TEST(mission_c3m5_homing_in_a_fight_headless) {
+  if (!have_game()) return;
+  const HomingRun r = homing_run(MW3_GAME_DIR, false, 9000);
+  print_homing("1.2", r);
+  expect_homing(r);
+}
+
+// The target of a lancemate's LRM salvo killed mid-flight: the aim stays on
+// the wreck (the node stays, as the original's), and the salvo reaches it.
+TEST(mission_c3m5_homing_target_killed_headless) {
+  if (!have_game()) return;
+  const HomingRun r = homing_run(MW3_GAME_DIR, true, 3000);
+  print_homing("1.2, killed", r);
+  EXPECT(r.killed && r.salvo >= 2 && r.salvo_reached == r.salvo);
+  EXPECT(r.jumps == 0 && r.away == 0 && r.garbage == 0 && r.unlocked_turns == 0);
+}
+
+// The same on the 1.0 data (c3's world rebuilt by our 1.0 layer, W48: the
+// models' types and boxes; the ground probe under the shots sees them).
+TEST(mission_c3m5_homing_on_10_data_headless) {
+  if (!have_game()) return;
+  const std::string d = homing_dir_10();
+  if (d.empty()) return;
+  const HomingRun r = homing_run(d.c_str(), true, 9000);
+  print_homing("1.0, killed", r);
+  expect_homing(r);
+  EXPECT(r.killed && r.salvo >= 2 && r.salvo_reached == r.salvo);
 }

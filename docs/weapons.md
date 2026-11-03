@@ -502,9 +502,26 @@ velocity at the lock; a basic vehicle's live +0x30; the rest still). FCS
 (+0x3b8) and 0x460c10 are wired with them. LRM5 has TURN_RATE 0.25, so a
 missile turns at most about 14 degrees a second: at 150 m an LRM still finds
 an Owens 10 degrees off the reticle (`mission_c1m1_lrm_homes_on_the_lock_headless`;
-without the lock it misses), not one 22 degrees off. Open: what drops an
-in-flight shot's lock when its target goes (the dead stay as wrecks in the
-world, so the pointer stays good through a mission).
+without the lock it misses), not one 22 degrees off.
+
+Nothing drops an in-flight shot's lock when its target dies: the dead stay
+as wrecks (a mech's node, a vehicle's after its death 0x004ad2d0; freed
+only by the mission's cleanup or a valve's destroy), so the pointer stays
+good and the shot flies into the wreck. A shooter with no target selected
+fires unlocked (0x004b3330 returns before 0x004b3370), and an unlocked shot
+never turns. A part's weapon whose target is over about 27 degrees off its
+facing fires along the facing (0x004b36e0, cos 0.89) and a locked shot then
+turns toward the target in flight. Tested in a fight
+(`mission_c3m5_homing_*_headless`, 2026-11-02, Owen's c3m5 report): every
+live shot of every projectile weapon watched each frame (the weapons'
+active lists: a retired slot keeps state 1 in the pool) for its lock against
+the shooter's selected target, its aim on the target and finite, unlocked
+shots straight (the player's LRMs fired with none), the ground probe
+(0x004eda10) under every flying shot (in the shot's zone set: at a zone
+border the ground can be another zone's, which the shot does not see), and a
+lancemate's salvo whose target is killed mid-flight reaching the wreck. On
+the 1.0 data before W48 the ground check fails (zero boxes on c3's models);
+six break tests.
 
 ### Mines (0x586670, 0x586740; no shipped weapon)
 

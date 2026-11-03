@@ -620,3 +620,4 @@ Known quirks the rebuild deliberately keeps:
 - The music pauses while a movie plays and comes back after (the campaign's opening movie no longer has the menu music under it), as when the game read its movies off the CD.
 - On a wide screen the arm weapons reach the reticle across the whole width: an arm weapon still fires straight ahead when aimed far off to the side, but the limit now widens with the screen, so it starts at the same place on screen as on a 4:3 one (bug fixes on).
 - Cheat codes in single player (ours): Shift+Enter, Keypad * or Keypad − in a mission opens a box for six codes, from a radar that shows everything to an instant win (README, Cheat codes).
+- Shooting off an arm with a weapon in its hand no longer reads memory the game has just freed (harmless on Windows 98, a possible crash today).
