@@ -5,14 +5,18 @@
 #include <cstring>
 #include <filesystem>
 
+#include "pm/gamez/zclass/cls_node.h"
 #include "pm/gamez/zclass/cls_zbd.h"
+#include "pm/gamez/zclass/light.h"
+#include "pm/gamez/zeffect/zeff_anim_init.h"
 #include "pm/gamez/zreader/zrdr_main.h"
 #include "pm/gamez/zutil/zutl_zar.h"
 
 namespace pm {
 namespace {
 const zgame::Table kPm = {"Pirate's Moon", "Pirate's Moon 1.0", zar::read_table, zar::write_table, zar::span,
-                         zrdr::parse_text, zcls::read_zbd};
+                         zrdr::parse_text, zcls::read_zbd, zcls::node_alloc, zcls::node_set_active,
+                         zcls::light_create, zeff::anim_read_zbd};
 }  // namespace
 
 const zgame::Table& table() { return kPm; }

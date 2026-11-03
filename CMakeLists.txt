@@ -568,6 +568,9 @@ if(MW3_BUILD_PM)
     src/pm/gamez/zutil/zutl_zar.cpp
     src/pm/gamez/zreader/zrdr_main.cpp
     src/pm/gamez/zclass/cls_zbd.cpp
+    src/pm/gamez/zclass/cls_node.cpp
+    src/pm/gamez/zclass/light.cpp
+    src/pm/gamez/zeffect/zeff_anim_init.cpp
     src/pm/gamez/zimage/zimg_texture.cpp
     src/pm/gamez/zmodel/gmod_matl.cpp
     src/pm/gamez/zmodel/gmod_const.cpp

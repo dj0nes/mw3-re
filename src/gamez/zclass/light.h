@@ -4,7 +4,8 @@
 // zClass\Light.c
 namespace zcls {
 
-Node* light_create();              // 0x004fa720
+Node* light_create();              // the running game's (zgame::Table): MW3's 0x004fa720
+Node* mw3_light_create();          // 0x004fa720
 // 1 while a world still lists it; a static light (0x100) bumps the frame stamp.
 int light_delete(Node* node);      // 0x004fa850
 

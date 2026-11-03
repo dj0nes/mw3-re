@@ -15,6 +15,7 @@
 #include "gamez/zclass/seq.h"
 #include "gamez/zclass/sound.h"
 #include "gamez/zerror/zerr.h"
+#include "gamez/zgame/zgame_table.h"
 #include "gamez/zmodel/gmod_const.h"
 #include "platform/platform.h"
 
@@ -56,8 +57,10 @@ int node_pool_grow() {
   return 0;
 }
 
+Node* node_alloc() { return zgame::game().zcls_node_alloc(); }
+
 // Mech3.exe 1.2 @ 0x004eacd0. Every node starts on list 6 with these defaults.
-Node* node_alloc() {
+Node* mw3_node_alloc() {
   NodePool& p = g_pool;
   if (p.free_head == -1) node_pool_grow();
   if (p.free_head == -1) gamez_abort("GameZ node resource failure: restarting your game usually solves this.");
@@ -220,9 +223,11 @@ void node_tree_unbind(Node* node, void* owner, uint32_t kind, uint32_t flags) {
   }
 }
 
+int node_set_active(Node* node, int on) { return zgame::game().zcls_node_set_active(node, on); }
+
 // Mech3.exe 1.2 @ 0x004eb170. Flag 4 is "active"; on is 1 or 0, anything
 // else leaves it.
-int node_set_active(Node* node, int on) {
+int mw3_node_set_active(Node* node, int on) {
   if (!node) return zerr::report(0x400, kClassFile, 0x48e, "Null node pointer."), 5;
   switch (node->cls()) {
     case 1: case 2: case 5: case 6:

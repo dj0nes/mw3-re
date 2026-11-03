@@ -74,7 +74,8 @@ struct Frames {
 };
 Frames& frames();
 
-Node* node_alloc();                // 0x004eacd0
+Node* node_alloc();                // the running game's (zgame::Table): MW3's 0x004eacd0
+Node* mw3_node_alloc();            // 0x004eacd0
 int node_pool_grow();              // 0x004f8c80, 0 ok, 1 out of memory
 void node_slot_free(Node* node);   // 0x004f8de0
 int32_t node_total();              // 0x004eacb0
@@ -87,7 +88,8 @@ void set_expiry(Node* node);       // 0x004ed990
 int node_set_tree_valid(Node* node, int on);  // 0x004ed8f0, 1 for a null node
 Node* node_root(Node* node);       // 0x004ed8b0, 0 at a node with several parents
 int node_link(Node* parent, Node* child);       // 0x004eba90
-int node_set_active(Node* node, int on);        // 0x004eb170
+int node_set_active(Node* node, int on);        // the running game's: MW3's 0x004eb170
+int mw3_node_set_active(Node* node, int on);    // 0x004eb170
 // Mech3.exe 1.2 @ 0x0040ea30: a game object's kind bits (+0x28, replaced),
 // its owner (+0x40) and flags (+0x24, or'd) on the node and every child;
 // 0x0040ec20 takes them off where the owner is `owner`, the children first.

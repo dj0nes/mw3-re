@@ -12,6 +12,7 @@
 #include "gamez/zclass/list.h"
 #include "gamez/zclass/sound.h"
 #include "gamez/zerror/zerr.h"
+#include "gamez/zgame/zgame_table.h"
 #include "gamez/zutil/zutl_msg.h"
 #include "gamez/zclass/object3d.h"
 #include "gamez/zeffect/zeff_anim_run.h"
@@ -174,15 +175,7 @@ bool fix_def(int32_t index, AnimDef& d, const char** prev_name) {
           d.raw[0x110] = 0;  // the exe: the def loses every prerequisite
           break;
         }
-        // FIX (bug): only this entry goes; the def keeps waiting on the rest
-        // (decided with Owen, docs/fixes.md). The count to meet comes down if
-        // fewer entries that count are left.
-        for (int j = k; j + 1 < d.count(0x110); ++j) d.prereqs[j] = d.prereqs[j + 1];
-        d.raw[0x110] = static_cast<uint8_t>(d.raw[0x110] - 1);
-        int counting = 0;
-        for (int j = 0; j < d.count(0x110); ++j)
-          if (d.prereqs[j].get<uint32_t>(0) && (d.prereqs[j].raw[4] == 1 || d.prereqs[j].raw[4] == 2)) ++counting;
-        if (d.raw[0x111] > counting) d.raw[0x111] = static_cast<uint8_t>(counting);
+        anim_drop_prerequisite(d, k);
         last = nullptr;
         --k;
         continue;
@@ -194,6 +187,18 @@ bool fix_def(int32_t index, AnimDef& d, const char** prev_name) {
   return true;
 }
 }  // namespace
+
+// FIX (bug): only this entry goes; the def keeps waiting on the rest
+// (decided with Owen, docs/fixes.md). The count to meet comes down if
+// fewer entries that count are left.
+void anim_drop_prerequisite(AnimDef& d, int k) {
+  for (int j = k; j + 1 < d.count(0x110); ++j) d.prereqs[j] = d.prereqs[j + 1];
+  d.raw[0x110] = static_cast<uint8_t>(d.raw[0x110] - 1);
+  int counting = 0;
+  for (int j = 0; j < d.count(0x110); ++j)
+    if (d.prereqs[j].get<uint32_t>(0) && (d.prereqs[j].raw[4] == 1 || d.prereqs[j].raw[4] == 2)) ++counting;
+  if (d.raw[0x111] > counting) d.raw[0x111] = static_cast<uint8_t>(counting);
+}
 
 AnimState& anim() { return g_anim; }
 AnimHooks& anim_hooks() { return g_hooks; }
@@ -215,9 +220,11 @@ void anim_set_zbd_path(const char* path) {
 // Mech3.exe 1.2 @ 0x00509150
 void anim_allow_loading(int32_t on) { g_anim.loading = on; }
 
+int anim_read_zbd() { return zgame::game().zeff_anim_read_zbd(); }
+
 // Mech3.exe 1.2 @ 0x0050a0e0. A failure part way leaves what was read in
 // place; the caller (0x50ae60) ignores the result.
-int anim_read_zbd() {
+int mw3_anim_read_zbd() {
   AnimState& a = g_anim;
   if (!a.loading || a.path[0] == 0) return -1;
   std::FILE* f = zutl::open(a.path, "rb");  // FIX (A): the mounts (zutl_path.h)

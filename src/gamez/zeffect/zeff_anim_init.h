@@ -17,8 +17,20 @@ struct SeqDef : Raw<0x40> {
   uint8_t* events = nullptr;       // +0x38  size +0x3c
 };
 
-struct NodeRef40 : Raw<0x28> { Node* node = nullptr; };    // +0x24
-struct ObjectRef : Raw<0x60> { Node* node = nullptr; };    // +0x24
+// PM's node and object records are 0x2c and 0x5c bytes; its reader puts them
+// in MW3's layout and keeps the two fields MW3's lack (docs/pm-map.md, anim.zbd 50).
+struct NodeRef40 : Raw<0x28> {
+  Node* node = nullptr;            // +0x24
+  uint16_t pm_flags = 0;           // PM only, +0x00: bit 0, the lookup stays in the def's own nodes
+  uint16_t pm_parent = 0;          // PM only, +0x02: found under this entry's node (0: none)
+};
+struct ObjectRef : Raw<0x60> {
+  Node* node = nullptr;            // +0x24
+  uint16_t pm_flags = 0;           // PM only, +0x28 (u16): bit 1, as NodeRef40's bit 0
+  uint16_t pm_parent = 0;          // PM only, +0x2a; PM's +0x2c..+0x5b are MW3's +0x30..+0x5f
+};
+// PM only: a def's node found by a path of names, each under the one before.
+struct PathRef : Raw<0x24> { Node* node = nullptr; };      // +0x20
 struct CreatedRef : Raw<0x2c> { void* made = nullptr; };   // +0x24  light, puffer or sound node
 struct StaticSoundRef : Raw<0x24> { void* sound = nullptr; };  // +0x20
 struct EffectRef : Raw<0x24> {};   // +0x20 effect index
@@ -55,11 +67,24 @@ struct AnimDef : Raw<0x13c> {
   EffectRef* effects = nullptr;    // +0x12c count +0x10f
   Prerequisite* prereqs = nullptr; // +0x130 count +0x110
   AnimRefRec* anim_refs = nullptr; // +0x134 count +0x112
+  // PM's 0x10c-byte record in MW3's layout: PM inserts these at +0x20 (MW3's
+  // +0x20..+0xc3 are PM's +0x28..+0xcb) and keeps its sequences by pointer.
+  PathRef* pm_path = nullptr;      // PM only, +0x20, count +0x24 (none shipped)
+  int32_t pm_path_count = 0;
+  bool pm_reset = false;           // PM only, +0xd0: the reset sequence is optional (MW3 always has it)
+  SeqDef* pm_seq2 = nullptr;       // PM only, +0xd4: one more optional sequence (none shipped)
   const char* name() const { return reinterpret_cast<const char*>(raw); }
   uint8_t count(int off) const { return raw[off]; }
 };
 
 struct AnimMessage : Raw<0x24> {};  // +0x20 result of 0x575f90
+
+// PM only: the file's SI scripts, after the defs (0x008d3f14).
+struct SiScript : Raw<0x1c> {
+  char* name = nullptr;            // +0x00  length +0x08 (the zero included)
+  char* object = nullptr;          // +0x04  length +0x09
+  uint8_t* data = nullptr;         // +0x18  size +0x14
+};
 
 struct AnimState {
   Raw<0x44> block{};               // 0x0073f720, read whole from the file
@@ -79,6 +104,11 @@ struct AnimState {
   int32_t sounds_on = 1;           // 0x005ebbf0
   int32_t save_on = 1;             // 0x005ebcc0  0x005090d0: the registrants added at the start
   zcls::Node* player_node = nullptr;  // 0x0073f740 (block +0x20; the files hold 0, the setter is unknown)
+  // PM's block (0x008d3f00) is 0x6c bytes; its reader puts what MW3's has in
+  // `block` and keeps the file's here, for the fields MW3 lacks (pm-map.md).
+  Raw<0x6c> pm_block{};            // PM only
+  SiScript* pm_scripts = nullptr;  // PM only, 0x008d3f14  count +0x10
+  int32_t pm_script_count = 0;
   int16_t def_count() const { return block.get<int16_t>(0x0a); }
   int32_t message_count() const { return block.get<int32_t>(0x10); }
   // The globals the block covers (0x0073f720 + offset), kept in the block:
@@ -95,13 +125,15 @@ struct AnimHooks {
   void* (*create_puffer)();                                // 0x0054a710, gmod_puff
   void* (*find_sound)(const char* name);                   // 0x0056f6f0, zSound
   int32_t (*effect_index)(const char* name);               // 0x0050d9e0, zEffect
+  void (*destroy_puffer)(void* puffer);                    // PM only, 0x00565cb0: PM's reader undoes a def's puffers
 };
 AnimHooks& anim_hooks();
 
 void anim_set_world(void* world);         // 0x005090e0
 void anim_set_zbd_path(const char* path); // 0x005090f0
 void anim_allow_loading(int32_t on);      // 0x00509150
-int anim_read_zbd();                      // 0x0050a0e0
+int anim_read_zbd();                      // the running game's (zgame::Table): MW3's 0x0050a0e0
+int mw3_anim_read_zbd();                  // 0x0050a0e0
 Node* anim_find_in_tree(Node* node, const char* name);    // 0x005096d0
 int32_t anim_light_index(AnimDef* def, const char* name); // 0x005091e0
 int32_t anim_sound_index(AnimDef* def, const char* name); // 0x00509160
@@ -117,5 +149,7 @@ int32_t anim_shutdown();                                  // 0x0050b430
 int32_t anim_init();                                      // 0x00508fc0
 void anim_enable_save(int32_t on);                        // 0x005090d0
 void anim_register_savers();                              // the three zSave registrants (in 0x00508fc0)
+// Ours: the prerequisite FIX (bug)'s removal of entry k, for both games' readers.
+void anim_drop_prerequisite(AnimDef& d, int k);
 
 }  // namespace zeff

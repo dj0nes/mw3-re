@@ -5,6 +5,7 @@
 #include "gamez/zclass/cls_data.h"
 #include "gamez/zclass/list.h"
 #include "gamez/zerror/zerr.h"
+#include "gamez/zgame/zgame_table.h"
 #include "gamez/zrender/zrndr_fog.h"
 
 namespace zcls {
@@ -13,9 +14,11 @@ namespace {
 const char kFile[] = "C:\\zipper\\GameZMech3\\zClass\\Light.c";
 }  // namespace
 
+Node* light_create() { return zgame::game().zcls_light_create(); }
+
 // Mech3.exe 1.2 @ 0x004fa720. The node's bounds and the light's defaults
 // (mech3ax LightMwC), active, on list 9.
-Node* light_create() {
+Node* mw3_light_create() {
   Node* node = node_alloc();
   if (!node) return zerr::report(0x400, kFile, 0xb8, "Null node pointer."), nullptr;
   node->put(0x74, 1.0f), node->put(0x78, 1.0f), node->put(0x7c, -2.0f);

@@ -9,6 +9,9 @@ struct Archive;
 namespace zrdr {
 struct Node;
 }
+namespace zcls {
+struct Node;
+}
 
 // Ours, not the exe's: which game the shared engine runs (docs/games-layout.md).
 // An engine function Pirate's Moon changed is picked through the running
@@ -32,6 +35,13 @@ struct Table {
   zrdr::Node* (*zrdr_parse_text)(std::FILE* file);  // 0x005563d0; PM 0x005782f0
   // A world file, gamez.zbd (zcls/cls_zbd.h): PM's stacks onto what is loaded.
   int (*zcls_read_zbd)(const char* path);  // 0x004ff520; PM 0x00516bc0
+  // A new node, light and the active switch (zcls/cls_node.h, light.h):
+  // PM's node points at its box, its light data is 0x100 bytes.
+  zcls::Node* (*zcls_node_alloc)();                      // 0x004eacd0; PM 0x004fc550
+  int (*zcls_node_set_active)(zcls::Node* node, int on);  // 0x004eb170; PM 0x004fca50
+  zcls::Node* (*zcls_light_create)();                    // 0x004fa720; PM 0x0050e470
+  // A mission's anim.zbd (zeff/zeff_anim_init.h): PM's is version 50.
+  int (*zeff_anim_read_zbd)();  // 0x0050a0e0; PM 0x00523140
 };
 
 const Table& mw3_table();
