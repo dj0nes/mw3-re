@@ -32,6 +32,7 @@
 #include "mech3/app_mech.h"
 #include "mech3/app_sensors.h"
 #include "mech3/app_view.h"
+#include "mech3/player_view.h"
 #include "mech3/veh_basic.h"
 #include "mech3/cockpit_sound.h"
 #include "mech3/mech.h"
@@ -242,6 +243,16 @@ void wire_weapons(uint32_t (*log)(const char* key)) {
   c.node_position = [](Handle node, Vec3f* p) { return zcls::node_world_point(zn(node), &p->x); };  // 0x004ed650
   c.node_axis = [](Handle node) {  // node +0x38 +0x78: the world matrix's z row
     return reinterpret_cast<const Vec3f*>(static_cast<uint8_t*>(zn(node)->data) + 0x78);
+  };
+
+  c.view_width = [] {
+    PlayerView* v = program_view();
+    auto* n = v ? static_cast<zcls::Node*>(v->camera) : nullptr;
+    if (!n || !n->data) return 1.0f;
+    const auto* d = static_cast<const zcls::Camera*>(n->data);
+    // 4:3's half angle across is 4/3 the half angle down (0x0040d590).
+    const double t43 = std::tan(4.0 / 3.0 * static_cast<double>(d->get<float>(0xf4)));
+    return t43 > 0.0 ? static_cast<float>(std::tan(static_cast<double>(d->get<float>(0xf0))) / t43) : 1.0f;
   };
 
   zwep::RunHooks& r = zwep::run_hooks();
