@@ -98,6 +98,12 @@ From the damage code (damage.md).
   (engine hit in the torso, instant death in the head, a limp in a leg).
 - **Lasers never cause criticals.** Every laser is a beam weapon, and beams are
   excluded from the critical roll; PPCs, autocannons, missiles and Gauss can.
+- **Losing an arm makes the game read memory it just freed.** When an arm is
+  shot off, the game deletes its hand, then in the same frame asks every
+  weapon whether its part is under water, and the hand's weapons still point
+  at the deleted hand. Windows 98's memory manager left the old bytes in
+  place, so nothing happened; the rebuild keeps the hand's memory until the
+  next mission instead. (docs/fixes.md)
 - **A critical replaces the hit's damage.** When a critical is rolled, that
   hit's armor and structure damage is skipped, even if the critical has nothing
   to destroy.
@@ -701,6 +707,17 @@ From the weapon code (weapons.md).
 - **Every turn costs a homing missile speed**: it keeps 0.8 + 0.2 cos(turn) of
   its speed each frame it turns, and over its first LOCK_ON seconds the
   shooter's own speed fades out of it.
+- **Missiles keep chasing a mech that dies.** A locked missile follows a
+  live point in its target's body, and a destroyed mech stays in the world
+  as a wreck, so a salvo in flight when its target dies flies on into the
+  wreck as it falls (0x005a8630, 0x00585900). A missile fired with no
+  target selected flies straight.
+- **Missiles from an arm can leave sideways and then curve.** A weapon off
+  the centre torso fires straight along its part's facing when the target is
+  more than about 27 degrees to the side (0x004b36e0); a locked missile then
+  turns toward its target in flight, so a twisted mech's LRMs and Streaks
+  bend round in a wide arc, and a slow-turning LRM can miss a mech crossing
+  its path, fly on past it and come down in the ground.
 - **Long straight shots can pass through the nearest wall.** A cannon shot
   looks up every building along its whole range once, when it is fired, and
   then meets them in that list's order. The list is not fully sorted (the
