@@ -43,10 +43,18 @@ From the [Releases](../../releases) page:
 | Linux | `MW3-Rebuild-<version>-x86_64.AppImage` | Make it executable (`chmod +x`) and run it. |
 
 **On a Mac, the first time:** the app is not signed by Apple, so macOS stops
-it the first time you open it. Right-click (or Control-click) the app, choose
-**Open**, then **Open** again. Or, after macOS has blocked it once, go to
-**System Settings > Privacy & Security** and click **Open Anyway**. macOS
-remembers your choice after that.
+it the first time you open it ("MechWarrior 3 Not Opened"; click **Done**,
+not Move to Trash).
+
+- **macOS 15 Sequoia and later:** open **System Settings > Privacy &
+  Security**, scroll down to the line about MechWarrior 3, click **Open
+  Anyway**, then **Open** (and your password if asked). Right-click > Open
+  no longer gets past it on these versions.
+- **macOS 12 to 14:** right-click (or Control-click) the app, choose
+  **Open**, then **Open** again. Open Anyway in Privacy & Security works
+  there too.
+
+macOS remembers your choice after that.
 
 **On Windows**, SmartScreen may warn about an unknown publisher: click
 **More info**, then **Run anyway**.
@@ -58,41 +66,40 @@ your install: where the original installer put it, `Program Files`,
 `C:\Games`, a Wine, Proton or Lutris copy on Linux and the Mac, or a copy it
 installed itself earlier. It says which version it found in its log.
 
-**If it finds none**, it shows only its setup screen, and once the game is
-there it goes straight on into it:
+**If it finds none**, choosing MechWarrior 3 opens a screen that finds
+your game (a plain `mw3` start shows only that screen), and once the game
+is there it goes straight on into it:
 
-- **Point to your game**: pick whatever you have, and it works out the rest.
-  - your installed MechWarrior 3 (its `Mech3.exe`, or **a folder
-    instead** for its folder);
-  - the disc, or a disc image: an `.iso`, or a `.cue` with its `.bin` files,
-    whose CD audio becomes the music;
-  - the file you downloaded: a `.zip`, `.7z` or `.rar` holding any of
-    those, even a zip inside a zip. Nothing needs unpacking by hand.
+- **Find the game** searches this computer and your disc drives first and
+  uses what it finds, with nothing to pick. If there is nothing, one
+  picker opens: choose a disc image or download (an `.iso`, a `.cue` with
+  its `.bin` files, whose CD audio becomes the music, or a `.zip`, `.7z` or
+  `.rar` holding any of those, even a zip inside a zip; nothing needs
+  unpacking by hand), or `Mech3.exe` (or any file) in an installed copy,
+  which means that whole folder.
   It looks inside first and says what it found ("The MechWarrior 3 disc
-  version 1.0, with its music (2 CD tracks)"), then installs it into a
-  folder of the rebuild's own, with a progress bar and **Cancel**. An
-  installed copy is used where it is. No Windows and no original installer
-  needed. Pirate's Moon is recognised, but its support comes later.
-- **Search again**: looks for an install again (after you moved one), and
-  for a disc in a drive.
-- **Apply the 1.2 patch**: shown only for game data of a version the
-  rebuild does not know (a mod, or another release). Versions 1.0 and 1.2
-  need nothing: 1.0 plays as 1.2. Give it the official patch's `.zip`;
-  your install is not changed.
-- **Add the music from my disc image**: see below.
+  version 1.0, with its music (2 CD tracks)"), then copies what the game
+  needs into a folder of the rebuild's own, with a progress bar and
+  **Cancel**. An installed copy is used where it is. No Windows and no
+  original installer needed. Versions 1.0 and 1.2 both work as they are:
+  1.0 plays as 1.2. Pirate's Moon is recognised, but its support comes later.
 
 If something is wrong (not enough space, a damaged download, a file that
 is not MechWarrior 3) it says so in plain words and changes nothing.
 
-- **The launcher**, installed as "MechWarrior 3" (the main and desktop
-  shortcut on Windows, the Mac's "MechWarrior 3.app", the Linux desktop
-  entry), is the rebuild's own front screen: the games, and SETUP with the
-  same buttons. It starts the game and closes as soon as the game's first
-  frame is on screen (if the game fails to start, it stays and says so). The game also has
-  its own Start-menu entry on Windows, "MechWarrior 3 (no launcher)", and
-  `mw3` starts it directly anywhere.
-- On the first start it also tells you anything worth knowing about your
-  copy (no music yet, or game files of an unknown version).
+- **The launcher**, installed as "MechWarrior 3" (the Start-menu and
+  desktop shortcut on Windows, the Mac's "MechWarrior 3.app", the Linux
+  desktop entry), is the rebuild's own front screen: the games. It starts
+  the game and closes as soon as the game's first frame is on screen (if
+  the game fails to start, it stays and says so). **Game files** there
+  opens the same find-your-game screen at any time: to use another copy,
+  install again from your disc, or add movies and music it lacks. `mw3`
+  (`mw3.exe`) also starts the game directly. The arrow keys and a gamepad
+  work in the launcher as well as the mouse.
+- Before the first game it tells you anything worth knowing about your
+  copy: no movies (a CD-type install leaves them on the disc), no music, or
+  game files of an unknown version. **Add from my disc** there takes what
+  is missing from your disc in a drive, a disc image or the disc's folder.
 - **The movies** play from your own copy. Where they cannot be played
   directly, the rebuild converts them once, the first time (about a minute).
 
@@ -103,8 +110,8 @@ Your MechWarrior 3 files are only ever read, never changed.
 The original played its music from the CD's audio tracks, which an
 installed copy does not have. Two ways to get it back:
 
-- With a disc image (a `.cue` and its `.bin`): **SETUP > Add the music from
-  my disc image**.
+- With a disc image (a `.cue` and its `.bin`): **Add from my disc** on the
+  notes before your first game (installing from the `.cue` takes it at once).
 - Your own rip: put the tracks in the rebuild's `music` folder (below) as
   `track02.ogg`, `track03.ogg` and so on (or `.flac`, `.wav`, `.mp3`),
   numbered as on the CD.
@@ -114,7 +121,10 @@ installed copy does not have. Two ways to get it back:
 - The game runs fullscreen at your desktop's resolution, widescreen
   included. **Alt+Enter** switches between fullscreen and a window.
 - In a window, press and release **Ctrl+Alt** to free the mouse; click in
-  the window to take it back.
+  the window to take it back. Switching away frees it too, and coming back
+  to a mission (Cmd+Tab, Alt+Tab or a click) takes it again at once; that
+  click does not fire.
+- **Options > Graphics & Audio > Mouse sensitivity** (ours) sets how fast the mouse aims in a mission; it starts at the original's setting.
 - Gamepads work as they did on Windows 98, and force feedback becomes rumble.
 - On a widescreen every screen uses the whole width: the missions, the
   menus, the mech lab, the briefings and the multiplayer screens. For the
@@ -174,6 +184,28 @@ To play exactly as the original did, turn the fixes off: start with
 `--original`, or put the line `bugfixes=0` in `mw3.cfg` (in the folder
 below). The changes the game needs to run on a modern computer stay on.
 
+### Cheat codes
+
+The rebuild adds cheat codes (ours, not in the original) for the campaign,
+Instant Action and training; a network game refuses them. In a mission,
+press **Shift+Enter** (or **Keypad \*** or **Keypad −**) to open a one-line
+box, type a code and press **Enter**; **Esc** closes it. The mission keeps
+running while you type. Capitals and extra spaces don't matter. A code
+lasts until the mission ends; the ones that switch something on switch it
+off when typed again. The message panel says what was turned on or off.
+
+| Code | What it does |
+|---|---|
+| `black sheep wall` | Every mech and vehicle on the radar, at any range |
+| `power overwhelming` | Your mech takes no damage |
+| `operation cwal` | Your weapons reload and your mech cools ten times as fast |
+| `food for thought` | Maximum salvage: every chance in the salvage goes your way |
+| `there is no cow level` | Wins the mission: every enemy mech and vehicle destroyed by you and salvaged whole, every objective done |
+| `game over man` | Loses the mission |
+
+A mission won with a code counts as won. In a network game the keypad keys
+stay the chat's. More in [docs/cheats.md](docs/cheats.md).
+
 ## Mods
 
 The rebuild loads mods: folders of game data in a `mods` folder inside the
@@ -197,6 +229,15 @@ no mods turned on, nothing changes. How to make one:
 It holds `mw3.cfg`, your pilots and saves, the settings, the converted movies
 and the music, and `mw3.log`. Uninstalling the rebuild keeps it; deleting it
 starts you over.
+
+## Known issues
+
+- **macOS: window tools can delay the mouse button by about a second.**
+  Tools that filter mouse clicks to snap or move windows (Magnet and
+  similar) can hold each mouse-button press back, so in a mission the mouse
+  fires only when you let go. The keyboard is not affected. Quit the tool
+  while you play, or add MechWarrior 3 to its excluded apps if it has that
+  setting.
 
 ## Reporting a bug
 

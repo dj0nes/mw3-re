@@ -27,6 +27,11 @@ ChatPanel::ChatPanel(bool all, Mech* m) : to_all(all ? 1 : 0), mech(m) {
   if (editor) editor->resize(0x29);
 }
 
+ChatPanel::ChatPanel(const char* title, Mech* m) : to_all(1), mech(m) {
+  set_text("%s", title);
+  if (editor) editor->resize(0x29);
+}
+
 // Mech3.exe 1.2 @ 0x0041e660: the text after the prompt's '>', trimmed; a
 // new line; sent unless empty (and kept, " %s"); the panel closed.
 void ChatPanel::line_entered() {

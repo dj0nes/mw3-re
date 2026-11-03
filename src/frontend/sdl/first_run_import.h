@@ -11,9 +11,6 @@
 
 namespace sdlfe {
 
-// The install's movies the write dir has not imported yet (lower-case names).
-int movies_missing(const std::string& install, const std::string& write_dir);
-
 // The import, if one is due: `force` runs it even after a failed attempt
 // (the write dir's video\import-failed). False when it could not run or
 // failed; the game goes on either way.

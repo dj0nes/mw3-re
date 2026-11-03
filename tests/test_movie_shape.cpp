@@ -1,7 +1,14 @@
 // The movies' shapes on a wide screen (mech3/movie_shape, docs/fmv.md
 // section 8): a frame's lit rows, the runs a movie is cut into, the play's
-// rule while a shape is not known yet, the cache's lines.
+// rule while a shape is not known yet, the cache's lines, the store (the
+// built-in table, the cache over it, measuring only between plays).
+#include <atomic>
+#include <chrono>
+#include <cstdio>
+#include <filesystem>
+#include <fstream>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "check.h"
@@ -133,3 +140,110 @@ TEST(movie_shape_cache_lines) {
   for (const char* bad : {"", "k", "k 5:whole", "k 0:whole 0:whole", "k 0:9-3", "k 0:wide", "k 0:-4-9", "k 0"})
     EXPECT(!mech3::movie_shape_parse(bad, &key, &back));
 }
+
+namespace {
+// A fresh cache path in the test's temp dir.
+std::string shapes_cache(const char* name, const char* text = nullptr) {
+  const std::string dir = std::string(MW3_TEST_TMP) + "/movie_shapes";
+  std::filesystem::create_directories(dir);
+  const std::string path = dir + "/" + name + ".txt";
+  std::filesystem::remove(path);
+  if (text) std::ofstream(path) << text;
+  return path;
+}
+// A measurement of `frames` frames, each through the gate; counts what it did.
+struct FakeMeasure {
+  std::atomic<int> calls{0}, frames_done{0};
+  int frames = 30;
+  mech3::MovieShapeStore::Measure fn() {
+    return [this](const mech3::MovieScanGate& gate, std::vector<MovieFrameScan>* f, int32_t* w, int32_t* h) {
+      ++calls;
+      *w = 640, *h = 480;
+      for (int i = 0; i < frames; ++i) {
+        if (!gate()) return false;
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        f->push_back(frame(80, 400, 50));
+        ++frames_done;
+      }
+      return true;
+    };
+  }
+};
+}  // namespace
+
+// Every shipped movie is in the table (19, the same in 1.0 and 1.2 and on
+// the disc): opened, it is known at once and nothing is measured.
+TEST(movie_shape_stock_movies_start_with_no_measurement) {
+  EXPECT(mech3::movie_shape_table().size() == 19);
+  mech3::MovieShapeStore store(shapes_cache("stock"));
+  FakeMeasure m;
+  for (const char* key : {"intro/2737/640x480", "c4win/1083/640x480", "c3m5/751/640x480", "c1m1/690/640x480"}) {
+    store.open(key, 15, m.fn());
+    EXPECT(store.known(key) && !store.measuring());
+    store.play_end();
+  }
+  EXPECT(m.calls == 0);
+  mech3::MovieShapePlay play;
+  int16_t t = 0, b = 0;
+  EXPECT(store.rows("intro/2737/640x480", &play, 0, &t, &b) && t == 79 && b == 400);
+  mech3::MovieShapePlay c4;
+  EXPECT(store.rows("c4win/1083/640x480", &c4, 0, &t, &b) && t == 98 && b == 378);
+  EXPECT(!std::filesystem::exists(shapes_cache("stock")));  // nothing written
+}
+
+// A movie the table does not have plays at once, whole: the measurement
+// waits while it plays and runs after, cached for the next play.
+TEST(movie_shape_unknown_movie_is_measured_after_its_play) {
+  const std::string cache = shapes_cache("unknown");
+  const std::string key = "mymod/30/640x480";
+  {
+    mech3::MovieShapeStore store(cache);
+    FakeMeasure m;
+    const auto t0 = std::chrono::steady_clock::now();
+    store.open(key, 15, m.fn());
+    const auto opened = std::chrono::steady_clock::now() - t0;
+    EXPECT(opened < std::chrono::milliseconds(30));  // the measurement alone takes 60 ms
+    mech3::MovieShapePlay play;
+    int16_t t = 0, b = 0;
+    for (int f = 0; f < 20; ++f) {
+      EXPECT(!store.rows(key, &play, f, &t, &b));  // whole while measuring
+      std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    EXPECT(m.frames_done == 0 && store.measuring());  // nothing decoded beside the play
+    store.play_end();
+    store.wait_measured();
+    EXPECT(m.frames_done == 30 && store.known(key));
+  }
+  std::ifstream in(cache);
+  const std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+  EXPECT(text.find(key + " 0:80-400") != std::string::npos);
+  // The next start knows it from the cache.
+  mech3::MovieShapeStore again(cache);
+  FakeMeasure m2;
+  again.open(key, 15, m2.fn());
+  EXPECT(again.known(key) && m2.calls == 0);
+  again.play_end();
+}
+
+// The write dir's cache wins over the table (a player's own measurement).
+TEST(movie_shape_cache_wins_over_the_table) {
+  mech3::MovieShapeStore store(shapes_cache("over", "# x\nintro/2737/640x480 0:whole\n"));
+  mech3::MovieShapePlay play;
+  int16_t t = 0, b = 0;
+  EXPECT(store.known("intro/2737/640x480") && !store.rows("intro/2737/640x480", &play, 0, &t, &b));
+  mech3::MovieShapePlay c4;
+  EXPECT(store.rows("c4win/1083/640x480", &c4, 0, &t, &b) && t == 98);  // the table's still
+}
+
+// Stopped while waiting for a play to end (the program quitting mid-movie):
+// nothing is cached, and the store's end does not hang.
+TEST(movie_shape_store_stops_while_waiting) {
+  const std::string cache = shapes_cache("stop");
+  FakeMeasure m;
+  {
+    mech3::MovieShapeStore store(cache);
+    store.open("quit/30/640x480", 15, m.fn());
+  }
+  EXPECT(m.frames_done == 0 && !std::filesystem::exists(cache));
+}
+

@@ -210,10 +210,7 @@ Result install_from_source(const source::Found& found, const std::string& out_di
       r.cancelled = true;
       return abandon("The installation was cancelled. Nothing was changed.");
     }
-    fs::remove_all(out, ec);
-    fs::create_directories(out.parent_path(), ec);
-    fs::rename(tmp, out, ec);
-    if (ec) return abandon("The game could not be written to " + out_dir + ": " + ec.message() + ".");
+    if (!swap_in_folder(tmp, out.string(), ec)) return abandon("The game could not be written to " + out_dir + ": " + ec.message() + ".");
     r = check_install(out_dir, write_dir);
     r.detail = found.detail;
     for (const std::string& l : s.log) r.detail += l + "\n";
@@ -286,6 +283,99 @@ Result apply_patch(const std::string& source, const std::string& write_dir, cons
                     "patch's .zip, or the folder you unpacked it into."
                   : "That patch is incomplete or damaged: " + std::to_string(i.found) +
                         " of its 28 files were found. Nothing was changed. Try another copy of the patch.";
+  return r;
+}
+
+Result add_movies(const std::string& source, const std::string& video_dir, const ProgressFn& progress) {
+  const ProgressFn p = forward_only(progress);
+  Result r;
+  Disc disc;
+  std::string err;
+  if (!disc.open(source, &err)) {
+    r.detail = err;
+    r.summary = "That could not be read as the MechWarrior 3 disc: a disc in a drive, a disc image (.cue or .iso) or "
+                "the disc's folder.";
+    return r;
+  }
+  std::vector<const Disc::File*> movies;
+  uint64_t total = 0;
+  for (const Disc::File& f : disc.files()) {
+    std::string l = f.path;
+    for (char& c : l) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    if (l.rfind("video/", 0) == 0 && l.find('/', 6) == std::string::npos && l.size() > 10 &&
+        l.compare(l.size() - 4, 4, ".avi") == 0)
+      movies.push_back(&f), total += f.size;
+  }
+  if (movies.empty()) {
+    r.summary = "That has no VIDEO folder with the movies, so it is not the MechWarrior 3 disc.";
+    return r;
+  }
+  const fs::path tmp = video_dir + ".new";
+  std::error_code ec;
+  fs::remove_all(tmp, ec);
+  fs::create_directories(tmp, ec);
+  std::vector<uint8_t> buf(1 << 20);
+  uint64_t done = 0;
+  for (const Disc::File* f : movies) {
+    const std::string name = fs::path(f->path).filename().string();
+    std::FILE* out = std::fopen((tmp / name).string().c_str(), "wb");
+    bool ok = out != nullptr;
+    for (uint64_t at = 0; ok && at < f->size;) {
+      const size_t n = static_cast<size_t>(std::min<uint64_t>(buf.size(), f->size - at));
+      ok = disc.read(*f, at, n, buf.data()) && std::fwrite(buf.data(), 1, n, out) == n;
+      at += n, done += n;
+      if (ok && !p(Progress{"Copying the movies", total ? static_cast<double>(done) / static_cast<double>(total) : 0, name}))
+        r.cancelled = true, ok = false;
+    }
+    if (out && std::fclose(out) != 0) ok = false;
+    if (!ok) {
+      fs::remove_all(tmp, ec);
+      r.summary = r.cancelled ? "Cancelled. The movies were not changed."
+                              : "The movie " + name + " could not be copied: the disc may be damaged, or the disk full.";
+      return r;
+    }
+  }
+  fs::create_directories(video_dir, ec);
+  for (const auto& e : fs::directory_iterator(tmp, ec)) {
+    const fs::path to = fs::path(video_dir) / e.path().filename();
+    fs::remove(to, ec);
+    fs::rename(e.path(), to, ec);
+  }
+  fs::remove_all(tmp, ec);
+  p(Progress{"Done", 1, ""});
+  r.ok = true, r.movies = static_cast<int>(movies.size()), r.bytes = total;
+  r.summary = std::to_string(r.movies) + (r.movies == 1 ? " movie was" : " movies were") + " added.";
+  return r;
+}
+
+Result add_from_disc(const std::string& source, const std::string& video_dir, const std::string& music_dir,
+                     const ProgressFn& progress) {
+  const ProgressFn p = forward_only(progress);
+  std::string ext = fs::path(source).extension().string();
+  for (char& c : ext) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+  const bool both = !video_dir.empty() && !music_dir.empty();
+  Result r;
+  if (!video_dir.empty()) {
+    r = add_movies(source, video_dir, [&](const Progress& g) {
+      return p(Progress{g.stage, both ? g.fraction * 0.6 : g.fraction, g.message});
+    });
+    if (!r.ok || music_dir.empty()) return r;
+  }
+  if (music_dir.empty()) return r;
+  if (ext != ".cue") {  // a drive, a folder or an .iso: no CD audio to read
+    const std::string why = "The music comes only from a disc image that kept the CD audio (a .cue with its .bin files).";
+    if (r.ok) r.warnings.push_back(why);
+    else r.summary = why;
+    return r;
+  }
+  const Result m = add_music(source, music_dir, [&](const Progress& g) {
+    return p(Progress{g.stage, both ? 0.6 + g.fraction * 0.4 : g.fraction, g.message});
+  });
+  if (video_dir.empty()) return m;
+  r.music_tracks = m.music_tracks, r.cancelled = m.cancelled;
+  if (m.ok) r.summary += " " + m.summary;
+  else r.warnings.push_back(m.summary);
+  if (!m.detail.empty()) r.detail += m.detail;
   return r;
 }
 

@@ -14,6 +14,7 @@
 #include "gamez/zutil/zfix.h"
 #include "gamez/zweapon/zweapon.h"
 #include "mech3/mech_names.h"
+#include "mech3/cheats.h"
 
 #pragma STDC FP_CONTRACT OFF
 
@@ -1350,6 +1351,7 @@ void Weapon::update(float dt) {
     part = part_of(owner, firepoint);
     node = node_of(part);
   }
+  dt *= cheat_rate(manager->owner && manager->owner == g_world.mission_player);  // ours: operation cwal (cheats.h)
   if (reload > dt) {
     reload = reload - dt;
     if (manager->owner == g_world.mission_player && t->recharge_sound && !recharge_sound && g_calls.play_loop)
@@ -1457,6 +1459,18 @@ bool Weapon::aim_and_fire(const Vec3f* at, bool force) {
   return fire(vel);
 }
 
+// The cone's cosine (0.89, about 27 degrees). FIX (bug): wider than 4:3, the
+// player's reticle reaches past it, and beams snapped to the part's line at
+// the old 4:3 edge; the cone widens with the view so the snap starts at the
+// same place on screen (fixes.md).
+static double cone_cos(Handle owner) {
+  constexpr double kCos = 0.89;
+  const float r = zfix::options().bugs && is_player(owner) && g_calls.view_width ? g_calls.view_width() : 1.0f;
+  if (!(r > 1.0f)) return kCos;
+  const double t = std::sqrt(1.0 - kCos * kCos) / kCos * r;
+  return 1.0 / std::sqrt(1.0 + t * t);
+}
+
 // Mech3.exe 1.2 @ 0x004b36e0: the muzzle (the firepoint, spread out, in the
 // world) and the direction to `at`. Weapons off the centre torso keep within
 // about 27 degrees (cos 0.89) of their part's facing.
@@ -1490,7 +1504,7 @@ bool Weapon::aim(Vec3f* at, Vec3f* mz, Vec3f* dir, const Vec3f*) {
       const int32_t id = pn && g_calls.node_id ? g_calls.node_id(pn) : -1;
       if (id == 1) return true;
       const float d = dot(back, *dir);
-      if (static_cast<double>(d) < 0.89) *dir = back;
+      if (static_cast<double>(d) < cone_cos(owner)) *dir = back;
       return true;
     }
     *dir = back;

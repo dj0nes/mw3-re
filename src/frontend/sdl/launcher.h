@@ -1,9 +1,10 @@
 #pragma once
 // The launcher and the first-start setup (ours, not original code;
 // docs/launcher.md): the first screen of a player's start, before any
-// movie. It finds the MechWarrior 3 install quietly, offers the games, and
-// when there is no install a setup screen with buttons (find it, install from
-// the disc or an image, the 1.2 patch, the music) over mech3::setup. Its art
+// movie. It finds the MechWarrior 3 install quietly and offers the games; a
+// game without its files opens the find screen (find it, install from the
+// disc, an image or a download), and the notes offer what an install lacks
+// (the movies, the music) from the disc, over mech3::setup. Its art
 // is ours (assets/launcher); the ripple under the mouse is the main menu's
 // (zrndr::ripple, 0x00558dd0).
 #include <string>
@@ -21,10 +22,10 @@ struct LauncherOptions {
   bool fullscreen = true;
   bool sound = true;  // the main menu's rollover and select sounds from the install (off with --nosound)
   int win_w = 1280, win_h = 960;
-  // For checking (--launcher-shot FILE [--launcher-screen main|setup|work]):
+  // For checking (--launcher-shot FILE [--launcher-screen main|setup|pick|work|notes|disc]):
   // the screen drawn once into FILE (a BMP of the 640x480 canvas), no window shown.
   std::string shot, screen = "main";
-  // A plain mw3 start that found no install (docs/games-layout.md): the SETUP
+  // A plain mw3 start that found no install (docs/games-layout.md): the find
   // screen alone, straight on into the game once there is one.
   bool setup_only = false;
   // mw3launcher (docs/launcher.md, The two programs): MECHWARRIOR 3 starts
@@ -33,6 +34,7 @@ struct LauncherOptions {
   std::string game_bin;
   std::vector<std::string> game_args;
   bool hidden = false;  // --hidden: the window never shown (checks), passed on to the game
+  bool no_import = false;  // --no-import: no movie conversion here (passed on to the game)
   bool play = false;  // --launcher-play: MECHWARRIOR 3 pressed once the window is up (checks)
   bool quit_after_game = false;  // with play: quit when the game exits (checks)
   bool play_mw1 = false;  // --launcher-mw1: MECHWARRIOR (1989) pressed once, then quit when it returns (checks)

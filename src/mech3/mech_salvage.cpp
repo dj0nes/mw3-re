@@ -5,6 +5,7 @@
 #include "mech3/mech_config.h"
 #include "mech3/mech_names.h"
 #include "mech3/pilot.h"
+#include "mech3/cheats.h"
 
 namespace mech3 {
 
@@ -39,7 +40,8 @@ bool add_weapons(Store& s, SalvageMech& m, int32_t tech, const SalvageCalls& c) 
 bool add_salvage(Store& s, SalvageMech& m, const SalvageCalls& c) {
   if (!m.has_data || m.type == kElemental) return false;
   bool mech = !m.torso_gone || m.head_gone;
-  if (mech && (m.leg_gone[0] || m.leg_gone[1])) mech = (c.rand() & 1) != 0;
+  // Ours: food for thought wins the coin (cheats.h).
+  if (mech && (m.leg_gone[0] || m.leg_gone[1])) mech = cheats().max_salvage || (c.rand() & 1) != 0;
   if (mech) s.add_mech(m.type);
   add_weapons(s, m, m.tech, c);
   if (m.config) {
@@ -59,7 +61,7 @@ bool add_salvage(Store& s, SalvageMech& m, const SalvageCalls& c) {
 
 // Mech3.exe 1.2 @ 0x00472ec0
 bool add_vehicle_salvage(Store& s, SalvageMech& m, const SalvageCalls& c) {
-  if (!(c.rand() & 1)) return true;
+  if (!cheats().max_salvage && !(c.rand() & 1)) return true;  // ours: food for thought wins it (cheats.h)
   return add_weapons(s, m, 1, c);
 }
 

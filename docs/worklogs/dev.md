@@ -2676,3 +2676,152 @@ Assigned after 8b2 merged (fd3f05f). The lead asked for a section stepped at bot
   test_veh_dock (the W8/W16 stuck check's start behind bugs), test_command
   (CHAT_TEAM / CHAT_ALL back through the command's other hook).
 - Next: the lead's.
+
+## W40: the Mac's mouse never fires (2026-11-02)
+
+- Owen's probe log: every click focused, captured, relative, not muted,
+  the buttons down for the hold, and the trigger never set; Space set it.
+  Not SDL, focus or the take-back. Owen's saved DefaultCmdMap: TRIGGER1
+  0x3d on Space and joystick 1, no mouse button, nothing on mouse 1.
+- Cause: zInput's map is the settings' block (SdlZinHost::settings_block),
+  saved at exit by the app's destructor; a network match's quit box
+  (0x0048e2d0, W44) unbinds mouse 1 while up, so a program closed with it
+  up saved the map without it, for every later game. Fix (bug, always):
+  GameEngine::input_maps_free closes an open quit box first.
+- Test: playtest_w40_quit_box_at_exit_keeps_the_mouse_fire_headless (bug
+  fixes off; the box up at the exit, the next start reads mouse 1 on
+  TRIGGER1). Break: without the close, the next start has it unbound.
+- The test's zin host answers settings_block as the SDL host does; the
+  usual test host keeps the map in memory, so no test saw it saved.
+- Doubled down/up/down in one ms: SDL's Cocoa button reconcile on a
+  trackpad tap, likely; it ends down for the hold, harmless.
+- The lead's follow-up: a map an older build saved that way is mended at
+  its load (controls_repair_mouse_fire, from the engine's controls_load
+  hook so the probes do not see it): TRIGGER1 without a mouse button and
+  button 1 on nothing. The registry's read leaves the reverse tables the
+  defaults' (mouse_command(1) still 0x3d), so it sets the word and the
+  table entry, not bind_mouse. Tests: the unit one in test_controls_cfg,
+  and the playtest test's damaged and rebound saved maps; three breaks.
+- The lead's sturdier version (Owen): the live map is never written. A
+  kept copy (controls_keep_saved) is taken at the load (after the read,
+  the file, the tables' rebuild and the repair) and at the controls
+  screen's ACCEPT and its load/save box (load, save, both resets, CANCEL's
+  re-read); both settings writes (0x40cb20, the options' ACCEPT) go
+  through controls_write_settings. The exit close of the quit box is gone.
+  The tables are rebuilt after the read (zin::map_refresh), so the box
+  frees the button really bound and the repair uses bind_mouse.
+- Tests: the playtest one (box at exit, a broken map, a rebound one) and
+  the controls screen's ACCEPT saved and read back, CANCEL not saved; four
+  breaks (the live map written, no keep at ACCEPT, no rebuild, no repair).
+- The blink/clickthrough candidate is held on mac4/w40-candidate.
+
+## W40's lag: Magnet (2026-11-02)
+
+- External: Magnet's filtering event tap on left-mouse-down (CGGetEventTapList:
+  998.9 ms measured). Probe runs: the down reached SDL after its up, macOS's
+  pressedMouseButtons 0 through the press, with relative mode off (B) and
+  with the run loop serviced each frame (C1/C2); on time with Magnet quit (C).
+- README known issues, the release notes' line, W40 closed in playtest.md, a
+  porting-lessons item (list the taps first). The probe branch
+  (mac4/w40-probe2) stays off main.
+
+## Launcher for v1.0 (2026-11-02)
+
+- Hover: only the round badges ripple; square plates light their edge in
+  amber (34e87eb4). Text: a space under a fifth of the font's size is
+  doubled (DIN Condensed, "MechWarrior 3was"; b97b76e7).
+- Rework (Owen and the lead): the games and QUIT only; a game without its
+  files opens the find screen (the explanation, FIND MY GAME: the finder and
+  the drives first, else A DISC IMAGE OR DOWNLOAD / A FOLDER; BACK). Found or
+  installed: straight into the game, through the notes when the install
+  lacks movies or music (their OK the start). The notes' ADD FROM MY DISC:
+  setup::add_from_disc (add_movies: VIDEO\*.AVI from a drive, a folder, an
+  .iso or a .cue into <write dir>/video; the music from a .cue). The game
+  finds the write dir's movies first; first_run_import converts them too.
+  Gone: Setup, Folder instead, Search again, the patch (kept unreachable).
+  The installer's no-launcher shortcut dropped.
+- Each screen logs its plates; MW3_LAUNCHER_PICK also presses the notes' OK.
+- Open for the lead: after the notes' OK nothing offers ADD FROM MY DISC
+  again (no Setup); the first-run import of the write dir's movies has no
+  unit test (mw3-only code).
+
+## W47: the menu music under the campaign's movie (2026-11-02)
+
+- Headless: Campaign, a pilot, ACCEPT; the CD looped through fmv.zrd's
+  "campaign" movie (played from the campaign GameMenuState, which has no
+  screen for shell_resume to reactivate) and stopped at the Load state (the
+  main menu's end, 0x485780). The original's code does the same: its CD
+  stops are 0x47fa10, 0x481fc0, 0x485780, 0x4ac290, 0x590bd0 and
+  play_sounds 0x59ef60 (stop_sounds is only called with 0); its movie code
+  uses MCI only for MPEGVideo. In 1999 the drive reading the movie stopped
+  the audio.
+- FIX (A): GameEngine's movie hooks pause the CD music under a movie and
+  resume it after (only the movie that paused it, only while still
+  paused); the attract movie's own pause left alone. Test and two breaks.
+- The lead: no blip. The resume waits a pass (timer_update) and happens
+  only in the same state with the CD still paused; the test checks the
+  menu music is never heard between the movie and the briefing (break:
+  resume at once). Three breaks.
+
+## The launcher's one picker (2026-11-02, before v1.0)
+
+- Owen: one option. FIND THE GAME searches (an installed copy or a disc in
+  a drive used with no picker); with nothing found it says so and opens one
+  file picker. sdlfe::pick_source: an image or archive is the source, any
+  other file its folder (install_of_pick: zbd\ and video\ up one), a .bin
+  its .cue. ADD FROM MY DISC: a drive first, then the same one picker. The
+  two-plate pick states are gone. SDL 3.4 has no file-or-folder dialog (the
+  Mac's panel included), so a folder is picked by one of its files.
+- launcher_one_picker_takes_a_file_for_its_folder (two breaks); the screen
+  tests on the new plates; mingw syntax check of the changed files.
+
+## The Mac's fresh-install findings (2026-11-02, before v1.0)
+
+- Gatekeeper on macOS 15+: README and release notes give Privacy &
+  Security > Open Anyway > Open; right-click Open for 12 to 14.
+- The 1.0 data warnings (BindPrimitive LINES1/OPTIONTEXT, BindButton
+  CALL_BUTTON/PLAYER_NAME, action_line6/7 not found): the same six lines
+  with 1.2 data (mw3 run on the 1.2 copy to the menus); both versions'
+  dialog.zrd name them, no data has the images, 1.2 changed only the MP
+  chat arrows there. The original data's own; nothing for patch12.
+- The movies converted in the launcher (movie_import.h shared with mw3's
+  fallback): before the game and after ADD FROM MY DISC, on the work
+  screen, cancelable; not on Windows; --no-import / MW3_NO_IMPORT /
+  MW3_IMPORTER (a stand-in for the test).
+- The picker: SDL's sheet NSOpenPanel answered through a main run loop the
+  vsync frame loop served once a frame; while it is up the launcher waits in
+  SDL_WaitEventTimeout and logs the call, the focus and the answer.
+- Mouse sensitivity (Owen): a slider of ours, moved (the lead) from under
+  INVERT MOUSE Y, where the 200-pixel image ran past the panel, to GRAPHICS &
+  AUDIO among the volumes (MUSIC/SFX up 10, VIDEO_DEVICE down 12)
+  (patch12::apply_ours: our own record edits on any data, the graphics
+  screen's slider art, the label spaced like the original's), MouseAccelX and
+  Y's magnitude with Y keeping the invert sign, 0.5..3.0 in tenths, 1.3 by
+  default; bound only in the program (options_sensitivity_slider), so the
+  probes run the original's screen. Menus keep 1.3 (CoreState::leave).
+- The lead asked whether a mission's end loses the sensitivity: no.
+  CoreState::leave's 1.3 goes through 0x0051b790 into zInput's working copy
+  (0x005ece48/4c); the registry entries are the options' (0x005f4d2c/30).
+  Proven by a round trip (2.5 inverted, c1m1, pause QUIT, the program's
+  end, the next start and its mission). Then Owen's rule: MouseAccelX/Y
+  kept like the map (settings_keep_mouse at the load and the options'
+  apply), the writes saving the kept values; break: the live ones written.
+
+## W48 and W35 again: c3m5 on Owen's 1.0 data (2026-11-02)
+
+- The MFB parts vanishing at 16:9 were not the frustum (the planes are wide,
+  and on 1.2's data every culled part really is off screen). Owen's PC plays
+  1.0's data. patch12's c3 world rebuild wrote each model's payload offset at
+  header +0x00 (the type) instead of +0x5c, so every c3 model had a junk
+  type: model_box (0x53b4e0) gave no box for types other than 0 and 1, the
+  parts culled as points at their pivots, and the facades drew unturned.
+  Fixed in patch12_world.cpp; patch12_c3_world_reads_as_12s checks each
+  header's type and offset (break: 3,359 types changed).
+- W35 (bars after an MFB repair): Owen's log shows the store ran out after
+  the first repair (the exe's rule: armour only from spare armour of the
+  mech's kind and tech). Pinned by
+  mission_c2m1_field_bases_repair_armour_only_from_the_store_headless (break:
+  armour from any store). The old "c3m1" repair test launched index 1
+  (c2m1); renamed to c2m1, since in the real c3m1 the Clanners kill the
+  bases before a second repair. A discoveries.md line for players.
+- The aim cone (Weapon::aim 0x4b36e0, cos 0.89) is next, as Owen decided.

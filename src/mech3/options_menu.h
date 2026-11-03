@@ -30,6 +30,21 @@ class CameraCycle : public CycleButton {
 // The game options' MouseAccelY for the invert box (0x00438100's ACCEPT).
 float mouse_y_accel(float current, bool inverted);
 
+// Ours (Owen, 2026-11-02): MOUSE SENSITIVITY on the graphics and audio
+// screen, MouseAccelX and Y's magnitude (Y keeping its sign, the game
+// options' invert box), 0.5 to 3.0 in tenths, the original's 1.3 by default;
+// its slider (our record edit, patch12::apply_ours) bound only where the
+// program turns it on (the probes run the original's screens).
+constexpr float kSensitivityLow = 0.5f, kSensitivityHigh = 3.0f;
+float sensitivity_of_slider(float v);   // the slider's 0..1 to a magnitude, in tenths
+float slider_of_sensitivity(float s);   // and back
+bool& options_sensitivity_slider();     // on in the program (GameEngine)
+
+class SensitivitySlider : public ztwod::Slider {
+ public:
+  void on_left_up() override { set_from_mouse(); }
+};
+
 class GameOptionsScreen : public MenuScreen {
  public:
   GameOptionsScreen(Engine& e, Handle state);  // 0x004379f0
@@ -136,6 +151,8 @@ class GfxAudioScreen : public MenuScreen {
 
   VolumeSlider music;                // +0x111ec  MUSICSLIDER: CDVolume
   VolumeSlider sfx;                  // +0x11378  SFXSLIDER: SoundVolume
+  SensitivitySlider sensitivity;     // ours: MOUSE_SENSITIVITY (options_sensitivity_slider)
+  bool has_sensitivity = false;      // bound
   OnOffCycle shadows;                // +0x11504  SHADOWS: Shadow
   OnOffCycle self_shadows;           // +0x11928  SELF_SHADOWS: ShadowParts
   OnOffCycle lighting;               // +0x11d4c  LIGHTING: GfxFlags bit 0

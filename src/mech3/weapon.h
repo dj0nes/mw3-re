@@ -402,6 +402,9 @@ struct WeaponCalls {
   bool (*strike_target)(Handle hit_node, zwep::LockRef* out) = nullptr;
   int32_t (*node_position)(Handle node, Vec3f* out) = nullptr;  // 0x004ed650: nonzero = no position
   const Vec3f* (*node_axis)(Handle node) = nullptr;           // node +0x38 +0x78: the facing
+  // Ours (FIX (bug), W48's aim): the player view's width, tan of its half angle
+  // across over the 4:3 one's (1 at 4:3); Weapon::aim widens its cone by it.
+  float (*view_width)() = nullptr;
   float (*normalize)(Vec3f* v, Vec3f* out) = nullptr;         // 0x0051e3d0, returns |v|
   Handle (*spawn)(WeaponDef* def, Handle node, Handle x64, const Vec3f* muzzle, const Vec3f* dir,
                   const Vec3f* velocity, int32_t p5, int32_t p6, bool hostile) = nullptr;  // 0x00585010 (hostile is not passed)

@@ -3,7 +3,7 @@
 // SETUP and starts the game the player picks as its own program, mw3 beside
 // it, hiding while the game runs. mw3 itself starts without it.
 //
-//   mw3launcher [--write-dir DIR] [--windowed | --window WxH] [--nosound]
+//   mw3launcher [--write-dir DIR] [--windowed | --window WxH] [--nosound] [--no-import]
 //               [--launcher-shot FILE [--launcher-screen main|setup|work|notes]]
 //               [--launcher-play] [--launcher-mw1]
 #include <SDL3/SDL.h>
@@ -92,13 +92,14 @@ int main(int argc, char** argv) {
       if (std::sscanf(v.c_str(), "%dx%d", &o.win_w, &o.win_h) == 2) window_given = true;
     } else if (s == "--nosound") o.sound = false;
     else if (s == "--hidden") o.hidden = true;
+    else if (s == "--no-import") o.no_import = true;
     else if (s == "--launcher-shot") o.shot = next(), hidden_log = true;
     else if (s == "--launcher-screen") o.screen = next();
     else if (s == "--launcher-play") o.play = true;
     else if (s == "--launcher-mw1") o.play_mw1 = true;
     else {
       std::fprintf(stderr,
-                   "usage: mw3launcher [--write-dir DIR] [--windowed | --window WxH] [--nosound] [--hidden]\n"
+                   "usage: mw3launcher [--write-dir DIR] [--windowed | --window WxH] [--nosound] [--hidden] [--no-import]\n"
                    "    [--launcher-shot FILE [--launcher-screen main|setup|work|notes]] [--launcher-play] [--launcher-mw1]\n");
       return 2;
     }
@@ -132,6 +133,7 @@ int main(int argc, char** argv) {
   if (window_given) o.game_args.push_back("--window"), o.game_args.push_back(std::to_string(o.win_w) + "x" + std::to_string(o.win_h));
   if (!o.sound) o.game_args.push_back("--nosound");
   if (o.hidden) o.game_args.push_back("--hidden");
+  if (o.no_import) o.game_args.push_back("--no-import");
   o.quit_after_game = o.play;
   sdlfe::run_launcher(o);
   SDL_Quit();

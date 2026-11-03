@@ -1,8 +1,7 @@
-# MechWarrior 3 Rebuild 1.0 (DRAFT)
+# MechWarrior 3 Rebuild 1.0
 
-Draft for Owen to edit and approve before anything is published. Not
-tagged, not released. The packages are built from the tagged commit
-(docs/release.md).
+The text of the v1.0 GitHub release (between the rules below); the
+packages were built from the tag v1.0 (docs/release.md).
 
 ---
 
@@ -17,7 +16,8 @@ affiliated with or endorsed by Microsoft or MicroProse. MechWarrior is a
 trademark of Microsoft.
 
 **No game files are included. You need your own MechWarrior 3**: an
-installed copy (1.0 or 1.2), the disc, or a disc image.
+installed copy (1.0 or 1.2), the disc, or a disc image (.iso or .cue/.bin, or a zip
+of one). If you no longer have yours, you can find a copy on the internet.
 
 ## What 1.0 is
 
@@ -30,14 +30,17 @@ Moon, the expansion, is next, as a game of its own beside this one.
 
 | | Download | |
 |---|---|---|
-| Windows | `MW3-Rebuild-Setup-1.0.exe` | An installer (a `.zip` of the same files is there too). |
-| Mac | `MW3-Rebuild-1.0-mac.dmg` | Drag the app to Applications. |
-| Linux | `MW3-Rebuild-1.0-x86_64.AppImage` | Make it executable and run it. |
+| Windows | `MW3-Rebuild-Setup-v1.0.exe` | An installer (a `.zip` of the same files is there too). |
+| Mac | `MW3-Rebuild-v1.0-mac.dmg` | Drag the app to Applications. |
+| Linux | `MW3-Rebuild-v1.0-x86_64.AppImage` | Make it executable and run it. Untested: built and checked under WSL, not playtested. |
 
 Start **MechWarrior 3**. It finds your install by itself; if it cannot,
-its SETUP screen takes whatever you have and sets the game up from it.
-The Mac app is not signed by Apple: the first time, right-click it and
-choose **Open**. Windows SmartScreen may warn about an unknown publisher:
+it asks for your game: point it at the disc image or zip and it takes it
+from there.
+The Mac app is not signed by Apple. The first time macOS says
+"MechWarrior 3 Not Opened": click **Done**, then on macOS 15 and later open
+**System Settings > Privacy & Security**, click **Open Anyway** and then
+**Open**; on macOS 12 to 14, right-click the app and choose **Open**. Windows SmartScreen may warn about an unknown publisher:
 **More info**, then **Run anyway**. The README has the rest.
 
 ## New since the playtest builds
@@ -58,7 +61,7 @@ choose **Open**. Windows SmartScreen may warn about an unknown publisher:
   an AppImage for Linux.
 - **The launcher**, installed as "MechWarrior 3": the rebuild's front
   screen. It starts the game and closes as soon as the game is on screen.
-- **SETUP from anything you have**: an installed copy, the disc, an
+- **Your game from anything you have** (the launcher's GAME FILES): an installed copy, the disc, an
   `.iso`, a `.cue` with its `.bin` files (the music comes too), or the
   file you downloaded (`.zip`, `.7z`, `.rar`, even a zip inside a zip).
   Nothing needs unpacking by hand, and no Windows or original installer
@@ -76,6 +79,9 @@ choose **Open**. Windows SmartScreen may warn about an unknown publisher:
   instead of crashing the game, and `mw3 --check-mod FOLDER` checks a mod
   before you play it. In multiplayer every player needs the same gameplay
   mods, and the game says whose differ. How to make one: docs/modding.md.
+- **Mouse sensitivity**, a slider on the Graphics & Audio screen.
+- **Cheat codes** in single player (ours, not the original's): Shift+Enter
+  in a mission opens a box for six of them. The README lists them.
 - **More bug fixes**, all listed in plain words in CHANGES.md. To play
   exactly as the original did: `--original`, or `bugfixes=0` in
   `mw3.cfg`.
@@ -85,13 +91,17 @@ choose **Open**. Windows SmartScreen may warn about an unknown publisher:
 
 ## Known open items
 
-- **Mac: the mouse in a window.** On one Mac, in a windowed mission, a
-  click paused the cursor and did not fire (the keyboard's fire key
-  worked), and an earlier build fired about a second late. Not
-  reproduced on our other test runs; fullscreen and the keyboard are not
-  affected. If you see it, please report it with `mw3.log`.
-- **Multiplayer: the mech lab from the lobby** once listed no mechs in a
-  live match. Not reproduced since; if you see it, a report helps.
+- **macOS: window tools can delay the mouse button by about a second.**
+  Tools that filter mouse clicks to snap or move windows (Magnet and
+  similar) hold each press back, so in a mission the mouse fires only when
+  you let go; the keyboard is not affected. Quit the tool while you play,
+  or add MechWarrior 3 to its excluded apps. (The other half of that Mac
+  report, a mouse that never fired, was saved controls losing the mouse's
+  fire button; fixed, and controls already saved that way are mended.)
+- **Jump jets lighting up water (Op 3, Mission 5).** One report says all
+  the water and some other surfaces light up while the jump jets fire. Not
+  reproduced on Windows or the Mac. If you see it, a screenshot and
+  `mw3.log` help, with whether you were in the cockpit or the outside view.
 - Pirate's Moon is not supported yet.
 
 ## Reporting bugs
@@ -103,16 +113,16 @@ you did, what happened, and whether `--original` does the same.
 
 ## Checksums
 
-SHA-256 of each download (to be filled in from the built packages):
+SHA-256 of each download (also in `SHA256SUMS`):
 
 ```
-<sha256>  MW3-Rebuild-Setup-1.0.exe
-<sha256>  MW3-Rebuild-1.0-win64.zip
-<sha256>  MW3-Rebuild-1.0-mac.dmg
-<sha256>  MW3-Rebuild-1.0-x86_64.AppImage
+753d58063f71ef244b94b9ebb4f1902d388cd896d9045d2687d2371707e2072c  MW3-Rebuild-Setup-v1.0.exe
+160041e14f61ace21deff63b4ef67987817525da41e8a7f80b93c4a6a9f7ef86  mw3-v1.0-win64.zip
+f2f7bc6e9944815d3facfff90081436e9ad9512fef111f6185e04e6aff10a823  MW3-Rebuild-v1.0-mac.dmg
+855485a2ea54dbb103d281a4fa861d0afdac591a4c5fa05234d5fd3629b9ee10  MW3-Rebuild-v1.0-x86_64.AppImage
 ```
 
-## Licences
+## Licenses
 
 The rebuild is under the MIT licence. Its libraries (SDL3, SDL3_ttf,
 FreeType, SDL3_sound, ENet, miniupnpc, libarchive, zlib, liblzma, miniz,
@@ -125,8 +135,6 @@ files.
 
 ## Notes for Owen (not part of the release text)
 
-- The two open items are W40 and W42 in docs/playtest.md; drop either
-  that is closed by release day.
 - The package file names follow the README's Download table; check them
   against what the packaging scripts actually produce, and fill in the
   checksums from those files.

@@ -171,6 +171,7 @@ void ControlsButton::on_left_up() {
       }
       e_.input_map_refresh();
       s->apply(1);
+      controls_keep_saved();  // ours (W40): the map accepted is the one saved
       s->state_escape();
       return;
     case kCancel:  // 0x0042d730: a changed map goes back to the defaults, then the file is read again
@@ -762,6 +763,7 @@ void ControlsScreen::load_save(const char* name, bool save) {
   if (save) e.controls_write(path);
   else e.controls_read(path);
   std::strncpy(e.active_ctl_cfg(), path, 0x104);
+  controls_keep_saved();  // ours (W40): a set loaded, saved or reset is the one saved
   dirty = 0;
   show_file_name();
   fill(group());

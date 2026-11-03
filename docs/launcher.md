@@ -10,7 +10,7 @@ the mockups were handed over in the outbox (launcher-sketch).
 Since SETUP from any source (2026-10-31, docs/setup-sources.md and
 games-layout.md): a plain `mw3` start goes straight into the game when an
 install is found (mw3.cfg's, `<write dir>/install`, the finder's places),
-with no launcher; with none, it opens the **setup screen alone** (BACK is
+with no launcher; with none, it opens the **find screen alone** (BACK is
 QUIT there) and goes on into the game in the same window once one is
 found or installed. The launcher below is its own program, `mw3launcher`
 (the launcher split, 2026-11-01; The two programs, below):
@@ -23,36 +23,95 @@ found or installed. The launcher below is its own program, `mw3launcher`
    (`sdlfe::install_candidates`), each through `setup::check_install`.
    No message box any more: the setup screen replaces the Browse dialog.
 4. **The launcher screen** (mockup 1). Entries:
-   - **MechWarrior 3**: "Ready: version 1.2, <folder>", or "Not set up yet"
-     (a click opens the setup screen), or for 1.0 data "Ready: version 1.0
-     (Setup can apply the 1.2 patch)". A folder too long for the plate is
+   - **MechWarrior 3**: "Ready: version 1.2, <folder>", or "Not found yet:
+     click to find your game" (a click opens the find screen; v1.0, Owen
+     2026-11-02: only then, the launcher always opens on the games). A
+     folder too long for the plate is
      shortened from the middle by its drawn width ("Ready: version 1.2, "
      kept, more of the folder's end; `fit_middle`, text_fit.cpp): a long
      path ran past both sides on Owen's PC (lead, 2026-10-31).
      `launcher_long_path_fits_the_button`.
    - **Pirate's Moon**: greyed, "Coming later".
-  - SETUP's APPLY THE 1.2 PATCH shows only when the install found is not
-    1.2 already (1.0, a mix or an unknown version; Owen, 2026-10-31).
    - **MechWarrior (1989)**: only when the MW1 port is found beside ours
      (below).
-   - **Setup** and **Quit**.
+   - **Game files** (Owen, 2026-11-02, after the rework): the find screen
+     at any time, to repick or refresh the game's files (below), and
+     **Quit** (for fullscreen; Escape too).
 5. MechWarrior 3 chosen: the launcher's textures are freed and the start
    goes on exactly as today in the same window (mounts, data version,
    movies helper or import, `run()`), so the intro movie is the next
    thing seen.
 
-## The setup screen (mockups 2 to 4)
+## The find screen and the notes (v1.0, Owen and the lead, 2026-11-02)
 
-A status box (two lines, red for a refusal), then the plates and Back
-(SETUP from any source, 2026-10-31, replacing FIND and INSTALL):
+Reached by choosing a game without its files (none found at the start, or
+mw3.cfg's gone), or alone on a plain mw3 start with none. At the top, in
+the launcher's text, `kFindWords`: "MechWarrior 3 needs your own copy of the
+game. Show us your disc, a disc image or download (.iso, .cue, .zip), or a
+folder where it's installed. We copy what the game needs into your user
+folder; your disc and any installed copy are left untouched."
 
 | plate | shown | what it does |
 | --- | --- | --- |
-| Point to your game | always | with no game found yet, the finder first (an install found is used at once); then a file picker (a disc image, a download: .zip .7z .rar .tar.., or Mech3.exe); `source::map_source` on the worker ("LOOKING AT YOUR GAME", its bar, CANCEL), then an installed copy on disk is used where it is, anything else gets INSTALL / BACK under its plain summary and `setup::install_from_source` into `<write dir>/install`, a cue's music into `<write dir>/music` |
-| A folder instead | always | a folder picker (an installed copy, a drive or a disc's files), then as above |
-| Search again | always | the finder (a moved install), else a disc in a drive (`find_discs`) looked at as if picked, else says nothing was found |
-| Apply the 1.2 patch | when the data is 1.0 or a mix | a file picker (the ZIP) or a folder picker; `setup::apply_patch` into `<write dir>/patch12` |
-| Add the music from my disc image | always (offered again after an install from an .iso, which has no CD audio) | a .cue picker; `setup::add_music` |
+| Find the game | always (one option, Owen 2026-11-02) | the finder (mw3.cfg's, the installer's places) and a disc in a drive (`find_discs`) first: either is used at once, no picker. With neither, "Not found on this computer or in a disc drive. Pick it: a disc image, a download, or Mech3.exe." and one file picker opens (.iso .cue .bin .zip .7z .rar .., Mech3.exe, any file). `pick_source`: an image or archive is the source; any other file stands for its folder (Mech3.exe or any file of an installed copy, zbd\\ and video\\ up one; a disc's folder), a .bin for its .cue. Then `source::map_source` on the worker ("LOOKING AT YOUR GAME", its bar, CANCEL): an installed copy on disk is used where it is, anything else INSTALL / BACK under its summary and `setup::install_from_source` into `<write dir>/install`, a cue's music into `<write dir>/music`. SDL3 has no file-or-folder dialog on the three systems (none on the Mac's panel either through SDL 3.4), so a folder is picked by one of its files |
+| Back | always | the games (QUIT on a plain mw3 start) |
+
+Once found or installed the game starts at once (`use_install`, `play`).
+When the install lacks the movies (a CD-type install leaves them on the
+disc: an empty video folder; dev 2's PC check) or the music, or its data is
+of an unknown version, the notes come first ("BEFORE YOU PLAY", one OK that
+starts the game; Escape as OK). They say what is missing (launcher_notes:
+"Your install has no movies (they stayed on the CD) and no music ...").
+
+| plate | shown | what it does |
+| --- | --- | --- |
+| Add from my disc | the notes (and GAME FILES' screen), when the movies or the music are missing | a disc in a drive first; else "No disc in a drive ..." and one picker (its image, or any file of the disc for its folder: `pick_source`); `setup::add_from_disc` on the worker ("ADDING FROM YOUR DISC"): the disc's VIDEO\*.AVI into `<write dir>/video` (`add_movies`, from a drive, the disc's folder, an .iso or a .cue's data track), the music from a .cue only (`add_music`; from a drive, a folder or an .iso it says the music needs a .cue). Back to the notes with what was added |
+
+The game finds movies in the write dir before the install's (zutl::find),
+so the Indeo helper plays the added AVIs on Windows. Elsewhere the movies
+are converted in the launcher (Owen's first start, 2026-11-02, sat 44 s on
+"Starting MechWarrior 3..." while mw3 did it with only a status line): before
+the game starts, and right after ADD FROM MY DISC, any AVI of the install or
+the write dir without its .fmv goes through mw3import on the work screen
+("CONVERTING THE MOVIES", "Converting the movies (K of N)", the movie's name,
+CANCEL; movie_import.h, its "progress K N name" lines). A cancel keeps the
+ones done; mw3's own first-run import (`first_run_import`, its small progress
+window) stays the fallback for a start without the launcher. None on Windows,
+nor with --no-import (passed on to the game) or MW3_NO_IMPORT; MW3_IMPORTER
+names a stand-in for the checks. `sdl_program_launcher_converts_the_movies_before_the_game`.
+
+The file picker (Owen: very slow to open on macOS 26): SDL shows NSOpenPanel
+as a sheet on the launcher's window, and the panel is another process that
+answers through the main run loop, which the launcher's vsync frame loop
+served once a frame. While a picker is up the launcher draws nothing and
+waits in SDL_WaitEventTimeout (the run loop serving the panel at once). The
+log times it: "the file picker asked for", "the picker took the focus N ms
+after", "the picker answered (...) N ms after".
+
+GAME FILES opens the same screen with the install in use ("Using
+MechWarrior 3 1.2 at <folder>. No music.") and, while it lacks movies or
+music, ADD FROM MY DISC (back to this screen after). A new pick goes back
+to the games, not into the game, its folder saved to mw3.cfg. A disc or
+archive install into `<write dir>/install` is built in `install.new` and
+swapped in only once complete (`swap_in_folder`: the old copy set aside as
+`install.old`, removed after the rename, put back if it fails), so a cancel
+or a failure leaves the old one working and no second copy stays. A copy
+picked to be used where it is leaves the launcher's own earlier copy
+unpointed-at (mw3.cfg holds one folder), so that is removed.
+`sdl_program_launcher_game_files_repicks`.
+
+Keys and a pad (`nav`): the arrows, Tab or the d-pad step through the
+plates (GAME FILES and QUIT included), Enter, Space, A or Start press,
+Escape, B or Back go back. MW3_LAUNCHER_NAV (checks) feeds them as a list.
+
+Gone in v1.0: the old Setup screen, "A folder instead", "Search
+again", "Apply the 1.2 patch" (the patch is built in, patch12.h, so a 1.0
+install needs nothing; `setup::apply_patch` and the launcher's kPatch pick
+are kept but unreachable). The installer has no "MechWarrior 3 (no
+launcher)" shortcut any more; mw3.exe is still installed.
+
+Each screen logs its plates ("mw3: launcher: screen find: FIND THE GAME,
+BACK"), which the checks follow.
 
 Each operation runs on a worker thread; its `Progress` (stage, fraction,
 message) goes to the screen under a mutex: the bar, the stage and the
@@ -60,9 +119,7 @@ current file (mockup 3). Cancel makes the callback return false
 (Mw3 dev's calls stop within a file and change nothing). The result's
 `summary` is shown in a line at the top of the launcher, green or red
 (mockup 4); `warnings` under it; `detail` only in mw3.log. The first
-start's notes (release-0.1's box) move here: the 1.0 note is the
-MechWarrior 3 entry's line and the Apply plate; the music note a line on
-the setup screen.
+start's notes are the notes screen above.
 
 File and folder pickers are SDL's (`SDL_ShowOpenFileDialog`,
 `SDL_ShowOpenFolderDialog`, as `sdl_install.cpp` waits on them now),
@@ -143,6 +200,20 @@ named install or `--install-from`/`--patch`; `--no-launcher` skips it):
   `badge_mw3.png`, `badge_pm.png`, `badge_mw1.png` (assets/launcher, ours,
   their prompts in its README), each with its name and line beside it,
   the ripple from the badge's centre.
+- Spaces (2026-11-02, the lead from setup.png: "No MechWarrior 3was
+  found"): DIN Condensed's space is 2 pixels at 13 and its digits draw a
+  pixel past their advance, so a space after a digit vanished. A font
+  whose space is under a fifth of its size has each space doubled, drawn
+  and measured alike, in the launcher's one text path (`Text::shown`,
+  `widen_spaces` in text_fit.h); the gap after "3" goes from 2 pixels to 4
+  (the font's own "a g" is 3). `launcher_narrow_spaces_widen`.
+- Only the round badges ripple (2026-11-02, Owen after the PC's fresh
+  install: the ripple belongs to a circle, as in the original's menus). A
+  square plate hovered is brightened and lights its edge in the frame's
+  amber (a line, a softer one inside); the rollover sound as before. The
+  shot logs what the hovered entry drew (`hover <label>: ripple|edge`),
+  and `sdl_program_launcher_screens` checks it on each screen with the
+  edge's pixel.
 - The ripple is the main menu's own (Owen: "much slower than the original
   ripple"): `mech3::menu_ripple_step` (menu_ripple.h), the one SlideButton
   runs (0x00485650): from 20 pixels, 120 a second, the amplitude 7 less 0.3

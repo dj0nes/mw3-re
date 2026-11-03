@@ -98,6 +98,12 @@ From the damage code (damage.md).
   (engine hit in the torso, instant death in the head, a limp in a leg).
 - **Lasers never cause criticals.** Every laser is a beam weapon, and beams are
   excluded from the critical roll; PPCs, autocannons, missiles and Gauss can.
+- **Losing an arm makes the game read memory it just freed.** When an arm is
+  shot off, the game deletes its hand, then in the same frame asks every
+  weapon whether its part is under water, and the hand's weapons still point
+  at the deleted hand. Windows 98's memory manager left the old bytes in
+  place, so nothing happened; the rebuild keeps the hand's memory until the
+  next mission instead. (docs/fixes.md)
 - **A critical replaces the hit's damage.** When a critical is rolled, that
   hit's armor and structure damage is skipped, even if the critical has nothing
   to destroy.
@@ -701,6 +707,17 @@ From the weapon code (weapons.md).
 - **Every turn costs a homing missile speed**: it keeps 0.8 + 0.2 cos(turn) of
   its speed each frame it turns, and over its first LOCK_ON seconds the
   shooter's own speed fades out of it.
+- **Missiles keep chasing a mech that dies.** A locked missile follows a
+  live point in its target's body, and a destroyed mech stays in the world
+  as a wreck, so a salvo in flight when its target dies flies on into the
+  wreck as it falls (0x005a8630, 0x00585900). A missile fired with no
+  target selected flies straight.
+- **Missiles from an arm can leave sideways and then curve.** A weapon off
+  the centre torso fires straight along its part's facing when the target is
+  more than about 27 degrees to the side (0x004b36e0); a locked missile then
+  turns toward its target in flight, so a twisted mech's LRMs and Streaks
+  bend round in a wide arc, and a slow-turning LRM can miss a mech crossing
+  its path, fly on past it and come down in the ground.
 - **Long straight shots can pass through the nearest wall.** A cannon shot
   looks up every building along its whole range once, when it is fired, and
   then meets them in that list's order. The list is not fully sorted (the
@@ -1021,6 +1038,15 @@ From mission.cpp, 0x48faf0 and 0x490ab0 (details: `mission-load.md`).
   silent; a third cancels. With every
   base destroyed or not yet deployed, M does nothing and says nothing.
   (docs/vehicles.md, The repair dock)
+- **The field bases put armour back only from your spare armour.** A
+  repair always restores the internals, coolant, jump fuel and AMS, and
+  ammo as far as your store has it. Armour comes back only when the store
+  holds armour of your mech's own kind (standard or ferro-fibrous) and
+  tech (Inner Sphere or Clan). Then all of it comes back, costing half a
+  ton per half ton missing, even if that is more than you have. One big
+  repair can use up the stock, and every repair after it leaves the armour
+  as it was, while the diagram (the internals) looks clean. Salvage armour
+  of your kind before a long mission. (docs/vehicles.md, The repair)
 - **Lancemates are matched to their mission entries by position.** The
   mission file's first lancemate entry goes to your first lancemate slot,
   the second to the second, whoever the entries name: the slot keeps its
@@ -2806,6 +2832,13 @@ From the view and its cameras (0x40aca0, 0x430e70; details: `view.md`).
   a soft vignette. Every briefing movie is plain 4:3. On a widescreen
   monitor the rebuild shows the letterboxed parts across the whole width.
   (docs/fmv.md, The movies on a wide screen)
+- **Four movies the game's scripts name were never shipped.** fmv.zrd has
+  entries for c3m3.avi and for an ending movie after each of the first
+  three operations (c1win, c2win, c3win), but no copy of MechWarrior 3
+  has them: the US disc and the 1.0 and 1.2 installs hold the same 19
+  movies, byte for byte. Only the fourth operation's ending (c4win) is
+  ever played; c3m3 simply has no opening movie. (docs/fmv.md, The
+  imported movies)
 
 ## Keyboard, mouse and joystick
 
@@ -4081,6 +4114,17 @@ The screen after the pilot for INSTANT ACTION, 0x00488bc0 (details:
   end anything; instead your 'Mech's centre torso loses all its internal
   structure, and it blows up (then respawns, if respawn is on).
   (docs/multiplayer-port.md, the 1.2 read-me's six)
+
+- **Quitting with the multiplayer quit box up can cost you the mouse's
+  fire button for good.** In a network game Escape brings up "Are you sure
+  you want to quit?", and while it is up the game takes the left mouse
+  button off its command so a click answers the box. The game keeps your
+  key bindings inside its saved settings and saves them when it closes, so
+  closing the game with the box still up (Alt-F4, say) saves the controls
+  with the left button bound to nothing: the mouse no longer fires in any
+  game after, until the controls are reset or rebound. (Found from the
+  code; the rebuild saves the controls only when you set them in the
+  controls menus. docs/fixes.md, playtest W40)
 
 ## Pirate's Moon
 

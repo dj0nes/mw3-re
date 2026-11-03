@@ -2,12 +2,15 @@
 
 #include <cstdio>
 #include <cstring>
+#include <iterator>
+#include <vector>
 
 #include "crt/msvc_string.h"
 #include "gamez/zinput/zinput.h"
 #include "gamez/zreader/zreader.h"
 #include "gamez/zutil/zutl_msg.h"
 #include "gamez/zutil/zutl_path.h"
+#include "gamez/zutil/zutl_reg.h"
 
 namespace mech3 {
 
@@ -392,6 +395,58 @@ void controls_save(const char* path) {
   std::fprintf(f, "\t)\n");
   std::fprintf(f, ")\n");
   std::fclose(f);
+}
+
+// Ours, playtest W40: an older build saved the map with a quit box's unbind
+// in it (fixes.md), so the mouse never fired again. Only that damage is
+// undone: fire moved to another button, or button 1 given to another
+// command, stays as the player set it.
+bool controls_repair_mouse_fire() {  // after the tables' rebuild (the hook's)
+  constexpr int32_t kTrigger1 = 0x3d;
+  const zin::CmdMap* m = zin::state().map;
+  if (!m || m->count < 0xa7 || zin::mouse_of(kTrigger1) != 0) return false;
+  for (int32_t c = 1; c < 0xa7; ++c)
+    if (zin::mouse_of(c) == 1) return false;
+  zin::bind_mouse(1, kTrigger1);
+  std::printf("mw3: controls: mouse button 1 was bound to nothing, put back on fire (TRIGGER1)\n");
+  return true;
+}
+
+// Ours, FIX (bug), playtest W40: the map is the settings' own block, so the
+// original saved whatever it held at exit, a quit box's unbind too. The map
+// saved is the one the load and the controls menus left (input.md, section 3).
+// The same for the mouse's MouseAccelX/Y (Owen, 2026-11-02): kept at the load
+// and at the options' ACCEPT, so a value set for a moment (the menus' 1.3 is
+// zInput's working copy, 0x00481fc0) never reaches the disk.
+namespace {
+struct Kept {
+  const char* name;
+  std::vector<uint8_t> bytes;
+};
+Kept g_kept[] = {{"DefaultCmdMap", {}}, {"MouseAccelX", {}}, {"MouseAccelY", {}}};
+void keep(Kept& k) {
+  const zreg::Entry* e = zreg::find(k.name);
+  if (e && e->data) k.bytes.assign(e->data, e->data + e->size);
+  else k.bytes.clear();
+}
+}  // namespace
+
+void controls_keep_saved() { keep(g_kept[0]); }
+
+void settings_keep_mouse() { keep(g_kept[1]), keep(g_kept[2]); }
+
+int32_t controls_write_settings() {
+  std::vector<std::vector<uint8_t>> live(std::size(g_kept));
+  for (size_t i = 0; i < std::size(g_kept); ++i) {
+    zreg::Entry* e = zreg::find(g_kept[i].name);
+    if (!e || !e->data || g_kept[i].bytes.size() != e->size) continue;  // never kept: the live value, as the original
+    live[i].assign(e->data, e->data + e->size);
+    std::memcpy(e->data, g_kept[i].bytes.data(), e->size);
+  }
+  const int32_t r = zreg::write_all();
+  for (size_t i = 0; i < std::size(g_kept); ++i)
+    if (zreg::Entry* e = zreg::find(g_kept[i].name); e && !live[i].empty()) std::memcpy(e->data, live[i].data(), e->size);
+  return r;
 }
 
 }  // namespace mech3

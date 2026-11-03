@@ -49,6 +49,9 @@ const float* weapon_lock_point(const void* o);           // 0x005a8630, a live p
 const float* weapon_lock_velocity(void* o);              // vt+0xc, a pointer
 void* hud_target_marker(int32_t kind);                   // [0x0060b4f0 + 4 kind]
 void hud_object_view_tint(const void* o, bool on);      // vt+0x68: TARGET's view tint, by class
+// Ours, black sheep wall's (cheats.h): zEntity's mechs and vehicles, alive
+// and not hidden, that the mech has no contact on (itself left out).
+std::vector<void*> radar_unsensed(const void* mech);
 
 // Ours, for --campaign-chain's kills (campaign.md section 14): what the
 // mission player could shoot, alive (zEntity's +0x08) on a team that is not

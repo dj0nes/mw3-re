@@ -66,6 +66,9 @@ bool parse_value(const char* text, zrdr::Node* out);
 // checks the old value). Returns whether it applied them.
 bool has_edits(const std::string& archive, const std::string& entry);
 bool apply_edits(const std::string& archive, const std::string& entry, zrdr::Node* root);
+// Ours, on any data version: our own record edits (the options' MOUSE
+// SENSITIVITY slider); a record not as expected is left whole.
+bool apply_ours(const std::string& archive, const std::string& entry, zrdr::Node* root);
 
 // force_eff.ifr (Immersion's project file, read as data): 1.2's effects
 // when the file is 1.0's. `data` is the file; returns whether it changed it.

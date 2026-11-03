@@ -30,7 +30,10 @@ std::string lower(const std::string& s) {
   return out;
 }
 
-void hook(const char* archive, const char* entry, zrdr::Node* root) { on_load(archive, entry, root); }
+void hook(const char* archive, const char* entry, zrdr::Node* root) {
+  on_load(archive, entry, root);
+  if (archive && entry && root) apply_ours(data_path(archive), lower(entry), root);  // ours, any data
+}
 
 // Entries 1.2 adds to one archive that 1.0 already has in another of the
 // same operation (patch12_copies.inc): the source's size and CRC, so only

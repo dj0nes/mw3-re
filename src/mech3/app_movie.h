@@ -61,8 +61,11 @@ class MovieStream {
 
 // Ours (movie_shape.h): every frame of the imported movie at `base`
 // measured, in order, its picture's size in `w`, `h`; false when it cannot
-// be read or `stop` is set on the way.
+// be read or `gate` (asked before each frame) says stop.
 bool scan_imported_movie(const std::string& base, std::vector<MovieFrameScan>* out, int32_t* w, int32_t* h,
-                         const std::atomic<bool>* stop = nullptr);
+                         const MovieScanGate& gate = {});
+// The imported movie at `base` measured: its cache line (movie_shape.h, the
+// key as the program makes it); "" when it cannot be read.
+std::string measure_imported_movie(const std::string& base);
 
 }  // namespace mech3

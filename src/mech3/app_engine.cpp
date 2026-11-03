@@ -28,7 +28,9 @@
 #include "mech3/app_mech.h"
 #include "mech3/pilot.h"
 #include "mech3/app_hud.h"
+#include "mech3/controls_cfg.h"
 #include "mech3/options.h"
+#include "mech3/options_menu.h"
 #include "mech3/pocket_panel.h"
 
 #include <algorithm>
@@ -108,7 +110,15 @@ struct WiredOptionsHooks : OptionsHooks {
   uint32_t video_has_cap(int32_t cap) override { return g_engine ? g_engine->video_has_cap(cap) : 0; }
   const char* message(int32_t id) override { return g_engine ? g_engine->message(id) : ""; }  // 0x00576040
   void controls_set_defaults() override { mech3::controls_set_defaults(); }        // 0x00411150
-  void controls_load(const char* name) override { mech3::controls_load(name); }    // 0x004120a0
+  void controls_load(const char* name) override {  // 0x004120a0, after the saved map is read
+    mech3::controls_load(name);
+    // FIX (bug), W40: the registry's read filled the bindings only; without a
+    // controls file the reverse tables stayed the defaults' (input.md).
+    zin::map_refresh();
+    mech3::controls_repair_mouse_fire();  // ours (W40): an older build's damage undone
+    mech3::controls_keep_saved();         // the map the settings save (W40)
+    mech3::settings_keep_mouse();         // and the mouse's values (ours)
+  }
   void controls_free() override { mech3::controls_free_groups(); }                 // 0x00410a80
   Handle player_view() override { return g_engine ? g_engine->player_view() : 0; }  // [0x005f4c8c]
   void view_set_camera_mode(Handle, int32_t mode) override { program_view_set_camera(mode); }  // 0x0040ae70
@@ -196,7 +206,8 @@ GameEngine::GameEngine(const Platform& p, std::string command_line)
   vp.hardware = [](void* c) { return static_cast<GameEngine*>(c)->video_mode(); };
   vp.sync = [](void* c) { static_cast<GameEngine*>(c)->sync_view(); };
   wire_view(&vp);
-  patch12::install();  // 1.0's data read as 1.2's (docs/patch12.md)
+  patch12::install();  // 1.0's data read as 1.2's (docs/patch12.md), and our own record edits
+  options_sensitivity_slider() = true;  // ours: the options' MOUSE SENSITIVITY
   patch12::provide_files();  // and 1.2's added maps beside it, in the write dir
 }
 

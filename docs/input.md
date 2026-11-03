@@ -84,7 +84,9 @@ and its share, and the left, right and middle button states (1 pressed, 2
 held, 4 released: this read against the last, 0x0051b6e0).
 
 Each read (0x0051b7d0): the counts times the acceleration (0x005ece48/4c,
-MouseAccelX/Y, 1.3; cut toward zero) moved onto the position, clamped to the
+MouseAccelX/Y, 1.3; cut toward zero; the options' MOUSE SENSITIVITY slider,
+ours, sets their magnitude, menus.md; a mission takes them at its start,
+the menus 1.3 again from CoreState::leave) moved onto the position, clamped to the
 screen; the wheel unscaled and unclamped; with `callbacks`, each button
 pressed this read runs its command. Reset (0x0051ba80) forgets the buttons
 and zeroes the motion, but not the wheel's: quirk kept, a reset adds the last
@@ -109,6 +111,45 @@ and reverse tables: key1 and key2 to command (0x7de each), joystick button
 entry named for the map (0x00597d90, type 7, per user), so they are saved
 with the other settings (settings.md; `zin::Host::settings_block`, which the
 SDL host answers from the store; null keeps them in the map).
+
+Because the map is the saved block, the original saved whatever it held
+at each settings write (the exit's 0x0040cb20, the options' ACCEPT
+0x00437f60): a quit box (0x0048e2d0) still up at exit saved mouse button 1
+unbound, and the mouse never fired again (playtest W40). FIX (bug): the
+port writes a kept copy instead (`mech3::controls_keep_saved`,
+`controls_write_settings`), taken at the load and when the controls menus
+set the map: the screen's ACCEPT, and its load/save box's load, save and
+the two resets (all through 0x0042d0b0); CANCEL reads the set back through
+the same box. The live map itself is never written.
+
+The live map's changes outside those menus, none of them meant to last:
+
+- the start: the defaults (0x00411150), the registry's read, the active
+  controls file (0x004120a0); the kept copy is taken after them;
+- the quit box (0x0048e2d0): mouse button 1 while it is up (bug fixes off);
+  with them on (ours, W46) the Y and N keys' commands while it is up;
+- the game editor's Shift+F12 (ours, debug builds only, `register_app_keys`),
+  bound at each start;
+- the interp console (0x005a40b0) and the debug keys (0x0040e430) push a
+  copy of the map (`push_map`), so the block is not touched;
+- `set_callback` and the controls' mode (0x00426650) change callbacks and
+  the axis table, not the bindings.
+
+The registry's read fills the bindings only, and without a controls file
+the original rebuilt nothing, so the reverse tables (key, joystick and
+mouse button to command) stayed the defaults': the quit box's
+`mouse_command(1)` named the defaults' command.
+
+MouseAccelX/Y (the options' 0x005f4d2c/30) follow the same rule (Owen,
+2026-11-02): the settings write the values kept at the load and when an
+options screen applies at its ACCEPT (`settings_keep_mouse`), not the live
+ones. CoreState::leave's 1.3 / 1.3 for the menus is zInput's working copy
+(0x0051b790 writes 0x005ece48/4c), so the player's value was never touched by
+it, in the original or here; the rule guards whatever else might. The port rebuilds them after
+the read (FIX (bug), `zin::map_refresh`). Then, ours: a map an older build
+saved with the box's unbind (TRIGGER1 with no mouse button, button 1 on no
+command) gets button 1 back on TRIGGER1, with a log line
+(`mech3::controls_repair_mouse_fire`; fixes.md).
 
 - `bind(cmd, name, key1, key2, joy, mouse)` 0x0051c190 (0x0051d2c0): each
   input taken from the command that had it, the command's old one freed.
@@ -327,7 +368,13 @@ In a shown window (`windowed`: not fullscreen, not hidden):
   nor its release reaches the game (no shot). The Ctrl and Alt keys
   themselves still reach the game as keys.
 - **The pause** is a menu: it lets go; back in the mission it is held again.
-- **The focus lost** lets go (as before); back, the mission stays let go
+- **The focus lost** lets go (as before). Ours (Owen, 2026-11-02; it
+  changes "a click takes it back"): back, a mission that held the mouse
+  when the focus left takes it again at once, no click needed: the cursor
+  hidden, relative on. Before, the cursor stayed where it was and the aim
+  moved under it until a click. The click that brought the focus back
+  (a button down within 250 ms of it, `kActivationNs`) is still not the
+  game's. A mouse let go by Ctrl+Alt before the focus left stays let go
   until a click inside. Entering a mission without the focus starts let go.
 - The game's own cursor moves (SetCursorPos, `set_cursor_pos`) never move
   the player's cursor in a window.
@@ -338,9 +385,12 @@ while acquired, Ctrl+Alt nothing, the focus's return held at once.
 `sdl_window_lets_the_mouse_go` drives `SdlInput` through each path: the
 menus (absolute, the clicks), a mission, Ctrl+Alt spoiled by a key between
 and then whole, the muted motion, wheel and button, the recapturing click
-unseen and the next one seen, the pause and back, the focus lost and back,
-and fullscreen. Breaks: the click passed to the game fails 2 checks; a key
-between not spoiling the chord fails 1.
+unseen and the next one seen, the pause and back, the focus lost and back
+(held again at once, the activating click unseen and the next one seen, a
+return with no click, a Ctrl+Alt release kept), and fullscreen. Breaks: the
+click passed to the game fails 2 checks; a key between not spoiling the
+chord fails 1; no recapture with the focus fails 4, no activation guard 1,
+the Ctrl+Alt release not kept 2.
 
 ## Open
 

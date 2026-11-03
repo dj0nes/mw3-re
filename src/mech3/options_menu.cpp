@@ -1,11 +1,13 @@
 #include "mech3/options_menu.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 
 #include "gamez/zreader/zreader.h"
 #include "gamez/zutil/zfix.h"
 #include "mech3/options.h"
+#include "mech3/controls_cfg.h"
 
 #pragma STDC FP_CONTRACT OFF
 
@@ -125,7 +127,29 @@ void GameOptionsScreen::apply(int32_t to_options) {
   e.set_torso_auto_return(torso.selected_value());
   e.set_throttle_const(throttle.selected_value());
   e.set_mw2_jump_jets(jump_jets.selected_value());
+  if (options_sensitivity_slider()) {  // ours: the sensitivity (graphics and audio) kept, only Y's sign set
+    float mag = std::fabs(e.mouse_accel_y());
+    if (mag == 0.0f) mag = 1.3f;
+    e.set_mouse_accel_y(invert_y.selected_value() != 0 ? -mag : mag);
+    settings_keep_mouse();  // ours: the values the settings save
+    return;
+  }
   e.set_mouse_accel_y(mouse_y_accel(e.mouse_accel_y(), invert_y.selected_value() != 0));
+}
+
+bool& options_sensitivity_slider() {
+  static bool on = false;
+  return on;
+}
+
+float sensitivity_of_slider(float v) {
+  v = std::clamp(v, 0.0f, 1.0f);
+  return std::round((kSensitivityLow + v * (kSensitivityHigh - kSensitivityLow)) * 10.0f) / 10.0f;
+}
+
+float slider_of_sensitivity(float s) {
+  if (s == 0.0f) s = 1.3f;  // a zero (an old registry) as the original's
+  return std::clamp((s - kSensitivityLow) / (kSensitivityHigh - kSensitivityLow), 0.0f, 1.0f);
 }
 
 // ---- the graphics and audio options ----
@@ -288,6 +312,7 @@ GfxAudioScreen::GfxAudioScreen(Engine& e, Handle s)
     bind_button(&shadows, "SHADOWS");
     bind_button(&music, "MUSICSLIDER");
     bind_button(&sfx, "SFXSLIDER");
+    if (options_sensitivity_slider()) has_sensitivity = bind_button(&sensitivity, "MOUSE_SENSITIVITY");  // ours
     bind_button(&self_shadows, "SELF_SHADOWS");
     bind_button(&lighting, "LIGHTING");
     bind_button(&device, "VIDEO_DEVICE");
@@ -310,6 +335,7 @@ void GfxAudioScreen::apply(int32_t to_options) {
   if (!to_options) {
     music.set_raw(e.cd_volume());
     sfx.set_raw(e.sound_frequency());
+    if (has_sensitivity) sensitivity.set_value(slider_of_sensitivity(std::fabs(e.mouse_accel_x())));
     resolution.select_each_value(e.in_game_vmode());
     device.select_each_value(e.hw_card_dev());
     textures.select_each_value(e.texture_memory());
@@ -338,6 +364,12 @@ void GfxAudioScreen::apply(int32_t to_options) {
   e.set_cd_volume(music.value);
   e.set_texture_memory(textures.selected_value());
   e.set_sound_frequency(sfx.value);
+  if (has_sensitivity) {  // ours: both from the slider, Y keeping its sign (the game options' invert box)
+    const float s = sensitivity_of_slider(sensitivity.value);
+    e.set_mouse_accel_x(s);
+    e.set_mouse_accel_y(e.mouse_accel_y() < 0.0f ? -s : s);
+    settings_keep_mouse();  // ours: the values the settings save
+  }
   e.set_sound_lod(sound.selected_value());
   e.set_object_lod(level_of(detail.selected_value()));
   e.set_effects_level(level_of(effects.value_at(effects.index)));

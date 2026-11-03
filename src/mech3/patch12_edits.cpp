@@ -31,6 +31,19 @@ constexpr Edit kEdits[] = {
 #include "mech3/patch12_edits.inc"
 };
 
+// Ours, on any data (not 1.2's): MOUSE SENSITIVITY (Owen, 2026-11-02) on
+// the graphics and audio screen among the volume sliders, the same record and
+// art (sliderunfilled / sliderfilled; no new images), at their 25-pixel step:
+// the two volumes up 10, ours third, VIDEO DEVICE below it. Its label is
+// spaced as the original's are ("M U S I C  V O L U M E").
+constexpr Edit kOurs[] = {
+    {"zbd/reader.zbd", "dlgoptions.zrd", Set, R"(GFX_AUDIO_OPTIONDIALOG/BUTTONS/MUSICSLIDER/POSITION)", R"((250 57))", R"((250 47))"},
+    {"zbd/reader.zbd", "dlgoptions.zrd", Set, R"(GFX_AUDIO_OPTIONDIALOG/BUTTONS/SFXSLIDER/POSITION)", R"((250 82))", R"((250 72))"},
+    {"zbd/reader.zbd", "dlgoptions.zrd", Set, R"(GFX_AUDIO_OPTIONDIALOG/BUTTONS/VIDEO_DEVICE/POSITION)", R"((250 110))", R"((250 122))"},
+    {"zbd/reader.zbd", "dlgoptions.zrd", Insert, R"(GFX_AUDIO_OPTIONDIALOG/BUTTONS/SFXSLIDER)", R"("MOUSE_SENSITIVITY")",
+     R"(("POSITION" (250 97) "BITMAP" ("sliderunfilled") "LABEL" ("M O U S E  S E N S I T I V I T Y" "offset" (-170 1) "font" ("ia_dark_grey")) "ROLLOVER" () "ACTIVATE" ("SOUND" ("menu_select" 1.0)) "FILLBITMAP" ("sliderfilled")))"},
+};
+
 // A value as the table writes it: (lists), "strings", ints, floats with a '.'.
 bool parse_at(const char*& p, Node* out) {
   while (*p == ' ') ++p;
@@ -172,6 +185,20 @@ bool has_edits(const std::string& archive, const std::string& entry) {
   for (const Edit& e : kEdits)
     if (archive == e.archive && entry == e.entry) return true;
   return false;
+}
+
+bool apply_ours(const std::string& archive, const std::string& entry, Node* root) {
+  if (!root || root->type != zrdr::List) return false;
+  bool any = false;
+  for (const Edit& e : kOurs) {
+    if (archive != e.archive || entry != e.entry) continue;
+    Node copy = tree::clone(*root);  // a record not as expected (a mod's) is left whole
+    Node* top = &copy;
+    while (top->list[0].i == 2 && top->list[1].type == zrdr::List) top = &top->list[1];
+    if (apply_one(top, e)) tree::replace(root, copy), any = true;
+    else zrdr::free_contents(&copy);
+  }
+  return any;
 }
 
 bool apply_edits(const std::string& archive, const std::string& entry, Node* root) {

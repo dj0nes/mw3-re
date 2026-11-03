@@ -226,6 +226,7 @@ add_library(mw3core STATIC
   src/mech3/hud.cpp
   src/mech3/message_panel.cpp
   src/mech3/mech_hud.cpp
+  src/mech3/app_cheats.cpp
   src/mech3/app_hud.cpp
   src/mech3/app_keys.cpp
   src/mech3/pilot.cpp
@@ -235,6 +236,7 @@ add_library(mw3core STATIC
   src/mech3/mp_connect.cpp
   src/mech3/mp_lobby.cpp
   src/mech3/chat_panel.cpp
+  src/mech3/cheats.cpp
   src/mech3/briefing.cpp
   src/mech3/debriefing.cpp
   src/mech3/salvage_screen.cpp
@@ -277,6 +279,7 @@ add_library(mw3core STATIC
   src/mech3/app_fmv.cpp
   src/mech3/app_movie.cpp
   src/mech3/movie_shape.cpp
+  src/mech3/movie_shape_table.cpp
   src/mech3/mods.cpp
   third_party/pl_mpeg/pl_mpeg.c
   src/mech3/app_mission.cpp
@@ -679,7 +682,7 @@ if(SDL3_FOUND)
   find_package(SDL3_ttf CONFIG QUIET)
   if(SDL3_ttf_FOUND)
     add_library(mw3text STATIC src/frontend/sdl/sdl_twod_host.cpp src/frontend/sdl/gdi_font_size.cpp
-                src/frontend/sdl/text_fit.cpp src/frontend/sdl/launcher_notes.cpp)
+                src/frontend/sdl/text_fit.cpp src/frontend/sdl/launcher_notes.cpp src/frontend/sdl/movie_import.cpp)
     target_link_libraries(mw3text PUBLIC mw3sdl SDL3_ttf::SDL3_ttf)
     add_executable(mw3
       src/frontend/sdl/mw3_main.cpp

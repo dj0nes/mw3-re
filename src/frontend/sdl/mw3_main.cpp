@@ -160,7 +160,7 @@ struct Args {
   int shot_frame = 30, frames = 0, win_w = 1280, win_h = 960, fire = 0, fire_group = 0, objectives = 0;
   int click = 0, click_up = 0, shot_series = 0;
   bool no_import = false, force_import = false;  // --no-import, --import (ours: first_run_import.h)
-  bool no_launcher = false;   // --no-launcher (ours: launcher.h): no SETUP screen, the old dialog if there is no install
+  bool no_launcher = false;   // --no-launcher (ours: launcher.h): no find screen, the old dialog if there is no install
   std::string ready_file;     // --ready-file F (ours, sdl_child.h): written at the first frame shown, for mw3launcher
   std::string vfw_helper;     // --vfw-helper EXE (ours, sdl_vfw.h): the movies' Video for Windows helper; "-" none
   std::string patch;          // --patch PATH (ours, patch_import.h): the official 1.2 patch into the write dir's overlay
@@ -654,7 +654,7 @@ int main(int argc, char** argv) {
     std::printf("mw3: bug fixes off (%s): the original's play\n", a.play_original ? "--original" : "bugfixes=0 in mw3.cfg");
   // The launcher (ours: launcher.h, docs/launcher.md, games-layout.md): a
   // player's plain start goes straight into the game when an install is
-  // found, else to the SETUP screen alone and on into the game once there is
+  // found, else to the find screen alone and on into the game once there is
   // one (the launcher's main screen is mw3launcher's). Checks, shots, debug starts and a
   // named install or source go straight on.
   const bool player_start = !a.hidden && a.frames == 0 && a.shot.empty() && a.chain.empty() && a.modes.empty() &&
@@ -676,7 +676,7 @@ int main(int argc, char** argv) {
         std::printf("mw3: install %s saved to mw3.cfg\n", found.c_str());
     } else {
       setup_only = true;
-      std::printf("mw3: no install found: the SETUP screen\n");
+      std::printf("mw3: no install found: the find screen\n");
     }
   }
   if (setup_only) {
@@ -688,6 +688,7 @@ int main(int argc, char** argv) {
 #endif
     lo.fullscreen = !a.windowed && !a.window_given;
     lo.sound = !a.nosound;
+    lo.no_import = a.no_import;
     lo.win_w = a.win_w, lo.win_h = a.win_h;
     const sdlfe::LauncherChoice c = sdlfe::run_launcher(lo);
     if (c.kind != sdlfe::LauncherChoice::kPlay) {
@@ -734,6 +735,7 @@ int main(int argc, char** argv) {
   if (!patch_dir.empty() && std::filesystem::is_directory(patch_dir, patch_ec)) zutl::mount(patch_dir);
   zutl::mount(a.install);
   zutl::set_write_dir(a.write_dir);
+  zutl::mounts().confined = true;  // ours: names from data and the network stay inside these folders
   std::error_code ec;
   if (!std::filesystem::exists(a.install + "/zbd/reader.zbd", ec)) {
     const std::string msg = "No MechWarrior 3 install at \"" + a.install +
