@@ -698,6 +698,7 @@ class GameEngine : public Engine {
   std::unique_ptr<zfmv::BlurAction> pause_blur_;  // the pause screen's (wait_new)
   bool last_via_render_ = false;  // the frame just shown went through Render3D
   bool held_ = false;             // a shown frame kept behind a message box (hold_shown_frame)
+  bool layer_blank_ = true;       // every 2D layer drawn since the last flip was only the key colour
   bool buffer_is_screen_ = true;  // the 16-bit buffer holds the frame shown (not the 3D lock's layer)
   std::vector<uint16_t> kept_screen_;  // that frame while a 3D lock has the buffer
   std::unordered_map<void*, Handle> handles_;

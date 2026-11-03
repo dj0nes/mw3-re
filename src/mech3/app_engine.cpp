@@ -716,7 +716,11 @@ void GameEngine::video_flip(int32_t, int32_t, int32_t, int32_t) {
   // FIX (B), playtest W25: a message box over a GPU frame shows over that
   // frame at its own size, not over the 16-bit buffer's copy of it (the
   // buffer's size: the menus' 640x480, low-res at 16:9 or in the lab).
-  if (held_ && !scene_drawn_ && !layer_drawn_ && p_.render && p_.screen && p_.render->restore_frame()) {
+  // FIX (B), playtest W55: the message box's own empty 3D lock (0x004ac150's
+  // first) draws only the key colour; it does not count as a frame drawn,
+  // or the lab's held frame was dropped and the box shown over the key's
+  // magenta.
+  if (held_ && !scene_drawn_ && (!layer_drawn_ || layer_blank_) && p_.render && p_.screen && p_.render->restore_frame()) {
     p_.screen->overlay_16(buffer_.data(), width_, height_, width_ * 2, true, kLayerKey, nullptr, nullptr);
     p_.render->present();
     ++frames_presented;
@@ -730,6 +734,7 @@ void GameEngine::video_flip(int32_t, int32_t, int32_t, int32_t) {
   last_via_render_ = (scene_drawn_ || layer_drawn_) && p_.render;
   buffer_is_screen_ = !last_via_render_;
   scene_drawn_ = layer_drawn_ = false;
+  layer_blank_ = true;
   ++frames_presented;
   if (on_present) on_present(frames_presented);
 }
@@ -944,11 +949,16 @@ int32_t GameEngine::unlock_back(zvid::Surface*) {
     buffer_is_screen_ = true;
     return 0;
   }
+  // Scanned only where it can matter (the held path in video_flip: no scene
+  // drawn), stopping at the first pixel drawn.
+  const bool blank = !scene_drawn_ && kept_screen_.empty() &&
+                     std::all_of(buffer_.begin(), buffer_.end(), [](uint16_t p) { return p == kLayerKey; });
   kept_screen_.clear();
   if (p_.screen)
     p_.screen->overlay_16(buffer_.data(), width_, height_, width_ * 2, true, kLayerKey, cover_alpha_.data(),
                           cover_colour_.data());
   layer_drawn_ = true;
+  layer_blank_ = layer_blank_ && blank;
   return 0;
 }
 

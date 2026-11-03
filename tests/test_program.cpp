@@ -55,6 +55,7 @@
 #include "gamez/zutil/zutl_path.h"
 #include "gamez/zutil/zutl_reg.h"
 #include "gamez/zmodel/gmod_clip2d.h"
+#include "gamez/zvideo/zvid_dd.h"
 #include "gamez/zvideo/zvid_ddd3d.h"
 #include "gamez/zvideo/zvid_format.h"
 #include "gamez/zeffect/zeff_anim_init.h"
@@ -22469,4 +22470,61 @@ TEST(mission_c3m5_homing_on_10_data_headless) {
   print_homing("1.0, killed", r);
   expect_homing(r);
   EXPECT(r.killed && r.salvo >= 2 && r.salvo_reached == r.salvo);
+}
+
+// Playtest W55 (Owen, PC; the Mac too): MECH LAB, VARIANTS, SAVE over a
+// variant of his own, Enter: "Overwrite?" over a purple screen. The lab's
+// frame goes through the GPU, the 16-bit buffer holding only its 2D layer;
+// the message box (0x004ac150) first locks and unlocks the 3D layer empty,
+// and that unlock counted as a layer drawn, so the box's first flip dropped
+// the lab's held frame (W25) and showed the buffer, the layer's key colour
+// (magenta), as the screen. Here a GPU frame with a layer, then the box's
+// empty lock, the hold and the box's flip: the kept frame back, the buffer
+// not shown as the screen.
+TEST(message_box_over_a_gpu_frame_keeps_it_after_an_empty_lock) {
+  struct HoldGpu : platform::Render3D {
+    int presents = 0, holds = 0, restores = 0;
+    int32_t create_texture(int, int, const uint8_t*, uint8_t) override { return 1; }
+    void release_texture(int32_t) override {}
+    void update_texture(int32_t, int, int, const uint8_t*) override {}
+    void set_viewport(int, int, int, int) override {}
+    void clear(bool, uint8_t, uint8_t, uint8_t) override {}
+    void begin_scene() override {}
+    void end_scene() override {}
+    void draw(platform::Primitive, const platform::TLVertex*, int, const platform::DrawState&) override {}
+    void set_fog_color(uint8_t, uint8_t, uint8_t) override {}
+    void present() override { ++presents; }
+    bool hold_frame() override { return ++holds, true; }
+    bool restore_frame() override { return ++restores, true; }
+  } gpu;
+  struct CountScreen : platform::Screen2D {
+    int as_screen = 0, overlays = 0;
+    void present_16(const uint16_t*, int, int, int, bool) override { ++as_screen; }
+    void overlay_16(const uint16_t*, int, int, int, bool, uint16_t, const uint8_t*, const uint16_t*) override { ++overlays; }
+  } screen;
+  FakeWindow window;
+  FakeAlert alert;
+  FakeClock clock;
+  platform::SilentSoundOutput sound;
+  mech3::MountFiles files;
+  mech3::Platform p;
+  p.window = &window, p.alert = &alert, p.clock = &clock, p.movie_clock = &fast_movie_clock(), p.screen = &screen, p.sound = &sound, p.files = &files;
+  p.render = &gpu;
+  mech3::GameEngine e(p, "mech3.exe -nofmv");
+  zvid::Surface s;
+  // The lab's frame: its 2D layer drawn over the key, through the GPU.
+  e.lock_back(&s);
+  s.pixels[0] = 0x1234;
+  e.unlock_back(&s);
+  e.video_flip(0, 0, 0, 0);
+  EXPECT(gpu.presents == 1 && screen.as_screen == 0);
+  // The box: its empty lock and unlock, the frame held (its backdrop), its frames.
+  e.lock_back(&s);
+  e.unlock_back(&s);
+  EXPECT(e.hold_shown_frame());
+  for (int k = 0; k < 3; ++k) e.video_flip(0, 0, 0, 0);
+  std::printf("  held %d, restores %d, presents %d, buffer shown as the screen %d\n", e.held(), gpu.restores, gpu.presents,
+              screen.as_screen);
+  EXPECT(e.held() && gpu.restores == 3 && gpu.presents == 4 && screen.as_screen == 0);
+  e.drop_held();
 }

@@ -495,6 +495,10 @@ These change how the game talks to the computer, not how it plays.
   menus' writing is drawn with the game's own fonts (Arial, Impact, Lucida
   Console, shipped with it) instead of Windows' text drawing.
 - Message boxes are the computer's own instead of Windows'.
+- A message box over the 3D picture (the mech lab's "Overwrite?", the
+  mission's quit) shows that picture behind it at full size, as the
+  original did; the rebuild's v1.0 showed the lab's box over a purple
+  screen.
 - The game's random numbers are generated exactly as on the original's
   Windows, so everything random behaves the same.
 - Some rendering depends on the processor's math precision. In the emulator,
