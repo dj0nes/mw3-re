@@ -350,6 +350,8 @@ void GameEngine::widen_screen(MenuScreen* s, uint32_t ctor) {
           if (ar) ar->set_pos(ar->get_x() + m.off, ar->get_y());
         if (fl->image) fl->rect.left += m.off, fl->rect.right += m.off;
       }
+      if (auto* cr = dynamic_cast<CreditsScroll*>(m.o))  // RECT as read (0x00429200): the names go in it each frame (W60)
+        cr->left += m.off, cr->right += m.off;
       if (auto* b = dynamic_cast<MainMenuButton*>(m.o))  // its underline, drawn by the button
         b->line.set_pos(b->line.get_x() + m.off, b->line.get_y());
       auto* cb = dynamic_cast<ztwod::CheckButton*>(m.o);  // its rect is BOUNDS as read (a list box's rows)
