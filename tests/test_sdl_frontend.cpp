@@ -171,6 +171,149 @@ TEST(sdl_input_virtual_stick_reads_as_directinput) {
   SDL_DetachVirtualJoystick(id);
 }
 
+// W54 (Reddit, v1.0: "I can't aim with my joystick (Thrustmaster T.16000m)"):
+// SDL packs a raw stick's axes; the T.16000M's (X, Y, Rz twist, slider
+// throttle) gave the twist as Z, the game's throttle, and no torso twist (Rz).
+// Its descriptor as Windows reads it (ivyl/input-db,
+// USB-0x044F_0xB10A-Thrustmaster-T.16000M.md).
+namespace {
+const uint8_t kT16000m[] = {
+    0x05, 0x01, 0x09, 0x04, 0xa1, 0x01, 0x05, 0x09, 0x19, 0x01, 0x29, 0x10, 0x15, 0x00, 0x25, 0x01, 0x35, 0x00, 0x45,
+    0x01, 0x75, 0x01, 0x95, 0x10, 0x81, 0x02, 0x05, 0x01, 0x09, 0x39, 0x15, 0x00, 0x25, 0x07, 0x35, 0x00, 0x46, 0x3b,
+    0x01, 0x65, 0x14, 0x75, 0x04, 0x95, 0x01, 0x81, 0x42, 0x81, 0x01, 0x09, 0x30, 0x15, 0x00, 0x26, 0xff, 0x3f, 0x35,
+    0x00, 0x46, 0xff, 0x3f, 0x65, 0x00, 0x75, 0x0e, 0x95, 0x01, 0x81, 0x02, 0x75, 0x02, 0x95, 0x01, 0x81, 0x01, 0x09,
+    0x31, 0x75, 0x0e, 0x95, 0x01, 0x81, 0x02, 0x75, 0x02, 0x95, 0x01, 0x81, 0x01, 0x09, 0x35, 0x09, 0x36, 0x15, 0x00,
+    0x26, 0xff, 0x00, 0x35, 0x00, 0x46, 0xff, 0x00, 0x65, 0x00, 0x75, 0x08, 0x95, 0x02, 0x81, 0x02, 0x75, 0x08, 0x95,
+    0x37, 0x81, 0x01, 0x06, 0x00, 0xff, 0x27, 0xff, 0xff, 0x00, 0x00, 0x09, 0x01, 0x75, 0x08, 0x95, 0x04, 0xb1, 0xa2,
+    0xc0};
+SDL_JoystickID attach_stick(const char* name, int axes, int buttons, int hats, uint16_t vendor = 0, uint16_t product = 0) {
+  SDL_VirtualJoystickDesc d;
+  SDL_INIT_INTERFACE(&d);
+  d.type = SDL_JOYSTICK_TYPE_FLIGHT_STICK, d.naxes = static_cast<Uint16>(axes), d.nbuttons = static_cast<Uint16>(buttons);
+  d.nhats = static_cast<Uint16>(hats), d.name = name, d.vendor_id = vendor, d.product_id = product;
+  return SDL_AttachVirtualJoystick(&d);
+}
+void pump(sdlfe::SdlInput& in) {
+  SDL_PumpEvents();
+  SDL_Event e;
+  while (SDL_PollEvent(&e)) in.on_event(e);
+}
+}  // namespace
+
+TEST(sdl_joystick_axes_from_the_t16000m_descriptor) {
+  const std::vector<uint16_t> u = sdlfe::hid_axis_usages(kT16000m, sizeof kT16000m);
+  EXPECT((u == std::vector<uint16_t>{0x30, 0x31, 0x35, 0x36}));  // the hat (0x39) and the vendor page left out
+  int s[8];
+  EXPECT(sdlfe::axis_slots_from_usages(u, 4, s));
+  EXPECT(s[0] == 0 && s[1] == 1 && s[2] == -1 && s[3] == -1 && s[4] == -1 && s[5] == 2 && s[6] == 3 && s[7] == -1);
+  EXPECT(sdlfe::axis_slots_text(s, 4) == "X,Y,Rz,S0");
+  EXPECT(!sdlfe::axis_slots_from_usages(u, 5, s));  // SDL counting otherwise: not trusted
+  int t[8];
+  EXPECT(sdlfe::axis_slots_from_text(" x, y ,RZ,s0", 4, t) && std::equal(s, s + 8, t));
+  EXPECT(sdlfe::axis_slots_from_text("X,-,Z", 3, t) && t[0] == 0 && t[1] == -1 && t[2] == 2);
+  EXPECT(!sdlfe::axis_slots_from_text("X,X", 2, t) && !sdlfe::axis_slots_from_text("X,Q", 2, t));
+  // A Dial and a Wheel after a Slider: the second slider, then none.
+  EXPECT(sdlfe::axis_slots_from_usages({0x30, 0x31, 0x36, 0x37, 0x38}, 5, s) && s[6] == 2 && s[7] == 3);
+  EXPECT(sdlfe::joystick_rank(true, 6, 15) > sdlfe::joystick_rank(false, 4, 12) &&
+         sdlfe::joystick_rank(false, 4, 12) > sdlfe::joystick_rank(false, 1, 2));
+}
+
+TEST(sdl_input_t16000m_twist_reaches_rz) {
+  EXPECT(SDL_InitSubSystem(SDL_INIT_JOYSTICK | SDL_INIT_GAMEPAD));
+  const SDL_JoystickID id = attach_stick("T.16000M", 4, 16, 1, 0x044f, 0xb10a);
+  SDL_Joystick* v = SDL_OpenJoystick(id);
+  // From its descriptor, from the table (no descriptor read), from mw3.cfg.
+  for (int how = 0; how < 3; ++how) {
+    sdlfe::SdlInput in;
+    in.hid_usages = [how](SDL_Joystick*) {
+      return how == 0 ? sdlfe::hid_axis_usages(kT16000m, sizeof kT16000m) : std::vector<uint16_t>{};
+    };
+    if (how == 2) in.joystick_axes = "X,Y,Z,S1";  // a player's own map wins
+    EXPECT(in.open(platform::Input::kJoystick));
+    std::printf("  T.16000M: axes from %s\n", in.axis_source());
+    static const char* const kFrom[3] = {"its HID descriptor", "the known sticks' table", "mw3.cfg's joystick_axes="};
+    EXPECT(std::string(in.axis_source()) == kFrom[how]);  // the log's word for it, each in its turn
+    uint32_t flags = 0, axes = 0;
+    in.joystick_caps(&flags, &axes);
+    EXPECT(axes == 4);
+    joy_setup_as_zinput(in);
+    in.joystick_set_range(0x18, -1000, 1000), in.joystick_set_range(0x1c, -1000, 1000);
+    EXPECT(in.acquire(platform::Input::kJoystick) == 0);
+    SDL_SetJoystickVirtualAxis(v, 2, 32767);   // the twist full right
+    SDL_SetJoystickVirtualAxis(v, 3, -32768);  // the throttle lever at one end
+    SDL_UpdateJoysticks();
+    platform::JoyState st;
+    EXPECT(in.joystick_state(&st) == 0);
+    std::printf("  T.16000M: z %d rz %d slider %d %d\n", st.z, st.rz, st.slider[0], st.slider[1]);
+    if (how < 2) {
+      EXPECT(st.rz == 1000 && st.z == 0);  // the twist on Rz, the game's torso twist; nothing on Z
+      EXPECT(st.slider[0] == -1000 && st.slider[1] == 0);
+      char name[32];
+      EXPECT(in.joystick_object_name(0x08, name, sizeof name) != 0);  // no Z
+      EXPECT(in.joystick_object_name(0x14, name, sizeof name) == 0);  // Rz
+    } else {
+      EXPECT(st.z == 1000 && st.rz == 0 && st.slider[1] == -1000);
+    }
+    in.close(platform::Input::kJoystick);
+  }
+  SDL_CloseJoystick(v);
+  SDL_DetachVirtualJoystick(id);
+}
+
+TEST(sdl_input_picks_the_stick_over_an_odd_device) {
+  EXPECT(SDL_InitSubSystem(SDL_INIT_JOYSTICK | SDL_INIT_GAMEPAD));
+  const SDL_JoystickID odd = attach_stick("mw3 test RGB keyboard", 1, 2, 0);  // first, as EnumDevices took
+  const SDL_JoystickID stick = attach_stick("mw3 test flight stick", 4, 12, 1);
+  for (const char* want : {"", "rgb KEY"}) {
+    sdlfe::SdlInput in;
+    in.hid_usages = [](SDL_Joystick*) { return std::vector<uint16_t>{}; };
+    in.joystick_want = want;
+    EXPECT(in.open(platform::Input::kJoystick));
+    const char* name = SDL_GetJoystickName(in.joystick());
+    std::printf("  joystick=%s: %s\n", want, name ? name : "?");
+    EXPECT(name && std::string(name) == (*want ? "mw3 test RGB keyboard" : "mw3 test flight stick"));
+    in.close(platform::Input::kJoystick);
+  }
+  SDL_DetachVirtualJoystick(odd);
+  SDL_DetachVirtualJoystick(stick);
+}
+
+TEST(sdl_input_stick_taken_out_reads_centred) {
+  EXPECT(SDL_InitSubSystem(SDL_INIT_JOYSTICK | SDL_INIT_GAMEPAD));
+  SDL_JoystickID id = attach_stick("mw3 test unplugged stick", 6, 12, 1);
+  SDL_Joystick* v = SDL_OpenJoystick(id);
+  sdlfe::SdlInput in;
+  in.hid_usages = [](SDL_Joystick*) { return std::vector<uint16_t>{}; };
+  EXPECT(in.open(platform::Input::kJoystick));
+  joy_setup_as_zinput(in);
+  EXPECT(in.acquire(platform::Input::kJoystick) == 0);
+  pump(in);
+  SDL_SetJoystickVirtualAxis(v, 0, 32767);   // turning hard
+  SDL_SetJoystickVirtualAxis(v, 2, -16384);  // the throttle
+  SDL_SetJoystickVirtualButton(v, 0, true);  // firing
+  SDL_UpdateJoysticks();
+  platform::JoyState st;
+  EXPECT(in.joystick_state(&st) == 0 && st.x == 1000 && st.buttons[0] == 0x80);
+  const int32_t z = st.z;
+  SDL_CloseJoystick(v);
+  SDL_DetachVirtualJoystick(id);  // taken out mid-mission
+  pump(in);
+  EXPECT(in.unplugged() && !in.joystick());
+  EXPECT(in.joystick_state(&st) == 0);
+  std::printf("  taken out: x %d z %d (was %d) button %x\n", st.x, st.z, z, st.buttons[0]);
+  EXPECT(st.x == 0 && st.z == z && st.buttons[0] == 0);  // no held turn or fire; the throttle where it was
+  id = attach_stick("mw3 test unplugged stick", 6, 12, 1);  // back
+  pump(in);
+  EXPECT(!in.unplugged() && in.joystick());
+  v = SDL_OpenJoystick(id);
+  SDL_SetJoystickVirtualAxis(v, 1, 32767);
+  SDL_UpdateJoysticks();
+  EXPECT(in.joystick_state(&st) == 0 && st.y == 1000);
+  in.close(platform::Input::kJoystick);
+  SDL_CloseJoystick(v);
+  SDL_DetachVirtualJoystick(id);
+}
+
 TEST(sdl_input_virtual_gamepad_reads_as_directinput_xinput) {
   EXPECT(SDL_InitSubSystem(SDL_INIT_JOYSTICK | SDL_INIT_GAMEPAD));
   SDL_VirtualJoystickDesc d;

@@ -3,6 +3,7 @@
 #include "gamez/zutil/zutl_reg.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -92,18 +93,231 @@ SdlInput::~SdlInput() {
   else if (joy_) SDL_CloseJoystick(joy_);
 }
 
+namespace {
+const char* const kSlotNames[8] = {"X", "Y", "Z", "Rx", "Ry", "Rz", "S0", "S1"};
+
+bool same_text(const std::string& a, const char* b) {
+  if (a.size() != std::strlen(b)) return false;
+  for (size_t i = 0; i < a.size(); ++i)
+    if (std::tolower(static_cast<unsigned char>(a[i])) != std::tolower(static_cast<unsigned char>(b[i]))) return false;
+  return true;
+}
+bool has_text(const char* name, const std::string& part) {
+  if (!name || part.empty()) return false;
+  const std::string n(name);
+  for (size_t i = 0; i + part.size() <= n.size(); ++i)
+    if (same_text(n.substr(i, part.size()), part.c_str())) return true;
+  return false;
+}
+
+// Sticks whose descriptor cannot be read, by vendor and product: the axis
+// usages SDL counts, each from a dump of the device's own descriptor (none
+// guessed; W54).
+struct KnownStick {
+  uint16_t vendor, product;
+  uint16_t usages[8];
+  int count;
+};
+const KnownStick kKnownSticks[] = {
+    {0x044f, 0xb10a, {0x30, 0x31, 0x35, 0x36}, 4},  // Thrustmaster T.16000M: X, Y, Rz twist, slider throttle (ivyl/input-db)
+};
+}  // namespace
+
+std::vector<uint16_t> hid_axis_usages(const uint8_t* d, size_t n) {
+  std::vector<uint16_t> out;
+  uint32_t page = 0, lo = 0, hi = 0;
+  bool range = false;
+  std::vector<uint32_t> usages;
+  auto add = [&out](uint32_t u) {
+    if ((u >> 16) != 1 || (u & 0xffff) < 0x30 || (u & 0xffff) > 0x38) return;
+    const uint16_t a = static_cast<uint16_t>(u & 0xffff);
+    if (std::find(out.begin(), out.end(), a) == out.end()) out.push_back(a);
+  };
+  size_t i = 0;
+  while (i < n) {
+    const uint8_t p = d[i++];
+    if (p == 0xfe) {  // a long item: its size, its tag, its data
+      if (i >= n) break;
+      i += 2 + d[i];
+      continue;
+    }
+    const size_t size = (p & 3) == 3 ? 4 : (p & 3);
+    if (i + size > n) break;
+    uint32_t v = 0;
+    for (size_t k = 0; k < size; ++k) v |= static_cast<uint32_t>(d[i + k]) << (8 * k);
+    i += size;
+    const uint32_t full = size == 4 ? v : (page << 16) | v;  // a 4-byte usage names its page
+    switch (p & 0xfc) {
+      case 0x04: page = v; break;              // Usage Page
+      case 0x08: usages.push_back(full); break;  // Usage
+      case 0x18: lo = full, range = true; break;  // Usage Minimum
+      case 0x28: hi = full; break;              // Usage Maximum
+      case 0x80:                                // Input: data, variable
+        if (!(v & 1) && (v & 2)) {
+          for (uint32_t u : usages) add(u);
+          if (range)
+            for (uint32_t u = lo; u <= hi && u - lo < 64; ++u) add(u);
+        }
+        usages.clear(), range = false;
+        break;
+      case 0x90: case 0xb0: case 0xa0: case 0xc0:  // Output, Feature, Collection, End: the locals go
+        usages.clear(), range = false;
+        break;
+      default: break;
+    }
+  }
+  std::sort(out.begin(), out.end());
+  return out;
+}
+
+bool axis_slots_from_usages(const std::vector<uint16_t>& usages, int sdl_axes, int slots[8]) {
+  if (usages.empty() || static_cast<int>(usages.size()) != sdl_axes) return false;
+  int s[8];
+  std::fill(s, s + 8, -1);
+  int slider = 6;
+  for (int k = 0; k < sdl_axes; ++k) {
+    const int u = usages[static_cast<size_t>(k)];
+    const int slot = u <= 0x35 ? u - 0x30 : slider < 8 ? slider++ : -1;  // Slider, Dial, Wheel: the sliders
+    if (slot >= 0) s[slot] = k;
+  }
+  std::copy(s, s + 8, slots);
+  return true;
+}
+
+bool axis_slots_from_text(const std::string& text, int sdl_axes, int slots[8]) {
+  int s[8];
+  std::fill(s, s + 8, -1);
+  int k = 0;
+  size_t at = 0;
+  while (at <= text.size()) {
+    size_t end = text.find(',', at);
+    if (end == std::string::npos) end = text.size();
+    std::string w = text.substr(at, end - at);
+    while (!w.empty() && w.front() == ' ') w.erase(w.begin());
+    while (!w.empty() && w.back() == ' ') w.pop_back();
+    if (w != "-") {
+      int slot = -1;
+      for (int i = 0; i < 8; ++i)
+        if (same_text(w, kSlotNames[i])) slot = i;
+      if (slot < 0 || s[slot] >= 0) return false;
+      if (k < sdl_axes) s[slot] = k;
+    }
+    ++k;
+    at = end + 1;
+  }
+  std::copy(s, s + 8, slots);
+  return true;
+}
+
+std::string axis_slots_text(const int slots[8], int sdl_axes) {
+  std::string out;
+  for (int k = 0; k < sdl_axes; ++k) {
+    const char* w = "-";
+    for (int i = 0; i < 8; ++i)
+      if (slots[i] == k) w = kSlotNames[i];
+    out += (k ? "," : "") + std::string(w);
+  }
+  return out;
+}
+
+int joystick_rank(bool gamepad, int axes, int buttons) { return gamepad ? 2 : axes >= 2 && buttons >= 4 ? 1 : 0; }
+
+std::vector<uint16_t> read_hid_usages(SDL_Joystick* j) {
+  std::vector<uint16_t> out;
+  const uint16_t vendor = SDL_GetJoystickVendor(j), product = SDL_GetJoystickProduct(j);
+  if (!vendor || SDL_hid_init() != 0) return out;
+  SDL_hid_device_info* list = SDL_hid_enumerate(vendor, product);
+  for (SDL_hid_device_info* d = list; d && out.empty(); d = d->next) {
+    if (d->usage_page != 1 || (d->usage != 4 && d->usage != 5 && d->usage != 8)) continue;
+    SDL_hid_device* h = SDL_hid_open_path(d->path);
+    if (!h) continue;
+    unsigned char desc[4096];
+    const int n = SDL_hid_get_report_descriptor(h, desc, sizeof desc);
+    SDL_hid_close(h);
+    if (n > 0) out = hid_axis_usages(desc, static_cast<size_t>(n));
+  }
+  SDL_hid_free_enumeration(list);
+  SDL_hid_exit();
+  return out;
+}
+
+// EnumDevices(DIDEVTYPE_JOYSTICK, attached only) took the first. Ours (W54):
+// mw3.cfg's joystick= by name, else the best ranked, the first of a rank;
+// each device found is logged.
+bool SdlInput::open_joystick() {
+  int n = 0;
+  SDL_JoystickID* ids = SDL_GetJoysticks(&n);
+  int best = -1, best_rank = -1, wanted = -1;
+  for (int i = 0; ids && i < n; ++i) {
+    SDL_Joystick* j = SDL_OpenJoystick(ids[i]);
+    if (!j) continue;
+    const bool pad = SDL_IsGamepad(ids[i]);
+    const int axes = SDL_GetNumJoystickAxes(j), buttons = SDL_GetNumJoystickButtons(j), hats = SDL_GetNumJoystickHats(j);
+    char guid[33];
+    SDL_GUIDToString(SDL_GetJoystickGUID(j), guid, sizeof guid);
+    const char* name = SDL_GetJoystickName(j);
+    std::printf("mw3: joystick %d: \"%s\" %04x:%04x guid %s, %s, %d axes, %d buttons, %d hats\n", i,
+                name ? name : "", SDL_GetJoystickVendor(j), SDL_GetJoystickProduct(j), guid,
+                pad ? "a gamepad" : "not a gamepad", axes, buttons, hats);
+    const int rank = joystick_rank(pad, axes, buttons);
+    if (rank > best_rank) best = i, best_rank = rank;
+    if (wanted < 0 && has_text(name, joystick_want)) wanted = i;
+    SDL_CloseJoystick(j);
+  }
+  if (!joystick_want.empty() && wanted < 0 && n > 0)
+    std::printf("mw3: joystick=%s matches no device: the best one taken\n", joystick_want.c_str());
+  const int pick = wanted >= 0 ? wanted : best;
+  if (pick >= 0) {
+    if (SDL_IsGamepad(ids[pick])) pad_ = SDL_OpenGamepad(ids[pick]);
+    joy_ = pad_ ? SDL_GetGamepadJoystick(pad_) : SDL_OpenJoystick(ids[pick]);
+    if (joy_) {
+      id_ = ids[pick], guid_ = SDL_GetJoystickGUID(joy_);
+      std::printf("mw3: joystick %d opened (%s)\n", pick, wanted >= 0 ? "mw3.cfg's joystick=" : n > 1 ? "the best ranked" : "the only one");
+      map_axes();
+    }
+  }
+  SDL_free(ids);
+  return joy_ != nullptr;
+}
+
+// The axis map (W54): a gamepad's is DirectInput's XInput layout (pad_axis);
+// a stick's mw3.cfg's joystick_axes=, else its HID descriptor, else
+// kKnownSticks, else SDL's packed order as it is (the axes before W54).
+void SdlInput::map_axes() {
+  for (int i = 0; i < 8; ++i) slot_[i] = -1;
+  if (pad_) {
+    for (int i = 0; i < 5; ++i) slot_[i] = i;
+    axis_source_ = "gamepad";
+    return;
+  }
+  const int na = SDL_GetNumJoystickAxes(joy_);
+  if (!joystick_axes.empty()) {
+    if (axis_slots_from_text(joystick_axes, na, slot_)) axis_source_ = "mw3.cfg's joystick_axes=";
+    else std::printf("mw3: joystick_axes=%s not understood (X, Y, Z, Rx, Ry, Rz, S0, S1 or -, each once)\n", joystick_axes.c_str());
+  }
+  if (!*axis_source_ || !std::strcmp(axis_source_, "gamepad")) {
+    axis_source_ = "";
+    const std::vector<uint16_t> usages = hid_usages ? hid_usages(joy_) : read_hid_usages(joy_);
+    if (axis_slots_from_usages(usages, na, slot_)) {
+      axis_source_ = "its HID descriptor";
+    } else {
+      for (const KnownStick& k : kKnownSticks)
+        if (k.count && k.vendor == SDL_GetJoystickVendor(joy_) && k.product == SDL_GetJoystickProduct(joy_) &&
+            axis_slots_from_usages(std::vector<uint16_t>(k.usages, k.usages + k.count), na, slot_))
+          axis_source_ = "the known sticks' table";
+    }
+    if (!*axis_source_) {
+      for (int i = 0; i < 8; ++i) slot_[i] = i < na ? i : -1;
+      axis_source_ = usages.empty() ? "SDL's order (no descriptor read)" : "SDL's order (the descriptor's axes are not SDL's)";
+    }
+  }
+  std::printf("mw3: joystick axes from %s: joystick_axes=%s\n", axis_source_, axis_slots_text(slot_, na).c_str());
+}
+
 bool SdlInput::open(Device d) {
   if (d == kJoystick) {
-    if (!joy_) {
-      int n = 0;
-      SDL_JoystickID* ids = SDL_GetJoysticks(&n);
-      if (ids && n > 0) {  // EnumDevices(DIDEVTYPE_JOYSTICK, attached only): the first
-        if (SDL_IsGamepad(ids[0])) pad_ = SDL_OpenGamepad(ids[0]);
-        joy_ = pad_ ? SDL_GetGamepadJoystick(pad_) : SDL_OpenJoystick(ids[0]);
-      }
-      SDL_free(ids);
-    }
-    if (!joy_) return false;
+    tried_ = true;
+    if (!joy_ && !open_joystick()) return false;
   }
   opened_[d] = true;
   return true;
@@ -113,6 +327,7 @@ void SdlInput::close(Device d) {
   opened_[d] = acquired_[d] = false;
   if (d == kJoystick && pad_) SDL_CloseGamepad(pad_), pad_ = nullptr, joy_ = nullptr;
   if (d == kJoystick && joy_) SDL_CloseJoystick(joy_), joy_ = nullptr;
+  if (d == kJoystick) unplugged_ = false;
   if (d == kKeyboard) keys_.clear();
 }
 
@@ -247,17 +462,37 @@ int32_t SdlInput::mouse_state(platform::MouseState* out) {
   return 0;
 }
 
+// Ours (W54): a stick taken out reads with nothing pressed and its stick
+// axes centred (DirectInput's state stopped at its last read: a held turn);
+// Z and the sliders, the throttles, keep their last reading (centred, the
+// throttle would jump to half).
+void SdlInput::neutral(platform::JoyState* out) const {
+  *out = platform::JoyState{};
+  int32_t* axes[8] = {&out->x, &out->y, &out->z, &out->rx, &out->ry, &out->rz, &out->slider[0], &out->slider[1]};
+  const int32_t last[8] = {last_.x, last_.y, last_.z, last_.rx, last_.ry, last_.rz, last_.slider[0], last_.slider[1]};
+  for (int i = 0; i < 8; ++i) {
+    if (slot_[i] < 0) continue;
+    const bool throttle = i == 2 || i >= 6;
+    *axes[i] = throttle ? last[i] : static_cast<int32_t>(std::lround((range_[i][0] + range_[i][1]) * 0.5));
+  }
+}
+
 int32_t SdlInput::joystick_state(platform::JoyState* out) {
-  if (!joy_ || !opened_[kJoystick]) return kNotAcquired;
+  if (!opened_[kJoystick]) return kNotAcquired;
+  if (!joy_) {
+    if (!unplugged_) return kNotAcquired;
+    neutral(out);
+    return acquired_[kJoystick] ? 0 : kNotAcquired;
+  }
   SDL_UpdateJoysticks();  // Poll (IDirectInputDevice2 +0x64)
   *out = platform::JoyState{};
   int32_t* axes[8] = {&out->x, &out->y, &out->z, &out->rx, &out->ry, &out->rz, &out->slider[0], &out->slider[1]};
-  const int na = axis_count();
   for (int i = 0; i < 8; ++i) {
     // SDL's -32768..32767 into the range the game set (DIPROP_RANGE), with
     // its dead zone (DIPROP_DEADZONE, 1/10000 of the range) around the centre.
-    if (i >= na) continue;  // an axis the device lacks stays 0 in DIJOYSTATE2
-    const double c0 = pad_ ? pad_axis(i) : (SDL_GetJoystickAxis(joy_, i) + 32768) / 65535.0 * 2.0 - 1.0;
+    const int k = slot_[i];
+    if (k < 0) continue;  // an axis the device lacks stays 0 in DIJOYSTATE2
+    const double c0 = pad_ ? pad_axis(i) : (SDL_GetJoystickAxis(joy_, k) + 32768) / 65535.0 * 2.0 - 1.0;
     double c = c0;
     const double dz = deadzone_[i] / 10000.0;
     c = std::fabs(c) <= dz ? 0.0 : (c - std::copysign(dz, c)) / (1.0 - dz);
@@ -289,14 +524,16 @@ int32_t SdlInput::joystick_state(platform::JoyState* out) {
     const int nb = SDL_GetNumJoystickButtons(joy_);
     for (int i = 0; i < 128 && i < nb; ++i) out->buttons[i] = SDL_GetJoystickButton(joy_, i) ? 0x80 : 0;
   }
+  last_ = *out;
   return acquired_[kJoystick] ? 0 : kNotAcquired;
 }
 
 // The axes DirectInput's layout has: a gamepad's five (X, Y, Z, RX, RY),
 // else SDL's count.
 int SdlInput::axis_count() const {
-  if (pad_) return 5;
-  return joy_ ? SDL_GetNumJoystickAxes(joy_) : 0;
+  int n = 0;
+  for (int i = 0; i < 8; ++i) n += slot_[i] >= 0;
+  return joy_ || unplugged_ ? n : 0;
 }
 
 // A gamepad's axis i of DirectInput's XInput layout, -1..1: the sticks as
@@ -329,7 +566,7 @@ int32_t SdlInput::joystick_object_name(uint32_t ofs, char* name, uint32_t n) {
   static const char* kNames[8] = {"X Axis", "Y Axis", "Z Axis", "X Rotation", "Y Rotation", "Z Rotation",
                                   "Slider", "Slider"};
   const uint32_t i = ofs / 4;
-  if (!joy_ || i >= 8 || static_cast<int>(i) >= axis_count()) {
+  if (!joy_ || i >= 8 || slot_[i] < 0) {
     if (n) name[0] = 0;
     return kObjectNotFound;
   }
@@ -354,6 +591,26 @@ int32_t SdlInput::joystick_set_deadzone(uint32_t ofs, uint32_t dz) {
 
 void SdlInput::on_event(const SDL_Event& e) {
   switch (e.type) {
+    case SDL_EVENT_JOYSTICK_REMOVED:  // ours (W54): centred until it is back
+      if (joy_ && e.jdevice.which == id_) {
+        std::printf("mw3: joystick taken out: it reads centred until it is back\n");
+        if (pad_) SDL_CloseGamepad(pad_), pad_was_ = true;
+        else SDL_CloseJoystick(joy_), pad_was_ = false;
+        pad_ = nullptr, joy_ = nullptr, unplugged_ = true;
+      }
+      break;
+    case SDL_EVENT_JOYSTICK_ADDED:  // the same device back: read again, its map kept
+      if (unplugged_) {
+        const SDL_GUID g = SDL_GetJoystickGUIDForID(e.jdevice.which);
+        if (std::memcmp(&g, &guid_, sizeof g) == 0) {
+          if (pad_was_ && SDL_IsGamepad(e.jdevice.which)) pad_ = SDL_OpenGamepad(e.jdevice.which);
+          joy_ = pad_ ? SDL_GetGamepadJoystick(pad_) : SDL_OpenJoystick(e.jdevice.which);
+          if (joy_) id_ = e.jdevice.which, unplugged_ = false, std::printf("mw3: joystick back\n");
+        }
+      } else if (!joy_ && tried_) {  // none at the start: zInput set up without one
+        std::printf("mw3: a joystick was plugged in: the game takes it at its next start\n");
+      }
+      break;
     case SDL_EVENT_WINDOW_FOCUS_GAINED:
       focused_ = true;
       if (held_at_loss_) released_ = false, activation_guard_ = true, gained_ns_ = e.common.timestamp;  // ours

@@ -18,5 +18,6 @@ bool program_turret_free(void* p);        // its vt+0x00 from the entity list's 
 void program_turrets_end();               // 0x004a7970
 void program_turret_frame(void* p);       // vt+0x34 (0x004a6be0)
 void* program_turret_marker(int32_t side);  // vt+0x3c (0x004a5fc0)
+void program_turret_dt(float dt);         // for the tests: the frame time a turret's aim eases by ([0x0072c52c])
 
 }  // namespace mech3

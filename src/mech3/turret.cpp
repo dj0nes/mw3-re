@@ -659,7 +659,12 @@ bool Turret::aim(Handle at) {
   const float flat2 = hx * hx + hz * hz;
   const float flat = fake_sqrt(flat2);
   float c = 1.0f, sn = 0.0f;
-  if (nonzero(flat)) {
+  // FIX (bug): a facing straight up or down has no flat part, but the bit
+  // trick gives 8e-20 for 0, so the exe takes the heading branch with
+  // c = -0, sn = 0: the turret's matrix loses its yaw axes and the turret
+  // (and the gun under it) is drawn flat, invisible (W50, c1m2's
+  // triturret02). Its heading is then the one it has with none (c 1, sn 0).
+  if (zfix::options().bugs ? nonzero(flat2) : nonzero(flat)) {
     c = -(hz / flat);
     sn = -(hx / flat);
   }

@@ -126,6 +126,11 @@ installed copy does not have. Two ways to get it back:
   click does not fire.
 - **Options > Graphics & Audio > Mouse sensitivity** (ours) sets how fast the mouse aims in a mission; it starts at the original's setting.
 - Gamepads work as they did on Windows 98, and force feedback becomes rumble.
+- Flight sticks' axes (twist, throttle lever) go where the game expects
+  them. With several devices, `joystick=Part of its name` in `mw3.cfg`
+  picks one; an odd stick's axes can be set with `joystick_axes=X,Y,Rz,S0`
+  (one word a stick axis: X, Y, Z, Rx, Ry, Rz, S0, S1, or - for none).
+  `mw3.log` lists every device found and the line in use.
 - On a widescreen every screen uses the whole width: the missions, the
   menus, the mech lab, the briefings and the multiplayer screens. For the
   original's 4:3 menus, put `widemenus=0` in `mw3.cfg` (or start with
