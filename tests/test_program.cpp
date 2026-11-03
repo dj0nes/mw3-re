@@ -14753,6 +14753,8 @@ TEST(mission_c1m1_default_keys_fire_headless) {
         phase = 2;
       } else {
         r.ran = g_key_ran[r.cmd];
+        // Keypad * and -, Shift+Enter: the cheat box (ours, cheats.md) takes the keys after it; closed.
+        if (void* me = mech3::mech_mission_player(); mech3::cheat_box_open(me)) mech3::cheat_box_type(me, "\x1b");
         if (r.cmd == 0x61) view_after_x = mech3::program_view_mode_id();
         if (r.cmd == 0x27) mech3::describe_mech(mech3::mech_mission_player(), &enter_after);
         if (r.cmd >= 0x62 && r.cmd <= 0x67) look_after[r.cmd - 0x62] = mech3::program_view_look_state();
