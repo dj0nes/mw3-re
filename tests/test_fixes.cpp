@@ -1555,31 +1555,46 @@ TEST(fix_aim_cone_widens_with_the_view) {
 
 // W50 (Owen, c1m2 on the Mac): zMath's e^-x table (0x00523f70) steps by
 // 1/51, so a per-second easing reads 1 on short frames: a rate of 3 at
-// 6 ms (166 fps) never eased at all. With per_second the exact value at any
-// frame time; without it the table, as the exe. One caller: a vehicle's
-// turn damped to 0 (0x004a2a00).
+// 6 ms (166 fps) never eased at all. exp_neg_dt gives the 30 fps frame's
+// table value raised to the frame's share: at 1/30 s the table bit for bit
+// (play as v1.0 and the original at 30 fps), at any other frame time the
+// same rate per second; without per_second, the table. The vehicles keep
+// the table at any frame time (W53: off its values near 30 fps c1m2's APCs
+// hopped): a vehicle's turn damped to 0 (0x004a2a00) at 6 ms, undamped.
 TEST(fix_exp_neg_eases_on_fast_frames) {
   const bool was = zfix::options().per_second;
-  for (const bool per_second : {true, false}) {
-    zfix::options().per_second = per_second;
-    const float fast = zmth::exp_neg(3.0f * 0.006f), slow = zmth::exp_neg(3.0f * 0.033f);
-    mech3::VehicleControls c;
-    mech3::VehicleMotion m;
-    m.turn_damping = 3.0f;
-    c.turn = 0.0f;
-    c.x50.y = 1.0f;
-    c.turn_step(m, 0.006f);
-    std::printf("  per_second %d: e^-0.018 %.6f, e^-0.099 %.6f, the turn after a 6 ms frame %.6f\n", per_second, fast, slow,
-                c.x50.y);
-    if (per_second) {
-      EXPECT(std::fabs(fast - std::exp(-0.018f)) < 1e-6f);
-      EXPECT(std::fabs(slow - std::exp(-0.099f)) < 1e-6f);
-      EXPECT(c.x50.y < 0.99f);
-    } else {
-      EXPECT(fast == 1.0f);  // the exe's table[0]: no easing
-      EXPECT(c.x50.y == 1.0f);
-    }
-    EXPECT(zmth::exp_neg(6.0f) == 0.0f && zmth::exp_neg(-1.0f) == 1.0f);  // the bounds, both ways
+  zfix::options().per_second = true;
+  const float ref = 1.0f / zfix::kReferenceFps;
+  // The callers' rates: the turrets' 3 and 8, the arms' recoil 4 and 6 and
+  // aim (a few rates); the vehicles' 30, 8, 1 and 0.5 as well, for the function.
+  int same = 0, rates = 0;
+  for (const float c : {3.0f, 8.0f, 4.0f, 6.0f, 10.0f, 20.0f, 30.0f, 1.0f, 0.5f}) {
+    ++rates;
+    same += zmth::exp_neg_dt(c * ref, ref) == zmth::exp_neg(c * ref);
+    // 6 ms frames: the 30 fps frame's value per second, within float.
+    const float k6 = zmth::exp_neg_dt(c * 0.006f, 0.006f);
+    const double per_s6 = std::pow(double{k6}, 1.0 / 0.006), per_s30 = std::pow(double{zmth::exp_neg(c * ref)}, 30.0);
+    const float k50 = zmth::exp_neg_dt(c * 0.05f, 0.05f);
+    std::printf("  rate %4.1f: 30 fps %.6f, 6 ms %.6f (per s %.5f against %.5f), 50 ms %.6f\n", c, zmth::exp_neg(c * ref), k6,
+                per_s6, per_s30, k50);
+    EXPECT(std::fabs(per_s6 - per_s30) <= 2e-3 * per_s30 + 1e-9);
+    EXPECT(k50 >= 0.0f && k50 <= 1.0f && std::fabs(k50 - std::pow(zmth::exp_neg(c * ref), 1.5f)) < 1e-6f);
   }
+  EXPECT(same == rates);
+  EXPECT(zmth::exp_neg_dt(3.0f * 0.006f, 0.006f) < 1.0f);    // the turret turns at 166 fps (W50)
+  EXPECT(zmth::exp_neg_dt(0.5f * ref, ref) == 1.0f);          // the original's 30 fps: this one undamped
+  EXPECT(zmth::exp_neg_dt(200.0f * 0.05f, 0.05f) == 0.0f);    // past the table's 5: 0
+  EXPECT(zmth::exp_neg_dt(0.3f, 0.0f) == zmth::exp_neg(0.3f));  // no frame time: the table
+  mech3::VehicleControls c;
+  mech3::VehicleMotion m;
+  m.turn_damping = 3.0f;
+  c.turn = 0.0f, c.x50.y = 1.0f;
+  c.turn_step(m, 0.006f);
+  EXPECT(c.x50.y == 1.0f);  // the table, as the original: 3 * 0.006 reads 1
+  zfix::options().per_second = false;
+  EXPECT(zmth::exp_neg_dt(3.0f * 0.006f, 0.006f) == 1.0f);  // the exe's table[0]: no easing
+  c.x50.y = 1.0f;
+  c.turn_step(m, 0.006f);
+  EXPECT(c.x50.y == 1.0f);
   zfix::options().per_second = was;
 }

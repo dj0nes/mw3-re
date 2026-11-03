@@ -96,6 +96,9 @@ float direction_pitch(const float a[3], const float b[3]);                // 0x0
 // e^-x from a 256-entry table in steps of 1/51 (x truncated to a step): 0 above
 // 5, 1 below 0 or NaN. Built on the first call (docs/puffers.md, drag).
 float exp_neg(float x);                                   // 0x00523f70
+// Ours: exp_neg(rate * dt) for the frame time dt, as a 30 fps frame's per
+// second (FIX (B) behind per_second; the table without it).
+float exp_neg_dt(float x, float dt);
 
 // --- Camera and projection ---
 void set_view(const Mat34& camera_world);  // 0x00520b00
