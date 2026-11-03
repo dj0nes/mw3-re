@@ -1502,3 +1502,52 @@ TEST(fix_artemis_fcs_doubles_the_turn_rate) {
   EXPECT(on_fcs < on_plain);
   EXPECT(std::fabs(turn_fcs - 2.0f * turn_plain) < 1e-4f);
 }
+
+// The arm weapons' cone (Weapon::aim 0x004b36e0, cos 0.89, about 27 degrees;
+// FIX (bug), W48's aim): wider than 4:3 the reticle reaches past it, and the
+// beams snapped to the arm's line at the old 4:3 edge. Fixed, the cone grows
+// with the view (tan of the half angle by the view's width over 4:3's). At
+// 16:9 (width 4/3) a target 32 degrees off the arm gets the beam with bugs on
+// and the arm's line with them off; at 4:3 nothing changes.
+TEST(fix_aim_cone_widens_with_the_view) {
+  static float width = 1.0f;
+  static const mech3::Vec3f axis{0, 0, 1};  // the part's facing is -axis: (0, 0, -1)
+  mech3::WeaponCalls& c = mech3::weapon_calls();
+  const mech3::WeaponCalls kept = c;
+  c.part_by_id = [](mech3::Handle, int32_t) { return reinterpret_cast<mech3::Handle>(0x2001); };
+  c.part_node = [](mech3::Handle p) { return p; };
+  c.node_axis = [](mech3::Handle) { return &axis; };
+  c.node_id = [](mech3::Handle) { return 5; };  // an arm, not the centre torso (1)
+  c.node_position = [](mech3::Handle, mech3::Vec3f*) { return 0; };
+  c.view_width = [] { return width; };
+  c.beam_stop = [](mech3::Handle) {};
+  const mech3::Handle owner = reinterpret_cast<mech3::Handle>(0x1000);
+  const mech3::Handle player_was = mech3::weapon_world().player;
+  mech3::weapon_world().player = owner;
+  static mech3::WeaponType t;
+  static mech3::WeaponManager m(nullptr);
+  m.owner = owner;
+  zwep::WeaponDef def{};
+  def.type = &t;
+  mech3::Firepoint fp{};
+  fp.model_part = 3;
+  // Whether a target `deg` degrees off the arm gets the beam (else the arm's line).
+  auto follows = [&](float deg, float w, bool bugs) {
+    zfix::options().bugs = bugs;
+    width = w;
+    mech3::BeamWeapon b(&def, nullptr, &m);
+    b.part = reinterpret_cast<mech3::Handle>(0x2000), b.firepoint = &fp;
+    const double r = deg * 3.14159265358979 / 180.0;
+    mech3::Vec3f at{static_cast<float>(100.0 * std::sin(r)), 0.0f, static_cast<float>(-100.0 * std::cos(r))}, mz{}, dir{};
+    EXPECT(b.aim(&at, &mz, &dir, nullptr));
+    return dir.x > 0.1f;
+  };
+  const float wide = 4.0f / 3.0f;  // 16:9's
+  EXPECT(follows(20, 1, true) && follows(20, 1, false) && follows(20, wide, true) && follows(20, wide, false));
+  EXPECT(!follows(32, 1, true) && !follows(32, 1, false));  // 4:3: the exe's snap
+  EXPECT(follows(32, wide, true) && !follows(32, wide, false));
+  EXPECT(!follows(40, wide, true));  // past 16:9's cone (about 34 degrees)
+  zfix::options().bugs = true;
+  mech3::weapon_world().player = player_was;
+  c = kept;
+}

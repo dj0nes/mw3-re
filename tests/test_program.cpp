@@ -6666,7 +6666,9 @@ ParkRun c2m1_park_run(bool bugs) {
 // my damage. I've repaired twice". The player worn (armour and internals at
 // half), the bases called, the player powered down on the dock point; the
 // wear after; then a second repair (the parked dock with bugs on, a new
-// call with them off), worn again first. With a store holding armour.
+// call with them off), worn again first. With a store holding armour. Run
+// on c2m1 (launch index 1 is c2): in c3m1 the Clanners kill the bases and
+// the mission ends before a second repair.
 namespace {
 struct RepairRun {
   bool bases = false;
@@ -6677,7 +6679,7 @@ struct RepairRun {
   mech3::MechWear rest[2];  // at the rest after each (c3m1's Clanners fire on him meanwhile)
   mech3::HudReport hud_worn, hud_rest[2];  // the MFD's armour bars (mode 3) then (W35)
 };
-RepairRun c3m1_repair_run(bool bugs) {
+RepairRun field_base_repair_run(bool bugs, int32_t armour = 40) {
   RepairRun out;
   SavedMounts keep;
   zutl::mounts() = zutl::Mounts{};
@@ -6706,7 +6708,7 @@ RepairRun c3m1_repair_run(bool bugs) {
     mech3::set_app(&app);
     EXPECT(app.init_instance());
     mech3::GameEngine::Launch l;
-    l.index = 1, l.op = 3, l.number = 1;
+    l.index = 1, l.op = 3, l.number = 1;  // c2m1 (mission_dir 1): c3m1's escort loses its bases to the Clanners
     engine.set_launch(l);
     app.post_intro_ = &mech3::states().load;
     mech3::Pilot pilot("Repair");
@@ -6714,7 +6716,7 @@ RepairRun c3m1_repair_run(bool bugs) {
     pilot.current = &game;
     for (int32_t w = 0; w < 0x25; ++w) game.store.add_ammo(w, 1)->count = 1000;
     for (int32_t kind = 1; kind <= 2; ++kind)
-      for (int32_t tech = 0; tech <= 2; ++tech) game.store.add_equipment(kind, tech, 1)->count = 40;
+      for (int32_t tech = 0; tech <= 2; ++tech) game.store.add_equipment(kind, tech, 1)->count = armour;
     mech3::Pilot* was_pilot = mech3::current_pilot();
     mech3::current_pilot() = &pilot;
     int frames = 0, phase = 0, at = 0, last_front = -2, hold = 0, hold2 = 0;
@@ -6788,7 +6790,7 @@ RepairRun c3m1_repair_run(bool bugs) {
     };
     CountingPump pump;
     pump.limit = 30000;
-    pump.stop = [&] { return phase == 9 || frames > 12000 || (frames > 3 && !out.bases); };
+    pump.stop = [&] { return phase == 9 || frames > 20000 || (frames > 3 && !out.bases); };
     app.run(pump);
     mech3::current_pilot() = was_pilot;
     pilot.current = nullptr;
@@ -6806,41 +6808,62 @@ RepairRun c3m1_repair_run(bool bugs) {
 }
 }  // namespace
 
-TEST(mission_c3m1_field_bases_repair_the_player_twice_headless) {
-  if (!have_game()) return;
-  for (const bool bugs : {true, false}) {
-    const RepairRun r = c3m1_repair_run(bugs);
-    std::printf("  bugs %d: bases %d, repairs %d, worn armour %.2f internals %.2f; after 1: %.2f %.2f (rest %.2f %.2f); after 2: "
-                "%.2f %.2f (rest %.2f %.2f); fronts",
-                bugs, r.bases, r.repairs, r.worn.armor, r.worn.internal, r.after[0].armor, r.after[0].internal, r.rest[0].armor,
-                r.rest[0].internal, r.after[1].armor, r.after[1].internal, r.rest[1].armor, r.rest[1].internal);
-    for (int f : r.fronts) std::printf(" %d", f);
+namespace {
+void expect_repaired(const RepairRun& r, bool bugs) {
+  std::printf("  bugs %d: bases %d, repairs %d, worn armour %.2f internals %.2f; after 1: %.2f %.2f (rest %.2f %.2f); after 2: "
+              "%.2f %.2f (rest %.2f %.2f); fronts",
+              bugs, r.bases, r.repairs, r.worn.armor, r.worn.internal, r.after[0].armor, r.after[0].internal, r.rest[0].armor,
+              r.rest[0].internal, r.after[1].armor, r.after[1].internal, r.rest[1].armor, r.rest[1].internal);
+  for (int f : r.fronts) std::printf(" %d", f);
+  std::printf("\n");
+  // Full the frame each repair ends. At the rest after it (the dock's last
+  // steps, about 5 s) the mission's enemies may have hit him again: since the
+  // AI's real waits (W34) a shot lands there after c3m1's second (0.99 / 0.87).
+  EXPECT(r.bases && r.done >= 1 && r.after[0].internal == 1.0f && r.after[0].armor == 1.0f);
+  if (bugs) EXPECT(r.done == 2 && r.after[1].internal == 1.0f && r.after[1].armor == 1.0f);
+  // W35 (Owen): the MFD's armour bars (mode 3) follow the repair once the
+  // player powers up (the HUD is off while powered down, as the exe).
+  auto bars = [](const char* when, const mech3::HudReport& h) {
+    std::printf("    %s bars (full/whole):", when);
+    for (int i = 0; i < 11; ++i) std::printf(" %d/%d", h.mfd_bar_full[i], h.mfd_bar_height[i]);
     std::printf("\n");
-    // Full the frame each repair ends. At the rest after it (the dock's last
-    // steps, about 5 s) c3m1's Clanners may have hit him again: since the AI's
-    // real waits (W34) a shot lands there after the second (0.99 / 0.87).
-    EXPECT(r.bases && r.done >= 1 && r.after[0].internal == 1.0f && r.after[0].armor == 1.0f);
-    if (bugs) EXPECT(r.done == 2 && r.after[1].internal == 1.0f && r.after[1].armor == 1.0f);
-    // W35 (Owen): the MFD's armour bars (mode 3) follow the repair once the
-    // player powers up (the HUD is off while powered down, as the exe).
-    auto bars = [](const char* when, const mech3::HudReport& h) {
-      std::printf("    %s bars (full/whole):", when);
-      for (int i = 0; i < 11; ++i) std::printf(" %d/%d", h.mfd_bar_full[i], h.mfd_bar_height[i]);
-      std::printf("\n");
-    };
-    bars("worn", r.hud_worn);
-    for (int k = 0; k < r.done; ++k) bars(k ? "rest 2" : "rest 1", r.hud_rest[k]);
-    int worn_short = 0;
-    for (int i = 0; i < 11; ++i) worn_short += r.hud_worn.mfd_bar_full[i] < r.hud_worn.mfd_bar_height[i];
-    EXPECT(worn_short > 0);
-    int worn_sum = 0;
-    for (int i = 0; i < 11; ++i) worn_sum += r.hud_worn.mfd_bar_full[i];
-    for (int k = 0; k < r.done; ++k) {
-      int sum = 0;
-      for (int i = 0; i < 11; ++i) sum += r.hud_rest[k].mfd_bar_full[i];
-      EXPECT(sum > worn_sum + worn_sum / 2);  // about full, less any hit since the repair
-    }
+  };
+  bars("worn", r.hud_worn);
+  for (int k = 0; k < r.done; ++k) bars(k ? "rest 2" : "rest 1", r.hud_rest[k]);
+  int worn_short = 0;
+  for (int i = 0; i < 11; ++i) worn_short += r.hud_worn.mfd_bar_full[i] < r.hud_worn.mfd_bar_height[i];
+  EXPECT(worn_short > 0);
+  int worn_sum = 0;
+  for (int i = 0; i < 11; ++i) worn_sum += r.hud_worn.mfd_bar_full[i];
+  for (int k = 0; k < r.done; ++k) {
+    int sum = 0;
+    for (int i = 0; i < 11; ++i) sum += r.hud_rest[k].mfd_bar_full[i];
+    EXPECT(sum > worn_sum + worn_sum / 2);  // about full, less any hit since the repair
   }
+}
+}  // namespace
+
+TEST(mission_c2m1_field_bases_repair_the_player_twice_headless) {
+  if (!have_game()) return;
+  for (const bool bugs : {true, false}) expect_repaired(field_base_repair_run(bugs), bugs);
+}
+// W35 again (Owen, c3m5 on the PC): his log says the first repair took the
+// store's last armour of his kind and the next two found none, so the
+// armour (and the bars) stayed worn while the internals came back: the exe's
+// rule (vehicles.md, The repair). One item: the first repair restores it
+// all and empties the store, the second the internals only (c2m1's bases).
+TEST(mission_c2m1_field_bases_repair_armour_only_from_the_store_headless) {
+  if (!have_game()) return;
+  const RepairRun r = field_base_repair_run(true, 1);
+  std::printf("  repairs %d done %d: after 1 %.2f %.2f, after 2 %.2f %.2f\n", r.repairs, r.done, r.after[0].armor,
+              r.after[0].internal, r.after[1].armor, r.after[1].internal);
+  EXPECT(r.done == 2 && r.after[0].armor == 1.0f && r.after[0].internal == 1.0f);
+  EXPECT(r.after[1].internal == 1.0f && r.after[1].armor < 0.75f);
+  int worn_sum = 0, rest1 = 0, rest2 = 0;
+  for (int i = 0; i < 11; ++i)
+    worn_sum += r.hud_worn.mfd_bar_full[i], rest1 += r.hud_rest[0].mfd_bar_full[i], rest2 += r.hud_rest[1].mfd_bar_full[i];
+  std::printf("  bars: worn %d, rest 1 %d, rest 2 %d\n", worn_sum, rest1, rest2);
+  EXPECT(rest1 > worn_sum + worn_sum / 2 && rest2 < worn_sum + worn_sum / 4);  // the bars show the armour left
 }
 // W32 (Owen, c3m1): the Clan HQ Q-targeted, its radar triangle out of place.
 // A targets.zrd building's node is at the world's origin (its mesh in world
