@@ -358,6 +358,7 @@ bool Missions::setup() {
   end_delay = 0;
   h.fn_4d4b30();
   if (abort) return false;
+  h.nav_prebuild();  // ours (W58, docs/lancemate-pathing.md)
   h.progress_text("Ready To Launch");
   if (anim) h.anim_run(anim);
   h.interp_5964c0(0);

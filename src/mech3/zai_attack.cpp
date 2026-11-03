@@ -246,6 +246,81 @@ bool drive_to(Brain& b, zgame::Handle v, const float from[3], const float to[3],
   return done;
 }
 
+bool nav_for(zgame::Handle v) {
+  BrainHooks& h = brain_hooks();
+  const AiTarget* t = h.targetable(v);
+  return nav::on_for(t && t->is_ally(h.player_vehicle()));
+}
+
+namespace {
+// The grid's work once a frame (the first pilot to ask), 2 ms of it.
+void nav_frame(float now) {
+  static float last = -1e30f;
+  if (now == last) return;
+  last = now;
+  nav::service(now, 2000.0);
+}
+
+// A place to fire from at `tgt` within `range`: on rings at 0.6 and 0.8 of
+// it, 16 ways round, walkable, with a line of sight from 6 m over its
+// ground to 5 m over the enemy's place, not in the player's line of fire
+// (within 15 degrees of the way from the player to the enemy, nearer than
+// it); the nearest to `pos`.
+bool firing_spot(const float pos[3], const float tgt[3], float range, float out[3]) {
+  BrainHooks& h = brain_hooks();
+  const nav::Grid& g = nav::grid();
+  float pl[3] = {};
+  const bool has_player = h.player_vehicle() != 0;
+  if (has_player) h.position(h.player_vehicle(), pl);
+  const float aim[3] = {tgt[0], tgt[1] + 5.0f, tgt[2]};
+  const float pd = std::hypot(tgt[0] - pl[0], tgt[2] - pl[2]);
+  float best = 1e30f;
+  for (float ring : {0.6f, 0.8f})
+    for (int k = 0; k < 16; ++k) {
+      const float a = 0.39269908f * static_cast<float>(k);
+      const float x = tgt[0] + std::cos(a) * ring * range, z = tgt[2] + std::sin(a) * ring * range;
+      const int cx = nav::cell_of(x), cz = nav::cell_of(z);
+      if (!g.walkable(cx, cz)) continue;
+      const float y = g.cell(cx, cz)->y;
+      if (has_player && pd > 1.0f) {
+        const float ux = (tgt[0] - pl[0]) / pd, uz = (tgt[2] - pl[2]) / pd;
+        const float sx = x - pl[0], sz = z - pl[2], sl = std::hypot(sx, sz);
+        if (sl < pd && sl > 1.0f && (sx * ux + sz * uz) / sl > 0.9659f) continue;  // cos 15 degrees
+      }
+      const float eye[3] = {x, y + 6.0f, z};
+      if (h.wall_between(eye, aim)) continue;
+      const float d = std::hypot(x - pos[0], z - pos[2]);
+      if (d < best) best = d, out[0] = x, out[1] = y, out[2] = z;
+    }
+  return best < 1e30f;
+}
+}  // namespace
+
+bool NavWay::step(zgame::Handle v, const float pos[3], const float to[3], bool enemy, float range, float dt, float out[3]) {
+  BrainHooks& h = brain_hooks();
+  const float now = h.now();
+  nav_frame(now);
+  (void)v;
+  float goal[3] = {to[0], to[1], to[2]};
+  if (enemy && range > 1.0f) {
+    const float eye[3] = {pos[0], pos[1] + 6.0f, pos[2]}, aim[3] = {to[0], to[1] + 5.0f, to[2]};
+    const bool sees = !h.wall_between(eye, aim) && std::hypot(to[0] - pos[0], to[2] - pos[2]) <= range;
+    if (sees) {
+      has_spot = false;
+      follow.path.clear();
+      return false;  // in sight and in range: the exe's fight
+    }
+    const bool moved = std::hypot(to[0] - spot_for[0], to[2] - spot_for[2]) > 25.0f;
+    if ((!has_spot || moved) && now - spot_t >= 1.0f) {
+      spot_t = now;
+      has_spot = firing_spot(pos, to, range, spot);
+      if (has_spot) ++spots, spot_for[0] = to[0], spot_for[1] = to[1], spot_for[2] = to[2];
+    }
+    if (has_spot) goal[0] = spot[0], goal[1] = spot[1], goal[2] = spot[2];
+  }
+  return follow.step(pos, goal, now, dt, out);
+}
+
 // Mech3.exe 1.2 @ 0x004d1d10. The exe takes the order's part as the vehicle
 // net's (its vt+0x0c), as it always is: the brain pushes the fight on that
 // net; any other part here gives up.
@@ -272,6 +347,11 @@ void FightState::run(float dt) {
   float ahead[2] = {0, 0}, goal[3];
   if (zfix::options().bugs) {
     h.forward(v, &ahead[0], &ahead[1]);
+    // Ours (W58): by the grid to a firing spot, when the straight way or the sight is blocked.
+    if (nav_for(v) && nav.step(v, from, to, true, b.params.get<float>(0x28), dt, goal)) {
+      drive_to(b, v, from, goal, &turn, &throttle, false);
+      return;
+    }
     if (detour.goal(from, ahead, to, b.params.get<float>(0x28), dt, goal)) {
       drive_to(b, v, from, goal, &turn, &throttle, false);
       return;
@@ -711,6 +791,14 @@ void FollowState::run(float dt) {
     if (!(pulled && same_or_nan(at[0], s.start[0]) && same_or_nan(at[2], s.start[2]))) aim(b, v, pos, at, 0.0f);
     pulled = 1;
     detour.on = false;
+  } else if (zfix::options().bugs && nav_for(v) &&
+             nav.step(v, pos, to, !h.targetable(target) || !h.targetable(target)->is_ally(v), b.params.get<float>(0x28), dt,
+                      goal)) {
+    aim(b, v, pos, goal, 0.0f);  // FIX (bug), ours (W58): by the grid round what is in the way
+    slack_side = 2.0f;
+    pulled = 0;
+    detour.on = false, detour.watch_t = 0;
+    on_crumb = true;
   } else if (zfix::options().bugs && trail_goal(pos, to, b.params.get<float>(0x28), dt, goal)) {
     aim(b, v, pos, goal, 0.0f);  // FIX (bug), ours (W27): along the leader's way
     slack_side = 2.0f;
