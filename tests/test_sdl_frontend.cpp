@@ -1604,6 +1604,7 @@ static ClickRun click_run(int hold_frames, bool bugs) {
   mech3::mech_types_forget();
   mech3::player_controls_instance() = nullptr;
   mech3::options() = mech3::Options{};
+  zin::state().joy_ready = 0;  // no stick (an earlier test's left zInput's flag set, 0x0063c4a4)
   const zfix::Options keep_fix = zfix::options();
   sdlfe::SdlInput input;
   NoWindow window;

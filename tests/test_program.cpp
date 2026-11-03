@@ -1064,7 +1064,7 @@ TEST(program_starts_like_the_game_to_the_main_state) {
       EXPECT(!ctl->commands.strings.empty() && ctl->commands.first == 0);
       EXPECT(ctl->key_a.strings.size() == ctl->commands.strings.size());
       EXPECT(ctl->commands.dialog == ctl && ctl->assign_axis.dialog == ctl);
-      EXPECT(ctl->axis_popup.popup != nullptr && ctl->axis_popup.popup->sources.count() == 9);
+      EXPECT(ctl->axis_popup.popup != nullptr && ctl->axis_popup.popup->sources.count() == (zfix::options().bugs ? 11 : 9));  // W56: the sliders
       EXPECT(engine.popup_state_of(cs + 0x16760) == &ctl->axis_popup);
       EXPECT(engine.popup_state_of(cs + 0x1677c) == &ctl->load_save_popup);
       EXPECT(engine.state_screen(cs + 0x16760) == ctl->axis_popup.screen_);
@@ -22830,4 +22830,64 @@ TEST(message_box_over_a_gpu_frame_keeps_it_after_an_empty_lock) {
               screen.as_screen);
   EXPECT(e.held() && gpu.restores == 3 && gpu.presents == 4 && screen.as_screen == 0);
   e.drop_held();
+
+// W56 (ours, FIX (bug) behind bugs): the axis popup offers the stick's
+// sliders (0x00430180 never did: a T.16000M's lever could not be picked),
+// and OK on the throttle binds it stop-to-full as the defaults do, whatever
+// the lever's place at OK (the lever map then gives reverse); a slider scaled
+// from DirectInput's 0..65535.
+TEST(controls_axis_popup_binds_a_slider_to_the_throttle_headless) {
+  if (!have_game()) return;
+  for (const bool bugs : {true, false}) {
+    W40Setup w(bugs ? "popup_slider_write" : "popup_slider_off_write");
+    zfix::options().bugs = bugs;
+    int stage = 0, wait = 0;
+    bool listed = false;
+    mech3::AxisBinding bound;
+    w40_run(w.dir, nullptr, nullptr, [&](mech3::GameEngine& engine, mech3::Mech3App& app) {
+      auto* os = dynamic_cast<mech3::OptionsState*>(app.current());
+      auto* c = os ? dynamic_cast<mech3::ControlsScreen*>(engine.screen_of(os->screen_)) : nullptr;
+      if (stage == 0 && at_main_menu(app)) {
+        const_cast<mech3::MainMenu*>(mech3::main_menu())->buttons[mech3::MainMenuButton::kOptions].on_left_up();
+        stage = 1;
+      } else if (stage == 1 && os) {
+        auto* g = dynamic_cast<mech3::GameOptionsScreen*>(engine.screen_of(os->screen_));
+        if (!g) return false;
+        g->controls.on_left_up();
+        stage = 2;
+      } else if (stage == 2 && c) {
+        c->select_command(0);  // Forward throttle: the throttle's axis
+        c->assign_axis.on_left_up();
+        stage = 3;
+      } else if (stage == 3) {
+        auto* st = dynamic_cast<mech3::AxisPopupState*>(app.current());
+        if (!st || !st->popup) return ++wait > 60;
+        mech3::AxisCycle& src = st->popup->sources;
+        for (int32_t i = 0; i < 16; ++i) {
+          src.select(i);
+          if (src.selected_value() == 7) {
+            listed = true;
+            break;
+          }
+        }
+        if (listed) st->popup->ok.on_left_up();
+        bound = mech3::axis_table().axes[0];
+        stage = 4;
+      } else if (stage == 4) {
+        if (!listed) return true;
+        bound = mech3::axis_table().axes[0];
+        return ++wait > 5;
+      }
+      return false;
+    });
+    std::printf("  popup (bugs %d): slider 0 listed %d; the throttle %d x %g + %g\n", bugs, listed, bound.source,
+                bound.scale, bound.offset);
+    EXPECT(stage == 4);
+    EXPECT(listed == bugs);
+    if (bugs) {
+      // Invert shown checked for the defaults' negative scale: -0.5 / 32767.5
+      // and 0.5 + 0.5, the slider's low end full ahead.
+      EXPECT(bound.source == 7 && std::fabs(bound.scale * 32767.5f + 0.5f) < 1e-4f && std::fabs(bound.offset - 1.0f) < 1e-4f);
+    }
+  }
 }

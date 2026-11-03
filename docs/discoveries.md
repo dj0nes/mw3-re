@@ -4143,3 +4143,13 @@ The screen after the pilot for INSTANT ACTION, 0x00488bc0 (details:
   drawn, so on a fast machine a press can be missed and you have to press
   again. (Found from the code: the rebuild hands the box the key the frame
   saw go down. docs/fixes.md)
+- **A joystick's throttle can go in reverse: press Backspace.** The throttle
+  lever only runs from stop to full ahead, but "Toggle throttle direction"
+  (Backspace, or joystick button 10) flips it: the same lever then drives
+  the mech backwards, and Backspace again turns it round. And when you bind
+  the throttle yourself with Assign Axis, wherever the lever sits when you
+  press OK becomes stop: press OK with it in the middle and the lower half
+  of its travel is reverse; at an end you get stop to full only. A lever on
+  a slider (many throttles are) is not offered there at all. (Found from the
+  code: 0x004274d0, 0x0042e5b0, 0x00430180. The rebuild's lever covers
+  reverse by itself. docs/controls.md)
