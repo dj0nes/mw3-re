@@ -190,6 +190,7 @@ int node_add_child(Node* parent, Node* child) {
     case 2: return world_add_child(parent, child);
     case 3: case 4: case 9: case 10: return node_link(parent, child);
     case 5: return object3d_add_child(parent, child);
+    case 6: return node_link(parent, child);  // a thunk to 0x004eba90 (PM: 0x00515bb0)
     default: {
       char msg[80];
       std::snprintf(msg, sizeof msg, "node_add_child: class %d is not ported yet", parent->cls());

@@ -43,15 +43,18 @@ struct MechLib {
   std::list<Node*> trees;        // +0x30  the loaded trees, count +0x34
   TreeReader reader;             // +0x3c  its depth
 };
+// The running game's (zgame::Table): MW3's 0x004fc6d0, 0x004fc8f0.
+bool mechlib_open(MechLib& lib, const char* path);
+Node* mechlib_load(MechLib& lib, const char* name);
 // 0x004fc6d0: `version` 27 and `format` 1 are read even when the open failed
 // (then both are 0 and the archive is closed again); the materials when open.
-bool mechlib_open(MechLib& lib, const char* path);
+bool mw3_mechlib_open(MechLib& lib, const char* path);
 bool mechlib_read_materials(MechLib& lib);              // 0x004fc9e0
 Node* mechlib_find(MechLib& lib, const char* name);     // 0x004fc650: by root node name
 // 0x004fc8f0: a tree already loaded is handed out again, else read from its
 // entry and its materials resolved. The two arguments after the name are
 // unused in the exe.
-Node* mechlib_load(MechLib& lib, const char* name);
+Node* mw3_mechlib_load(MechLib& lib, const char* name);
 void mechlib_resolve(MechLib& lib, Node* node);         // 0x004fcd40: no index check
 // 0x004fc520: the texture by name (0x00518c60), then the world's equal
 // material or a new one (0x00536ad0); null while that fails.

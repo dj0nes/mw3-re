@@ -11,6 +11,7 @@ struct Node;
 }
 namespace zcls {
 struct Node;
+struct MechLib;
 }
 
 // Ours, not the exe's: which game the shared engine runs (docs/games-layout.md).
@@ -42,6 +43,10 @@ struct Table {
   zcls::Node* (*zcls_light_create)();                    // 0x004fa720; PM 0x0050e470
   // A mission's anim.zbd (zeff/zeff_anim_init.h): PM's is version 50.
   int (*zeff_anim_read_zbd)();  // 0x0050a0e0; PM 0x00523140
+  // mechlib (pm-map step 1e): mechlib.zbd (zcls/cls_mechlib.h), PM's version
+  // 41 with PM's nodes and models.
+  bool (*zcls_mechlib_open)(zcls::MechLib& lib, const char* path);  // 0x004fc6d0; PM 0x00510910
+  zcls::Node* (*zcls_mechlib_load)(zcls::MechLib& lib, const char* name);  // 0x004fc8f0; PM 0x00510b90
 };
 
 const Table& mw3_table();

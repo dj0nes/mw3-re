@@ -578,6 +578,10 @@ if(MW3_BUILD_PM)
     src/pm/gamez/zmodel/gmod_matl.cpp
     src/pm/gamez/zmodel/gmod_const.cpp
   )
+  # mechlib (pm-map step 1e)
+  target_sources(pmcore PRIVATE
+    src/pm/gamez/zclass/cls_mechlib.cpp
+  )
   target_link_libraries(pmcore PUBLIC mw3core)
   if(NOT MSVC)
     target_compile_options(pmcore PRIVATE -ffp-contract=off)

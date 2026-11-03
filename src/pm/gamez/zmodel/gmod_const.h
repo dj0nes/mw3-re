@@ -27,6 +27,9 @@ struct Polygon {                       // 0x28 bytes
   uint32_t* scratch = nullptr;         // +0x20
   uint32_t zone_set;                   // +0x24
   uint32_t file_uvs;                   // the file's +0x18 (0: no UVs)
+  // mechlib's: the +0x14 array as read, the library's material indices, until
+  // mechlib_resolve makes them `materials` (the exe overwrites them in place).
+  int32_t* library_indices = nullptr;
 };
 
 struct MaterialRef {                   // 0x0c bytes
@@ -65,6 +68,15 @@ ModelPool& models();
 
 // Pirate's Moon 1.0 @ 0x00557ba0: the slot of an index, null below 0.
 Model* model_at(int32_t index);
+// Pirate's Moon 1.0 @ 0x00558f50: the free head, zeroed but its link, flags
+// 3; a full pool grows by a block first (0x00557be0; MW3's aborted). The exe
+// returns null before the pool's set-up ([0x008d4ae4], always done in play).
+Model* model_alloc();
+// Pirate's Moon 1.0 @ 0x0055c470: the material refs rebuilt from each
+// polygon's first material, the polygons regrouped to match: a cycled
+// material's polygons one ref each, first; then one ref per other material,
+// in the order first used. One ref keeps the polygons as they are.
+void sort_by_material(Model& m);
 // Pirate's Moon 1.0 @ 0x00558ba0: a gamez.zbd's models appended in new blocks
 // (the count and free head taken on the first load only), each one's data
 // read (0x005587e0) with the file's material base. The first one's index, 0

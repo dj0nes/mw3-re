@@ -8,6 +8,7 @@
 #include "gamez/zclass/cls_data.h"
 #include "gamez/zclass/cls_node.h"
 #include "gamez/zclass/object3d.h"
+#include "gamez/zgame/zgame_table.h"
 #include "gamez/zimage/zimg_texture.h"
 #include "gamez/zmodel/gmod_const.h"
 #include "gamez/zmodel/gmod_matl.h"
@@ -52,8 +53,11 @@ bool& mechlib_post_process() {
   return on;
 }
 
+bool mechlib_open(MechLib& lib, const char* path) { return zgame::game().zcls_mechlib_open(lib, path); }
+Node* mechlib_load(MechLib& lib, const char* name) { return zgame::game().zcls_mechlib_load(lib, name); }
+
 // Mech3.exe 1.2 @ 0x004fc6d0
-bool mechlib_open(MechLib& lib, const char* path) {
+bool mw3_mechlib_open(MechLib& lib, const char* path) {
   const bool ok = zutl_zar::open(lib.archive, path);
   uint32_t version = 0, format = 0, size = 4, size2 = 4;
   zutl_zar::read(lib.archive, zutl_zar::find(lib.archive, "version"), &version, &size);
@@ -101,7 +105,7 @@ Node* mechlib_find(MechLib& lib, const char* name) {
 }
 
 // Mech3.exe 1.2 @ 0x004fc8f0
-Node* mechlib_load(MechLib& lib, const char* name) {
+Node* mw3_mechlib_load(MechLib& lib, const char* name) {
   if (Node* hit = mechlib_find(lib, name)) return hit;
   uint32_t length = 0;
   std::FILE* f = zutl_zar::seek(lib.archive, zutl_zar::find(lib.archive, name), &length);

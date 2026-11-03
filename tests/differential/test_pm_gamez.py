@@ -247,6 +247,8 @@ class Emulated(test_pm_zar.Emulated):
         return b''.join(struct.pack('<i', self.pool_index(self.i32(p + step * k), N_BLOCKS, N_NBLOCKS, 2500, 0xd4))
                         for k in range(max(n, 0)))
 
+    item_set = False  # +0xcc as 0 or 1 (test_pm_mechlib: its nodes keep their list-7 item)
+
     def node_dump(self):
         """Every node in PM's layout: the slot (its pointers as indices), the
         live ones' links and class data, the partitions, the class lists."""
@@ -264,6 +266,8 @@ class Emulated(test_pm_zar.Emulated):
             model = self.pool_index(struct.unpack_from('<I', r, 0x3c)[0], M_BLOCKS, M_NBLOCKS, 750, 0x68)
             for off in (0x38, 0x3c, 0x48, 0x58, 0x5c, 0x70):
                 r[off:off + 4] = b'\0' * 4
+            if self.item_set:
+                r[0xcc:0xd0] = struct.pack('<I', 1 if r[0xcc:0xd0] != b'\0' * 4 else 0)
             out += bytes(r)
             if i >= self.n_unread:
                 continue
@@ -353,14 +357,15 @@ class Emulated(test_pm_zar.Emulated):
                 out += struct.pack('<IiiiI', flags, prio, mc, 1 if uvs else 0, zone)
                 if n:
                     out += self.read(struct.unpack_from('<I', q, 8)[0], 4 * n)
-                if n and flags & 0x1000:
+                if n and flags & 0x1000 and struct.unpack_from('<I', q, 0xc)[0]:
                     out += self.read(struct.unpack_from('<I', q, 0xc)[0], 4 * n)
                 mats = struct.unpack_from('<I', q, 0x14)[0]
                 for j in range(max(mc, 0)):
                     out += struct.pack('<i', self.mat_index(self.i32(mats + 4 * j)))
                     if uvs:
                         out += self.read(ptr(uvs + 4 * j), 8 * n)
-                out += self.read(struct.unpack_from('<I', q, 0x1c)[0], 12 * n)
+                if struct.unpack_from('<I', q, 0x1c)[0]:  # mechlib's: only with the file's +0x1c
+                    out += self.read(struct.unpack_from('<I', q, 0x1c)[0], 12 * n)
             refs = ptr(s + 0x60)
             for k in range(max(cnt(0x5c), 0)):
                 r = self.read(refs + 12 * k, 12)

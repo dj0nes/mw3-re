@@ -63,8 +63,11 @@ uint32_t i32(const uint8_t* p, int off) {
   return static_cast<uint32_t>(v);
 }
 
-// PM's 0xd4-byte slot into the shared Node (MW3's layout; docs/pm-map.md).
-// Its +0x70 box index is returned: read_nodes makes it a pointer later.
+}  // namespace
+
+// PM's node (its slot's first 0xd0 bytes; the link is at +0xd0) into the
+// shared Node (MW3's layout; docs/pm-map.md). Its +0x70 box index is
+// returned: the callers make it a pointer (box_pointer).
 int32_t translate_node(Node& n, const uint8_t* pm) {
   std::memcpy(n.raw, pm, 0x4c);                     // name, flags, class, data, model, action: as MW3
   const int32_t ax = static_cast<int16_t>(i32<int16_t>(pm, 0x4c)), az = static_cast<int16_t>(i32<int16_t>(pm, 0x4e));
@@ -76,9 +79,18 @@ int32_t translate_node(Node& n, const uint8_t* pm) {
   n.put<uint32_t>(0x60, i32<uint32_t>(pm, 0x5c));
   std::memcpy(n.raw + 0x64, pm + 0x60, 0x10);       // the box centre and diagonal: PM +0x60..+0x6f
   std::memcpy(n.raw + 0x74, pm + 0x74, 0xd0 - 0x74);  // the three boxes on: as MW3
-  std::memcpy(&n.link, pm + 0xd0, 4);
   return static_cast<int32_t>(i32<int32_t>(pm, 0x70));
 }
+
+// PM's +0x70: which box (0 the node's, 1 the model's, 2 the children's) made
+// a pointer to it; any other value is left (the shared Node has none).
+const float* box_pointer(const Node& n, int32_t box) {
+  return box == 0 ? reinterpret_cast<const float*>(n.raw + 0x74)
+         : box == 1 ? reinterpret_cast<const float*>(n.raw + 0x8c)
+         : box == 2 ? reinterpret_cast<const float*>(n.raw + 0xa4) : nullptr;
+}
+
+namespace {
 
 // 0x00517960: `count` 12-byte entries (a node index, a y range).
 void read_partition_nodes(::zcls::Partition& p, int32_t count, std::FILE* f, int32_t base) {
@@ -267,7 +279,11 @@ int read_nodes(int32_t size, std::FILE* f, int32_t model_base) {
     const int32_t n = size < done + bs ? size - done : bs;
     std::vector<uint8_t> raw(static_cast<size_t>(n) * 0xd4);  // a short read keeps what it read, as the exe's
     const bool ok = std::fread(raw.data(), 1, raw.size(), f) == raw.size();
-    for (int32_t i = 0; i < n; ++i) boxes.push_back(translate_node(p.blocks[static_cast<size_t>(b)][i], raw.data() + i * 0xd4));
+    for (int32_t i = 0; i < n; ++i) {
+      Node& slot = p.blocks[static_cast<size_t>(b)][i];
+      boxes.push_back(translate_node(slot, raw.data() + i * 0xd4));
+      std::memcpy(&slot.link, raw.data() + i * 0xd4 + 0xd0, 4);
+    }
     if (!ok) return read_error(0x607, "Error reading GameZ Node buffer.");
   }
   for (int32_t i = base + size; i < p.capacity; ++i) {  // the last block's rest: zeroed and freed (0x0050c9d0)
@@ -277,12 +293,7 @@ int read_nodes(int32_t size, std::FILE* f, int32_t model_base) {
   p.live = 0;  // [0x006393cc] = 0 on every file (kept)
   for (int32_t i = base; i < base + size; ++i) {
     Node* node = ::zcls::node_at(i);
-    // PM's +0x70: which box (0 the node's, 1 the model's, 2 the children's)
-    // made a pointer to it; any other value is left (the shared Node has none).
-    const int32_t box = boxes[static_cast<size_t>(i - base)];
-    node->pm_box = box == 0 ? reinterpret_cast<const float*>(node->raw + 0x74)
-                   : box == 1 ? reinterpret_cast<const float*>(node->raw + 0x8c)
-                   : box == 2 ? reinterpret_cast<const float*>(node->raw + 0xa4) : nullptr;
+    node->pm_box = box_pointer(*node, boxes[static_cast<size_t>(i - base)]);
     int32_t model = node->get<int32_t>(0x3c);
     if (model >= 0) model += model_base;
     node->pm_model = pm::zmod::model_at(model);

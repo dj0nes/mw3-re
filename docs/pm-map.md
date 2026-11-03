@@ -566,6 +566,48 @@ functions PM changed, and PM's new ones.
        MW3's does, the prerequisite chain cleared, a block field from the
        wrong place, the anim refs' pointer kept, the parent ignored, a
        light unnamed, the lookup sharing from pointer 0).
+   - **mechlib 41: done** (2026-11-03, `pm/gamez/zclass/cls_mechlib`, the
+     table's `zcls_mechlib_open` and `zcls_mechlib_load`: MW3 0x4fc6d0 and
+     0x4fc8f0, PM 0x510910 and 0x510b90). The library object, the
+     materials' read (0x510c80), find, close, free and the material
+     resolve (0x510770) are MW3's unchanged and stay shared:
+     - The open is MW3's with version 41 ([0x60e61c]).
+     - A tree (0x5110c0, 0x511210) is read as the world's nodes: the file's
+       0xd0 bytes over a new object3d (class 5) or LOD (6, data 0x5c; 2 in
+       the file), keeping the new node's data, flag bits 0-1 and list-7
+       item (+0xcc); the box index at +0x70 made a pointer. Any other class
+       makes the exe dereference null.
+     - A model (0x511310, when +0x3c is set) comes from PM's pool
+       (0x558f50) in PM's form: vertices, normals and morphs, then
+       0x28-byte polygons, each with its vertex indices, normals (flag
+       0x1000 and +0xc), its material indices, UVs per material, colours
+       only when +0x1c is set. No lights are read; the file's refs are
+       read and dropped.
+     - The resolve (0x510fd0) makes each index a world material, then sorts
+       the model by its polygons' first material (0x55c470, new in PM): a
+       cycled material's polygons one ref each, first, then one ref per
+       other material in the order first used; one ref keeps the polygons
+       in place.
+     - Left out: the trace lines to stderr (0x511640) and the renderer
+       conversion after the load (0x510ab0 to strips under Direct3D, else
+       0x510b00), as for the world's models.
+     - Ours, as MW3's: a tree read with its entry's end; a count past it, a
+       node of another class, a depth over 64, a polygon with no material,
+       or an index past its array, a vertex, normal or library material,
+       is refused with a line, nothing added.
+     - Shared: the add-child's class 6 (LOD) is the plain link in both exes
+       (MW3 0x4eb9b0 through a thunk, PM 0x515bb0); the port had stopped
+       there.
+     - `test_pm_mechlib.py` on PM's exe: all 76 trees over c1, 23 over c3
+       (repeats found, not read), 10 with no world, MW3's file refused, and
+       a crafted file over c1 and with no world (a cycled material, a
+       polygon with two materials and their UVs, no colours, normals, a LOD
+       with a model below it, a model without flag 0x80, box index 3): 6
+       runs identical, the library's materials and trees, the texture and
+       material tables, every model and node slot. With no world the exe
+       adds a cycled library material by copying its cycle from null
+       (0x5568f5; the library's have none), so that run's file clears the
+       flag. BREAKS
 2. **The world**: the light maps and lighting (`gmod_matl.c` 39 new; PM
    drops MW3's fog), `cls_clutter.cpp` (32 new), the world class
    (`cls_world.c` 20 new), the script interpreter's new commands (the

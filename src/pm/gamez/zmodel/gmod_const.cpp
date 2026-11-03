@@ -1,5 +1,6 @@
 #include "pm/gamez/zmodel/gmod_const.h"
 
+#include <algorithm>
 #include <cstdlib>
 
 #include "crt/msvc_math.h"
@@ -31,6 +32,79 @@ ModelPool& models() { return g_pool; }
 
 // Pirate's Moon 1.0 @ 0x00557ba0
 Model* model_at(int32_t index) { return index < 0 ? nullptr : &g_pool.at(index); }
+
+// Pirate's Moon 1.0 @ 0x00558f50, with the pool's growth 0x00557be0.
+Model* model_alloc() {
+  ModelPool& p = g_pool;
+  if (p.free_head < 0) {
+    p.blocks.emplace_back(new Model[static_cast<size_t>(p.block)]{});
+    const int32_t first = p.capacity;
+    p.free_head = first;
+    p.capacity += p.block;
+    for (int32_t i = first; i < p.capacity - 1; ++i) p.at(i).link = i + 1;
+    p.at(p.capacity - 1).link = -1;
+  }
+  Model& m = p.at(p.free_head);
+  p.free_head = m.link;
+  ++p.count;
+  const int32_t link = m.link;
+  m = Model{};
+  m.link = link;
+  m.header[8] = 3;  // flags: (0 & ~0x10) | 3
+  return &m;
+}
+
+namespace {
+bool cycled(const Polygon& q) {  // its first material's flag 4
+  return q.material_count > 0 && q.materials[0] && (q.materials[0]->flags & 4);
+}
+::zmod::Material* first_material(const Polygon& q) { return q.material_count > 0 ? q.materials[0] : nullptr; }
+}  // namespace
+
+// Pirate's Moon 1.0 @ 0x0055c470. The exe's list of seen materials is 1024
+// on the stack (0x1000 bytes); no shipped model comes near it.
+void sort_by_material(Model& m) {
+  const int32_t polys = m.count(0x10);
+  std::vector<::zmod::Material*> seen;
+  int32_t refs = 0;
+  for (int32_t i = 0; i < polys; ++i) {
+    const Polygon& q = m.polygons[i];
+    if (!cycled(q)) {
+      ::zmod::Material* mat = first_material(q);
+      if (std::find(seen.begin(), seen.end(), mat) != seen.end()) continue;
+      seen.push_back(mat);
+    }
+    ++refs;
+  }
+  if (refs != m.count(0x5c)) {  // realloc in the exe
+    MaterialRef* grown = new MaterialRef[static_cast<size_t>(refs > 0 ? refs : 1)]{};
+    if (m.refs) std::memcpy(grown, m.refs, sizeof(MaterialRef) * static_cast<size_t>(std::min(refs, m.count(0x5c))));
+    delete[] m.refs;
+    m.refs = grown;
+    std::memcpy(m.header + 0x5c, &refs, 4);
+  }
+  if (refs == 0) return;
+  if (refs == 1) {
+    m.refs[0] = MaterialRef{first_material(m.polygons[0]), polys, m.polygons};
+    return;
+  }
+  Polygon* old = m.polygons;
+  m.polygons = new Polygon[static_cast<size_t>(polys)]{};
+  int32_t at = 0, r = 0;
+  for (int32_t i = 0; i < polys; ++i) {
+    if (!cycled(old[i])) continue;
+    m.polygons[at] = old[i];
+    m.refs[r++] = MaterialRef{first_material(m.polygons[at]), 1, m.polygons + at};
+    ++at;
+  }
+  for (::zmod::Material* mat : seen) {
+    MaterialRef& ref = m.refs[r++];
+    ref = MaterialRef{mat, 0, m.polygons + at};
+    for (int32_t i = 0; i < polys; ++i)
+      if (!cycled(old[i]) && first_material(old[i]) == mat) m.polygons[at++] = old[i], ++ref.usage_count;
+  }
+  delete[] old;
+}
 
 // Pirate's Moon 1.0 @ 0x005587e0. MW3's 0x00538a70 with PM's polygons: the
 // material lists, UVs per material, the model's material refs.

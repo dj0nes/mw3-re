@@ -4,6 +4,7 @@
 #include <filesystem>
 #include <cstring>
 #include <fstream>
+#include <random>
 #include <string>
 #include <tuple>
 #include <vector>
@@ -15,6 +16,7 @@
 #include "gamez/zutil/zutl_path.h"
 #include "gamez/zutil/zutl_zar.h"
 #include "mech3/mech_anim.h"
+#include "gamez/zclass/cls_mechlib.h"
 #include "gamez/zclass/cls_node.h"
 #include "gamez/zclass/list.h"
 #include "gamez/zimage/zimg_texture.h"
@@ -268,5 +270,129 @@ TEST(pm_worlds_stack_through_the_table) {
   EXPECT(zgame::game().zcls_read_zbd("") == -1);
   EXPECT(zgame::game().zcls_read_zbd("zbd/none/gamez.zbd") == -1);
   EXPECT(pm::zcls::zbd_state().files.size() == 2 && ::zmod::materials().capacity == 2000);
+  zgame::set_game(zgame::mw3_table());
+}
+
+namespace {
+struct ZarEntry {
+  std::string name;
+  std::vector<uint8_t> data;
+};
+std::vector<ZarEntry> read_zar(const std::string& path) {
+  std::vector<ZarEntry> out;
+  zutl_zar::Archive a;
+  zutl_zar::init(a);
+  if (!zutl_zar::open(a, path.c_str())) return out;
+  for (int i = 0; i < a.count; ++i) {
+    ZarEntry e{a.entries[i].name, std::vector<uint8_t>(a.entries[i].length)};
+    uint32_t size = a.entries[i].length;
+    if (zutl_zar::read(a, i, e.data.data(), &size) == 0) out.push_back(std::move(e));
+  }
+  zutl_zar::destroy(a);
+  return out;
+}
+void write_zar(const std::string& path, const std::vector<ZarEntry>& entries) {
+  zutl_zar::Archive a;
+  zutl_zar::init(a);
+  zutl_zar::create(a, path.c_str());
+  for (const ZarEntry& e : entries) zutl_zar::add(a, e.name.c_str(), e.data.data(), static_cast<uint32_t>(e.data.size()));
+  zutl_zar::close(a);
+  zutl_zar::destroy(a);
+}
+bool is_mechlib_tree(const std::string& n) { return n != "version" && n != "format" && n != "materials"; }
+void reset_pm_pools() {
+  ::zimg::textures().count = 0;
+  ::zmod::materials() = ::zmod::MaterialTable{};
+  pm::zmod::models() = pm::zmod::ModelPool{};
+  ::zcls::nodes() = ::zcls::NodePool{};
+  ::zcls::lists() = ::zcls::Lists{};
+}
+}  // namespace
+
+// PM's mechlib.zbd 41 through the table, each tree bounded by its entry
+// (docs/pm-map.md, mechlib 41): all 76 read whole; MW3's file refused.
+TEST(pm_mechlib_reads_the_shipped_trees_whole) {
+  const std::string path = std::string(MW3PM_GAME_DIR) + "/zbd/mechlib.zbd";
+  if (!std::filesystem::exists(path)) {
+    std::printf("  skipped: no PM install\n");
+    return;
+  }
+  zgame::set_game(pm::table());
+  reset_pm_pools();
+  ::zcls::MechLib lib;
+  zutl_zar::init(lib.archive);
+  EXPECT(zgame::game().zcls_mechlib_open(lib, path.c_str()));
+  EXPECT(lib.materials.size() == 550);
+  int trees = 0, loaded = 0, lods = 0;
+  for (const ZarEntry& e : read_zar(path)) {
+    if (!is_mechlib_tree(e.name)) continue;
+    ++trees;
+    loaded += zgame::game().zcls_mechlib_load(lib, e.name.c_str()) != nullptr;
+  }
+  for (int32_t i = 0; i < ::zcls::nodes().capacity; ++i)
+    lods += (::zcls::node_at(i)->link & ::zcls::kNodeLive) && ::zcls::node_at(i)->cls() == 6;
+  EXPECT(trees == 76 && loaded == 76 && lib.trees.size() == 76 && lods == 2);
+  ::zcls::mechlib_close(lib);
+  const std::string mw3 = std::string(MW3_GAME_DIR) + "/zbd/mechlib.zbd";
+  if (std::filesystem::exists(mw3)) {
+    ::zcls::MechLib other;
+    zutl_zar::init(other.archive);
+    EXPECT(!zgame::game().zcls_mechlib_open(other, mw3.c_str()));  // version 27
+    zutl_zar::destroy(other.archive);
+  }
+  zutl_zar::destroy(lib.archive);
+  zgame::set_game(zgame::mw3_table());
+}
+
+// Cut, flipped and garbled copies of PM's trees: refused or read, never a
+// crash; a tree cut short is always refused.
+TEST(pm_mechlib_fuzz_never_crashes) {
+  const std::string path = std::string(MW3PM_GAME_DIR) + "/zbd/mechlib.zbd";
+  if (!std::filesystem::exists(path)) {
+    std::printf("  skipped: no PM install\n");
+    return;
+  }
+  zgame::set_game(pm::table());
+  const std::vector<ZarEntry> all = read_zar(path);
+  std::vector<size_t> trees;
+  for (size_t i = 0; i < all.size(); ++i)
+    if (is_mechlib_tree(all[i].name)) trees.push_back(i);
+  const std::string dir = std::string(MW3_TEST_TMP) + "/pm_mechlib";
+  std::filesystem::create_directories(dir);
+  const std::string copy = dir + "/mechlib.zbd";
+  std::mt19937 r(41);
+  int runs = 0, refused = 0, read = 0, cut = 0, cut_refused = 0;
+  for (int seed = 0; seed < 180; ++seed) {
+    std::vector<ZarEntry> m = all;
+    ZarEntry& target = m[trees[r() % trees.size()]];
+    std::vector<uint8_t>& d = target.data;
+    const size_t before = d.size();
+    const int kind = seed % 3;
+    if (kind == 0) {
+      d.resize(r() % d.size());
+    } else if (kind == 1) {
+      for (int n = 1 + r() % 8; n > 0; --n) d[r() % d.size()] ^= static_cast<uint8_t>(1 + r() % 255);
+    } else {
+      for (int n = 1 + r() % 4; n > 0 && d.size() >= 4; --n) {
+        const size_t at = (r() % (d.size() / 4)) * 4;
+        const uint32_t v = r() % 2 ? 0xffffffffu - r() % 16 : 0x10000u + r() % 0x7fffffffu;
+        std::memcpy(&d[at], &v, 4);
+      }
+    }
+    write_zar(copy, m);
+    reset_pm_pools();
+    ::zcls::MechLib lib;
+    zutl_zar::init(lib.archive);
+    EXPECT(zgame::game().zcls_mechlib_open(lib, copy.c_str()));
+    ::zcls::Node* t = zgame::game().zcls_mechlib_load(lib, target.name.c_str());
+    ++runs;
+    t ? ++read : ++refused;
+    if (kind == 0 && d.size() < before) ++cut, cut_refused += t == nullptr;
+    ::zcls::mechlib_close(lib);
+    zutl_zar::destroy(lib.archive);
+  }
+  std::printf("  pm mechlib fuzz: %d trees, %d refused, %d read; cut short %d, refused %d\n", runs, refused, read, cut,
+              cut_refused);
+  EXPECT(runs == 180 && refused > 0 && cut == cut_refused);
   zgame::set_game(zgame::mw3_table());
 }

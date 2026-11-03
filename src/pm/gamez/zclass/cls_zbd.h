@@ -56,6 +56,11 @@ std::FILE* open_zbd(const char* path, uint8_t header[0x28]);
 // is translated into the shared Node's (docs/pm-map.md, Shared types).
 // The pool's capacity, -1 on an error.
 int read_nodes(int32_t size, std::FILE* f, int32_t model_base);
+// Ours: PM's node (the first 0xd0 bytes, as gamez.zbd and mechlib.zbd store
+// it) into the shared Node's raw block; its +0x70 box index returned, which
+// box_pointer makes the node's pm_box.
+int32_t translate_node(::zcls::Node& n, const uint8_t* pm);
+const float* box_pointer(const ::zcls::Node& n, int32_t box);
 // Pirate's Moon 1.0 @ 0x005171a0: one node's class data and links. 1 when
 // it has data or links, 0 when not, -1 on an error or an unknown class.
 int read_node(::zcls::Node* node, std::FILE* f, int32_t node_base);
