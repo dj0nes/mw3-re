@@ -2,6 +2,7 @@
 
 #include <cstdio>
 #include <cstring>
+#include <iterator>
 #include <vector>
 
 #include "crt/msvc_string.h"
@@ -414,23 +415,37 @@ bool controls_repair_mouse_fire() {  // after the tables' rebuild (the hook's)
 // Ours, FIX (bug), playtest W40: the map is the settings' own block, so the
 // original saved whatever it held at exit, a quit box's unbind too. The map
 // saved is the one the load and the controls menus left (input.md, section 3).
+// The same for the mouse's MouseAccelX/Y (Owen, 2026-11-02): kept at the load
+// and at the options' ACCEPT, so a value set for a moment (the menus' 1.3 is
+// zInput's working copy, 0x00481fc0) never reaches the disk.
 namespace {
-std::vector<uint8_t> g_kept_map;
+struct Kept {
+  const char* name;
+  std::vector<uint8_t> bytes;
+};
+Kept g_kept[] = {{"DefaultCmdMap", {}}, {"MouseAccelX", {}}, {"MouseAccelY", {}}};
+void keep(Kept& k) {
+  const zreg::Entry* e = zreg::find(k.name);
+  if (e && e->data) k.bytes.assign(e->data, e->data + e->size);
+  else k.bytes.clear();
+}
 }  // namespace
 
-void controls_keep_saved() {
-  const zreg::Entry* e = zreg::find("DefaultCmdMap");
-  if (e && e->data) g_kept_map.assign(e->data, e->data + e->size);
-  else g_kept_map.clear();
-}
+void controls_keep_saved() { keep(g_kept[0]); }
+
+void settings_keep_mouse() { keep(g_kept[1]), keep(g_kept[2]); }
 
 int32_t controls_write_settings() {
-  zreg::Entry* e = zreg::find("DefaultCmdMap");
-  if (!e || !e->data || g_kept_map.size() != e->size) return zreg::write_all();
-  const std::vector<uint8_t> live(e->data, e->data + e->size);
-  std::memcpy(e->data, g_kept_map.data(), e->size);
+  std::vector<std::vector<uint8_t>> live(std::size(g_kept));
+  for (size_t i = 0; i < std::size(g_kept); ++i) {
+    zreg::Entry* e = zreg::find(g_kept[i].name);
+    if (!e || !e->data || g_kept[i].bytes.size() != e->size) continue;  // never kept: the live value, as the original
+    live[i].assign(e->data, e->data + e->size);
+    std::memcpy(e->data, g_kept[i].bytes.data(), e->size);
+  }
   const int32_t r = zreg::write_all();
-  std::memcpy(e->data, live.data(), e->size);
+  for (size_t i = 0; i < std::size(g_kept); ++i)
+    if (zreg::Entry* e = zreg::find(g_kept[i].name); e && !live[i].empty()) std::memcpy(e->data, live[i].data(), e->size);
   return r;
 }
 

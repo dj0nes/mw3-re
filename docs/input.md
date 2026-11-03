@@ -138,7 +138,14 @@ The live map's changes outside those menus, none of them meant to last:
 The registry's read fills the bindings only, and without a controls file
 the original rebuilt nothing, so the reverse tables (key, joystick and
 mouse button to command) stayed the defaults': the quit box's
-`mouse_command(1)` named the defaults' command. The port rebuilds them after
+`mouse_command(1)` named the defaults' command.
+
+MouseAccelX/Y (the options' 0x005f4d2c/30) follow the same rule (Owen,
+2026-11-02): the settings write the values kept at the load and when an
+options screen applies at its ACCEPT (`settings_keep_mouse`), not the live
+ones. CoreState::leave's 1.3 / 1.3 for the menus is zInput's working copy
+(0x0051b790 writes 0x005ece48/4c), so the player's value was never touched by
+it, in the original or here; the rule guards whatever else might. The port rebuilds them after
 the read (FIX (bug), `zin::map_refresh`). Then, ours: a map an older build
 saved with the box's unbind (TRIGGER1 with no mouse button, button 1 on no
 command) gets button 1 back on TRIGGER1, with a log line

@@ -183,21 +183,11 @@ ACCEPT:
 | THROTTLE_CONST | ON / OFF | 0x0040d060 / 0x0040d020 |
 | MW2JJETS | ON / OFF | 0x0040d1e0 / 0x0040d1c0 |
 | CMD_INVERT_MOUSE_Y | ON / OFF | MouseAccelY < 0; written -1.3 or 1.3 straight into the entry |
-| MOUSE_SENSITIVITY (ours) | slider 0.5 to 3.0 | MouseAccelX and Y's magnitude, Y keeping the invert box's sign; read from MouseAccelX |
 
-MOUSE SENSITIVITY (Owen, 2026-11-02) is ours: a record of our own under
-INVERT MOUSE Y in dlgOptions.zrd's GAME_OPTION_DIALOG (`patch12::apply_ours`,
-on any data version), the graphics screen's slider record and art
-(sliderunfilled / sliderfilled; the image is wider than the option boxes and
-reaches past the panel), its label spaced as the original's are. 0..1 on the
-slider is 0.5 to 3.0 in tenths; the original's 1.3 is where it starts, so a
-player who never moves it plays as the original. With it bound, ACCEPT writes
-both entries from it (the invert box gives Y's sign, so invert and sensitivity
-keep each other in either order); without it (the probes, which run the
-original's screen: `options_sensitivity_slider` is the program's) the
-original's invert path as before. Saved as MouseAccelX/Y with the other
-settings. Not behind the bug-fix switch: an option whose default is the
-original's. `options_mouse_sensitivity_slider_headless`.
+MOUSE SENSITIVITY (Owen, 2026-11-02) is ours, on GRAPHICS & AUDIO among
+the volume sliders (below). With it on, INVERT MOUSE Y here sets only Y's
+sign and keeps the magnitude whatever the bug-fix switch (the original's
+reset to 1.3 stays for a screen without the slider: the probes).
 
 The red choices are the cheats (protection.md: turning them on sets the
 cheated flag). ACCEPT (0x00437f60) applies (+0x10 with 1), writes the
@@ -215,6 +205,21 @@ SELF_SHADOWS (ShadowParts), LIGHTING (GfxFlags bit 0), RESOLUTION
 TEXTURES (TextureMemory), SOUND_QUALITY (SoundLOD), OBJECT_DETAIL
 (ObjectLOD) and SPECIAL_EFFECTS (EffectsLevel), the last two shown
 inverted (level 0, the most, is HIGH).
+
+**MOUSE SENSITIVITY** (ours, Owen 2026-11-02): a third slider of the same
+kind under the volumes, our own record edit (`patch12::apply_ours`, on any
+data version): the same record and art (sliderunfilled / sliderfilled, no
+new images), the label spaced as the original's ("M O U S E  S E N S I T I V I T Y"),
+at the volumes' 25-pixel step: MUSIC and SFX moved up 10 (y 47, 72), ours at
+97, VIDEO_DEVICE from 110 to 122. It sets MouseAccelX and Y's magnitude,
+0.5 to 3.0 in tenths (Y keeps its sign, the game options' invert box); it
+starts from MouseAccelX, the original's 1.3 untouched, so a player who never
+moves it plays as the original. Saved as MouseAccelX/Y with the other
+settings; a mission takes them at its start, the menus keep 1.3
+(CoreState::leave). Bound only where the program turns it on
+(`options_sensitivity_slider`): the probes run the original's screens. Not
+behind the bug-fix switch: an option whose default is the original's.
+`options_mouse_sensitivity_slider_headless`.
 
 **The device** (0x00439a90, and inline when VIDEO_DEVICE is pressed,
 0x0043a0d0): RESOLUTION and TEXTURES are rebuilt for it; LIGHTING and
