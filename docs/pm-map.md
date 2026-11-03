@@ -526,6 +526,46 @@ functions PM changed, and PM's new ones.
        c2's links and models in c2's part of the pools, versions 27 and 40
        and a bad signature refused with nothing changed (break: version 27
        accepted, caught).
+   - **anim.zbd 50: done** (2026-11-03, `pm/gamez/zeffect/zeff_anim_init`,
+     the table's `zeff_anim_read_zbd`: MW3 0x50a0e0, PM 0x523140). PM's
+     file is read into the shared AnimDef and AnimState in MW3's layout,
+     PM's own fields named beside it (`pm_path`, `pm_reset`, `pm_seq2`,
+     `pm_block`, `pm_scripts`, the objects' and nodes' `pm_flags` and
+     `pm_parent`):
+     - The header: signature 0x08170616, version 50, a time stamp, the
+       source count (0x54 each, read and dropped). Then a 0x6c block whose
+       fields are MW3's block moved (`kFields` in the reader, matched by the
+       run-time globals' users).
+     - A def is 0x10c bytes (MW3 0x13c). Its node is found by name or by
+       a path of names, one under the other (+0x20, count +0x24; none
+       shipped). The reset sequence is optional (pointer +0xd0), and one
+       more optional sequence follows it (+0xd4; none shipped). The objects
+       (0x5c) and nodes (0x2c) carry a parent entry: found under that
+       entry's node, else as MW3's lookup.
+     - Where MW3 stops the read, PM goes on. A def whose node is missing
+       is marked 5, and every node found from it on is cleared (0x524230).
+       A puffer that cannot be made leaves the def without puffers.
+       Node prerequisites chain children first to last (MW3: last to
+       first). The prerequisite FIX (bug)s are MW3's (fixes.md: PM's
+       0x376f report drops them all too).
+     - PM's scripts (0x1c each, their name, object and data) come after
+       the defs, then the messages as MW3's.
+     - Through the table as well: PM's node alloc (0x4fc550), active
+       switch (0x4fca50) and light (0x50e470, 0x100 bytes).
+     - `test_pm_anim.py` on PM's exe: the 4 worlds' anim.zbd against
+       their worlds identical (1,601 unported calls traced, every def,
+       list, sequence, script and the node pool after); 29 mismatched,
+       failing, crafted (a path, parents, a second sequence, a missing
+       node and root, a reset left out, one file pointer over a path or
+       after a missing node, an anim ref's pointer set) and cut runs
+       agree; a cut in the scripts' names refused (the exe reads on
+       unchecked). 14 break tests caught (the objects' parent at their
+       flags, the nodes' record unshifted, the reset and the second
+       sequence not read, the lookup without the path, a missing node's
+       clear left out, a missing node or a puffer stopping the read as
+       MW3's does, the prerequisite chain cleared, a block field from the
+       wrong place, the anim refs' pointer kept, the parent ignored, a
+       light unnamed, the lookup sharing from pointer 0).
 2. **The world**: the light maps and lighting (`gmod_matl.c` 39 new; PM
    drops MW3's fog), `cls_clutter.cpp` (32 new), the world class
    (`cls_world.c` 20 new), the script interpreter's new commands (the

@@ -13,7 +13,8 @@ A full run compares that trace, the reports, every def, list, sequence and
 script in PM's layout (nodes as pool slots) and the whole node pool after.
 Runs where one recorded call answers "not found", an anim file against
 another world, crafted files (a def's node by a path, objects and nodes found
-under a parent, a second sequence, a missing def node and root, the
+under a parent, a second sequence, a missing def node and root, defs sharing a
+file pointer over a path or after a missing node, an anim ref's pointer, the
 prerequisite FIX) and cut copies compare the result, reports and trace.
 """
 import ctypes
@@ -262,6 +263,27 @@ def crafted(data):
     k = runs[0]
     same = [(defs[k]['at'] + 0x48, struct.pack('<I', 0x1234), 4), (defs[k + 1]['at'] + 0x48, struct.pack('<I', 0x1234), 4)]
     out.append(('one file pointer, one name', craft(data, same)))
+    # The def before found by a path whose first name is this one's (its own node named otherwise): the
+    # path's node, through the path's file pointer.
+    n0 = name(data, defs[k]['at'] + 0x28)
+    rec = n0.ljust(0x20, b'\0') + struct.pack('<I', 0x1234)
+    out.append(('one file pointer, the path before', craft(data, [
+        (defs[k]['at'] + 0x28, b'no_such_node'.ljust(0x20, b'\0'), 0x20), (defs[k]['at'] + 0x24, struct.pack('<i', 1), 4),
+        (defs[k]['path'], rec, 0), same[1]])))
+    # A def whose node is missing just before the run, all three on one file pointer: the missing one's
+    # clear (0x524230) zeroes the later pointers, so the run's second takes the next node of that name.
+    before = [j for j in runs if j - 1 in live]
+    if before:
+        j = before[0]
+        out.append(('a missing node before one file pointer', craft(data, [
+            (defs[j - 1]['at'] + 0x28, b'no_such_node'.ljust(0x20, b'\0'), 0x20),
+            (defs[j - 1]['at'] + 0x48, struct.pack('<I', 0x1234), 4), (defs[j]['at'] + 0x48, struct.pack('<I', 0x1234), 4),
+            (defs[j + 1]['at'] + 0x48, struct.pack('<I', 0x1234), 4)])))
+    # An anim ref with a pointer in the file: the reader zeroes it.
+    refs = [j for j in live if data[defs[j]['at'] + 0xe2]]
+    if refs:
+        at = defs[refs[0]]['lists'][0xe2] + 0x44
+        out.append(('an anim ref with a pointer', craft(data, [(at, struct.pack('<I', 0x5678), 4)])))
     other = next(j for j in live if j > k + 1 and name(data, defs[j]['at'] + 0x28) != name(data, defs[k]['at'] + 0x28))
     out.append(('one file pointer, two names', craft(data, [same[0], (defs[other]['at'] + 0x48, struct.pack('<I', 0x1234), 4)])))
     # Objects and nodes found under an earlier entry; every object kept to the def's own nodes.
