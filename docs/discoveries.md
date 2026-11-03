@@ -1369,6 +1369,16 @@ From the network code (network-messages.md).
 - **Game speed does not depend on CPU speed.** Everything is scaled by the real
   time each frame took, capped at 1/8 second a frame. The exceptions found so
   far are per-frame, like the lava heat above.
+- **Above about 150 fps the original's turrets froze.** Turrets ease their
+  aim toward a target by e^-(3 x the frame time), looked up in a table that
+  rounds down to steps of 1/51; on any frame shorter than 6.5 ms the lookup
+  gives "don't move". Mech arms, recoil and vehicle turning use the same
+  table and stall the same way. On 1999 machines it never mattered. The
+  tripod missile platforms of Op 1 Mission 2 also start facing straight up,
+  and the aim's quick square root of 0 is not 0, so on such a fast frame a
+  platform's first aim squashed its launcher flat: still alive and
+  targetable, but invisible, so the mission's objective looked impossible. The
+  rebuild eases by time and keeps a straight-up turret's shape (W50).
 
 - **Some vehicles' starting directions are written down and then ignored.**
   The mission files give a few vehicles a heading (c1m1's two APCs face 110

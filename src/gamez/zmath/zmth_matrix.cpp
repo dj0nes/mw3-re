@@ -5,6 +5,7 @@
 #include <cstring>
 
 #include "gamez/zrender/zrndr_fog.h"
+#include "gamez/zutil/zfix.h"
 
 namespace zmth {
 
@@ -369,6 +370,11 @@ float exp_neg(float x) {
   }
   if (x > 5.0f) return 0.0f;
   if (!(x >= 0.0f)) return 1.0f;
+  // FIX (B): the table steps by 1/51, so every caller's per-second easing
+  // (rate * dt) reads 1 on frames shorter than 1 / (51 rate): above about
+  // 150 fps for a rate of 3 nothing eases at all (the turrets froze, W50).
+  // The exact value for any frame time (fixes.md, Frame rate).
+  if (zfix::options().per_second) return std::exp(-x);
   return table[static_cast<int32_t>(51.0f * x)];
 }
 

@@ -304,6 +304,8 @@ Turret* program_turret(const void* p) {
 }
 Turret* program_turret_by_handle(uint32_t h) { return program_turret(ob(h)); }
 
+void program_turret_dt(float dt) { weapon_world().dt = dt; }
+
 bool program_turrets_load(const char* file) {
   g_turrets.clear();
   g_locks.clear();

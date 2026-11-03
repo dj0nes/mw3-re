@@ -301,11 +301,9 @@ void puff_tick() {
     for (int c = 0; c < 3; ++c) q.pos[c] = dt * q.vel[c] + q.pos[c];
     for (int c = 0; c < 3; ++c) q.vel[c] = q.accel[c] * dt + q.vel[c];
     if (q.friction < 0.0f || q.friction > 0.0f) {
-      // FIX (B): the exe's table truncates to steps of 1/51, so no drag at all
-      // above ~51 fps for friction 1; e^-x computed here (puffers.md).
-      const float x = ztimer::state().dt * q.friction;
-      const float f = zfix::options().per_second ? (x > 5.0f ? 0.0f : x < 0.0f ? 1.0f : std::exp(-x))
-                                                 : zmth::exp_neg(x);
+      // The exe's table truncates to steps of 1/51, so no drag at all above
+      // ~51 fps for friction 1; exp_neg's FIX (B) gives e^-x (puffers.md).
+      const float f = zmth::exp_neg(ztimer::state().dt * q.friction);
       for (int c = 0; c < 3; ++c) {
         const float target = w.current[c] * q.wind_factor;
         q.vel[c] = (q.vel[c] - target) * f + target;
