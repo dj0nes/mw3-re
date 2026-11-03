@@ -86,6 +86,7 @@
 #include "mech3/cheats.h"
 #include "mech3/cockpit_sound.h"
 #include "mech3/app_sensors.h"
+#include "mech3/app_turret.h"
 #include "mech3/patch12.h"
 #include "mech3/app_states.h"
 #include "mech3/lab_screen.h"
@@ -22184,8 +22185,16 @@ struct HomingRun {
   float worst_reach = 0;
 };
 
+// A shot's direction changed between frames: by angle, the directions
+// normalised (a direction from an eased aim is not quite unit length, W50).
+bool turned(const zwep::Vec3f3& a, const zwep::Vec3f3& b) {
+  const float la = std::sqrt(a.x * a.x + a.y * a.y + a.z * a.z), lb = std::sqrt(b.x * b.x + b.y * b.y + b.z * b.z);
+  return !(la > 0.0f && lb > 0.0f) || (a.x * b.x + a.y * b.y + a.z * b.z) / (la * lb) < 0.9999f;
+}
+
 HomingRun homing_run(const char* dir, bool kill, int limit) {
   HomingRun r;
+  std::map<void*, void*> last_target, prev_target;  // the AI mechs' targets, this frame and the one before
   SavedMounts keep;
   const zfix::Options fix_was = zfix::options();
   zfix::options() = zfix::Options{};  // play's switches, whatever a test before left
@@ -22282,6 +22291,10 @@ HomingRun homing_run(const char* dir, bool kill, int limit) {
         keys.key(fire, true);
       }
       if (r.frames == 31) keys.key(fire, false);
+      // The shooters' targets a frame before: one may fire, then pick a new
+      // target in the same update (the shot is first seen after both).
+      prev_target = last_target;
+      for (int32_t k = 0; k < made; ++k) last_target[ai[k].mech] = mech3::mech_target_object(ai[k].mech);
       const auto live = flying();
       for (auto it = seen.begin(); it != seen.end();) {
         if (std::find(live.begin(), live.end(), it->first) != live.end()) {
@@ -22357,11 +22370,11 @@ HomingRun homing_run(const char* dir, bool kill, int limit) {
         if (t.player && s.target_at) ++r.player_locked;
         if (t.player) {
           t.frames_seen++;
-          if (t.have && d.x * t.dir.x + d.y * t.dir.y + d.z * t.dir.z < 0.9999f) ++r.player_turns;
+          if (t.have && turned(d, t.dir)) ++r.player_turns;
         }
         if (!s.target_at) {
           if (!t.have) ++r.unlocked;
-          else if (d.x * t.dir.x + d.y * t.dir.y + d.z * t.dir.z < 0.9999f) ++r.unlocked_turns;
+          else if (turned(d, t.dir)) ++r.unlocked_turns;
           t.dir = d, t.have = true;
           continue;
         }
@@ -22383,7 +22396,8 @@ HomingRun homing_run(const char* dir, bool kill, int limit) {
           void* shooter = s.owner == mech3::mech_node(player) ? player : nullptr;
           for (int32_t k = 0; k < made && !shooter; ++k)
             if (mech3::mech_node(ai[k].mech) == s.owner) shooter = ai[k].mech;
-          if (shooter && mech3::mech_target_object(shooter) != s.lock_entity) ++r.wrong_entity;
+          if (shooter && mech3::mech_target_object(shooter) != s.lock_entity && prev_target[shooter] != s.lock_entity)
+            ++r.wrong_entity;
           if (wl > 1.0f && (wx * d.x + wy * d.y + wz * d.z) / wl < std::cos(10.0f / 57.29578f)) ++r.off_at_launch;
         } else {
           const float dx = at.x - t.at.x, dy = at.y - t.at.y, dz = at.z - t.at.z;
@@ -22632,3 +22646,131 @@ TEST(reddit_controls_screen_rebinds_through_the_keyboard_headless) {
   EXPECT(kept);  // read back at the next start
   EXPECT(!saved.empty());
 }
+// Playtest W50 (Owen, c1m2 on the Mac, v1.0): "Destroy Missile Platforms
+// OP: Baker" stays In Progress; triturret02 vanished with no wreck while its
+// triangle and target box (empty) stayed. The tripod turrets start facing
+// straight up (their node's rotation, normalised); their first aim eases the
+// facing by e^-(3 dt) through zMath's table, which reads 1 on frames shorter
+// than 6.5 ms, so the facing stays vertical, its flat part 0, and the exe's
+// bit-trick square root of 0 (8e-20) takes the heading branch with c = -0,
+// sn = 0: the turret's matrix loses its yaw axes and the turret and gun are
+// drawn flat. Here c1m2's triturret02 aims at the player 35 m off, at 6 ms
+// and 33 ms frames, with the fixes and without.
+namespace {
+struct AimRun {
+  float facing_y = 0;  // after the aim
+  float yaw_det = 0;   // the turret matrix's x and z axes: 1 a rotation, 0 collapsed
+};
+}  // namespace
+
+TEST(mission_c1m2_triturret_aim_on_fast_frames_headless) {
+  SavedMounts keep;
+  zutl::mounts() = zutl::Mounts{};
+  zutl::mount(MW3_GAME_DIR);
+  zutl::set_write_dir(temp_dir("mission_w50_write"));
+  mech3::reset_states();
+  reset_process_state();
+  mech3::missions() = mech3::Missions{};
+  mech3::mech_types_forget();
+  mech3::player_controls_instance() = nullptr;
+  mech3::options() = mech3::Options{};
+  const zfix::Options fixes_was = zfix::options();
+  FakeWindow window;
+  FakeAlert alert;
+  FastClock clock;
+  FakeScreen screen;
+  platform::SilentSoundOutput sound;
+  mech3::MountFiles files;
+  mech3::Platform p;
+  p.window = &window, p.alert = &alert, p.clock = &clock, p.movie_clock = &fast_movie_clock(), p.screen = &screen, p.sound = &sound, p.files = &files;
+  bool ran = false;
+  {
+    mech3::GameEngine engine(p, "mech3.exe -nofmv");
+    engine.quiet = true;
+    mech3::Mech3App app(&engine);
+    mech3::set_app(&app);
+    EXPECT(app.init_instance());
+    mech3::GameEngine::Launch l;
+    l.index = 0, l.op = 1, l.number = 2;  // c1m2
+    engine.set_launch(l);
+    app.post_intro_ = &mech3::states().load;
+    mech3::Pilot pilot("W50");
+    mech3::Game game(&pilot);
+    pilot.current = &game;
+    mech3::Pilot* was_pilot = mech3::current_pilot();
+    mech3::current_pilot() = &pilot;
+    int frames = 0;
+    engine.on_present = [&](int) {
+      if (app.current() != &mech3::states().core || ++frames != 30) return;
+      mech3::tur::Turret* t = nullptr;
+      for (const mech3::ChainTarget& c : mech3::chain_hostiles())
+        if (c.name == "triturret02") t = mech3::program_turret_by_handle(c.h);
+      EXPECT(t != nullptr);
+      if (!t) return;
+      auto* tn = static_cast<zcls::Node*>(engine.object_of(t->turret));
+      float* tm = tn ? zcls::object3d_matrix(tn) : nullptr;
+      EXPECT(tm != nullptr);
+      if (!tm) return;
+      EXPECT(t->facing[0] == 0.0f && t->facing[1] == 1.0f && t->facing[2] == 0.0f);  // straight up, as made
+      float tm0[12], f0[3];
+      std::memcpy(tm0, tm, sizeof tm0), std::memcpy(f0, t->facing, sizeof f0);
+      float at[3] = {};
+      const mech3::Handle h = engine.handle_of(at);
+      auto aim = [&](float dt, bool per_second, bool bugs) {
+        std::memcpy(t->facing, f0, sizeof f0);
+        zcls::object3d_set_matrix(tn, tm0);
+        zfix::options().per_second = per_second, zfix::options().bugs = bugs;
+        mech3::program_turret_dt(dt);
+        t->aim(h);
+        const float* m = zcls::object3d_matrix(tn);
+        AimRun r;
+        r.facing_y = t->facing[1];
+        r.yaw_det = m[0] * m[8] - m[2] * m[6];
+        return r;
+      };
+      // From 8 sides, 35 m off and 6 m up (Owen's place in his shot is one).
+      int fixed_turned = 0, original_collapsed = 0, table_collapsed = 0, slow_collapsed = 0, fixed_collapsed = 0;
+      for (int k = 0; k < 8; ++k) {
+        const float a = 0.785398f * static_cast<float>(k);
+        at[0] = t->pos[0] + 35.0f * std::cos(a), at[1] = t->pos[1] + 6.0f, at[2] = t->pos[2] + 35.0f * std::sin(a);
+        const AimRun fixed = aim(0.006f, true, true), original = aim(0.006f, false, false),
+                     table = aim(0.006f, false, true), slow = aim(0.033f, false, false);
+        std::printf("  side %d: fixed facing y %.4f det %.3f | exe 6 ms %.4f %.3f | yaw fix alone %.4f %.3f | exe 33 ms %.4f %.3f\n",
+                    k, fixed.facing_y, fixed.yaw_det, original.facing_y, original.yaw_det, table.facing_y, table.yaw_det,
+                    slow.facing_y, slow.yaw_det);
+        auto collapsed = [](const AimRun& r) { return std::fabs(r.yaw_det) < 0.5f; };
+        fixed_turned += fixed.facing_y < 1.0f;
+        fixed_collapsed += collapsed(fixed), original_collapsed += collapsed(original);
+        table_collapsed += collapsed(table), slow_collapsed += collapsed(slow);
+      }
+      std::memcpy(t->facing, f0, sizeof f0);
+      zcls::object3d_set_matrix(tn, tm0);
+      // The exe at 166 fps: no easing, and every side collapses the yaw (what Owen saw).
+      EXPECT(original_collapsed == 8);
+      // Fixed: never collapsed, and it turns toward the sides its limits allow.
+      EXPECT(fixed_collapsed == 0 && fixed_turned > 0);
+      // The yaw fix alone (the table's no easing yet): still drawn.
+      EXPECT(table_collapsed == 0);
+      // The exe at its 30 fps eases off vertical before the matrix: never collapsed.
+      EXPECT(slow_collapsed == 0);
+      ran = true;
+    };
+    CountingPump pump;
+    pump.limit = 2000;
+    pump.stop = [&] { return frames >= 30; };
+    app.run(pump);
+    mech3::current_pilot() = was_pilot;
+    pilot.current = nullptr;
+    mech3::missions().cleanup(false);
+    app.stop_game();
+    app.exit_instance();
+    mech3::set_app(nullptr);
+  }
+  zfix::options() = fixes_was;
+  EXPECT(ran);
+  zrdr::close_archives(true);
+  mech3::reset_states();
+  reset_process_state();
+  mech3::options() = mech3::Options{};
+}
+

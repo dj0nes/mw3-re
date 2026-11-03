@@ -50,6 +50,13 @@ it is clear what the designers meant.
   smoke stopped slowing down and ignored the wind, and the wind's gusts
   changed faster the faster the game ran. Both now go by time, at the 30 fps
   pace.
+- **Turrets, mech arms and vehicles turn at any frame rate.** The original
+  eased them toward where they aim, and damped vehicles' turns and arms'
+  recoil, by a table that rounds a frame's step down to 1/51: above about
+  150 fps the turrets did not turn at all, and the missile platforms that
+  start facing straight up (Op 1 Mission 2) were drawn flat, invisible but
+  alive, and the objective looked impossible. Every such easing now goes by
+  time. A turret aimed straight up or down also keeps its shape.
 - **Mech movement plays the same at any frame rate.** Falls, the shoves from
   slopes and ledges, the blend into a walk, jump-jet thrust and the damage
   done to buildings you push into all went by frames; they now play as they
