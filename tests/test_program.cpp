@@ -21662,6 +21662,8 @@ struct HomingRun {
   int probes = 0, grounded = 0, under = 0;  // ground probes under flying shots; found; found above the shot
   int zone_border = 0;        // of those not found, over ground in a zone outside the shot's set (the original's zones)
   bool killed = false;
+  bool player_had_target = true;
+  int player_shots = 0, player_locked = 0, player_turns = 0;  // the player's LRMs fired at frame 30 with no target
   int salvo = 0, salvo_reached = 0;  // the killed mech's salvo in flight: shots, and those that came within 10 m of the wreck's aim
   float worst_reach = 0;
 };
@@ -21686,6 +21688,25 @@ HomingRun homing_run(const char* dir, bool kill, int limit) {
   mech3::MountFiles files;
   mech3::Platform p;
   p.window = &window, p.alert = &alert, p.clock = &clock, p.movie_clock = &fast_movie_clock(), p.screen = &screen, p.sound = &sound, p.files = &files;
+  struct Keys : platform::Input {  // the player's LRMs fired once with no target selected
+    std::vector<platform::KeyEvent> queue;
+    uint32_t t = 0;
+    void key(uint32_t dik, bool down) { queue.push_back({dik, down ? 0x80u : 0u, ++t, t}); }
+    bool open(Device d) override { return d == kKeyboard; }
+    void close(Device) override {}
+    int32_t acquire(Device) override { return 0; }
+    int32_t unacquire(Device) override { return 0; }
+    int32_t keyboard_data(platform::KeyEvent* out, uint32_t* count) override {
+      const uint32_t n = std::min<uint32_t>(*count, static_cast<uint32_t>(queue.size()));
+      std::copy(queue.begin(), queue.begin() + n, out);
+      queue.erase(queue.begin(), queue.begin() + n);
+      *count = n;
+      return 0;
+    }
+    int32_t mouse_state(platform::MouseState*) override { return kNotAcquired; }
+    int32_t joystick_state(platform::JoyState*) override { return kNotAcquired; }
+  } keys;
+  p.input = &keys;
   auto flying = [] {
     std::vector<const zwep::Projectile*> out;
     for (const zwep::WeaponDef& d : zwep::state().defs)
@@ -21693,7 +21714,7 @@ HomingRun homing_run(const char* dir, bool kill, int limit) {
         for (const zwep::Projectile* q = d.active; q; q = q->next) out.push_back(q);
     return out;
   };
-  struct Track { zwep::Vec3f3 at{}, dir{}, spawn{}; bool have = false; float reach = 1e9f; bool in_salvo = false; };
+  struct Track { zwep::Vec3f3 at{}, dir{}, spawn{}; bool have = false; float reach = 1e9f; bool in_salvo = false, player = false; int frames_seen = 0; };
   std::map<const zwep::Projectile*, Track> seen;
   {
     mech3::GameEngine engine(p, "mech3.exe -nofmv");
@@ -21731,6 +21752,18 @@ HomingRun homing_run(const char* dir, bool kill, int limit) {
         mech3::move_mech(player, at, -1.5707964f);
       }
       if (r.frames < 5) return;
+      static uint32_t fire = 0;
+      if (r.frames == 30) {
+        for (int32_t g = 0; g < 5; ++g)
+          if (mech3::mech_group_names(player, g).find("LRM") != std::string::npos) {
+            mech3::mech_select_group(player, g);
+            break;
+          }
+        r.player_had_target = mech3::mech_target_object(player) != nullptr;
+        fire = zin::key1_of(0x3d) & 0xff;  // CMD_FIRE
+        keys.key(fire, true);
+      }
+      if (r.frames == 31) keys.key(fire, false);
       const auto live = flying();
       for (auto it = seen.begin(); it != seen.end();) {
         if (std::find(live.begin(), live.end(), it->first) != live.end()) {
@@ -21802,6 +21835,12 @@ HomingRun homing_run(const char* dir, bool kill, int limit) {
           }
           std::memcpy(zmod::zones().list, zones, 4);
         }
+        if (!t.have && s.owner == mech3::mech_node(player) && r.frames <= 120) ++r.player_shots, t.player = true;
+        if (t.player && s.target_at) ++r.player_locked;
+        if (t.player) {
+          t.frames_seen++;
+          if (t.have && d.x * t.dir.x + d.y * t.dir.y + d.z * t.dir.z < 0.9999f) ++r.player_turns;
+        }
         if (!s.target_at) {
           if (!t.have) ++r.unlocked;
           else if (d.x * t.dir.x + d.y * t.dir.y + d.z * t.dir.z < 0.9999f) ++r.unlocked_turns;
@@ -21863,6 +21902,7 @@ void print_homing(const char* what, const HomingRun& r) {
               "(%d turned, %d with an aim); %d launched off their aim; ground under %d of %d shots (%d above them, %d over another zone's ground)",
               what, r.frames, r.locked, r.wrong_entity, r.jumps, r.away, r.garbage, r.unlocked, r.unlocked_turns,
               r.unlocked_with_aim, r.off_at_launch, r.grounded, r.probes, r.under, r.zone_border);
+  std::printf("; the player's free salvo: %d shots (target %d), %d locked, %d turns", r.player_shots, r.player_had_target, r.player_locked, r.player_turns);
   if (r.killed) std::printf("; the killed mech's salvo: %d of %d shots reached the wreck (worst %.1f m)", r.salvo_reached, r.salvo, r.worst_reach);
   std::printf("\n");
 }
@@ -21871,6 +21911,7 @@ void expect_homing(const HomingRun& r) {
   EXPECT(r.locked > 20 && r.unlocked > 50);  // the fight happened
   EXPECT(r.wrong_entity == 0 && r.jumps == 0 && r.away == 0 && r.garbage == 0);
   EXPECT(r.unlocked_turns == 0 && r.unlocked_with_aim == 0);
+  EXPECT(!r.player_had_target && r.player_shots >= 2 && r.player_locked == 0 && r.player_turns == 0);  // no target: straight
   EXPECT(r.probes > 1000 && r.grounded + r.zone_border == r.probes && r.under == 0);
 }
 
