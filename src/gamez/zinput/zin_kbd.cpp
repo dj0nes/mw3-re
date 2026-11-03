@@ -126,6 +126,7 @@ void kbd_reset() {
   }
   for (KeySlot& k : s.keys) k.state = 0;
   s.modifiers = 0;
+  s.frame_key = 0;  // ours: a key before the reset is not the capture's
 }
 
 // Mech3.exe 1.2 @ 0x0051a550
@@ -157,13 +158,16 @@ void kbd_read(bool callbacks) {
     }
     s.di->acquire(platform::Input::kKeyboard);
   }
+  s.frame_key = 0;
   for (uint32_t i = 0; i < n; ++i) {
     platform::KeyEvent& e = s.events[i];
     uint32_t code = e.ofs;
-    if (!modifier(s, e)) code = with_modifiers(s, e);
+    const bool plain = !modifier(s, e);
+    if (plain) code = with_modifiers(s, e);
     if (!in_table(code)) continue;
     if (e.data & 0x80) {
       apply(s, code, true);
+      if (plain && !s.frame_key) s.frame_key = code;
       if (s.char_callback) {
         if (const uint32_t ch = key_char(code)) s.char_callback(static_cast<int32_t>(ch), static_cast<int32_t>(code), s.char_ctx);
       }
@@ -266,6 +270,8 @@ uint32_t read_key(bool wait) {
     if (found != 0 || !wait) return found;
   }
 }
+
+uint32_t frame_key() { return state().frame_key; }
 
 // Mech3.exe 1.2 @ 0x0051ab90
 // The character a key types, for text fields. FIX (A): MapVirtualKeyA,

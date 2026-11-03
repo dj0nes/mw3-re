@@ -137,6 +137,7 @@ class ControlsScreen : public MenuScreen {
   void clear_mouse_axis();           // 0x0042cfa0: off a mouse source
   void load_save(const char* name, bool save);  // 0x0042d0b0: keys\<name>.zrd, then ActiveCtlCfg
   void start_capture(int32_t mode);  // the lists' presses: the mode, zInput reset
+  uint32_t capture_key();            // ours: 0x0051aa00's key, else the frame's (FIX (A))
   void sample_axes();                // 0x0042d4d0's loop: each source's reading as its range
   void push_axis_popup(int32_t source);  // 0x0042bfca / 0x0042d911
   void push_load_save(uint8_t save);     // 0x0042d890, 0x0042d8c0, 0x0042d98a

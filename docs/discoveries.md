@@ -4125,3 +4125,11 @@ The screen after the pilot for INSTANT ACTION, 0x00488bc0 (details:
   game after, until the controls are reset or rebound. (Found from the
   code; the rebuild saves the controls only when you set them in the
   controls menus. docs/fixes.md, playtest W40)
+- **Rebinding a key could take a second press in the original.** On the
+  controls screen, after you click a command's key box, the game asks for
+  the key you pressed only after it has drawn the screen, and its own
+  keyboard read at the start of each frame has already taken that key. A
+  key only reaches the box if it is pressed while the screen is being
+  drawn, so on a fast machine a press can be missed and you have to press
+  again. (Found from the code: the rebuild hands the box the key the frame
+  saw go down. docs/fixes.md)

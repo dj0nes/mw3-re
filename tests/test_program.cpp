@@ -16244,7 +16244,8 @@ struct SavedMapHost : zin::Host {  // the SDL host's: the map is the settings' b
 // says done; then the program's end (the settings saved). The map saved.
 std::vector<uint8_t> w40_run(const std::string& dir, const std::function<void(platform::RegFile&)>& before,
                              const std::function<void()>& at_start,
-                             const std::function<bool(mech3::GameEngine&, mech3::Mech3App&)>& frame) {
+                             const std::function<bool(mech3::GameEngine&, mech3::Mech3App&)>& frame,
+                             platform::Input* input = nullptr) {
   platform::RegFile settings(dir + "/settings.reg");
   if (before) before(settings);
   mech3::reset_states();
@@ -16259,6 +16260,7 @@ std::vector<uint8_t> w40_run(const std::string& dir, const std::function<void(pl
   mech3::Platform p;
   p.window = &window, p.alert = &alert, p.clock = &clock, p.movie_clock = &fast_movie_clock(), p.screen = &screen, p.sound = &sound, p.files = &files;
   p.settings = &settings;
+  p.input = input;
   {
     mech3::GameEngine engine(p, "mech3.exe -nofmv");
     engine.quiet = true;
@@ -22469,4 +22471,164 @@ TEST(mission_c3m5_homing_on_10_data_headless) {
   print_homing("1.0, killed", r);
   expect_homing(r);
   EXPECT(r.killed && r.salvo >= 2 && r.salvo_reached == r.salvo);
+}
+
+// Reddit, v1.0 ("I can't seem to make custom keyboard binds?"): the controls
+// screen's capture driven as a player does, through the fake keyboard and
+// mouse (zInput's own buffer, the path a mission's keys take): a row's key A
+// clicked, a free key pressed and let go; a key another command has (the
+// Reassign Key box, answered OK); the mouse column and a button; ACCEPT (the
+// save-to-file question answered no); then a restart reads them back.
+namespace {
+struct RebindInput : platform::Input {
+  std::vector<platform::KeyEvent> queue;
+  uint32_t t = 0;
+  uint8_t buttons[4] = {};
+  void press(uint32_t dik) {
+    queue.push_back({dik, 0x80u, ++t, t});
+    queue.push_back({dik, 0u, ++t, t});
+  }
+  void press_with(uint32_t mod, uint32_t dik) {
+    queue.push_back({mod, 0x80u, ++t, t});
+    press(dik);
+    queue.push_back({mod, 0u, ++t, t});
+  }
+  bool open(Device d) override { return d == kKeyboard || d == kMouse; }
+  void close(Device) override {}
+  int32_t acquire(Device) override { return 0; }
+  int32_t unacquire(Device) override { return 0; }
+  int32_t keyboard_data(platform::KeyEvent* out, uint32_t* count) override {
+    const uint32_t n = std::min<uint32_t>(*count, static_cast<uint32_t>(queue.size()));
+    std::copy(queue.begin(), queue.begin() + n, out);
+    queue.erase(queue.begin(), queue.begin() + n);
+    *count = n;
+    return 0;
+  }
+  int32_t mouse_state(platform::MouseState* m) override {
+    *m = platform::MouseState{};
+    std::memcpy(m->buttons, buttons, 4);
+    return 0;
+  }
+  int32_t joystick_state(platform::JoyState*) override { return kNotAcquired; }
+};
+}  // namespace
+
+TEST(reddit_controls_screen_rebinds_through_the_keyboard_headless) {
+  if (!have_game()) return;
+  W40Setup w("rebind_write");
+  RebindInput in;
+  int stage = 0, wait = 0, box_frames = 0, boxes = 0;
+  int32_t cmd0 = 0, cmd1 = 0, cmd2 = 0, cmd3 = 0, esc_holder = -1;
+  uint32_t free_key = 0, free_key2 = 0, old_key1 = 0, mouse_was = 0, key3 = 0, shift_f1 = 0;
+  bool bound = false, reassigned = false, moused = false, early_ignored = false, esc_cancelled = false;
+  bool esc_left = false, shifted = false;
+  const std::vector<uint8_t> saved = w40_run(w.dir, nullptr, nullptr, [&](mech3::GameEngine& engine, mech3::Mech3App& app) {
+    if (ztwod::MessageBox* box = engine.message_box_open()) {  // Reassign Key (OK), then ACCEPT's save question (no)
+      if (++box_frames == 3) {
+        ++boxes;
+        box->buttons[stage == 7 ? 1 : 0].on_left_up();
+        box_frames = 0;
+      }
+      return false;
+    }
+    auto* os = dynamic_cast<mech3::OptionsState*>(app.current());
+    auto* c = os ? dynamic_cast<mech3::ControlsScreen*>(engine.screen_of(os->screen_)) : nullptr;
+    if (stage == 0 && at_main_menu(app)) {
+      const_cast<mech3::MainMenu*>(mech3::main_menu())->buttons[mech3::MainMenuButton::kOptions].on_left_up();
+      stage = 1;
+    } else if (stage == 1 && os) {
+      auto* g = dynamic_cast<mech3::GameOptionsScreen*>(engine.screen_of(os->screen_));
+      if (!g) return false;
+      g->controls.on_left_up();
+      stage = 2;
+    } else if (stage == 2 && c) {
+      cmd0 = engine.controls_group_command(c->group(), 0);
+      cmd1 = engine.controls_group_command(c->group(), 1);
+      cmd2 = engine.controls_group_command(c->group(), 2);
+      for (uint32_t k = 0x02; k < 0x58; ++k)
+        if (!engine.key1_command(k) && !engine.key2_command(k)) {
+          if (!free_key) free_key = k;
+          else if (!free_key2) free_key2 = k;
+        }
+      cmd3 = engine.controls_group_command(c->group(), 3);
+      old_key1 = zin::key1_of(cmd1);
+      c->key_a.select(0), c->key_a.on_left_up();  // row 0's key A clicked (down: the row; up: the capture)
+      stage = 3, wait = 0;
+    } else if (stage == 3 && c) {
+      if (++wait == 3) in.press(free_key);
+      if (zin::key1_of(cmd0) == free_key) bound = true, stage = 4, wait = 0;
+      if (wait > 60) return true;
+    } else if (stage == 4 && c) {
+      if (++wait == 3) c->key_a.select(1), c->key_a.on_left_up();  // row 1: the key row 0 now has
+      if (wait == 6) in.press(free_key);
+      if (zin::key1_of(cmd1) == free_key) {
+        reassigned = boxes == 1 && zin::key1_of(cmd0) == 0;
+        stage = 5, wait = 0;
+      }
+      if (wait > 60) return true;
+    } else if (stage == 5 && c) {
+      if (++wait == 12) mouse_was = zin::mouse_of(cmd2), c->mouse.select(2), c->mouse.on_left_up();  // past the guard
+      if (wait >= 15 && wait < 20) in.buttons[2] = 0x80;  // the middle button (3) held, then let go
+      if (wait == 20) in.buttons[2] = 0;
+      if (zin::mouse_of(cmd2) == 3) moused = true, stage = 6, wait = 0;
+      if (wait > 80) return true;
+    } else if (stage == 6 && !c) {  // Escape left the screen at once
+      if (wait >= 25) {
+        esc_cancelled = zin::key1_of(cmd3) == key3 && engine.key1_command(1) == esc_holder;
+        stage = 61, wait = 0;
+      }
+    } else if (stage == 6 && c) {
+      // A key that went down in the frame's read before the column's click
+      // (the click routed in that frame's update, which then asks): not bound.
+      ++wait;
+      if (wait == 11) in.press(free_key2), key3 = zin::key1_of(cmd3);
+      if (wait == 12) c->key_a.select(3), c->key_a.on_left_up(), c->update(0.0f);
+      if (wait == 24) early_ignored = c->mode == 1 && zin::key1_of(cmd3) == key3 && !engine.key1_command(free_key2);
+      // Escape in the capture: cancelled (the key 1), not bound.
+      if (wait == 25) esc_holder = engine.key1_command(1), in.press(0x01);
+      if (wait == 28) {
+        esc_cancelled = c->mode == 0 && zin::key1_of(cmd3) == key3 && engine.key1_command(1) == esc_holder;
+        stage = 61, wait = 0;
+      }
+    } else if (stage == 61 || stage == 62) {  // Escape may leave the screen, as the shell's escape does
+      auto* g = os ? dynamic_cast<mech3::GameOptionsScreen*>(engine.screen_of(os->screen_)) : nullptr;
+      if (stage == 61 && !c) {
+        esc_left = true;
+        if (g) g->controls.on_left_up();
+        if (g) stage = 62;
+        return ++wait > 60;
+      }
+      if (!c) return ++wait > 60;
+      stage = 63, wait = 0;
+    } else if (stage == 63 && c) {
+      // Shift+F1: the modifier with the key, as 0x0051aa00 gives it.
+      if (++wait == 3) c->key_a.select(3), c->key_a.on_left_up();
+      if (wait == 6) in.press_with(0x2a, 0x3b);
+      if (zin::key1_of(cmd3) == (0x3bu | zin::kShift)) shifted = true, shift_f1 = zin::key1_of(cmd3), stage = 64, wait = 0;
+      if (wait > 60) return true;
+    } else if (stage == 64 && c) {
+      if (++wait == 12) stage = 7, c->accept.on_left_up();  // its box runs inside: answered as stage 7
+    } else if (stage == 7 && !c) {
+      return true;
+    }
+    return false;
+  }, &in);
+  std::printf("  rebind: key %#x on %#x, reassigned to %#x (was %#x), mouse 3 on %#x (was %u), %d boxes, stage %d\n",
+              free_key, cmd0, cmd1, old_key1, cmd2, mouse_was, boxes, stage);
+  EXPECT(free_key != 0 && bound);
+  EXPECT(reassigned);
+  EXPECT(moused);
+  std::printf("  rebind: early key ignored %d, Escape cancelled %d (left the screen %d), Shift+F1 %#x\n", early_ignored,
+              esc_cancelled, esc_left, shift_f1);
+  EXPECT(early_ignored);
+  EXPECT(esc_cancelled);
+  EXPECT(shifted);
+  EXPECT(stage == 7 && boxes >= 2);
+  bool kept = false;
+  w40_run(w.dir, nullptr, [&] {
+    kept = zin::key1_of(cmd1) == free_key && zin::key1_of(cmd0) == 0 && zin::mouse_of(cmd2) == 3 &&
+           zin::key1_of(cmd3) == (0x3bu | zin::kShift);
+  }, [](mech3::GameEngine&, mech3::Mech3App& app) { return at_main_menu(app); });
+  EXPECT(kept);  // read back at the next start
+  EXPECT(!saved.empty());
 }

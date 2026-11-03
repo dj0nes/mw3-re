@@ -616,6 +616,7 @@ Known quirks the rebuild deliberately keeps:
 - A broken entry in a reader archive (a mod's, say) is refused and named in the log instead of being read into whatever follows it; `mw3 --check-mod DIR` reads a mod as the game would and reports what it would refuse.
 - A broken texture or image library, world texture directory, sound or script file (a mod's, say) is refused and named in the log instead of being read past its end; a refused texture or sound is a missing one, a refused script line ends its script. `mw3 --check-mod` looks inside these files too.
 - The mouse settings, like the controls, are saved only as you set them in the menus.
+- The controls screen's KEY A and KEY B columns take a key again: click the box, press the key (v1.0 never saw it; the mouse and joystick columns were not affected).
 - A MOUSE SENSITIVITY slider on the Graphics & Audio screen, under the volume sliders (0.5 to 3.0): it sets how far the mouse turns the mech in a mission. It starts at the original's 1.3, and Invert Mouse keeps it.
 - The music pauses while a movie plays and comes back after (the campaign's opening movie no longer has the menu music under it), as when the game read its movies off the CD.
 - On a wide screen the arm weapons reach the reticle across the whole width: an arm weapon still fires straight ahead when aimed far off to the side, but the limit now widens with the screen, so it starts at the same place on screen as on a 4:3 one (bug fixes on).

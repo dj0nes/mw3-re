@@ -96,6 +96,9 @@ struct State {
   std::vector<int32_t> pressed;        // 0x006385a0 the codes of the last read, capacity 0x006385a4
   uint32_t pressed_capacity = 0;
   uint32_t modifiers = 0;              // 0x006385a8
+  // Ours, FIX (A): the first plain key down in the last kbd_read, with its
+  // modifiers, for the controls screen's capture (frame_key).
+  uint32_t frame_key = 0;
   KeySlot keys[kKeys];                 // 0x006385ac
   CharCallback char_callback = nullptr;  // 0x0063c49c
   uintptr_t char_ctx = 0;              // 0x0063c4a0
@@ -169,6 +172,7 @@ uint32_t key_state(int32_t key);       // 0x0051a9b0
 int32_t set_key_callback(int32_t key, KeyCallback cb);  // 0x0051a9c0: -1 when one is set
 void clear_key_callbacks();            // 0x0051a9e0
 uint32_t read_key(bool wait);          // 0x0051aa00: the last key pressed
+uint32_t frame_key();                  // ours: State::frame_key
 uint32_t key_char(uint32_t key);       // 0x0051ab90: its character, 0 none
 int32_t key_by_name(const char* name); // 0x0051aee0: the DIK code, -1
 
