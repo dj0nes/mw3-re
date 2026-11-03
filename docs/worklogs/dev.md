@@ -2845,3 +2845,16 @@ Assigned after 8b2 merged (fd3f05f). The lead asked for a section stepped at bot
   dot (now by angle), and one locked shot "on another entity" was an AI mech
   that fired, then picked a new target in the same update (now its target a
   frame before counts too).
+
+## W50b: exp_neg by the 30 fps frame (2026-11-03, mac4/w50b, v1.0.1)
+
+- W50's exact e^-x changed 30 fps play a little; the lead's W53 check
+  (c1m2's town APCs at 33 ms, 4 seeds) showed brief hops with it, none with
+  the table. exp_neg_dt(x, dt) = table(x / (30 dt)) ^ (30 dt): the table
+  bit for bit at 1/30 s, the 30 fps rate at any other frame time; every
+  call site passes its own dt (the lead's choice over a hidden global).
+- Still hops near 30 fps (30, 33, 35 ms) whenever the vehicle terms leave
+  the table's values; with veh_move on the plain table none at 30..36 ms.
+  So the vehicles keep the table at any frame rate (v1.0's and the
+  original's); exp_neg_dt is the turrets' and arms' (aim, recoil); the
+  puffers keep v1.0's exact drag.

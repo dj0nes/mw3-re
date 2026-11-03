@@ -370,12 +370,21 @@ float exp_neg(float x) {
   }
   if (x > 5.0f) return 0.0f;
   if (!(x >= 0.0f)) return 1.0f;
-  // FIX (B): the table steps by 1/51, so every caller's per-second easing
-  // (rate * dt) reads 1 on frames shorter than 1 / (51 rate): above about
-  // 150 fps for a rate of 3 nothing eases at all (the turrets froze, W50).
-  // The exact value for any frame time (fixes.md, Frame rate).
-  if (zfix::options().per_second) return std::exp(-x);
   return table[static_cast<int32_t>(51.0f * x)];
+}
+
+// FIX (B), W50: every caller eases by e^-(rate dt), and the table steps by
+// 1/51, so on frames shorter than 1 / (51 rate) it reads 1: above about
+// 150 fps for a rate of 3 nothing eased at all (the turrets froze). The
+// 30 fps frame's value, raised to this frame's share of it: at 1/30 s
+// exactly the table (play as the original at 30 fps), and at any other
+// frame time the same rate per second. No frame time (the first frame, a
+// pause) or no rate: the table, as the exe (fixes.md, Frame rate).
+float exp_neg_dt(float x, float dt) {
+  if (!zfix::options().per_second || !(dt > 1e-6f) || !(x > 0.0f)) return exp_neg(x);
+  constexpr float kRef = 1.0f / zfix::kReferenceFps;
+  if (dt == kRef) return exp_neg(x);
+  return static_cast<float>(std::pow(double{exp_neg(x * (kRef / dt))}, double{dt / kRef}));
 }
 
 // Mech3.exe 1.2 @ 0x00523c50. General 3x3 inverse by cofactors; with
