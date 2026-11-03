@@ -2797,3 +2797,22 @@ Assigned after 8b2 merged (fd3f05f). The lead asked for a section stepped at bot
   Y's magnitude with Y keeping the invert sign, 0.5..3.0 in tenths, 1.3 by
   default; bound only in the program (options_sensitivity_slider), so the
   probes run the original's screen. Menus keep 1.3 (CoreState::leave).
+
+## W48 and W35 again: c3m5 on Owen's 1.0 data (2026-11-02)
+
+- The MFB parts vanishing at 16:9 were not the frustum (the planes are wide,
+  and on 1.2's data every culled part really is off screen). Owen's PC plays
+  1.0's data. patch12's c3 world rebuild wrote each model's payload offset at
+  header +0x00 (the type) instead of +0x5c, so every c3 model had a junk
+  type: model_box (0x53b4e0) gave no box for types other than 0 and 1, the
+  parts culled as points at their pivots, and the facades drew unturned.
+  Fixed in patch12_world.cpp; patch12_c3_world_reads_as_12s checks each
+  header's type and offset (break: 3,359 types changed).
+- W35 (bars after an MFB repair): Owen's log shows the store ran out after
+  the first repair (the exe's rule: armour only from spare armour of the
+  mech's kind and tech). Pinned by
+  mission_c2m1_field_bases_repair_armour_only_from_the_store_headless (break:
+  armour from any store). The old "c3m1" repair test launched index 1
+  (c2m1); renamed to c2m1, since in the real c3m1 the Clanners kill the
+  bases before a second repair. A discoveries.md line for players.
+- The aim cone (Weapon::aim 0x4b36e0, cos 0.89) is next, as Owen decided.
