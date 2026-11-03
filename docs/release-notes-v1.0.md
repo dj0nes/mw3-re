@@ -31,9 +31,9 @@ Moon, the expansion, is next, as a game of its own beside this one.
 
 | | Download | |
 |---|---|---|
-| Windows | `MW3-Rebuild-Setup-1.0.exe` | An installer (a `.zip` of the same files is there too). |
-| Mac | `MW3-Rebuild-1.0-mac.dmg` | Drag the app to Applications. |
-| Linux | `MW3-Rebuild-1.0-x86_64.AppImage` | Make it executable and run it. Untested: built and checked under WSL, not playtested. |
+| Windows | `MW3-Rebuild-Setup-v1.0.exe` | An installer (a `.zip` of the same files is there too). |
+| Mac | `MW3-Rebuild-v1.0-mac.dmg` | Drag the app to Applications. |
+| Linux | `MW3-Rebuild-v1.0-x86_64.AppImage` | Make it executable and run it. Untested: built and checked under WSL, not playtested. |
 
 Start **MechWarrior 3**. It finds your install by itself; if it cannot,
 it asks for your game: point it at the disc image or zip and it takes it
@@ -117,10 +117,10 @@ you did, what happened, and whether `--original` does the same.
 SHA-256 of each download (to be filled in from the built packages):
 
 ```
-<sha256>  MW3-Rebuild-Setup-1.0.exe
-<sha256>  MW3-Rebuild-1.0-win64.zip
-<sha256>  MW3-Rebuild-1.0-mac.dmg
-<sha256>  MW3-Rebuild-1.0-x86_64.AppImage
+<sha256>  MW3-Rebuild-Setup-v1.0.exe
+<sha256>  mw3-v1.0-win64.zip
+<sha256>  MW3-Rebuild-v1.0-mac.dmg
+<sha256>  MW3-Rebuild-v1.0-x86_64.AppImage
 ```
 
 ## Licenses
