@@ -7,6 +7,7 @@
 #include "gamez/zreader/zreader.h"
 #include "gamez/zutil/zfix.h"
 #include "mech3/options.h"
+#include "mech3/controls_cfg.h"
 
 #pragma STDC FP_CONTRACT OFF
 
@@ -130,6 +131,7 @@ void GameOptionsScreen::apply(int32_t to_options) {
     float mag = std::fabs(e.mouse_accel_y());
     if (mag == 0.0f) mag = 1.3f;
     e.set_mouse_accel_y(invert_y.selected_value() != 0 ? -mag : mag);
+    settings_keep_mouse();  // ours: the values the settings save
     return;
   }
   e.set_mouse_accel_y(mouse_y_accel(e.mouse_accel_y(), invert_y.selected_value() != 0));
@@ -366,6 +368,7 @@ void GfxAudioScreen::apply(int32_t to_options) {
     const float s = sensitivity_of_slider(sensitivity.value);
     e.set_mouse_accel_x(s);
     e.set_mouse_accel_y(e.mouse_accel_y() < 0.0f ? -s : s);
+    settings_keep_mouse();  // ours: the values the settings save
   }
   e.set_sound_lod(sound.selected_value());
   e.set_object_lod(level_of(detail.selected_value()));

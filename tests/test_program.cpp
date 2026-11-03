@@ -16496,6 +16496,147 @@ TEST(options_mouse_sensitivity_slider_headless) {
   st.mouse = keep_mouse, st.width = keep_w, st.height = keep_h, st.accel_x = keep_ax, st.accel_y = keep_ay;
 }
 
+// MOUSE SENSITIVITY across a mission and a restart (the lead): CoreState's
+// leave (0x00481fc0) sets 1.3 / 1.3 for the menus through 0x0051b790, which
+// writes zInput's working copy (0x005ece48/4c) only; the saved entries are the
+// options' own (0x005f4d2c/30, MouseAccelX/Y). And (Owen) the settings save
+// the values kept at the load and the options' ACCEPT, never the live ones:
+// 2.5 inverted, a mission, the menus, a moment's change, the program's end,
+// the next start: 2.5 / -2.5 saved and in its mission's step.
+TEST(options_mouse_sensitivity_survives_a_mission_and_a_restart_headless) {
+  if (!have_game()) return;
+  SavedMounts keep;
+  zutl::mounts() = zutl::Mounts{};
+  zutl::mount(MW3_GAME_DIR);
+  const std::string dir = temp_dir("sensitivity_keep_write");
+  zutl::set_write_dir(dir);
+  struct Keys : platform::Input {
+    std::vector<platform::KeyEvent> queue;
+    uint32_t t = 0;
+    void key(uint32_t dik, bool down) { queue.push_back({dik, down ? 0x80u : 0u, ++t, t}); }
+    bool open(Device d) override { return d == kKeyboard; }
+    void close(Device) override {}
+    void set_cooperative_level(Device, uint32_t) override {}
+    int32_t acquire(Device) override { return 0; }
+    int32_t unacquire(Device) override { return 0; }
+    int32_t keyboard_data(platform::KeyEvent* out, uint32_t* count) override {
+      const uint32_t n = std::min<uint32_t>(*count, static_cast<uint32_t>(queue.size()));
+      std::copy(queue.begin(), queue.begin() + n, out);
+      queue.erase(queue.begin(), queue.begin() + n);
+      *count = n;
+      return 0;
+    }
+    int32_t mouse_state(platform::MouseState*) override { return kNotAcquired; }
+    int32_t joystick_state(platform::JoyState*) override { return kNotAcquired; }
+  };
+  struct OneColour : platform::Render3D {  // a GPU whose frame reads back as one colour (the pause's grab)
+    int32_t create_texture(int, int, const uint8_t*, uint8_t) override { return 1; }
+    void release_texture(int32_t) override {}
+    void update_texture(int32_t, int, int, const uint8_t*) override {}
+    void set_viewport(int, int, int, int) override {}
+    void clear(bool, uint8_t, uint8_t, uint8_t) override {}
+    void begin_scene() override {}
+    void end_scene() override {}
+    void draw(platform::Primitive, const platform::TLVertex*, int, const platform::DrawState&) override {}
+    void set_fog_color(uint8_t, uint8_t, uint8_t) override {}
+    void present() override {}
+    bool read_back(std::vector<uint32_t>* argb, int* w, int* h) override {
+      argb->assign(320 * 240, 0xff3366ccu);
+      *w = 320, *h = 240;
+      return true;
+    }
+  };
+  float in_mission[2][2] = {}, in_menus[2] = {}, kept_options[2] = {}, read_back[2] = {};
+  bool left = false;
+  for (int run = 0; run < 2; ++run) {
+    platform::RegFile settings(dir + "/settings.reg");
+    mech3::reset_states();
+    reset_process_state();
+    mech3::missions() = mech3::Missions{};
+    mech3::mech_types_forget();
+    mech3::options() = mech3::Options{};
+    Keys keys;
+    OneColour gpu;
+    FakeWindow window;
+    FakeAlert alert;
+    FakeClock clock;
+    FakeScreen screen;
+    platform::SilentSoundOutput sound;
+    mech3::MountFiles files;
+    mech3::Platform p;
+    p.window = &window, p.alert = &alert, p.clock = &clock, p.movie_clock = &fast_movie_clock(), p.screen = &screen, p.sound = &sound, p.files = &files;
+    p.input = &keys;
+    p.render = &gpu;
+    p.settings = &settings;
+    {
+      mech3::GameEngine engine(p, "mech3.exe -nofmv");
+      engine.quiet = true;
+      struct GrabHost : BoxHost {
+        zimg::Texture* screen_grab(int32_t) override { return nullptr; }
+      } host;
+      host.e = &engine;
+      ztwod::set_host(&host);
+      mech3::Mech3App app(&engine);
+      mech3::set_app(&app);
+      EXPECT(app.init_instance());
+      if (run == 0) {  // set and ACCEPTed: the options' values kept (their apply), the settings written (0x00437f60)
+        mech3::options().mouse_accel[0] = 2.5f, mech3::options().mouse_accel[1] = -2.5f;
+        mech3::settings_keep_mouse();
+        engine.settings_write();
+      } else {
+        read_back[0] = mech3::options().mouse_accel[0], read_back[1] = mech3::options().mouse_accel[1];
+      }
+      mech3::GameEngine::Launch l;  // c1m1
+      engine.set_launch(l);
+      app.post_intro_ = &mech3::states().load;
+      mech3::States& st = mech3::states();
+      int core = 0, after = 0, stage = 0;
+      engine.on_present = [&](int) {
+        zgame::State* now = app.current();
+        if (now == &st.core && stage == 0 && ++core == 5) {
+          in_mission[run][0] = zin::state().accel_x, in_mission[run][1] = zin::state().accel_y;
+          if (run == 1) stage = 3;  // the next start's mission: enough
+          else keys.key(1, true), keys.key(1, false), stage = 1;  // Escape: the pause
+        } else if (stage == 1 && now == &st.pause) {
+          if (auto* ps = dynamic_cast<mech3::PauseScreen*>(engine.screen_of(st.pause.screen_))) {
+            ps->on_button(mech3::PauseScreen::kQuit, 0, 0);  // QUIT: out of the mission (CoreState::leave)
+            stage = 2;
+          }
+        } else if (stage == 2 && now != &st.core && now != &st.pause && ++after > 30) {
+          left = true;
+          in_menus[0] = zin::state().accel_x, in_menus[1] = zin::state().accel_y;
+          kept_options[0] = mech3::options().mouse_accel[0], kept_options[1] = mech3::options().mouse_accel[1];
+          // Changed for a moment, never ACCEPTed: not what the program's end saves (Owen's rule).
+          mech3::options().mouse_accel[0] = mech3::options().mouse_accel[1] = 1.3f;
+          stage = 3;
+        }
+      };
+      CountingPump pump;
+      pump.limit = 1500;
+      pump.stop = [&] { return stage == 3; };
+      app.run(pump);
+      mech3::missions().cleanup(false);
+      app.stop_game();
+      app.exit_instance();
+      app.destroy();  // the settings saved
+      mech3::set_app(nullptr);
+      ztwod::set_host(nullptr);
+    }
+    zrdr::close_archives(true);
+  }
+  mech3::reset_states();
+  reset_process_state();
+  mech3::options() = mech3::Options{};
+  std::printf("  sensitivity kept: mission %.2f/%.2f, menus %.2f/%.2f (options %.2f/%.2f), next start %.2f/%.2f, its mission %.2f/%.2f\n",
+              in_mission[0][0], in_mission[0][1], in_menus[0], in_menus[1], kept_options[0], kept_options[1], read_back[0],
+              read_back[1], in_mission[1][0], in_mission[1][1]);
+  EXPECT(in_mission[0][0] == 2.5f && in_mission[0][1] == -2.5f);  // the mission's step
+  EXPECT(left && in_menus[0] == 1.3f && in_menus[1] == 1.3f);    // the menus' working 1.3 (CoreState::leave)
+  EXPECT(kept_options[0] == 2.5f && kept_options[1] == -2.5f);    // the player's setting untouched
+  EXPECT(read_back[0] == 2.5f && read_back[1] == -2.5f);          // saved and read at the next start
+  EXPECT(in_mission[1][0] == 2.5f && in_mission[1][1] == -2.5f);  // and the next mission's step
+}
+
 // Playtest W47 (docs/playtest.md): Campaign, a new pilot, ACCEPT plays the
 // campaign's opening movie while the menu's CD music played on under it.
 // FIX (A): a movie pauses the CD music while it plays (the original's drive,

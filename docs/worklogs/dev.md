@@ -2799,3 +2799,10 @@ Assigned after 8b2 merged (fd3f05f). The lead asked for a section stepped at bot
   Y's magnitude with Y keeping the invert sign, 0.5..3.0 in tenths, 1.3 by
   default; bound only in the program (options_sensitivity_slider), so the
   probes run the original's screen. Menus keep 1.3 (CoreState::leave).
+- The lead asked whether a mission's end loses the sensitivity: no.
+  CoreState::leave's 1.3 goes through 0x0051b790 into zInput's working copy
+  (0x005ece48/4c); the registry entries are the options' (0x005f4d2c/30).
+  Proven by a round trip (2.5 inverted, c1m1, pause QUIT, the program's
+  end, the next start and its mission). Then Owen's rule: MouseAccelX/Y
+  kept like the map (settings_keep_mouse at the load and the options'
+  apply), the writes saving the kept values; break: the live ones written.
