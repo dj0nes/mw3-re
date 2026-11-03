@@ -22830,6 +22830,7 @@ TEST(message_box_over_a_gpu_frame_keeps_it_after_an_empty_lock) {
               screen.as_screen);
   EXPECT(e.held() && gpu.restores == 3 && gpu.presents == 4 && screen.as_screen == 0);
   e.drop_held();
+}
 
 // W56 (ours, FIX (bug) behind bugs): the axis popup offers the stick's
 // sliders (0x00430180 never did: a T.16000M's lever could not be picked),
