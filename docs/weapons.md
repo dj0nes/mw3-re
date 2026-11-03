@@ -311,7 +311,8 @@ damage < 1.
   `radius`, others moved by their offset) in the part node's frame
   (0x4ed650). Off the centre torso (node id 1), the direction keeps within
   acos(0.89), about 27 degrees, of the part's facing; centre-torso weapons
-  aim anywhere.
+  aim anywhere. With the bug fixes, for the player, the cone widens with
+  the view past 4:3 (fixes.md).
 
 ### Beams
 

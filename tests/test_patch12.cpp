@@ -444,8 +444,21 @@ TEST(patch12_c3_world_reads_as_12s) {
   const std::vector<uint8_t> v12 = slurp_file(kRoot + "/mw3-1.2/zbd/c3/gamez.zbd");
   std::vector<uint8_t> kept = v12;
   EXPECT(!mech3::patch12::rebuild_c3_world(kept));  // 1.2's own: an edit's old value does not match
+  const std::vector<uint8_t> own10 = v10;
   EXPECT(mech3::patch12::rebuild_c3_world(v10));
-  const WorldView a(v10), b(v12);
+  const WorldView a(v10), b(v12), o(own10);
+  // Each model's header keeps its type (+0x00) and gets its payload's offset
+  // at +0x5c. The offset once went to +0x00: every c3 model's type was junk,
+  // so none had a box (the field bases' parts culled at their pivots) and the
+  // facades drew unturned (playtest W48).
+  int types = 0, offsets = 0;
+  const int32_t used = a.i32(a.w.models_at + 4);
+  for (size_t i = 0; i < a.w.models.size() && i < o.w.models.size(); ++i) {
+    if (a.i32(a.w.models[i].header) != o.i32(o.w.models[i].header)) ++types;
+    if (static_cast<int32_t>(i) < used && a.i32(a.w.models[i].header + 0x5c) != static_cast<int32_t>(a.w.models[i].start)) ++offsets;
+  }
+  std::printf("  %zu models: %d types changed, %d offsets off\n", a.w.models.size(), types, offsets);
+  EXPECT(types == 0 && offsets == 0);
   EXPECT(a.w.nodes.size() == b.w.nodes.size());
   int records = 0, datas = 0, models = 0, objects = 0;
   for (size_t i = 0; i < a.w.nodes.size() && i < b.w.nodes.size(); ++i) {

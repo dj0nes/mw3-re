@@ -1032,6 +1032,15 @@ From mission.cpp, 0x48faf0 and 0x490ab0 (details: `mission-load.md`).
   silent; a third cancels. With every
   base destroyed or not yet deployed, M does nothing and says nothing.
   (docs/vehicles.md, The repair dock)
+- **The field bases put armour back only from your spare armour.** A
+  repair always restores the internals, coolant, jump fuel and AMS, and
+  ammo as far as your store has it. Armour comes back only when the store
+  holds armour of your mech's own kind (standard or ferro-fibrous) and
+  tech (Inner Sphere or Clan). Then all of it comes back, costing half a
+  ton per half ton missing, even if that is more than you have. One big
+  repair can use up the stock, and every repair after it leaves the armour
+  as it was, while the diagram (the internals) looks clean. Salvage armour
+  of your kind before a long mission. (docs/vehicles.md, The repair)
 - **Lancemates are matched to their mission entries by position.** The
   mission file's first lancemate entry goes to your first lancemate slot,
   the second to the second, whoever the entries name: the slot keeps its

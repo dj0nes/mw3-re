@@ -117,6 +117,7 @@ struct WiredOptionsHooks : OptionsHooks {
     zin::map_refresh();
     mech3::controls_repair_mouse_fire();  // ours (W40): an older build's damage undone
     mech3::controls_keep_saved();         // the map the settings save (W40)
+    mech3::settings_keep_mouse();         // and the mouse's values (ours)
   }
   void controls_free() override { mech3::controls_free_groups(); }                 // 0x00410a80
   Handle player_view() override { return g_engine ? g_engine->player_view() : 0; }  // [0x005f4c8c]

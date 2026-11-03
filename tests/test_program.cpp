@@ -6666,7 +6666,9 @@ ParkRun c2m1_park_run(bool bugs) {
 // my damage. I've repaired twice". The player worn (armour and internals at
 // half), the bases called, the player powered down on the dock point; the
 // wear after; then a second repair (the parked dock with bugs on, a new
-// call with them off), worn again first. With a store holding armour.
+// call with them off), worn again first. With a store holding armour. Run
+// on c2m1 (launch index 1 is c2): in c3m1 the Clanners kill the bases and
+// the mission ends before a second repair.
 namespace {
 struct RepairRun {
   bool bases = false;
@@ -6677,7 +6679,7 @@ struct RepairRun {
   mech3::MechWear rest[2];  // at the rest after each (c3m1's Clanners fire on him meanwhile)
   mech3::HudReport hud_worn, hud_rest[2];  // the MFD's armour bars (mode 3) then (W35)
 };
-RepairRun c3m1_repair_run(bool bugs) {
+RepairRun field_base_repair_run(bool bugs, int32_t armour = 40) {
   RepairRun out;
   SavedMounts keep;
   zutl::mounts() = zutl::Mounts{};
@@ -6706,7 +6708,7 @@ RepairRun c3m1_repair_run(bool bugs) {
     mech3::set_app(&app);
     EXPECT(app.init_instance());
     mech3::GameEngine::Launch l;
-    l.index = 1, l.op = 3, l.number = 1;
+    l.index = 1, l.op = 3, l.number = 1;  // c2m1 (mission_dir 1): c3m1's escort loses its bases to the Clanners
     engine.set_launch(l);
     app.post_intro_ = &mech3::states().load;
     mech3::Pilot pilot("Repair");
@@ -6714,7 +6716,7 @@ RepairRun c3m1_repair_run(bool bugs) {
     pilot.current = &game;
     for (int32_t w = 0; w < 0x25; ++w) game.store.add_ammo(w, 1)->count = 1000;
     for (int32_t kind = 1; kind <= 2; ++kind)
-      for (int32_t tech = 0; tech <= 2; ++tech) game.store.add_equipment(kind, tech, 1)->count = 40;
+      for (int32_t tech = 0; tech <= 2; ++tech) game.store.add_equipment(kind, tech, 1)->count = armour;
     mech3::Pilot* was_pilot = mech3::current_pilot();
     mech3::current_pilot() = &pilot;
     int frames = 0, phase = 0, at = 0, last_front = -2, hold = 0, hold2 = 0;
@@ -6788,7 +6790,7 @@ RepairRun c3m1_repair_run(bool bugs) {
     };
     CountingPump pump;
     pump.limit = 30000;
-    pump.stop = [&] { return phase == 9 || frames > 12000 || (frames > 3 && !out.bases); };
+    pump.stop = [&] { return phase == 9 || frames > 20000 || (frames > 3 && !out.bases); };
     app.run(pump);
     mech3::current_pilot() = was_pilot;
     pilot.current = nullptr;
@@ -6806,41 +6808,62 @@ RepairRun c3m1_repair_run(bool bugs) {
 }
 }  // namespace
 
-TEST(mission_c3m1_field_bases_repair_the_player_twice_headless) {
-  if (!have_game()) return;
-  for (const bool bugs : {true, false}) {
-    const RepairRun r = c3m1_repair_run(bugs);
-    std::printf("  bugs %d: bases %d, repairs %d, worn armour %.2f internals %.2f; after 1: %.2f %.2f (rest %.2f %.2f); after 2: "
-                "%.2f %.2f (rest %.2f %.2f); fronts",
-                bugs, r.bases, r.repairs, r.worn.armor, r.worn.internal, r.after[0].armor, r.after[0].internal, r.rest[0].armor,
-                r.rest[0].internal, r.after[1].armor, r.after[1].internal, r.rest[1].armor, r.rest[1].internal);
-    for (int f : r.fronts) std::printf(" %d", f);
+namespace {
+void expect_repaired(const RepairRun& r, bool bugs) {
+  std::printf("  bugs %d: bases %d, repairs %d, worn armour %.2f internals %.2f; after 1: %.2f %.2f (rest %.2f %.2f); after 2: "
+              "%.2f %.2f (rest %.2f %.2f); fronts",
+              bugs, r.bases, r.repairs, r.worn.armor, r.worn.internal, r.after[0].armor, r.after[0].internal, r.rest[0].armor,
+              r.rest[0].internal, r.after[1].armor, r.after[1].internal, r.rest[1].armor, r.rest[1].internal);
+  for (int f : r.fronts) std::printf(" %d", f);
+  std::printf("\n");
+  // Full the frame each repair ends. At the rest after it (the dock's last
+  // steps, about 5 s) the mission's enemies may have hit him again: since the
+  // AI's real waits (W34) a shot lands there after c3m1's second (0.99 / 0.87).
+  EXPECT(r.bases && r.done >= 1 && r.after[0].internal == 1.0f && r.after[0].armor == 1.0f);
+  if (bugs) EXPECT(r.done == 2 && r.after[1].internal == 1.0f && r.after[1].armor == 1.0f);
+  // W35 (Owen): the MFD's armour bars (mode 3) follow the repair once the
+  // player powers up (the HUD is off while powered down, as the exe).
+  auto bars = [](const char* when, const mech3::HudReport& h) {
+    std::printf("    %s bars (full/whole):", when);
+    for (int i = 0; i < 11; ++i) std::printf(" %d/%d", h.mfd_bar_full[i], h.mfd_bar_height[i]);
     std::printf("\n");
-    // Full the frame each repair ends. At the rest after it (the dock's last
-    // steps, about 5 s) c3m1's Clanners may have hit him again: since the AI's
-    // real waits (W34) a shot lands there after the second (0.99 / 0.87).
-    EXPECT(r.bases && r.done >= 1 && r.after[0].internal == 1.0f && r.after[0].armor == 1.0f);
-    if (bugs) EXPECT(r.done == 2 && r.after[1].internal == 1.0f && r.after[1].armor == 1.0f);
-    // W35 (Owen): the MFD's armour bars (mode 3) follow the repair once the
-    // player powers up (the HUD is off while powered down, as the exe).
-    auto bars = [](const char* when, const mech3::HudReport& h) {
-      std::printf("    %s bars (full/whole):", when);
-      for (int i = 0; i < 11; ++i) std::printf(" %d/%d", h.mfd_bar_full[i], h.mfd_bar_height[i]);
-      std::printf("\n");
-    };
-    bars("worn", r.hud_worn);
-    for (int k = 0; k < r.done; ++k) bars(k ? "rest 2" : "rest 1", r.hud_rest[k]);
-    int worn_short = 0;
-    for (int i = 0; i < 11; ++i) worn_short += r.hud_worn.mfd_bar_full[i] < r.hud_worn.mfd_bar_height[i];
-    EXPECT(worn_short > 0);
-    int worn_sum = 0;
-    for (int i = 0; i < 11; ++i) worn_sum += r.hud_worn.mfd_bar_full[i];
-    for (int k = 0; k < r.done; ++k) {
-      int sum = 0;
-      for (int i = 0; i < 11; ++i) sum += r.hud_rest[k].mfd_bar_full[i];
-      EXPECT(sum > worn_sum + worn_sum / 2);  // about full, less any hit since the repair
-    }
+  };
+  bars("worn", r.hud_worn);
+  for (int k = 0; k < r.done; ++k) bars(k ? "rest 2" : "rest 1", r.hud_rest[k]);
+  int worn_short = 0;
+  for (int i = 0; i < 11; ++i) worn_short += r.hud_worn.mfd_bar_full[i] < r.hud_worn.mfd_bar_height[i];
+  EXPECT(worn_short > 0);
+  int worn_sum = 0;
+  for (int i = 0; i < 11; ++i) worn_sum += r.hud_worn.mfd_bar_full[i];
+  for (int k = 0; k < r.done; ++k) {
+    int sum = 0;
+    for (int i = 0; i < 11; ++i) sum += r.hud_rest[k].mfd_bar_full[i];
+    EXPECT(sum > worn_sum + worn_sum / 2);  // about full, less any hit since the repair
   }
+}
+}  // namespace
+
+TEST(mission_c2m1_field_bases_repair_the_player_twice_headless) {
+  if (!have_game()) return;
+  for (const bool bugs : {true, false}) expect_repaired(field_base_repair_run(bugs), bugs);
+}
+// W35 again (Owen, c3m5 on the PC): his log says the first repair took the
+// store's last armour of his kind and the next two found none, so the
+// armour (and the bars) stayed worn while the internals came back: the exe's
+// rule (vehicles.md, The repair). One item: the first repair restores it
+// all and empties the store, the second the internals only (c2m1's bases).
+TEST(mission_c2m1_field_bases_repair_armour_only_from_the_store_headless) {
+  if (!have_game()) return;
+  const RepairRun r = field_base_repair_run(true, 1);
+  std::printf("  repairs %d done %d: after 1 %.2f %.2f, after 2 %.2f %.2f\n", r.repairs, r.done, r.after[0].armor,
+              r.after[0].internal, r.after[1].armor, r.after[1].internal);
+  EXPECT(r.done == 2 && r.after[0].armor == 1.0f && r.after[0].internal == 1.0f);
+  EXPECT(r.after[1].internal == 1.0f && r.after[1].armor < 0.75f);
+  int worn_sum = 0, rest1 = 0, rest2 = 0;
+  for (int i = 0; i < 11; ++i)
+    worn_sum += r.hud_worn.mfd_bar_full[i], rest1 += r.hud_rest[0].mfd_bar_full[i], rest2 += r.hud_rest[1].mfd_bar_full[i];
+  std::printf("  bars: worn %d, rest 1 %d, rest 2 %d\n", worn_sum, rest1, rest2);
+  EXPECT(rest1 > worn_sum + worn_sum / 2 && rest2 < worn_sum + worn_sum / 4);  // the bars show the armour left
 }
 // W32 (Owen, c3m1): the Clan HQ Q-targeted, its radar triangle out of place.
 // A targets.zrd building's node is at the world's origin (its mesh in world
@@ -16389,10 +16412,10 @@ TEST(playtest_w40_controls_screen_accept_saves_cancel_does_not_headless) {
   EXPECT(w40_mouse(cancelled, kW40Trigger1) != 3);  // the cancelled change never saved
 }
 
-// MOUSE SENSITIVITY (ours, Owen 2026-11-02): a slider on the options screen
-// (our record edit under INVERT MOUSE Y) sets MouseAccelX and Y's magnitude,
-// 0.5 to 3.0 in tenths, Y keeping the invert box's sign; untouched, the
-// original's 1.3. The mission's mouse reads scale by it (zInput's accel,
+// MOUSE SENSITIVITY (ours, Owen 2026-11-02): a slider on the graphics and
+// audio screen (our record edit among the volume sliders) sets MouseAccelX
+// and Y's magnitude, 0.5 to 3.0 in tenths, Y keeping its sign (the game
+// options' invert box, which keeps the magnitude); untouched, the original's 1.3. The mission's mouse reads scale by it (zInput's accel,
 // set from the options when a mission starts, 0x00480df0's 282).
 TEST(options_mouse_sensitivity_slider_headless) {
   if (!have_game()) return;
@@ -16403,6 +16426,8 @@ TEST(options_mouse_sensitivity_slider_headless) {
   zutl::mounts() = zutl::Mounts{};
   zutl::mount(MW3_GAME_DIR);
   zutl::set_write_dir(temp_dir("sensitivity_write"));
+  const zfix::Options saved_fix = zfix::options();
+  zfix::options().bugs = false;  // the invert box keeps the slider's magnitude whatever the switch
   mech3::reset_states();
   reset_process_state();
   mech3::options() = mech3::Options{};
@@ -16428,39 +16453,42 @@ TEST(options_mouse_sensitivity_slider_headless) {
     engine.on_present = [&](int) {
       auto* os = dynamic_cast<mech3::OptionsState*>(app.current());
       auto* g = os ? dynamic_cast<mech3::GameOptionsScreen*>(engine.screen_of(os->screen_)) : nullptr;
+      auto* a = os ? dynamic_cast<mech3::GfxAudioScreen*>(engine.screen_of(os->screen_)) : nullptr;
+      float* accel = mech3::options().mouse_accel;
       if (stage == 0 && app.current() == &mech3::states().main && mech3::main_menu()) {
         const_cast<mech3::MainMenu*>(mech3::main_menu())->buttons[mech3::MainMenuButton::kOptions].on_left_up();
         stage = 1;
       } else if (stage == 1 && g) {
-        float* accel = mech3::options().mouse_accel;
-        bound = g->has_sensitivity;
-        // Untouched: the original's 1.3 both ways.
-        g->apply(0);
-        g->apply(1);
+        g->apply(0), g->apply(1);  // untouched: the original's 1.3 both ways
         default_kept = accel[0] == 1.3f && accel[1] == 1.3f;
-        // The slider at 2.5, inverted: X 2.5, Y -2.5.
-        g->sensitivity.set_value(mech3::slider_of_sensitivity(2.5f));
-        g->invert_y.select(1);
-        g->apply(1);
-        set_both = accel[0] == 2.5f && accel[1] == -2.5f;
-        // Invert off after it: the magnitude stays.
-        g->apply(0);
-        g->invert_y.select(0);
-        g->apply(1);
-        invert_after = accel[0] == 2.5f && accel[1] == 2.5f;
-        // Inverted, then the sensitivity changed: the sign stays.
-        g->invert_y.select(1);
-        g->apply(1);
-        g->apply(0);
-        g->sensitivity.set_value(mech3::slider_of_sensitivity(0.8f));
-        g->apply(1);
-        sens_after = std::fabs(accel[0] - 0.8f) < 1e-6f && std::fabs(accel[1] + 0.8f) < 1e-6f;
+        g->invert_y.select(1), g->apply(1);  // inverted
+        g->gfx_audio.on_left_up();
         stage = 2;
+      } else if (stage == 2 && a) {
+        bound = a->has_sensitivity;
+        a->apply(0);
+        a->sensitivity.set_value(mech3::slider_of_sensitivity(2.5f));  // the slider at 2.5: X 2.5, Y -2.5
+        a->apply(1);
+        set_both = accel[0] == 2.5f && accel[1] == -2.5f;
+        a->back.on_left_up();
+        stage = 3;
+      } else if (stage == 3 && g) {
+        g->apply(0), g->invert_y.select(0), g->apply(1);  // invert off after it: the magnitude stays
+        invert_after = accel[0] == 2.5f && accel[1] == 2.5f;
+        g->invert_y.select(1), g->apply(1);  // inverted again, then the sensitivity changed
+        g->gfx_audio.on_left_up();
+        stage = 4;
+      } else if (stage == 4 && a) {
+        a->apply(0);
+        a->sensitivity.set_value(mech3::slider_of_sensitivity(0.8f));
+        a->apply(1);
+        sens_after = std::fabs(accel[0] - 0.8f) < 1e-6f && std::fabs(accel[1] + 0.8f) < 1e-6f;
+        stage = 5;
       }
     };
     CountingPump pump;
     pump.limit = 400;
-    pump.stop = [&] { return stage == 2; };
+    pump.stop = [&] { return stage == 5; };
     app.run(pump);
     app.stop_game();
     app.exit_instance();
@@ -16471,9 +16499,10 @@ TEST(options_mouse_sensitivity_slider_headless) {
   mech3::reset_states();
   reset_process_state();
   mech3::options() = mech3::Options{};
+  zfix::options() = saved_fix;
   std::printf("  sensitivity: bound %d, default kept %d, both set %d, invert after %d, sensitivity after %d\n", bound,
               default_kept, set_both, invert_after, sens_after);
-  EXPECT(stage == 2 && bound && default_kept && set_both && invert_after && sens_after);
+  EXPECT(stage == 5 && bound && default_kept && set_both && invert_after && sens_after);
   // The mission's step: zInput's read counts times the acceleration (cut toward zero).
   zin::State& st = zin::state();
   const zin::MouseInfo keep_mouse = st.mouse;
@@ -16488,6 +16517,147 @@ TEST(options_mouse_sensitivity_slider_headless) {
     EXPECT(st.mouse.dx == static_cast<int32_t>(10 * a) && st.mouse.dy == static_cast<int32_t>(10 * -a));
   }
   st.mouse = keep_mouse, st.width = keep_w, st.height = keep_h, st.accel_x = keep_ax, st.accel_y = keep_ay;
+}
+
+// MOUSE SENSITIVITY across a mission and a restart (the lead): CoreState's
+// leave (0x00481fc0) sets 1.3 / 1.3 for the menus through 0x0051b790, which
+// writes zInput's working copy (0x005ece48/4c) only; the saved entries are the
+// options' own (0x005f4d2c/30, MouseAccelX/Y). And (Owen) the settings save
+// the values kept at the load and the options' ACCEPT, never the live ones:
+// 2.5 inverted, a mission, the menus, a moment's change, the program's end,
+// the next start: 2.5 / -2.5 saved and in its mission's step.
+TEST(options_mouse_sensitivity_survives_a_mission_and_a_restart_headless) {
+  if (!have_game()) return;
+  SavedMounts keep;
+  zutl::mounts() = zutl::Mounts{};
+  zutl::mount(MW3_GAME_DIR);
+  const std::string dir = temp_dir("sensitivity_keep_write");
+  zutl::set_write_dir(dir);
+  struct Keys : platform::Input {
+    std::vector<platform::KeyEvent> queue;
+    uint32_t t = 0;
+    void key(uint32_t dik, bool down) { queue.push_back({dik, down ? 0x80u : 0u, ++t, t}); }
+    bool open(Device d) override { return d == kKeyboard; }
+    void close(Device) override {}
+    void set_cooperative_level(Device, uint32_t) override {}
+    int32_t acquire(Device) override { return 0; }
+    int32_t unacquire(Device) override { return 0; }
+    int32_t keyboard_data(platform::KeyEvent* out, uint32_t* count) override {
+      const uint32_t n = std::min<uint32_t>(*count, static_cast<uint32_t>(queue.size()));
+      std::copy(queue.begin(), queue.begin() + n, out);
+      queue.erase(queue.begin(), queue.begin() + n);
+      *count = n;
+      return 0;
+    }
+    int32_t mouse_state(platform::MouseState*) override { return kNotAcquired; }
+    int32_t joystick_state(platform::JoyState*) override { return kNotAcquired; }
+  };
+  struct OneColour : platform::Render3D {  // a GPU whose frame reads back as one colour (the pause's grab)
+    int32_t create_texture(int, int, const uint8_t*, uint8_t) override { return 1; }
+    void release_texture(int32_t) override {}
+    void update_texture(int32_t, int, int, const uint8_t*) override {}
+    void set_viewport(int, int, int, int) override {}
+    void clear(bool, uint8_t, uint8_t, uint8_t) override {}
+    void begin_scene() override {}
+    void end_scene() override {}
+    void draw(platform::Primitive, const platform::TLVertex*, int, const platform::DrawState&) override {}
+    void set_fog_color(uint8_t, uint8_t, uint8_t) override {}
+    void present() override {}
+    bool read_back(std::vector<uint32_t>* argb, int* w, int* h) override {
+      argb->assign(320 * 240, 0xff3366ccu);
+      *w = 320, *h = 240;
+      return true;
+    }
+  };
+  float in_mission[2][2] = {}, in_menus[2] = {}, kept_options[2] = {}, read_back[2] = {};
+  bool left = false;
+  for (int run = 0; run < 2; ++run) {
+    platform::RegFile settings(dir + "/settings.reg");
+    mech3::reset_states();
+    reset_process_state();
+    mech3::missions() = mech3::Missions{};
+    mech3::mech_types_forget();
+    mech3::options() = mech3::Options{};
+    Keys keys;
+    OneColour gpu;
+    FakeWindow window;
+    FakeAlert alert;
+    FakeClock clock;
+    FakeScreen screen;
+    platform::SilentSoundOutput sound;
+    mech3::MountFiles files;
+    mech3::Platform p;
+    p.window = &window, p.alert = &alert, p.clock = &clock, p.movie_clock = &fast_movie_clock(), p.screen = &screen, p.sound = &sound, p.files = &files;
+    p.input = &keys;
+    p.render = &gpu;
+    p.settings = &settings;
+    {
+      mech3::GameEngine engine(p, "mech3.exe -nofmv");
+      engine.quiet = true;
+      struct GrabHost : BoxHost {
+        zimg::Texture* screen_grab(int32_t) override { return nullptr; }
+      } host;
+      host.e = &engine;
+      ztwod::set_host(&host);
+      mech3::Mech3App app(&engine);
+      mech3::set_app(&app);
+      EXPECT(app.init_instance());
+      if (run == 0) {  // set and ACCEPTed: the options' values kept (their apply), the settings written (0x00437f60)
+        mech3::options().mouse_accel[0] = 2.5f, mech3::options().mouse_accel[1] = -2.5f;
+        mech3::settings_keep_mouse();
+        engine.settings_write();
+      } else {
+        read_back[0] = mech3::options().mouse_accel[0], read_back[1] = mech3::options().mouse_accel[1];
+      }
+      mech3::GameEngine::Launch l;  // c1m1
+      engine.set_launch(l);
+      app.post_intro_ = &mech3::states().load;
+      mech3::States& st = mech3::states();
+      int core = 0, after = 0, stage = 0;
+      engine.on_present = [&](int) {
+        zgame::State* now = app.current();
+        if (now == &st.core && stage == 0 && ++core == 5) {
+          in_mission[run][0] = zin::state().accel_x, in_mission[run][1] = zin::state().accel_y;
+          if (run == 1) stage = 3;  // the next start's mission: enough
+          else keys.key(1, true), keys.key(1, false), stage = 1;  // Escape: the pause
+        } else if (stage == 1 && now == &st.pause) {
+          if (auto* ps = dynamic_cast<mech3::PauseScreen*>(engine.screen_of(st.pause.screen_))) {
+            ps->on_button(mech3::PauseScreen::kQuit, 0, 0);  // QUIT: out of the mission (CoreState::leave)
+            stage = 2;
+          }
+        } else if (stage == 2 && now != &st.core && now != &st.pause && ++after > 30) {
+          left = true;
+          in_menus[0] = zin::state().accel_x, in_menus[1] = zin::state().accel_y;
+          kept_options[0] = mech3::options().mouse_accel[0], kept_options[1] = mech3::options().mouse_accel[1];
+          // Changed for a moment, never ACCEPTed: not what the program's end saves (Owen's rule).
+          mech3::options().mouse_accel[0] = mech3::options().mouse_accel[1] = 1.3f;
+          stage = 3;
+        }
+      };
+      CountingPump pump;
+      pump.limit = 1500;
+      pump.stop = [&] { return stage == 3; };
+      app.run(pump);
+      mech3::missions().cleanup(false);
+      app.stop_game();
+      app.exit_instance();
+      app.destroy();  // the settings saved
+      mech3::set_app(nullptr);
+      ztwod::set_host(nullptr);
+    }
+    zrdr::close_archives(true);
+  }
+  mech3::reset_states();
+  reset_process_state();
+  mech3::options() = mech3::Options{};
+  std::printf("  sensitivity kept: mission %.2f/%.2f, menus %.2f/%.2f (options %.2f/%.2f), next start %.2f/%.2f, its mission %.2f/%.2f\n",
+              in_mission[0][0], in_mission[0][1], in_menus[0], in_menus[1], kept_options[0], kept_options[1], read_back[0],
+              read_back[1], in_mission[1][0], in_mission[1][1]);
+  EXPECT(in_mission[0][0] == 2.5f && in_mission[0][1] == -2.5f);  // the mission's step
+  EXPECT(left && in_menus[0] == 1.3f && in_menus[1] == 1.3f);    // the menus' working 1.3 (CoreState::leave)
+  EXPECT(kept_options[0] == 2.5f && kept_options[1] == -2.5f);    // the player's setting untouched
+  EXPECT(read_back[0] == 2.5f && read_back[1] == -2.5f);          // saved and read at the next start
+  EXPECT(in_mission[1][0] == 2.5f && in_mission[1][1] == -2.5f);  // and the next mission's step
 }
 
 // Playtest W47 (docs/playtest.md): Campaign, a new pilot, ACCEPT plays the

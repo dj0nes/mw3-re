@@ -94,7 +94,10 @@ bool controls_repair_mouse_fire();
 // Ours (W40, FIX (bug)): the map the settings save is the one kept here (at
 // the load and when the controls menus set it), never the live one.
 void controls_keep_saved();
-int32_t controls_write_settings();  // zreg::write_all with the kept map
+// Ours (Owen, 2026-11-02): MouseAccelX/Y kept the same way, at the load and
+// at the options screens' ACCEPT (their apply).
+void settings_keep_mouse();
+int32_t controls_write_settings();  // zreg::write_all with the kept map and mouse values
 const char* axis_source_name(int32_t source);       // 0x004300e0: X, Y, Z, Rx, Ry, Rz, Slider0, Slider1, X, Y, Z
 const char* axis_name(int32_t axis);                // Throttle, Twist, Pitch, LR (the turn)
 

@@ -98,6 +98,10 @@ The Mac app is not signed by Apple. The first time macOS says
   fire button; fixed, and controls already saved that way are mended.)
 - **Multiplayer: the mech lab from the lobby** once listed no mechs in a
   live match. Not reproduced since; if you see it, a report helps.
+- **Jump jets lighting up water (Op 3, Mission 5).** One report says all
+  the water and some other surfaces light up while the jump jets fire. Not
+  reproduced on Windows or the Mac. If you see it, a screenshot and
+  `mw3.log` help, with whether you were in the cockpit or the outside view.
 - Pirate's Moon is not supported yet.
 
 ## Reporting bugs
