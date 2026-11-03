@@ -86,7 +86,6 @@ GameOptionsScreen::GameOptionsScreen(Engine& e, Handle s)
     bind_button(&throttle, "THROTTLE_CONST");
     bind_button(&jump_jets, "MW2JJETS");
     bind_button(&invert_y, "CMD_INVERT_MOUSE_Y");
-    if (options_sensitivity_slider()) has_sensitivity = bind_button(&sensitivity, "MOUSE_SENSITIVITY");  // ours
     unload();
   }
   set_flags_all(0);
@@ -117,7 +116,6 @@ void GameOptionsScreen::apply(int32_t to_options) {
     throttle.select(e.throttle_const() != 0);
     jump_jets.select(e.mw2_jump_jets() != 0);
     invert_y.select(e.mouse_accel_y() < 0.0f);
-    if (has_sensitivity) sensitivity.set_value(slider_of_sensitivity(std::fabs(e.mouse_accel_x())));
     return;
   }
   e.set_game_intensity(difficulty.selected_value());
@@ -128,10 +126,10 @@ void GameOptionsScreen::apply(int32_t to_options) {
   e.set_torso_auto_return(torso.selected_value());
   e.set_throttle_const(throttle.selected_value());
   e.set_mw2_jump_jets(jump_jets.selected_value());
-  if (has_sensitivity) {  // ours: both from the slider, Y with the invert box's sign
-    const float s = sensitivity_of_slider(sensitivity.value);
-    e.set_mouse_accel_x(s);
-    e.set_mouse_accel_y(invert_y.selected_value() != 0 ? -s : s);
+  if (options_sensitivity_slider()) {  // ours: the sensitivity (graphics and audio) kept, only Y's sign set
+    float mag = std::fabs(e.mouse_accel_y());
+    if (mag == 0.0f) mag = 1.3f;
+    e.set_mouse_accel_y(invert_y.selected_value() != 0 ? -mag : mag);
     return;
   }
   e.set_mouse_accel_y(mouse_y_accel(e.mouse_accel_y(), invert_y.selected_value() != 0));
@@ -312,6 +310,7 @@ GfxAudioScreen::GfxAudioScreen(Engine& e, Handle s)
     bind_button(&shadows, "SHADOWS");
     bind_button(&music, "MUSICSLIDER");
     bind_button(&sfx, "SFXSLIDER");
+    if (options_sensitivity_slider()) has_sensitivity = bind_button(&sensitivity, "MOUSE_SENSITIVITY");  // ours
     bind_button(&self_shadows, "SELF_SHADOWS");
     bind_button(&lighting, "LIGHTING");
     bind_button(&device, "VIDEO_DEVICE");
@@ -334,6 +333,7 @@ void GfxAudioScreen::apply(int32_t to_options) {
   if (!to_options) {
     music.set_raw(e.cd_volume());
     sfx.set_raw(e.sound_frequency());
+    if (has_sensitivity) sensitivity.set_value(slider_of_sensitivity(std::fabs(e.mouse_accel_x())));
     resolution.select_each_value(e.in_game_vmode());
     device.select_each_value(e.hw_card_dev());
     textures.select_each_value(e.texture_memory());
@@ -362,6 +362,11 @@ void GfxAudioScreen::apply(int32_t to_options) {
   e.set_cd_volume(music.value);
   e.set_texture_memory(textures.selected_value());
   e.set_sound_frequency(sfx.value);
+  if (has_sensitivity) {  // ours: both from the slider, Y keeping its sign (the game options' invert box)
+    const float s = sensitivity_of_slider(sensitivity.value);
+    e.set_mouse_accel_x(s);
+    e.set_mouse_accel_y(e.mouse_accel_y() < 0.0f ? -s : s);
+  }
   e.set_sound_lod(sound.selected_value());
   e.set_object_lod(level_of(detail.selected_value()));
   e.set_effects_level(level_of(effects.value_at(effects.index)));

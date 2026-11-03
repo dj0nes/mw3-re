@@ -31,13 +31,17 @@ constexpr Edit kEdits[] = {
 #include "mech3/patch12_edits.inc"
 };
 
-// Ours, on any data (not 1.2's): the options screen's MOUSE SENSITIVITY
-// slider (Owen, 2026-11-02), the graphics screen's slider record and art
-// (sliderunfilled / sliderfilled) under INVERT MOUSE Y, its label spaced as
-// the original's are ("I N V E R T   M O U S E"); no new images.
+// Ours, on any data (not 1.2's): MOUSE SENSITIVITY (Owen, 2026-11-02) on
+// the graphics and audio screen among the volume sliders, the same record and
+// art (sliderunfilled / sliderfilled; no new images), at their 25-pixel step:
+// the two volumes up 10, ours third, VIDEO DEVICE below it. Its label is
+// spaced as the original's are ("M U S I C  V O L U M E").
 constexpr Edit kOurs[] = {
-    {"zbd/reader.zbd", "dlgoptions.zrd", Insert, R"(GAME_OPTION_DIALOG/BUTTONS/CMD_INVERT_MOUSE_Y)", R"("MOUSE_SENSITIVITY")",
-     R"(("POSITION" (245 330) "BITMAP" ("sliderunfilled") "LABEL" ("M O U S E   S E N S I T I V I T Y" "offset" (-180 2) "font" ("ia_dark_grey")) "ROLLOVER" () "ACTIVATE" ("SOUND" ("menu_select" 1.0)) "FILLBITMAP" ("sliderfilled")))"},
+    {"zbd/reader.zbd", "dlgoptions.zrd", Set, R"(GFX_AUDIO_OPTIONDIALOG/BUTTONS/MUSICSLIDER/POSITION)", R"((250 57))", R"((250 47))"},
+    {"zbd/reader.zbd", "dlgoptions.zrd", Set, R"(GFX_AUDIO_OPTIONDIALOG/BUTTONS/SFXSLIDER/POSITION)", R"((250 82))", R"((250 72))"},
+    {"zbd/reader.zbd", "dlgoptions.zrd", Set, R"(GFX_AUDIO_OPTIONDIALOG/BUTTONS/VIDEO_DEVICE/POSITION)", R"((250 110))", R"((250 122))"},
+    {"zbd/reader.zbd", "dlgoptions.zrd", Insert, R"(GFX_AUDIO_OPTIONDIALOG/BUTTONS/SFXSLIDER)", R"("MOUSE_SENSITIVITY")",
+     R"(("POSITION" (250 97) "BITMAP" ("sliderunfilled") "LABEL" ("M O U S E  S E N S I T I V I T Y" "offset" (-170 1) "font" ("ia_dark_grey")) "ROLLOVER" () "ACTIVATE" ("SOUND" ("menu_select" 1.0)) "FILLBITMAP" ("sliderfilled")))"},
 };
 
 // A value as the table writes it: (lists), "strings", ints, floats with a '.'.

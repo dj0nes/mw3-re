@@ -2791,7 +2791,9 @@ Assigned after 8b2 merged (fd3f05f). The lead asked for a section stepped at bot
 - The picker: SDL's sheet NSOpenPanel answered through a main run loop the
   vsync frame loop served once a frame; while it is up the launcher waits in
   SDL_WaitEventTimeout and logs the call, the focus and the answer.
-- Mouse sensitivity (Owen): a slider of ours under INVERT MOUSE Y
+- Mouse sensitivity (Owen): a slider of ours, moved (the lead) from under
+  INVERT MOUSE Y, where the 200-pixel image ran past the panel, to GRAPHICS &
+  AUDIO among the volumes (MUSIC/SFX up 10, VIDEO_DEVICE down 12)
   (patch12::apply_ours: our own record edits on any data, the graphics
   screen's slider art, the label spaced like the original's), MouseAccelX and
   Y's magnitude with Y keeping the invert sign, 0.5..3.0 in tenths, 1.3 by

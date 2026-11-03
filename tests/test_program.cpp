@@ -16389,10 +16389,10 @@ TEST(playtest_w40_controls_screen_accept_saves_cancel_does_not_headless) {
   EXPECT(w40_mouse(cancelled, kW40Trigger1) != 3);  // the cancelled change never saved
 }
 
-// MOUSE SENSITIVITY (ours, Owen 2026-11-02): a slider on the options screen
-// (our record edit under INVERT MOUSE Y) sets MouseAccelX and Y's magnitude,
-// 0.5 to 3.0 in tenths, Y keeping the invert box's sign; untouched, the
-// original's 1.3. The mission's mouse reads scale by it (zInput's accel,
+// MOUSE SENSITIVITY (ours, Owen 2026-11-02): a slider on the graphics and
+// audio screen (our record edit among the volume sliders) sets MouseAccelX
+// and Y's magnitude, 0.5 to 3.0 in tenths, Y keeping its sign (the game
+// options' invert box, which keeps the magnitude); untouched, the original's 1.3. The mission's mouse reads scale by it (zInput's accel,
 // set from the options when a mission starts, 0x00480df0's 282).
 TEST(options_mouse_sensitivity_slider_headless) {
   if (!have_game()) return;
@@ -16403,6 +16403,8 @@ TEST(options_mouse_sensitivity_slider_headless) {
   zutl::mounts() = zutl::Mounts{};
   zutl::mount(MW3_GAME_DIR);
   zutl::set_write_dir(temp_dir("sensitivity_write"));
+  const zfix::Options saved_fix = zfix::options();
+  zfix::options().bugs = false;  // the invert box keeps the slider's magnitude whatever the switch
   mech3::reset_states();
   reset_process_state();
   mech3::options() = mech3::Options{};
@@ -16428,39 +16430,42 @@ TEST(options_mouse_sensitivity_slider_headless) {
     engine.on_present = [&](int) {
       auto* os = dynamic_cast<mech3::OptionsState*>(app.current());
       auto* g = os ? dynamic_cast<mech3::GameOptionsScreen*>(engine.screen_of(os->screen_)) : nullptr;
+      auto* a = os ? dynamic_cast<mech3::GfxAudioScreen*>(engine.screen_of(os->screen_)) : nullptr;
+      float* accel = mech3::options().mouse_accel;
       if (stage == 0 && app.current() == &mech3::states().main && mech3::main_menu()) {
         const_cast<mech3::MainMenu*>(mech3::main_menu())->buttons[mech3::MainMenuButton::kOptions].on_left_up();
         stage = 1;
       } else if (stage == 1 && g) {
-        float* accel = mech3::options().mouse_accel;
-        bound = g->has_sensitivity;
-        // Untouched: the original's 1.3 both ways.
-        g->apply(0);
-        g->apply(1);
+        g->apply(0), g->apply(1);  // untouched: the original's 1.3 both ways
         default_kept = accel[0] == 1.3f && accel[1] == 1.3f;
-        // The slider at 2.5, inverted: X 2.5, Y -2.5.
-        g->sensitivity.set_value(mech3::slider_of_sensitivity(2.5f));
-        g->invert_y.select(1);
-        g->apply(1);
-        set_both = accel[0] == 2.5f && accel[1] == -2.5f;
-        // Invert off after it: the magnitude stays.
-        g->apply(0);
-        g->invert_y.select(0);
-        g->apply(1);
-        invert_after = accel[0] == 2.5f && accel[1] == 2.5f;
-        // Inverted, then the sensitivity changed: the sign stays.
-        g->invert_y.select(1);
-        g->apply(1);
-        g->apply(0);
-        g->sensitivity.set_value(mech3::slider_of_sensitivity(0.8f));
-        g->apply(1);
-        sens_after = std::fabs(accel[0] - 0.8f) < 1e-6f && std::fabs(accel[1] + 0.8f) < 1e-6f;
+        g->invert_y.select(1), g->apply(1);  // inverted
+        g->gfx_audio.on_left_up();
         stage = 2;
+      } else if (stage == 2 && a) {
+        bound = a->has_sensitivity;
+        a->apply(0);
+        a->sensitivity.set_value(mech3::slider_of_sensitivity(2.5f));  // the slider at 2.5: X 2.5, Y -2.5
+        a->apply(1);
+        set_both = accel[0] == 2.5f && accel[1] == -2.5f;
+        a->back.on_left_up();
+        stage = 3;
+      } else if (stage == 3 && g) {
+        g->apply(0), g->invert_y.select(0), g->apply(1);  // invert off after it: the magnitude stays
+        invert_after = accel[0] == 2.5f && accel[1] == 2.5f;
+        g->invert_y.select(1), g->apply(1);  // inverted again, then the sensitivity changed
+        g->gfx_audio.on_left_up();
+        stage = 4;
+      } else if (stage == 4 && a) {
+        a->apply(0);
+        a->sensitivity.set_value(mech3::slider_of_sensitivity(0.8f));
+        a->apply(1);
+        sens_after = std::fabs(accel[0] - 0.8f) < 1e-6f && std::fabs(accel[1] + 0.8f) < 1e-6f;
+        stage = 5;
       }
     };
     CountingPump pump;
     pump.limit = 400;
-    pump.stop = [&] { return stage == 2; };
+    pump.stop = [&] { return stage == 5; };
     app.run(pump);
     app.stop_game();
     app.exit_instance();
@@ -16471,9 +16476,10 @@ TEST(options_mouse_sensitivity_slider_headless) {
   mech3::reset_states();
   reset_process_state();
   mech3::options() = mech3::Options{};
+  zfix::options() = saved_fix;
   std::printf("  sensitivity: bound %d, default kept %d, both set %d, invert after %d, sensitivity after %d\n", bound,
               default_kept, set_both, invert_after, sens_after);
-  EXPECT(stage == 2 && bound && default_kept && set_both && invert_after && sens_after);
+  EXPECT(stage == 5 && bound && default_kept && set_both && invert_after && sens_after);
   // The mission's step: zInput's read counts times the acceleration (cut toward zero).
   zin::State& st = zin::state();
   const zin::MouseInfo keep_mouse = st.mouse;
