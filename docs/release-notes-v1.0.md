@@ -33,7 +33,7 @@ Moon, the expansion, is next, as a game of its own beside this one.
 |---|---|---|
 | Windows | `MW3-Rebuild-Setup-1.0.exe` | An installer (a `.zip` of the same files is there too). |
 | Mac | `MW3-Rebuild-1.0-mac.dmg` | Drag the app to Applications. |
-| Linux | `MW3-Rebuild-1.0-x86_64.AppImage` | Make it executable and run it. |
+| Linux | `MW3-Rebuild-1.0-x86_64.AppImage` | Make it executable and run it. Untested: built and checked under WSL, not playtested. |
 
 Start **MechWarrior 3**. It finds your install by itself; if it cannot,
 it asks for your game: point it at the disc image or zip and it takes it
@@ -62,7 +62,7 @@ The Mac app is not signed by Apple. The first time macOS says
   an AppImage for Linux.
 - **The launcher**, installed as "MechWarrior 3": the rebuild's front
   screen. It starts the game and closes as soon as the game is on screen.
-- **SETUP from anything you have**: an installed copy, the disc, an
+- **Your game from anything you have** (the launcher's GAME FILES): an installed copy, the disc, an
   `.iso`, a `.cue` with its `.bin` files (the music comes too), or the
   file you downloaded (`.zip`, `.7z`, `.rar`, even a zip inside a zip).
   Nothing needs unpacking by hand, and no Windows or original installer
@@ -80,6 +80,9 @@ The Mac app is not signed by Apple. The first time macOS says
   instead of crashing the game, and `mw3 --check-mod FOLDER` checks a mod
   before you play it. In multiplayer every player needs the same gameplay
   mods, and the game says whose differ. How to make one: docs/modding.md.
+- **Mouse sensitivity**, a slider on the Graphics & Audio screen.
+- **Cheat codes** in single player (ours, not the original's): Shift+Enter
+  in a mission opens a box for six of them. The README lists them.
 - **More bug fixes**, all listed in plain words in CHANGES.md. To play
   exactly as the original did: `--original`, or `bugfixes=0` in
   `mw3.cfg`.
@@ -96,8 +99,6 @@ The Mac app is not signed by Apple. The first time macOS says
   or add MechWarrior 3 to its excluded apps. (The other half of that Mac
   report, a mouse that never fired, was saved controls losing the mouse's
   fire button; fixed, and controls already saved that way are mended.)
-- **Multiplayer: the mech lab from the lobby** once listed no mechs in a
-  live match. Not reproduced since; if you see it, a report helps.
 - **Jump jets lighting up water (Op 3, Mission 5).** One report says all
   the water and some other surfaces light up while the jump jets fire. Not
   reproduced on Windows or the Mac. If you see it, a screenshot and
@@ -135,8 +136,6 @@ files.
 
 ## Notes for Owen (not part of the release text)
 
-- The two open items are W40 and W42 in docs/playtest.md; drop either
-  that is closed by release day.
 - The package file names follow the README's Download table; check them
   against what the packaging scripts actually produce, and fill in the
   checksums from those files.
