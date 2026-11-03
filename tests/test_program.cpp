@@ -21165,6 +21165,7 @@ struct WideMenus {
   int32_t ia_accept = -1, ia_ally = -1, ia_worlds = -1, ia_box_w = -1;  // Instant Action (made at the start)
   int32_t mb_title = -1, mb_ok = -1;  // a message box (the quit box's dlgMessage.zrd) made on the main menu
   int32_t cr_lines_w = -1, cr_lines_x = -1, cr_back = -1;  // the credits (first from the main menu)
+  int32_t cr_names = -1, cr_name_x = -1, cr_name_right = -1;  // their box (RECT), a line's x, the box's right (W60)
   int32_t sv_back_w = -1, sv_accept = -1;  // the briefing's salvage screen  // the briefing (a waypoint: from its projection)
   // The Multiplayer State's three screens (made with the main menu).
   int32_t cn_host = -1, cn_cancel = -1, cn_lines_w = -1, cn_lan = -1;  // the connection screen
@@ -21247,6 +21248,12 @@ WideMenus wide_menus_run(bool wide) {
         if (c->lines.image) out.cr_lines_w = c->lines.image->width;
         out.cr_lines_x = c->lines.get_x();
         out.cr_back = c->cancel.get_rect()->left;
+        // W60 (Owen, the campaign's ending): the scrolling names' box and a
+        // line placed in it, as each frame places them.
+        out.cr_names = c->names.left, out.cr_name_right = c->names.right;
+        c->names.scroll(0.5f);
+        if (c->names.sections.size() && c->names.sections.begin()->lines.size())
+          out.cr_name_x = c->names.sections.begin()->lines.begin()->text.get_x();
         c->cancel.on_left_up();
         stage = 41;
       } else if (stage == 41 && now == &st.main && mm && ++wait > 3) {
@@ -21547,6 +21554,10 @@ TEST(menus_wide_spread_by_their_groups_headless) {
               on.cr_lines_x, off.cr_back, on.cr_back);
   EXPECT(off.cr_lines_w > 0 && on.cr_lines_w == off.cr_lines_w + extra / 2 && on.cr_lines_x == off.cr_lines_x);
   EXPECT(off.cr_back > 0 && on.cr_back == off.cr_back + extra / 2);
+  std::printf("credits' names: box %d..%d, a line at %d / box %d..%d, the line at %d\n", off.cr_names, off.cr_name_right,
+              off.cr_name_x, on.cr_names, on.cr_name_right, on.cr_name_x);
+  EXPECT(off.cr_names > 0 && on.cr_names == off.cr_names + extra / 2 && on.cr_name_right == off.cr_name_right + extra / 2);
+  EXPECT(off.cr_name_x > 0 && on.cr_name_x == off.cr_name_x + extra / 2);  // W60: with their box
   // The salvage screen (one block): its board widened, ACCEPT with the block.
   std::printf("salvage: board %d / %d, ACCEPT %d / %d\n", off.sv_back_w, on.sv_back_w, off.sv_accept, on.sv_accept);
   EXPECT(off.sv_back_w == 640 && on.sv_back_w == 640 + extra && on.sv_accept == off.sv_accept + extra / 2);

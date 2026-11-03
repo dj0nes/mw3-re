@@ -452,6 +452,7 @@ These change how the game talks to the computer, not how it plays.
   picked in the menus takes effect for the menus at the next start. The
   multiplayer connection screen and lobby spread the same way, the lobby's
   middle column widening between the other two.
+- With the 16:9 menus, the credits (from the main menu and at the campaign's end) scroll inside their box, not to the left of it.
 
 - The craters a host sends to a player joining a multiplayer game name their ground and texture by material number instead of by the host's memory addresses, which meant nothing on the joining machine (and do not fit a 64-bit program).
 
