@@ -1,8 +1,7 @@
-# MechWarrior 3 Rebuild 1.0 (DRAFT)
+# MechWarrior 3 Rebuild 1.0
 
-Draft for Owen to edit and approve before anything is published. Not
-tagged, not released. The packages are built from the tagged commit
-(docs/release.md).
+The text of the v1.0 GitHub release (between the rules below); the
+packages were built from the tag v1.0 (docs/release.md).
 
 ---
 
@@ -114,13 +113,13 @@ you did, what happened, and whether `--original` does the same.
 
 ## Checksums
 
-SHA-256 of each download (to be filled in from the built packages):
+SHA-256 of each download (also in `SHA256SUMS`):
 
 ```
-<sha256>  MW3-Rebuild-Setup-v1.0.exe
-<sha256>  mw3-v1.0-win64.zip
-<sha256>  MW3-Rebuild-v1.0-mac.dmg
-<sha256>  MW3-Rebuild-v1.0-x86_64.AppImage
+753d58063f71ef244b94b9ebb4f1902d388cd896d9045d2687d2371707e2072c  MW3-Rebuild-Setup-v1.0.exe
+160041e14f61ace21deff63b4ef67987817525da41e8a7f80b93c4a6a9f7ef86  mw3-v1.0-win64.zip
+f2f7bc6e9944815d3facfff90081436e9ad9512fef111f6185e04e6aff10a823  MW3-Rebuild-v1.0-mac.dmg
+855485a2ea54dbb103d281a4fa861d0afdac591a4c5fa05234d5fd3629b9ee10  MW3-Rebuild-v1.0-x86_64.AppImage
 ```
 
 ## Licenses
