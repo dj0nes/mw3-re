@@ -360,6 +360,18 @@ These change how the game talks to the computer, not how it plays.
   and buttons arrive in the order the game knew from Windows: the left stick
   steers and walks, the triggers are the throttle, the right stick looks.
   Read the raw way, a pad's resting triggers held the torso twisted.
+- **Flight sticks' axes land where the game expects them.** A stick with a
+  twist and a throttle lever (a Thrustmaster T.16000M, say) gave its twist
+  as the throttle and turned no torso, so the reticle could not aim. Each
+  axis is put where Windows put it, read from the stick itself; a player
+  can set the map by hand with `joystick_axes=` in `mw3.cfg` (the log
+  shows the line to start from).
+- **The joystick is chosen sensibly.** The original took the first device
+  that called itself a joystick; headsets and RGB keyboards often do now.
+  The game takes a gamepad or a real stick first, or the one named by
+  `joystick=` in `mw3.cfg`. Unplugged during a mission, the stick lets go
+  of its turn and fire instead of holding them, and works again when
+  plugged back in.
 - **Force feedback becomes rumble.** The original drove force-feedback
   joysticks through Immersion's driver. The rebuild reads the same effect
   file and plays the effects on your pad's or stick's rumble motors: weapon
