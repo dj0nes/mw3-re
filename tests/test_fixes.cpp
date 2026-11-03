@@ -41,6 +41,7 @@
 #include "mech3/mission_world.h"
 #include "mech3/turret.h"
 #include "mech3/weapon.h"
+#include "gamez/zmath/zmth_matrix.h"
 #include "mech3/veh_controls.h"
 #include "mech3/veh_move.h"
 #include "gamez/zmodel/gmod_matl.h"
@@ -1550,4 +1551,35 @@ TEST(fix_aim_cone_widens_with_the_view) {
   zfix::options().bugs = true;
   mech3::weapon_world().player = player_was;
   c = kept;
+}
+
+// W50 (Owen, c1m2 on the Mac): zMath's e^-x table (0x00523f70) steps by
+// 1/51, so a per-second easing reads 1 on short frames: a rate of 3 at
+// 6 ms (166 fps) never eased at all. With per_second the exact value at any
+// frame time; without it the table, as the exe. One caller: a vehicle's
+// turn damped to 0 (0x004a2a00).
+TEST(fix_exp_neg_eases_on_fast_frames) {
+  const bool was = zfix::options().per_second;
+  for (const bool per_second : {true, false}) {
+    zfix::options().per_second = per_second;
+    const float fast = zmth::exp_neg(3.0f * 0.006f), slow = zmth::exp_neg(3.0f * 0.033f);
+    mech3::VehicleControls c;
+    mech3::VehicleMotion m;
+    m.turn_damping = 3.0f;
+    c.turn = 0.0f;
+    c.x50.y = 1.0f;
+    c.turn_step(m, 0.006f);
+    std::printf("  per_second %d: e^-0.018 %.6f, e^-0.099 %.6f, the turn after a 6 ms frame %.6f\n", per_second, fast, slow,
+                c.x50.y);
+    if (per_second) {
+      EXPECT(std::fabs(fast - std::exp(-0.018f)) < 1e-6f);
+      EXPECT(std::fabs(slow - std::exp(-0.099f)) < 1e-6f);
+      EXPECT(c.x50.y < 0.99f);
+    } else {
+      EXPECT(fast == 1.0f);  // the exe's table[0]: no easing
+      EXPECT(c.x50.y == 1.0f);
+    }
+    EXPECT(zmth::exp_neg(6.0f) == 0.0f && zmth::exp_neg(-1.0f) == 1.0f);  // the bounds, both ways
+  }
+  zfix::options().per_second = was;
 }

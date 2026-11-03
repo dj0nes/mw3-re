@@ -392,6 +392,65 @@ click passed to the game fails 2 checks; a key between not spoiling the
 chord fails 1; no recapture with the focus fails 4, no activation guard 1,
 the Ctrl+Alt release not kept 2.
 
+## 9. Which stick, and its axes, on SDL (W54, 2026-11-03)
+
+A Reddit player on v1.0 with a Thrustmaster T.16000M: "the cockpit rotate
+and aim recticle are screwed up. I can't aim with my joystick".
+
+**The axes** (FIX (A), `SdlInput::map_axes`). SDL numbers a raw stick's
+axes by the ones the device has, packed in DirectInput's order: its
+DirectInput backend sorts them by data-format offset, macOS by HID usage,
+Linux by ABS code (SDL 3.4.12's source). The exe's c_dfDIJoystick2 keeps
+each axis at its own place in DIJOYSTATE2, and the port read SDL's axis k
+as DIJOYSTATE2's axis k. The T.16000M (X, Y, Rz twist, slider throttle)
+therefore gave its twist as Z, its lever as RX, and nothing as RZ. The
+game's defaults with a stick (the controls screen's reset: throttle Z x
+-0.5 + 0.5, torso twist RZ, pitch Y, turn X) then drove the throttle with
+the twist and never turned the torso, the reticle with it. Each SDL axis
+is now put at its DirectInput place, taken from, in turn:
+- mw3.cfg's `joystick_axes=` (SDL's axis 0, 1, ... each X, Y, Z, Rx, Ry,
+  Rz, S0, S1 or -), the player's own;
+- the device's HID report descriptor (SDL_hid, its vendor and product, a
+  joystick, gamepad or multi-axis interface only): the Generic Desktop
+  usages its inputs carry, X..Rz to their own places, Slider, Dial and Wheel
+  to the sliders. Only when their count is SDL's;
+- `kKnownSticks`, by vendor and product, each from a dump of the device's
+  own descriptor: the T.16000M (044f:b10a; ivyl/input-db's Windows dump);
+- SDL's packed order as before.
+The log names the source and the map as a `joystick_axes=` line, so a
+player can correct it from there. A gamepad keeps DirectInput's XInput
+layout (section 7).
+
+No permission prompt: SDL_hid_enumerate lists only joysticks, gamepads and
+multi-axis controllers by default (SDL_HINT_HIDAPI_ENUMERATE_ONLY_CONTROLLERS,
+"avoiding macOS keyboard capture permission prompts"), and the port opens
+only those interfaces; macOS's Input Monitoring covers keyboards, and the
+descriptor is an IOKit property. Not tried on a real stick (none attached to
+the Mac). On Linux hidraw is usually root-only: the open fails, silently,
+and the table or the packed order is used.
+
+**Which device.** The exe took the first attached joystick (EnumDevices;
+section 4) and its options have no device list. Ours: mw3.cfg's
+`joystick=` (a part of the name, any case), else a gamepad, else a device
+with 2 axes and 4 buttons or more, else the first (headsets, RGB keyboards
+and other odd HID devices show up as joysticks). Each device found is
+logged: name, vendor:product, GUID, gamepad or not, axes, buttons, hats.
+
+**Taken out and back.** DirectInput's last state stayed (an unplugged stick
+held its turn and fire). Ours: a stick taken out reads with no buttons and
+its stick axes centred; Z and the sliders, the throttles, keep their last
+reading (centred, the stick's throttle would jump to half). The same device
+back (its GUID) is read again with its map. One plugged in after the start
+is taken at the next start, as zInput set up without one (logged).
+
+Tests (mw3sdltests): `sdl_joystick_axes_from_the_t16000m_descriptor` (its
+exact descriptor, the slots, the cfg words), `sdl_input_t16000m_twist_reaches_rz`
+(a virtual T.16000M by descriptor, by the table, by mw3.cfg),
+`sdl_input_picks_the_stick_over_an_odd_device` (an odd device first; by
+name), `sdl_input_stick_taken_out_reads_centred`. Breaks: the packed map,
+no table entry, the unplugged stick not read, its turn held, always the
+first device, one usage an input item: each caught.
+
 ## Open
 
 - The controls screen (0x0042be10 ..), which uses read_key and the wait

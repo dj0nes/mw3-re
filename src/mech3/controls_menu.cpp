@@ -455,7 +455,7 @@ void ControlsScreen::update(float dt) {
       key_b.set_checked(0);
       joy.set_checked(0);
       mouse.set_checked(0);
-      const uint32_t k = engine().input_read_key(0);
+      const uint32_t k = capture_key();
       if (!k) return;
       bind_key1(k, key_a.first);
       key_a.set_checked(0);
@@ -465,7 +465,7 @@ void ControlsScreen::update(float dt) {
       key_a.set_checked(0);
       joy.set_checked(0);
       mouse.set_checked(0);
-      const uint32_t k = engine().input_read_key(0);
+      const uint32_t k = capture_key();
       if (!k) return;
       bind_key2(k, key_b.first);
       key_b.set_checked(0);
@@ -768,6 +768,17 @@ void ControlsScreen::load_save(const char* name, bool save) {
   show_file_name();
   fill(group());
   show_file_name();
+}
+
+// FIX (A), Reddit v1.0 (docs/fixes.md): the shell's frame reads zInput's
+// keyboard first (0x0048ed30, 0x0051b360), emptying the buffer this read
+// asks. DirectInput filled it in real time, so a key that came while the
+// screen drew was still there; our events arrive before the frame, so the
+// capture never saw one. The key the frame's read saw go down is taken.
+uint32_t ControlsScreen::capture_key() {
+  Engine& e = engine();
+  const uint32_t k = e.input_read_key(0);
+  return k ? k : e.input_frame_key();
 }
 
 void ControlsScreen::start_capture(int32_t m) {

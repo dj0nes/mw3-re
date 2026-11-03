@@ -434,6 +434,7 @@ class Engine : public zgame::AppHooks {
   // wrappers), the stick's reading and the controls setup (controls_cfg).
   // Ported: the defaults are the ports.
   virtual uint32_t input_read_key(int32_t wait);                // 0x0051aa00
+  virtual uint32_t input_frame_key();                           // ours: zin::frame_key
   virtual int32_t joy_wait_button(int32_t wait);                // 0x0051dd20
   virtual int32_t mouse_wait_button(int32_t wait);              // 0x0051baf0
   virtual Handle joy_state() { return unported("0x0051dce0", {}); }  // the stick's last read, 0 none

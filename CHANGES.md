@@ -50,6 +50,13 @@ it is clear what the designers meant.
   smoke stopped slowing down and ignored the wind, and the wind's gusts
   changed faster the faster the game ran. Both now go by time, at the 30 fps
   pace.
+- **Turrets, mech arms and vehicles turn at any frame rate.** The original
+  eased them toward where they aim, and damped vehicles' turns and arms'
+  recoil, by a table that rounds a frame's step down to 1/51: above about
+  150 fps the turrets did not turn at all, and the missile platforms that
+  start facing straight up (Op 1 Mission 2) were drawn flat, invisible but
+  alive, and the objective looked impossible. Every such easing now goes by
+  time. A turret aimed straight up or down also keeps its shape.
 - **Mech movement plays the same at any frame rate.** Falls, the shoves from
   slopes and ledges, the blend into a walk, jump-jet thrust and the damage
   done to buildings you push into all went by frames; they now play as they
@@ -360,6 +367,18 @@ These change how the game talks to the computer, not how it plays.
   and buttons arrive in the order the game knew from Windows: the left stick
   steers and walks, the triggers are the throttle, the right stick looks.
   Read the raw way, a pad's resting triggers held the torso twisted.
+- **Flight sticks' axes land where the game expects them.** A stick with a
+  twist and a throttle lever (a Thrustmaster T.16000M, say) gave its twist
+  as the throttle and turned no torso, so the reticle could not aim. Each
+  axis is put where Windows put it, read from the stick itself; a player
+  can set the map by hand with `joystick_axes=` in `mw3.cfg` (the log
+  shows the line to start from).
+- **The joystick is chosen sensibly.** The original took the first device
+  that called itself a joystick; headsets and RGB keyboards often do now.
+  The game takes a gamepad or a real stick first, or the one named by
+  `joystick=` in `mw3.cfg`. Unplugged during a mission, the stick lets go
+  of its turn and fire instead of holding them, and works again when
+  plugged back in.
 - **Force feedback becomes rumble.** The original drove force-feedback
   joysticks through Immersion's driver. The rebuild reads the same effect
   file and plays the effects on your pad's or stick's rumble motors: weapon
@@ -616,6 +635,7 @@ Known quirks the rebuild deliberately keeps:
 - A broken entry in a reader archive (a mod's, say) is refused and named in the log instead of being read into whatever follows it; `mw3 --check-mod DIR` reads a mod as the game would and reports what it would refuse.
 - A broken texture or image library, world texture directory, sound or script file (a mod's, say) is refused and named in the log instead of being read past its end; a refused texture or sound is a missing one, a refused script line ends its script. `mw3 --check-mod` looks inside these files too.
 - The mouse settings, like the controls, are saved only as you set them in the menus.
+- The controls screen's KEY A and KEY B columns take a key again: click the box, press the key (v1.0 never saw it; the mouse and joystick columns were not affected).
 - A MOUSE SENSITIVITY slider on the Graphics & Audio screen, under the volume sliders (0.5 to 3.0): it sets how far the mouse turns the mech in a mission. It starts at the original's 1.3, and Invert Mouse keeps it.
 - The music pauses while a movie plays and comes back after (the campaign's opening movie no longer has the menu music under it), as when the game read its movies off the CD.
 - On a wide screen the arm weapons reach the reticle across the whole width: an arm weapon still fires straight ahead when aimed far off to the side, but the limit now widens with the screen, so it starts at the same place on screen as on a 4:3 one (bug fixes on).
