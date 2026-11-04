@@ -100,9 +100,7 @@
 #include "gamez/zweapon/zweapon.h"
 #include "mech3/mech_control.h"
 #include "gamez/zgame/zgame_table.h"
-#ifdef MW3_PM
 #include "pm/pm_game.h"
-#endif
 #include "mech3/data_version.h"
 #include "mech3/patch_import.h"
 #include "mech3/mission.h"
@@ -241,7 +239,7 @@ bool parse(int argc, char** argv, Args& a) {
 #ifndef MW3_VERSION
 #define MW3_VERSION "unknown"
 #endif
-      std::printf("mw3 (MechWarrior 3 rebuild) %s\n", MW3_VERSION);
+      std::printf("mw3pm (Pirate's Moon rebuild) %s\n", MW3_VERSION);
       std::exit(0);
     }
     else if (s == "--install" && next(1)) a.install = argv[++i];
@@ -596,10 +594,9 @@ std::string codec_path(const std::string& install) {
 
 }  // namespace
 
-int main(int argc, char** argv) {
-#ifdef MW3_PM
-  zgame::set_game(pm::table());  // Pirate's Moon: the whole game on PM's table and data
-#endif
+// On Pirate's Moon's branch this is the game's main under mw3pm_main.cpp, which takes --fly first.
+int mw3_game_main(int argc, char** argv) {
+  zgame::set_game(pm::table());
   // In order with the log on stderr. Windows' CRT has no line buffering (and takes size 0 as
   // an invalid argument): unbuffered there.
 #if defined(_WIN32)
@@ -616,7 +613,7 @@ int main(int argc, char** argv) {
   }
   // The write dir: saves and settings, outside the install (assets-layer.md).
   if (a.write_dir.empty()) {
-    if (char* p = SDL_GetPrefPath("MicroProse", "MechWarrior 3")) a.write_dir = p, SDL_free(p);
+    if (char* p = SDL_GetPrefPath("MicroProse", "Pirate's Moon")) a.write_dir = p, SDL_free(p);
   }
   while (a.write_dir.size() > 1 && a.write_dir.back() == '/') a.write_dir.pop_back();
   // A --write-dir that does not exist is made, as SDL_GetPrefPath makes the default.
@@ -631,9 +628,9 @@ int main(int argc, char** argv) {
   // copied to it (run_log.h).
   sdlfe::RunLog run_log;
   if (sdlfe::log_to_file(a.write_dir))
-    std::printf("mw3 (MechWarrior 3 rebuild) %s: %s\n", MW3_VERSION, argc > 1 ? "started with arguments" : "started");
+    std::printf("mw3pm (Pirate's Moon rebuild) %s: %s\n", MW3_VERSION, argc > 1 ? "started with arguments" : "started");
   else if (!a.write_dir.empty() && run_log.open(a.write_dir))
-    std::printf("mw3 (MechWarrior 3 rebuild) %s, log %s\n", MW3_VERSION, run_log.path().c_str());
+    std::printf("mw3pm (Pirate's Moon rebuild) %s, log %s\n", MW3_VERSION, run_log.path().c_str());
   if (!a.write_dir.empty()) read_config(a.write_dir, a);
   if (!a.mods_given) a.mods = a.cfg_mods;
   if (a.no_mods) a.mods.clear();

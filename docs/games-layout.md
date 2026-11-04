@@ -12,6 +12,12 @@ tests no longer matter. What follows about `src/pm/` and the game table describe
 working, new PM work edits the base files in place or forks where that is plainly easier, and old forks fold in
 only when that code is being worked on anyway.
 
+The plain build on `pm` is PM alone: `mw3pm`, `mw3pmtests`, `mw3pmsdltests` (the render's window tests; `MW3_TEST=sdl_render`,
+the ones that start MW3's programs do not apply) and `pmprobe`. `-DMW3_BUILD_MW3=ON` brings MW3's programs, probe and tests
+back, for reading only. `mw3pm` goes to `--fly` when given it, else to the game (`mw3_main.cpp`, on PM's table). No launcher
+in PM's package for now; the combined package is Owen's later decision. The package scripts make PM alone, with its own
+Mac bundle id (`com.owenmorgan.mw3pmrebuild`), Windows AppId and write folder (`MicroProse/Pirate's Moon`).
+
 ## Three programs, one package
 
 - **The launcher** (ours, not original code): the main icon. It finds the

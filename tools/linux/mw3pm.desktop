@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Pirate's Moon
+Comment=MechWarrior 3: Pirate's Moon rebuilt, with your own game files
+Exec=mw3pm
+Icon=mw3
+Categories=Game;ActionGame;
+Terminal=false

@@ -150,7 +150,12 @@ int fly(const Args& a) {
 
 }  // namespace
 
+int mw3_game_main(int argc, char** argv);
+
 int main(int argc, char** argv) {
+  bool fly_start = false;
+  for (int i = 1; i < argc; ++i) fly_start = fly_start || std::string(argv[i]) == "--fly";
+  if (!fly_start) return mw3_game_main(argc, argv);
   Args a;
   if (!parse(argc, argv, a)) return 2;
   if (!SDL_Init(0)) {
@@ -189,6 +194,7 @@ int main(int argc, char** argv) {
     SDL_Quit();
     return result;
   }
+  // Not reached: without --fly, main went to the game.
   tell(a, "Pirate's Moon's data is not loadable yet: its readers are being ported (docs/pm-map.md, step 1).");
   SDL_Quit();
   return 0;

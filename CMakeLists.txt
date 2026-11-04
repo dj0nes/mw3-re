@@ -18,7 +18,10 @@ set(MW3_GAME_DIR "${CMAKE_SOURCE_DIR}/game/mw3-1.2" CACHE PATH "The MechWarrior 
 option(MW3_PACKAGE "Build mw3 and mw3import for players: no MW3_GAME_DIR in them" OFF)
 # Pirate's Moon (docs/games-layout.md): mw3pm, its library and its tests; OFF
 # builds MechWarrior 3 alone.
-option(MW3_BUILD_PM "Build Pirate's Moon (mw3pm) beside MechWarrior 3" ON)
+option(MW3_BUILD_PM "Build Pirate's Moon (mw3pm)" ON)
+# On the branch `pm` (docs/games-layout.md) the plain build is Pirate's Moon alone. MW3's programs, its
+# probe and its tests are here only for reading; MW3 is built from `main`.
+option(MW3_BUILD_MW3 "Build MechWarrior 3's programs, probe and tests from this branch too" OFF)
 set(MW3PM_GAME_DIR "${CMAKE_SOURCE_DIR}/game/pm" CACHE PATH "The Pirate's Moon install the PM tests and tools read")
 # The version mw3 --version and the Windows version resource give: git's
 # describe (a tag, or the commit) and the commit count.
@@ -395,6 +398,7 @@ set_target_properties(mw3core PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 # A C interface over a few ported functions, for the differential tests that run
 # the original x86 code in an emulator and compare (tests/differential).
+if(MW3_BUILD_MW3)
 add_library(mw3probe SHARED
   tests/probe.cpp
   tests/probe_clip3d.cpp
@@ -521,8 +525,10 @@ add_library(mw3probe SHARED
   tests/probe_mech_data.cpp
 )
 target_link_libraries(mw3probe PRIVATE mw3core)
+endif()
 
 enable_testing()
+if(MW3_BUILD_MW3)
 add_executable(mw3tests
   tests/main.cpp
   tests/test_znet.cpp
@@ -562,6 +568,7 @@ target_compile_definitions(mw3tests PRIVATE MW3_GAME_DIR="${MW3_GAME_DIR}"
                                           MW3_TEST_TMP_ROOT="${CMAKE_BINARY_DIR}"
                                           MW3_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
 add_test(NAME mw3tests COMMAND mw3tests)
+endif()
 
 # Pirate's Moon's own code (src/pm/: what PM adds or changes) and its tests,
 # apart from MW3's so a PM change cannot break MW3's suite unseen.
@@ -696,6 +703,7 @@ if(SDL3_FOUND)
     add_library(mw3text STATIC src/frontend/sdl/sdl_twod_host.cpp src/frontend/sdl/gdi_font_size.cpp
                 src/frontend/sdl/text_fit.cpp src/frontend/sdl/launcher_notes.cpp src/frontend/sdl/movie_import.cpp)
     target_link_libraries(mw3text PUBLIC mw3sdl SDL3_ttf::SDL3_ttf)
+    if(MW3_BUILD_MW3)
     add_executable(mw3
       src/frontend/sdl/mw3_main.cpp
       src/frontend/sdl/run_log.cpp
@@ -771,10 +779,13 @@ if(SDL3_FOUND)
                            COMMAND_EXPAND_LISTS)
       endif()
     endif()
+    endif()
     # Pirate's Moon (games-layout.md): its own program over the same engine.
     if(MW3_BUILD_PM)
-      # The whole game on PM's table: mw3_main over the same code, while mw3pm's --fly stays the debug start.
-      add_executable(mw3pm_game
+      # The game: mw3pm_main takes --fly (the debug start); anything else goes to mw3_main's main.
+      add_executable(mw3pm
+        src/frontend/sdl/mw3pm_main.cpp
+        src/frontend/pm_debug_world.cpp
         src/frontend/sdl/mw3_main.cpp
         src/frontend/sdl/run_log.cpp
         src/frontend/sdl/launcher.cpp
@@ -783,17 +794,35 @@ if(SDL3_FOUND)
         src/frontend/sdl/modes_chain.cpp
         src/frontend/sdl/first_run_import.cpp
       )
-      target_link_libraries(mw3pm_game PRIVATE mw3text mw3sdl pmcore mw3core SDL3::SDL3)
-      target_compile_definitions(mw3pm_game PRIVATE MW3_VERSION="${MW3_VERSION}" MW3_PM=1)
-      add_executable(mw3pm src/frontend/sdl/mw3pm_main.cpp src/frontend/pm_debug_world.cpp)
-      target_link_libraries(mw3pm PRIVATE pmcore mw3sdl mw3core SDL3::SDL3)
-      target_compile_definitions(mw3pm PRIVATE MW3_VERSION="${MW3_VERSION}")
+      target_link_libraries(mw3pm PRIVATE mw3text mw3sdl pmcore mw3core SDL3::SDL3)
+      target_compile_definitions(mw3pm PRIVATE MW3_VERSION="${MW3_VERSION}" MW3_PM=1)
+      if(WIN32)
+        set(MW3_RC_NAME "Pirate's Moon rebuild")
+        set(MW3_RC_FILE "mw3pm.exe")
+        set(MW3_RC_ICON "ICON_MAIN ICON \"${CMAKE_SOURCE_DIR}/tools/windows/mw3.ico\"")
+        configure_file(tools/windows/version.rc.in ${CMAKE_BINARY_DIR}/mw3pm.rc)
+        target_sources(mw3pm PRIVATE ${CMAKE_BINARY_DIR}/mw3pm.rc)
+        if(MW3_PACKAGE)
+          if(MSVC)
+            target_link_options(mw3pm PRIVATE /SUBSYSTEM:WINDOWS /ENTRY:mainCRTStartup)
+          else()
+            target_link_options(mw3pm PRIVATE -mwindows)
+          endif()
+        endif()
+        if(NOT CMAKE_VERSION VERSION_LESS 3.21)
+          add_custom_command(TARGET mw3pm POST_BUILD
+                             COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_RUNTIME_DLLS:mw3pm> $<TARGET_FILE_DIR:mw3pm>
+                             COMMAND_EXPAND_LISTS)
+        endif()
+      endif()
       if(NOT MW3_PACKAGE)
-        target_compile_definitions(mw3pm PRIVATE MW3PM_GAME_DIR="${MW3PM_GAME_DIR}")
+        target_compile_definitions(mw3pm PRIVATE MW3PM_GAME_DIR="${MW3PM_GAME_DIR}" MW3_GAME_DIR="${MW3PM_GAME_DIR}"
+                                                  MW3_ASSETS_DIR="${CMAKE_SOURCE_DIR}/assets")
       endif()
     endif()
     # The Indeo helper's stand-in for the tests (tools/indeo; the real
     # mw3indeo.exe is 32-bit Windows, built by tools/windows/build.cmd).
+    if(MW3_BUILD_MW3)
     add_executable(mw3indeo_fake tools/indeo/mw3indeo_fake.cpp)
     target_link_libraries(mw3indeo_fake PRIVATE mw3core)
     add_executable(mw3sdltests
@@ -813,9 +842,24 @@ if(SDL3_FOUND)
     add_dependencies(mw3sdltests mw3)
     add_dependencies(mw3sdltests mw3launcher)
     add_test(NAME mw3sdltests COMMAND mw3sdltests)
+    endif()
+    # PM's window tests: the render's, in the same file (MW3_TEST=sdl_render runs them). Those
+    # that start MW3's programs need MW3_BUILD_MW3 and do not apply here.
+    if(MW3_BUILD_PM AND NOT MW3_BUILD_MW3)
+      add_executable(mw3pmsdltests tests/main.cpp tests/test_sdl_frontend.cpp tests/test_net_enet.cpp tests/test_net_upnp.cpp)
+      target_link_libraries(mw3pmsdltests PRIVATE mw3text mw3sdl pmcore mw3core SDL3::SDL3)
+      target_compile_definitions(mw3pmsdltests PRIVATE MW3_GAME_DIR="${MW3PM_GAME_DIR}"
+                                                       MW3_TEST_TMP_ROOT="${CMAKE_BINARY_DIR}"
+                                                       MW3_BIN="$<TARGET_FILE:mw3pm>"
+                                                       MW3_LAUNCHER_BIN=""
+                                                       MW3_FAKE_INDEO=""
+                                                       MW3_IMPORT_BIN="")
+      add_dependencies(mw3pmsdltests mw3pm)
+    endif()
   else()
     message(STATUS "SDL3_ttf not found: mw3 is not built (brew install sdl3_ttf)")
   endif()
+  if(MW3_BUILD_MW3)
   # Development tools (not part of the port): the world viewer.
   add_executable(mw3view tools/viewer/viewer.cpp tools/viewer/scene.cpp)
   target_link_libraries(mw3view PRIVATE mw3core mw3sdl SDL3::SDL3)
@@ -878,4 +922,5 @@ if(SDL3_FOUND)
   add_executable(mw3soundcheck tools/soundcheck/soundcheck.cpp)
   target_link_libraries(mw3soundcheck PRIVATE mw3core mw3sdl SDL3::SDL3)
   target_compile_definitions(mw3soundcheck PRIVATE MW3_GAME_DIR="${MW3_GAME_DIR}")
+  endif()
 endif()

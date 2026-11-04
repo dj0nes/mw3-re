@@ -1,5 +1,5 @@
 #!/bin/bash
-# Builds "MechWarrior 3.app" and its DMG for Mac players (docs/macos.md):
+# On the branch `pm`: builds "Pirate's Moon.app" and its DMG (docs/macos.md), mw3pm alone, no launcher:
 # a package build (MW3_PACKAGE: no development copy of the game in it), the
 # libraries it loads copied into Contents/Frameworks with their paths
 # rewritten to @rpath, the icon, Info.plist, every binary signed ad hoc
@@ -13,8 +13,8 @@
 #        (arm64, x86_64), macOS 12 and later, against the libraries
 #        tools/deps/build_deps.sh mac built (build-deps/mac/prefix), not Homebrew's
 #
-# Out: build-mac/dist/MechWarrior 3.app and
-#      build-mac/dist/MW3-Rebuild-<git describe>-mac.dmg
+# Out: build-mac/dist/Pirate's Moon.app and
+#      build-mac/dist/PM-Rebuild-<git describe>-mac.dmg
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 ID="-"  # ad hoc
@@ -30,8 +30,8 @@ if [ -n "$DEPS" ] && [ ! -d "$DEPS/lib" ]; then echo "no $DEPS: run tools/deps/b
 if [ -z "$DEPS" ]; then
   echo "note: Homebrew's libraries (this Mac's macOS, arm64 only); THIRD-PARTY.txt describes the --deps build: not for release" >&2
 fi
-NAME="MechWarrior 3"  # the app as installed (CFBundleName, the display name); the DMG keeps MW3-Rebuild-
-BUNDLE_ID="com.owenmorgan.mw3rebuild"
+NAME="Pirate's Moon"  # the app as installed (CFBundleName, the display name); the DMG is PM-Rebuild-
+BUNDLE_ID="com.owenmorgan.mw3pmrebuild"  # its own, so it does not replace MW3's
 VER="$(git describe --tags --always --dirty)"
 OUT=build-mac/dist
 APP="$OUT/$NAME.app"
@@ -44,22 +44,12 @@ if [ -n "$DEPS" ]; then
   export PKG_CONFIG_LIBDIR="$DEPS/lib/pkgconfig"  # its FFmpeg, not Homebrew's
 fi
 cmake -S . -B build-mac-pkg "${CONF[@]}" >/dev/null
-cmake --build build-mac-pkg --target mw3 mw3launcher >/dev/null
-# The movie importer beside mw3 (the first start converts the movies with it,
-# first_run_import.h), on the FFmpeg build_deps.sh built; Homebrew's FFmpeg
-# would bring dozens of libraries, so without --deps there is none.
-if [ -n "$DEPS" ]; then cmake --build build-mac-pkg --target mw3import >/dev/null; fi
+cmake --build build-mac-pkg --target mw3pm >/dev/null
 
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Frameworks" "$APP/Contents/Resources"
-# The launcher is the app's own executable; the game beside it, started by it
-# and on its own (docs/games-layout.md).
-cp build-mac-pkg/mw3launcher "$APP/Contents/MacOS/mw3launcher"
-cp build-mac-pkg/mw3 "$APP/Contents/MacOS/mw3"
-if [ -n "$DEPS" ]; then cp build-mac-pkg/mw3import "$APP/Contents/MacOS/mw3import"; fi
-# The launcher's art (ours, assets/launcher), where SDL's base path is: Resources.
-mkdir -p "$APP/Contents/Resources/assets/launcher"
-cp assets/launcher/*.png "$APP/Contents/Resources/assets/launcher/"
+# PM's package has no launcher for now: mw3pm is the app's executable (the combined package is Owen's later decision).
+cp build-mac-pkg/mw3pm "$APP/Contents/MacOS/mw3pm"
 
 # Every library outside the system, followed through the ones they load:
 # copied by their real file, named by their install name's file, and every
@@ -68,7 +58,7 @@ python3 - "$APP" "$DEPS" <<'EOF'
 import glob, os, shutil, subprocess, sys
 app = sys.argv[1]
 prefix = sys.argv[2] if len(sys.argv) > 2 else ''
-exes = [os.path.join(app, 'Contents/MacOS', n) for n in ('mw3launcher', 'mw3', 'mw3import')]
+exes = [os.path.join(app, 'Contents/MacOS', n) for n in ('mw3pm',)]
 exes = [e for e in exes if os.path.exists(e)]
 fw = os.path.join(app, 'Contents/Frameworks')
 def deps(f):
@@ -172,13 +162,13 @@ cat > "$APP/Contents/Info.plist" <<EOF
   <key>CFBundleName</key><string>$NAME</string>
   <key>CFBundleDisplayName</key><string>$NAME</string>
   <key>CFBundleIdentifier</key><string>$BUNDLE_ID</string>
-  <key>CFBundleExecutable</key><string>mw3launcher</string>
+  <key>CFBundleExecutable</key><string>mw3pm</string>
   <key>CFBundleIconFile</key><string>mw3</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>$VER</string>
   <key>CFBundleVersion</key><string>$VER</string>
   <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
-  <key>LSMinimumSystemVersion</key><string>$(otool -l "$APP/Contents/MacOS/mw3" | awk '/LC_BUILD_VERSION/{b=1} b&&/minos/{print $2; exit}')</string>
+  <key>LSMinimumSystemVersion</key><string>$(otool -l "$APP/Contents/MacOS/mw3pm" | awk '/LC_BUILD_VERSION/{b=1} b&&/minos/{print $2; exit}')</string>
   <key>LSApplicationCategoryType</key><string>public.app-category.games</string>
   <key>NSHighResolutionCapable</key><true/>
   <key>LSArchitecturePriority</key><array><string>arm64</string></array>
@@ -208,18 +198,15 @@ for f in "$APP"/Contents/Frameworks/*.dylib; do
   codesign "${SIGN[@]}" "$f"
 done
 # The game and the importer, second programs in Contents/MacOS, before the app that seals them.
-codesign "${SIGN[@]}" --entitlements tools/macos/mw3.entitlements "$APP/Contents/MacOS/mw3"
-if [ -f "$APP/Contents/MacOS/mw3import" ]; then
-  codesign "${SIGN[@]}" --entitlements tools/macos/mw3.entitlements "$APP/Contents/MacOS/mw3import"
-fi
+codesign "${SIGN[@]}" --entitlements tools/macos/mw3.entitlements "$APP/Contents/MacOS/mw3pm"
 codesign "${SIGN[@]}" --entitlements tools/macos/mw3.entitlements "$APP"
 codesign --verify --deep --strict --verbose=2 "$APP"
-# The package carries both programs, the launcher as the app's executable.
-for p in mw3launcher mw3; do [ -x "$APP/Contents/MacOS/$p" ] || { echo "no $p in the app" >&2; exit 1; }; done
-[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$APP/Contents/Info.plist")" = mw3launcher ] || { echo "the app does not start the launcher" >&2; exit 1; }
+# The package carries mw3pm as the app's executable.
+for p in mw3pm; do [ -x "$APP/Contents/MacOS/$p" ] || { echo "no $p in the app" >&2; exit 1; }; done
+[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$APP/Contents/Info.plist")" = mw3pm ] || { echo "the app does not start the launcher" >&2; exit 1; }
 
 # The DMG: the app and a link to Applications, compressed, signed.
-DMG="$OUT/MW3-Rebuild-$VER-mac.dmg"
+DMG="$OUT/PM-Rebuild-$VER-mac.dmg"
 STAGE="build-mac/dmg"
 rm -rf "$STAGE" "$DMG" && mkdir -p "$STAGE"
 cp -R "$APP" "$STAGE/"
