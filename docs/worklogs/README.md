@@ -63,6 +63,12 @@ keeps its log here, so it can pick up after a compaction by reading it.
     (macOS ignores `ulimit -v`): it kills the run's process group over the
     memory cap (exit 125) or the time limit (124) and prints the peak. A
     test left alone once grew to 193 GB over 11 hours (2026-10-21).
+    On the Mac a crash can stick in unkillable UE and run_capped then waits on
+    it, so a break run that may crash loads `tests/differential/exit_on_fault.c`
+    (a backtrace and exit 128 + N, no stuck process): `clang -dynamiclib -o
+    <scratch>/exit_on_fault.dylib tests/differential/exit_on_fault.c`, then
+    `run_capped.py ... -- env DYLD_INSERT_LIBRARIES=<that> <cmd>` (through
+    `env`: `nice` strips DYLD_*, and so does any other system binary).
   - After two failed attempts at the same fix or mismatch, stop retrying:
     go back to the assembly and the callers and work out what is really
     happening before the third try.
