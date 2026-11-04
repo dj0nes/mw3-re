@@ -696,9 +696,9 @@ void times_view(const float* l, float* r) {
 // matrix with its yaw replaced by the camera's, times the view.
 void billboard_y(float camera_yaw) {
   zmth::MatrixStack& st = zmth::matrix_stack();
-  const zmth::Mat34 below = *st.slot[st.top - 1];
+  const zmth::Mat34 below = st.below();
   float yaw = 0.0f;
-  if (!st.identity[st.top - 1] && (!zero(below.m[6]) || !zero(below.m[8])))
+  if (!st.below_identity() && (!zero(below.m[6]) || !zero(below.m[8])))
     yaw = static_cast<float>(std::atan2(static_cast<double>(below.m[6]), static_cast<double>(below.m[8])));
   zmth::load_identity();
   zmth::rotate_y(camera_yaw - yaw);
@@ -716,7 +716,7 @@ void billboard_y(float camera_yaw) {
 void billboard_sphere() {
   zmth::MatrixStack& st = zmth::matrix_stack();
   float* m = st.matrix().m;
-  times_view(st.slot[st.top - 1]->m, m);
+  times_view(st.below().m, m);
   st.is_identity() = 0;
   for (int k : {1, 2, 4, 5, 7, 8}) m[k] = -m[k];
   float d[3] = {-m[9], m[10], m[11]};
@@ -749,7 +749,7 @@ void facade_top(const Model& m, float c[3]) {
   float v[3];
   if (about_centre) {
     facade_centre(m, c);
-    float* w = st.slot[st.top - 1]->m;
+    float* w = st.below().m;
     rotate_point(c, w, v);
     w[9] = w[9] + v[0], w[10] = w[10] + v[1], w[11] = w[11] + v[2];
   }
@@ -762,7 +762,7 @@ void facade_top(const Model& m, float c[3]) {
     default: zmth::load_model_view(); break;
   }
   if (about_centre) {
-    float* w = st.slot[st.top - 1]->m;
+    float* w = st.below().m;
     rotate_point(c, w, v);
     w[9] = w[9] - v[0], w[10] = w[10] - v[1], w[11] = w[11] - v[2];
     float* t = st.matrix().m;
