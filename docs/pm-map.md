@@ -343,10 +343,8 @@ PM world through the real path: `pm::zcls` read, textures, the shared walk
 (`src/frontend/pm_debug_world.cpp`). It is a debug flag; the program otherwise
 still stops at "data not loadable yet". All four worlds draw.
 
-Dev only, deleted when 0x543b10's submit replaces it: `draw_unlit`, every
-polygon's first material and the file's vertex colours, near clip only, no
-lights, fog, sets, priority, cycles or transparency. Stubbed: the camera's far
-clip (the file's 800 is opened to 4,000; the game's own setter is not ported),
+The models go through 0x543b10's own draw and device (`draw_pm_model`; sections below). Stubbed:
+the camera's far clip (the file's 800 is opened to 4,000; the game's own setter is not ported),
 world.zrd, sky, clutter, the world class's update, the interpreter's commands.
 
 What the walk needed from the shared code for PM's nodes
@@ -991,8 +989,38 @@ functions PM changed, and PM's new ones.
        the port's float is the same step at 24 bits. One exception at either precision: **a near
        cut under sets**, 0x54a6f0, leaves its fog to the arena (fixes.md), so the fog word of a
        vertex on the near plane is not compared there.
-     - Order from here. The device side: PM's device functions onto Render3D, which deletes
-       `draw_unlit`.
+     - **The device side** (`pm/gamez/zvideo/zvid_tl`, the shared flushes; `test_pm_device.py`).
+       The exe's 0x59d450, 0x59de30, 0x59e500, 0x59e830, 0x59eb60, 0x5a0060, 0x5a0390, 0x5a0f30,
+       0x5a0ea0 and flushes 0x59f550, 0x59f9e0 run against a Direct3D stub that keeps the state
+       its calls leave; every draw is compared with what Render3D gets, in order: primitive,
+       state, vertex bytes, and each fog colour. They are MW3's draws with the vertices ready,
+       and these differences:
+       - **A queue entry carries more** (0x24 bytes to MW3's 0x10): the fog colour when it was
+         queued, restored at the flush before it draws if it changed (0x59f78c), and an **additive**
+         flag, count's bit 31, from the image's +0x0c bit 2 (0x59e7c8), which makes the flush send
+         DESTBLEND ONE for that entry (0x59f76d: `(~count >> 31) << 2 | 2`) and 6 again after.
+         No texture in the four worlds has that bit at load (0 of 437, 396, 362, 400); mech and
+         interface textures not counted, and nothing found that sets it at run time. So the
+         additive path is checked against the exe but is not in the eye-check shots.
+       - **Limits:** overlay 3,000 polygons to MW3's 384 (`OverlayList::limit`, set by PM's
+         start); queue 3,000 and 12,000 vertices to MW3's 6,000 and 24,000 (the port keeps the
+         larger: more room, no report).
+       - **Lit untextured below full alpha draws nothing** (0x59de38 `jl` to the return), where
+         MW3's 0x57c700 queued it: fixes.md, candidates.
+       - **Sets:** the polygon, then each set with its own u, v over the shared TL; kind 1 multiplied
+         (ZERO, SRCCOLOR, clamped, SELECTARG1, no fog), kind 0 blended (wrap, MODULATE, fog). Kind 2,
+         the light map, comes with its shader and is skipped until then.
+       - **Strips** draw with CULLMODE CW (0x59b870) and only they do. FIX (A): culled here, per
+         triangle, and handed over as a list, so no backend's winding can decide it. The stub cannot
+         say which way CW cuts (the test uses the same formula as the port); that is by eye: the
+         other sign loses most of the terrain (`c1`).
+       Render3D gained `additive` (pipeline state: one more bit in the key, so no existing draw
+       changes pipeline; no shader changed) and `Primitive::kTriangles`. MW3 is untouched:
+       `--fly c1` and `c3` shots byte-identical before and after, `test_drawtable`, `test_shadows`,
+       `test_shadow_image`, `test_puffers` pass. Overlays over 64 corners go on as fans (FIX bug;
+       the exe overruns); not compared. Points still take MW3's `draw_point`; PM's 0x59ee90 batches
+       them (0x59f8a0): not ported yet, an eye-check item. `draw_unlit` is gone.
+     - Order from here. The light map's shader (`draw_light_map`).
 3. **The mission**: load, setup and the world parameters (`mission.cpp`
    114 new, 14 of the port's changed), the standalone missions
    (`readersa1..4`), the objectives.

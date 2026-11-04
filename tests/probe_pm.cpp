@@ -8,6 +8,9 @@
 #include <string>
 
 #include "gamez/zimage/zimg_library.h"
+#include "gamez/zvideo/zvid_ddd3d.h"
+#include "platform/render3d.h"
+#include "pm/gamez/zvideo/zvid_tl.h"
 #include "gamez/zclass/class.h"
 #include "gamez/zclass/camera.h"
 #include "gamez/zmodel/gmod_init.h"
@@ -997,6 +1000,92 @@ void probe_pm_set_bugs(int on) { zfix::options().bugs = on != 0; }
 float probe_pm_face(const float* p, float* n, int fpu53) {
   zfix::options().fpu53 = fpu53 != 0;
   return pm::zmod::face(p, n);
+}
+
+// PM's device functions (pm/gamez/zvideo/zvid_tl) into a recording Render3D.
+namespace device_probe {
+std::vector<int32_t> g_log;
+zvid::D3DTexture g_surfaces[8];
+zimg::TextureEntry g_entries[8];
+zimg::Texture g_images[8];
+class Recorder : public platform::Render3D {
+ public:
+  int32_t create_texture(int, int, const uint8_t*, uint8_t) override { return 0; }
+  void release_texture(int32_t) override {}
+  void update_texture(int32_t, int, int, const uint8_t*) override {}
+  void set_viewport(int, int, int, int) override {}
+  void clear(bool, uint8_t, uint8_t, uint8_t) override {}
+  void begin_scene() override {}
+  void end_scene() override {}
+  void draw(platform::Primitive type, const platform::TLVertex* v, int count, const platform::DrawState& s) override {
+    g_log.insert(g_log.end(), {1, static_cast<int32_t>(type), count, s.texture, s.address_u, s.address_v, s.blend, s.multiply,
+                               s.additive, s.depth_write, s.depth_always, s.alpha_modulate, s.fog, s.flat, s.color_select});
+    const auto* w = reinterpret_cast<const int32_t*>(v);
+    g_log.insert(g_log.end(), w, w + 8 * count);
+  }
+  void set_fog_color(uint8_t r, uint8_t g, uint8_t b) override { g_log.insert(g_log.end(), {6, r, g, b}); }
+  void present() override {}
+};
+Recorder g_recorder;
+int take(int32_t* out, int cap) {
+  const int n = static_cast<int>(g_log.size());
+  if (n > cap) return -1;
+  std::memcpy(out, g_log.data(), g_log.size() * 4);
+  g_log.clear();
+  return n;
+}
+}  // namespace device_probe
+
+void probe_pm_device_start(const int32_t* surfaces, const int32_t* format) {
+  using namespace device_probe;
+  zfix::options().bugs = false;
+  zvid::set_render3d(&g_recorder);
+  zvid::draw_state() = platform::DrawState{};
+  zvid::device_state() = zvid::DeviceState{};
+  zvid::device_state().z_write = 1;
+  zvid::transparent_queue().count = zvid::transparent_queue().vertex_count = 0;
+  zvid::overlay_list().count = 0, zvid::overlay_list().limit = zvid::OverlayList::kMaxPm;
+  zvid::set_pixel_format(format[0], format[1], format[2]);
+  zvid::channel_masks() = {static_cast<uint32_t>(format[3]), static_cast<uint32_t>(format[4]), static_cast<uint32_t>(format[5])};
+  zrndr::device_fog().active = 1;
+  for (int i = 0; i < 8; ++i) {
+    zvid::D3DTexture& t = g_surfaces[i];
+    t.handle = surfaces[i * 5], t.type = surfaces[i * 5 + 1], t.address_u = surfaces[i * 5 + 2], t.address_v = surfaces[i * 5 + 3];
+    g_images[i].stretch = static_cast<int16_t>(surfaces[i * 5 + 4]);
+    g_entries[i].image = &g_images[i], g_entries[i].surface = &t;
+  }
+  g_log.clear();
+}
+
+void probe_pm_device_fog(const float* colour) {
+  std::memcpy(zrndr::device_fog().sent, colour, 12);
+  zvid::send_fog_color();
+}
+
+int probe_pm_device_call(int kind, int count, const float* tl, int cull, int primitive, int rgb, int alpha, int tex, float fade, int overlay,
+                         int shade, int nsets, const int32_t* set_kinds, const int32_t* set_tex, const float* uvs, int32_t* out, int cap) {
+  using namespace device_probe;
+  ::zmod::Material m{};
+  m.alpha = static_cast<uint8_t>(alpha), m.rgb = static_cast<uint16_t>(rgb);
+  m.texture = tex >= 0 ? &g_entries[tex] : nullptr;
+  pm::zmod::ClipShadows sets;
+  sets.count = nsets;
+  for (int k = 0; k < nsets; ++k) {
+    sets.kind[k] = set_kinds[k], sets.texture[k] = &g_surfaces[set_tex[k]];
+    sets.uv[k].assign(uvs + k * count * 2, uvs + (k + 1) * count * 2);
+  }
+  pm::zmod::DeviceCall d;
+  d.kind = static_cast<pm::zmod::DeviceCall::Kind>(kind);
+  d.tl = tl, d.count = count, d.cull = static_cast<uint32_t>(cull), d.primitive = primitive, d.material = &m;
+  d.fade = fade, d.overlay = overlay, d.shade = shade, d.sets = nsets >= 0 ? &sets : nullptr;
+  pm::zvid::device_call(d);
+  return take(out, cap);
+}
+
+int probe_pm_device_flush(int which, int32_t* out, int cap) {
+  if (which == 0) zvid::flush_transparent();
+  else if (which == 1) zvid::flush_overlay();
+  return device_probe::take(out, cap);
 }
 
 // A material's texture says it has an alpha plane, or the material takes back what it had.

@@ -120,6 +120,8 @@ change.
 | Pirate's Moon's near and side clippers, 0x00549440.. with 0x0054fea0, 0x00550100, and 0x00552e50 (pm/gamez/zmodel/gmod_clip3d) | The scratch and each polygon's shadow sets hold 64 vertices, unchecked; a polygon that clips past them runs on over the next buffers | (bug) PM's polygons allow 1,023 vertices. The largest drawn has 64, and one near cut makes 65: on the exe in the emulator the textured clippers then fault (pm-map.md, gmod_matl.c; not seen in play) | The scratch holds the most the cuts can make (1.5n a plane: 1,534 near, 7,764 after the four sides), a polygon's shadow sets grow as needed; nothing is cut short. `pm_clip3d_keeps_the_largest_polygon_whole`, `pm_clip2d_keeps_large_polygons_whole` (the port alone: the exe overruns here) |
 | Pirate's Moon's model draw, 0x00543b10 (pm/gamez/zmodel/gmod_draw) | Fixed arenas, unchecked: 1,024 records a ref, 1,024 plane codes, seven extra UV sets a polygon. Shipped data stays well inside (largest model 500 vertices, largest ref 120 polygons, no polygon with extra materials, all four worlds and mechlib) | (bug) Past them the exe overwrites what follows | The records' arenas are sized for each ref; a model over 1,024 vertices draws nothing; a polygon keeps seven sets |
 | Pirate's Moon's polygon lighting, 0x005603f0 (pm/gamez/zmodel/gmod_draw) | A strip has no face normal; lit without vertex normals, the exe reads through null | (bug) A crash where a strip is lit with vertex shading off | It lights as if the normal were zero, what the read would give with a zero page |
+| Pirate's Moon's overlay polygons, 0x0059d450 and its siblings (pm/gamez/zvideo/zvid_tl) | The overlay list holds 64 corners a polygon and the exe copies a larger one past it | (bug) A shipped polygon can have 313 corners | A larger one goes on as fans of its first corner, always (a memory fix) |
+| Pirate's Moon's CULLMODE CW on a strip, 0x0059b870 (pm/gamez/zvideo/zvid_tl) | Direct3D culls a strip's back faces | (A) Each backend winds its own way | Culled by the draw, per triangle, handed over as a list |
 | Pirate's Moon's near clip of a polygon with sets, 0x0054a6f0 (pm/gamez/zmodel/gmod_clip3d) | The clipper for a textured polygon with shadow or light map sets does not carry the fog value (+0x10), which its sibling without sets does: a vertex the camera's plane made fogs from whatever its arena held | (bug) The sibling shows the intent; the leftover is another polygon's fog, or nothing | Carried when the polygon is fogged, behind `zfix bugs` |
 | Pirate's Moon's projected lights over a light map, 0x00562840, 0x00562120 (pm/gamez/zmodel/gmod_projected) | A polygon's centre and split points take the mean of each light map set's colours, but the test on the set's kind starts one set late: a first set that is a light map keeps what the last polygon left | (bug) The colours are plainly meant to be averaged like the other sets'; the first is simply missed | Averaged like the others, behind `zfix bugs` |
 | Pirate's Moon's projected lights' splits, 0x00562840 (pm/gamez/zmodel/gmod_projected) | Room for 2,048 triangles and 6,144 vertices, unchecked, as MW3's. A short light over a large polygon passes that in the emulator (2,202 triangles seen), overwriting the vertices | (bug) As MW3's row | A split that would not fit is not made |
@@ -624,6 +626,12 @@ Kept:
   held back; pilots leave a fight as they always have).
 
 ## Candidates for Owen
+
+- Pirate's Moon's lit untextured polygons below full alpha draw nothing (found 2026-11-04,
+  0x0059de38, `jl` to the return): the unlit ones and the textured ones queue as see-through,
+  and MW3's own 0x0057c700 queued them too. A lit coloured model fading out vanishes at once
+  where an unlit one fades. Ported as written. Options: keep it (as played), or queue them as
+  MW3 does.
 
 - A mobile field base's centroid is on the ground (dev, 2026-10-31, W34,
   ai.md 17.7): its constructor 0x00458a70 sets its node with 0x004d6c90(node,

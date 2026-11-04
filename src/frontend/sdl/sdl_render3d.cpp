@@ -63,12 +63,12 @@ fragment float4 fs_flat(Out in [[stage_in]], constant F& f [[buffer(0)]]) {
 )";
 
 uint32_t key_of(const platform::DrawState& s, bool textured) {
-  return textured | s.blend << 1 | s.multiply << 2 | s.depth_write << 3 | s.depth_always << 4 | s.wireframe << 5;
+  return textured | s.blend << 1 | s.multiply << 2 | s.depth_write << 3 | s.depth_always << 4 | s.wireframe << 5 | s.additive << 6;
 }
 
 bool same(const platform::DrawState& a, const platform::DrawState& b) {
   return a.texture == b.texture && a.address_u == b.address_u && a.address_v == b.address_v && a.blend == b.blend &&
-         a.multiply == b.multiply && a.depth_write == b.depth_write && a.depth_always == b.depth_always &&
+         a.multiply == b.multiply && a.additive == b.additive && a.depth_write == b.depth_write && a.depth_always == b.depth_always &&
          a.alpha_modulate == b.alpha_modulate && a.fog == b.fog && a.wireframe == b.wireframe && a.sharp == b.sharp;
 }
 
@@ -166,7 +166,7 @@ SDL_GPUGraphicsPipeline* SdlRender3D::pipeline(const platform::DrawState& s, boo
       ct.blend_state.dst_color_blendfactor = SDL_GPU_BLENDFACTOR_SRC_COLOR;
     } else {           // SRCALPHA, INVSRCALPHA
       ct.blend_state.src_color_blendfactor = SDL_GPU_BLENDFACTOR_SRC_ALPHA;
-      ct.blend_state.dst_color_blendfactor = SDL_GPU_BLENDFACTOR_ONE_MINUS_SRC_ALPHA;
+      ct.blend_state.dst_color_blendfactor = s.additive ? SDL_GPU_BLENDFACTOR_ONE : SDL_GPU_BLENDFACTOR_ONE_MINUS_SRC_ALPHA;
     }
     ct.blend_state.src_alpha_blendfactor = SDL_GPU_BLENDFACTOR_ONE;
     ct.blend_state.dst_alpha_blendfactor = SDL_GPU_BLENDFACTOR_ONE_MINUS_SRC_ALPHA;
@@ -297,6 +297,8 @@ void SdlRender3D::draw(platform::Primitive type, const platform::TLVertex* v, in
     for (int i = 0; i + 2 < count; ++i)
       if (i & 1) vertices_.insert(vertices_.end(), {v[i + 1], v[i], v[i + 2]});
       else vertices_.insert(vertices_.end(), {v[i], v[i + 1], v[i + 2]});
+  } else if (type == platform::Primitive::kTriangles) {
+    vertices_.insert(vertices_.end(), v, v + count);
   } else {
     for (int i = 0; i < count; ++i) {
       platform::TLVertex a = v[i], b = v[i], c = v[i], d = v[i];

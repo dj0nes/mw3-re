@@ -22,7 +22,7 @@ struct TLVertex {                  // D3DTLVERTEX, 0x20 bytes
 };
 static_assert(sizeof(TLVertex) == 0x20, "TLVertex must match D3DTLVERTEX");
 
-enum class Primitive : uint8_t { kPoints = 1, kStrip = 5, kFan = 6 };  // D3DPRIMITIVETYPE values used
+enum class Primitive : uint8_t { kPoints = 1, kTriangles = 4, kStrip = 5, kFan = 6 };  // D3DPRIMITIVETYPE values used
 
 // The render and texture-stage states the draw functions set (section 4).
 struct DrawState {
@@ -31,6 +31,7 @@ struct DrawState {
   uint8_t address_v = 1;           // ADDRESSV
   bool blend = false;              // ALPHABLENDENABLE with SRCALPHA / INVSRCALPHA
   bool multiply = false;           // the shadow passes: SRCBLEND ZERO, DESTBLEND SRCCOLOR
+  bool additive = false;           // with blend: DESTBLEND ONE (Pirate's Moon's flagged textures, 0x0059f76d)
   bool depth_write = true;         // ZWRITEENABLE
   bool depth_always = false;       // ZFUNC ALWAYS (overlays), else GREATEREQUAL
   bool alpha_modulate = false;     // ALPHAOP MODULATE (transparent), else SELECTARG1

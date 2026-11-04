@@ -668,3 +668,4 @@ Known quirks the rebuild deliberately keeps:
 - Shooting off an arm with a weapon in its hand no longer reads memory the game has just freed (harmless on Windows 98, a possible crash today).
 - A crash late in a fight (seen in Operation 4's last fight): the graphics' matrix stack no longer writes through a bad entry when it is pushed or popped out of step; the slip is refused and logged instead, and the stack is cleared each frame. Its cause was the rebuild's own (a shortcut that took a moving mech's position on the shared stack instead of on its own), and that is fixed too.
 - Pirate's Moon: a textured polygon with a shadow or light map on it, cut by the camera's near plane, keeps its fog where it is cut (the original fogged those corners from leftover memory).
+- Pirate's Moon: an overlay polygon of more than 64 corners no longer writes past the list that holds it (the original overran it).

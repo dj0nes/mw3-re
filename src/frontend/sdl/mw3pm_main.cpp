@@ -12,7 +12,7 @@
 //                    from MechWarrior 3's)
 //   --hidden         no message box (the tests)
 //   --nosound        accepted, as mw3's; nothing plays yet
-//   --fly NAME       debug only: world NAME, unlit: W/S/A/D move, Q/E down/up,
+//   --fly NAME       debug only: world NAME: W/S/A/D move, Q/E down/up,
 //                    arrows turn, Shift fast, P prints the view, Escape quits
 #include <SDL3/SDL.h>
 

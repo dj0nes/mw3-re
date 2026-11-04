@@ -55,6 +55,8 @@ int32_t key(int32_t index) {
   return k;
 }
 
+}  // namespace
+
 // FIX (A): IDirect3DDevice3::SetRenderState (vt+0x58), kept as the state it sets.
 void set_render_state(int32_t state, int32_t value) {
   platform::DrawState& d = g_draw;
@@ -66,6 +68,7 @@ void set_render_state(int32_t state, int32_t value) {
     case 20:                                      // DESTBLEND: 6 INVSRCALPHA, 3 SRCCOLOR
       (state == 19 ? g_src_blend : g_dest_blend) = value;
       d.multiply = g_src_blend == 1 && g_dest_blend == 3;
+      d.additive = g_src_blend == 5 && g_dest_blend == 2;
       break;
     case 23: d.depth_always = value == 8; break;  // ZFUNC: 8 ALWAYS, 7 GREATEREQUAL
     case 27: d.blend = value != 0; break;         // ALPHABLENDENABLE
@@ -111,6 +114,7 @@ void set_shade(int32_t mode) {
   if (g_state.shade_mode != mode) set_render_state(9, mode), g_state.shade_mode = mode;
 }
 
+namespace {
 int32_t ftol(float x) { return crt::msvc_ftol(x); }
 
 // `x - -0.5` then _ftol: rounds the 0..255 colours.
@@ -132,6 +136,8 @@ int32_t clamp_byte(int32_t v) { return v > 0xff ? 0xff : v < 0 ? 0 : v; }
 
 uint32_t rgb_bits(uint32_t r, uint32_t g, uint32_t b) { return ((r << 8 | g) << 8) | b; }
 
+}  // namespace
+
 // A display-packed colour to ARGB, the way 0x0057bf80 unpacks it.
 uint32_t unpack(uint32_t c, int32_t alpha) {
   const ChannelMasks& m = g_masks;
@@ -141,6 +147,7 @@ uint32_t unpack(uint32_t c, int32_t alpha) {
   return v << 8 | (c & m.b) << (f.b_shift_right & 31);
 }
 
+namespace {
 uint32_t opacity_alpha(float opacity) {
   return !(opacity >= 1.0f) ? static_cast<uint32_t>(ftol(opacity * 255.0f)) << 24 : 0xff000000u;
 }
@@ -236,12 +243,13 @@ void shadow_passes(int32_t count, const D3DTexture* texture) {
   set_render_state(28, 1);         // FOGENABLE: the only place the game turns fog on
 }
 
+}  // namespace
+
 // A slot in the overlay list, or the report (each site has its own line;
 // the value printed is the list's count, not count + 1).
-OverlayPoly* overlay_slot(int32_t type, int32_t count, const D3DTexture* texture, int line,
-                          const char* need = "need") {
+OverlayPoly* overlay_slot(int32_t type, int32_t count, const D3DTexture* texture, int line, const char* need) {
   OverlayList& o = g_overlay;
-  if (o.count >= OverlayList::kMax) {
+  if (o.count >= o.limit) {
     char msg[64];
     std::snprintf(msg, sizeof msg, "Not enough ZVID_MAX_OVERWRITE_POLYS: %s %d", need, static_cast<int>(o.count));
     zerr::report(0x400, kFile, line, msg);
@@ -254,6 +262,7 @@ OverlayPoly* overlay_slot(int32_t type, int32_t count, const D3DTexture* texture
   return &p;
 }
 
+namespace {
 // The textured draws' tail: queue, overlay or draw. Lines: the overlay
 // reports for a transparent and an opaque polygon.
 void textured_tail(int32_t count, const D3DTexture* texture, float opacity, int32_t overlay, int32_t type,
@@ -360,6 +369,7 @@ TLVertex* queue_transparent(int32_t primitive, int32_t count, const D3DTexture* 
   p.count = count;
   p.texture = texture;
   p.verts = &q.verts[q.vertex_count];
+  p.additive = false, p.own_fog = false;
   q.vertex_count = need;
   return p.verts;
 }
@@ -694,8 +704,17 @@ void flush_transparent() {
       set_address(p.texture);
     }
     set_texture(p.texture);
+    if (p.additive != g_draw.additive) set_render_state(20, p.additive ? 2 : 6);
+    if (p.own_fog) {
+      zrndr::DeviceFog& f = zrndr::device_fog();
+      if (f.sent[0] != p.fog[0] || f.sent[1] != p.fog[1] || f.sent[2] != p.fog[2]) {
+        std::memcpy(f.sent, p.fog, sizeof p.fog);
+        send_fog_color();
+      }
+    }
     draw_primitive(p.primitive, p.verts, p.count);
   }
+  if (g_draw.additive) set_render_state(20, 6);
   if (s.alpha_blend != 0) set_render_state(27, 0), s.alpha_blend = 0;
   if (s.z_write != 1) set_render_state(14, 1), s.z_write = 1;
   q.count = 0;

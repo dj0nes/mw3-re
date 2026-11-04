@@ -35,6 +35,11 @@ struct TransparentPoly {           // 0x0080cd9c, 0x10 bytes each
   int32_t count;                   // +0x04 vertices
   const D3DTexture* texture;       // +0x08 null when untextured
   TLVertex* verts;                 // +0x0c into TransparentQueue::verts
+  // Pirate's Moon's entries only: DESTBLEND ONE, and the fog colour to draw it under
+  // (entry's +0x04 bit 31 and +0x10, 0x0059e7da, 0x0059f78c).
+  bool additive = false;
+  bool own_fog = false;
+  float fog[3] = {};
 };
 
 struct TransparentQueue {
@@ -58,8 +63,10 @@ struct OverlayPoly {               // 0x008dfc9c, 0x80c bytes each
 };
 struct OverlayList {
   static constexpr int32_t kMax = 0x180;  // ZVID_MAX_OVERWRITE_POLYS
+  static constexpr int32_t kMaxPm = 0xbb8;  // Pirate's Moon's (0x0059e535)
+  int32_t limit = kMax;            // set by Pirate's Moon's start
   int32_t count = 0;               // 0x00809318
-  OverlayPoly polys[kMax] = {};    // 0x008dfc9c
+  OverlayPoly polys[kMaxPm] = {};  // 0x008dfc9c
 };
 OverlayList& overlay_list();
 
@@ -182,6 +189,17 @@ const uint32_t* multi_buffer();
 // 0x00579f50's table fill (0x579fe9..0x57a165), the part the model draw and
 // the puffers use: points zmod::draw_table() at the draw functions above.
 void install_model_draw_table();
+
+// The device calls and packing the draw functions share, for Pirate's Moon's own
+// (pm/gamez/zvideo/zvid_tl), which take their vertices ready.
+void set_render_state(int32_t state, int32_t value);
+void set_texture_stage_state(int32_t type, int32_t value);
+void set_texture(const D3DTexture* t);
+void set_address(const D3DTexture* t);
+void set_shade(int32_t mode);
+void draw_primitive(int32_t primitive, const TLVertex* verts, int32_t count);
+uint32_t unpack(uint32_t color, int32_t alpha);
+OverlayPoly* overlay_slot(int32_t type, int32_t count, const D3DTexture* texture, int line, const char* need = "need");
 
 // The block every transparent draw inlines (0x0057bf80, 0x0057c2f0, 0x0057caa0,
 // 0x0057ce20, 0x0057d160, 0x0057d690, 0x0057dba0): reserves a polygon and its

@@ -986,6 +986,40 @@ TEST(sdl_render3d_fog_colour_is_per_draw) {
   std::printf("fogged quads: left %08x, right %08x\n", left, right);
   EXPECT((left & 0xffffff) == 0xff0000u && (right & 0xffffff) == 0x0000ffu);
 }
+// Pirate's Moon's draws: a triangle list, and a blend that adds (DESTBLEND ONE, 0x0059f76d)
+// beside the plain blend, which must keep its own pipeline.
+TEST(sdl_render_adds_and_takes_triangle_lists) {
+  if (!SDL_InitSubSystem(SDL_INIT_VIDEO)) return;
+  sdlfe::SdlWindow w;
+  EXPECT(w.init(true));
+  w.create("mw3 additive test", 640, 480);
+  sdlfe::SdlRender3D* r = w.render();
+  r->set_viewport(0, 0, 640, 480);
+  r->clear(true, 200, 0, 0);
+  r->begin_scene();
+  const auto v = [](float x, float y) {
+    platform::TLVertex t{};
+    t.sx = x, t.sy = y, t.sz = 0.5f, t.rhw = 1.0f, t.diffuse = 0x8000ff00u, t.specular = 0xff000000u;
+    return t;
+  };
+  platform::DrawState s;
+  s.blend = true, s.depth_write = false, s.depth_always = true, s.alpha_modulate = true;
+  const platform::TLVertex plain[4] = {v(320, 0), v(640, 0), v(640, 480), v(320, 480)};
+  r->draw(platform::Primitive::kFan, plain, 4, s);
+  s.additive = true;
+  const platform::TLVertex tris[6] = {v(0, 0), v(320, 0), v(320, 480), v(0, 0), v(320, 480), v(0, 480)};
+  r->draw(platform::Primitive::kTriangles, tris, 6, s);
+  r->end_scene();
+  r->present();
+  std::vector<uint32_t> f;
+  int fw = 0, fh = 0;
+  if (!r->read_back(&f, &fw, &fh)) return;  // no GPU on this runner
+  const uint32_t added = f[240 * fw + fw / 4], blended = f[240 * fw + fw * 3 / 4];
+  std::printf("added %08x, blended %08x\n", added, blended);
+  EXPECT((added >> 16 & 255) == 200 && (added >> 8 & 255) >= 126 && (added >> 8 & 255) <= 130);  // red kept
+  EXPECT((blended >> 16 & 255) >= 98 && (blended >> 16 & 255) <= 102 && (blended >> 8 & 255) >= 126 && (blended >> 8 & 255) <= 130);
+}
+
 // Playtest W25: a message box over the lab's (or a mission's) GPU frame at
 // 16:9 showed over the 16-bit buffer's 640x480 copy of it, low-res until
 // answered. The frame shown is kept at its own size (hold_frame) and put

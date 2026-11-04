@@ -4238,3 +4238,14 @@ The screen after the pilot for INSTANT ACTION, 0x00488bc0 (details:
   polygon left in that memory. The same polygon without the shadow is right.
   Read from the code and seen once in about 3,000 test draws; not yet seen in
   play. The rebuild works the fog out. (docs/pm-map.md, gmod_matl.c)
+
+- Pirate's Moon: a coloured, untextured model that is lit and fading out does not
+  fade. It vanishes the moment it stops being fully solid, while an unlit one fades
+  properly, and MechWarrior 3 faded both. The game's draw for that one case simply
+  returns. Read from the code; not looked for in play. Left as it is for now.
+  (docs/fixes.md, candidates)
+
+- Pirate's Moon can draw a texture so that it adds light rather than covering what
+  is behind it, chosen by a flag on the texture itself. MechWarrior 3's renderer
+  cannot. None of the textures in the four worlds has the flag when they load, so
+  what it was meant for is still open. (docs/pm-map.md, gmod_matl.c)

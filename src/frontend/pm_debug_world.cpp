@@ -18,14 +18,18 @@
 #include "gamez/zmodel/gmod_draw.h"
 #include "gamez/zmodel/gmod_init.h"
 #include "gamez/zmodel/gmod_matl.h"
+#include "gamez/zrender/zrndr_flare.h"
 #include "gamez/zrender/zrndr_fog.h"
 #include "gamez/zutil/zutl_path.h"
 #include "gamez/zvideo/zvid_dd.h"
 #include "gamez/zvideo/zvid_ddd3d.h"
 #include "gamez/zvideo/zvid_format.h"
 #include "platform/render3d.h"
+#include "pm/gamez/zmodel/gmod_clip3d.h"
 #include "pm/gamez/zmodel/gmod_const.h"
+#include "pm/gamez/zmodel/gmod_cull.h"
 #include "pm/gamez/zmodel/gmod_draw.h"
+#include "pm/gamez/zvideo/zvid_tl.h"
 
 namespace frontend {
 namespace {
@@ -37,90 +41,16 @@ zcls::Node* camera_node() {
 
 zvid::D3DTexture g_fallback{};
 
-struct Vert {
-  float pos[3], uv[2], color[3];
-};
-
-Vert cut(const Vert& a, const Vert& b, float near_z) {
-  const float t = (near_z - a.pos[2]) / (b.pos[2] - a.pos[2]);
-  Vert v;
-  for (int i = 0; i < 3; ++i) v.pos[i] = a.pos[i] + (b.pos[i] - a.pos[i]) * t;
-  for (int i = 0; i < 2; ++i) v.uv[i] = a.uv[i] + (b.uv[i] - a.uv[i]) * t;
-  for (int i = 0; i < 3; ++i) v.color[i] = a.color[i] + (b.color[i] - a.color[i]) * t;
-  return v;
-}
-
-// Dev only, deleted when 0x00543b10's submit lands: every polygon's first
-// material and the file's vertex colours, near clip only (the GPU does the
-// sides), no lights, fog, sets or priority.
-void draw_piece(const pm::zmod::Polygon& p, const std::vector<float>& cam, const int* idx, int n) {
-  const zmod::Material& mat = *p.materials[0];
-  const zmth::Projection& pr = zmth::projection();
-  std::vector<Vert> in(static_cast<size_t>(n)), out;
-  for (int i = 0; i < n; ++i) {
-    Vert& v = in[static_cast<size_t>(i)];
-    const int k = idx[i];
-    std::memcpy(v.pos, &cam[3 * static_cast<size_t>(p.vertex_indices[k])], 12);
-    v.uv[0] = p.uvs ? p.uvs[0][2 * k] : 0, v.uv[1] = p.uvs ? p.uvs[0][2 * k + 1] : 0;
-    std::memcpy(v.color, p.colors + 3 * k, 12);
-  }
-  for (int i = 0; i < n; ++i) {
-    const Vert& a = in[static_cast<size_t>(i)];
-    const Vert& b = in[static_cast<size_t>((i + 1) % n)];
-    const bool ain = a.pos[2] >= pr.near_z, bin = b.pos[2] >= pr.near_z;
-    if (ain) out.push_back(a);
-    if (ain != bin) out.push_back(cut(a, b, pr.near_z));
-  }
-  const int count = static_cast<int>(out.size());
-  if (count < 3) return;
-  zmod::TLVertex* tl = zmod::clip2d().tl;
-  for (int i = 0; i < count; ++i) {
-    const Vert& v = out[static_cast<size_t>(i)];
-    const float w = pr.near_z / v.pos[2];
-    tl[i].sz = w;
-    tl[i].sx = pr.fx_near * v.pos[0] * w + pr.cx;
-    tl[i].sy = pr.fy_near * v.pos[1] * w + pr.cy;
-    tl[i].tu = v.uv[0], tl[i].tv = v.uv[1];
-    std::memcpy(zmod::clip2d().work[i].color, v.color, 12);
-  }
-  zmod::DrawTable& t = zmod::draw_table();
-  if ((mat.flags & 1) && mat.texture && p.uvs)
-    t.textured(t.ctx, count, mat.texture->surface, 1.0f, 0);
-  else
-    t.flat(t.ctx, mat.rgb, 255, count, p.priority, 0);
-}
-
-void draw_polygon(const pm::zmod::Polygon& p, const std::vector<float>& cam) {
-  const int n = static_cast<int>(p.flags & 0x3ff);
-  if (n < 3 || p.material_count < 1 || !p.materials || !p.materials[0]) return;
-  if (p.flags & 0x2000) {  // a strip: its triangles, the device's primitive stays a fan
-    for (int i = 0; i + 2 < n; ++i) {
-      const int tri[3] = {i, i + 1, i + 2};
-      draw_piece(p, cam, tri, 3);
-    }
-    return;
-  }
-  std::vector<int> all(static_cast<size_t>(n));
-  for (int i = 0; i < n; ++i) all[static_cast<size_t>(i)] = i;
-  draw_piece(p, cam, all.data(), n);
-}
-
-int32_t draw_unlit(zcls::Node* node, uint32_t) {
-  static std::vector<float> cam;
-  pm::zmod::Model& m = *node->pm_model;
-  zmth::Mat34 local;
-  zmth::push(&local);
-  float centre[3] = {};
-  if (!pm::zmod::prepare_model(m, centre)) return 0;
-  const int32_t verts = m.count(0x14), polys = m.count(0x10);
-  if (verts > 0 && polys > 0) {
-    cam.resize(3 * static_cast<size_t>(verts));
-    zmth::transform_points_to(reinterpret_cast<const zmth::Vec3*>(m.vertices), reinterpret_cast<zmth::Vec3*>(cam.data()),
-                              static_cast<uint32_t>(verts));
-    for (int32_t i = 0; i < polys; ++i) draw_polygon(m.polygons[i], cam);
-  }
-  zmth::pop();
-  return 0;
+// The view's clip and the cull's, as 0x00548990 and 0x0053b730 leave them, then the draw.
+int32_t draw_pm_model(zcls::Node* node, uint32_t mask) {
+  const zmth::Projection& v = zmth::projection();
+  pm::zmod::Clip3dState& c = pm::zmod::clip3d_state();
+  c.near_z = v.near_z;
+  c.left = v.origin_x, c.top = v.origin_y;
+  c.right = v.origin_x + v.half_w * 2.0f - 0.001f, c.bottom = v.origin_y + v.half_h * 2.0f - 0.001f;
+  pm::zmod::CullState& k = pm::zmod::cull_state();
+  k.far_z = v.far_z, k.slope_x = v.cot_h, k.slope_y = v.cot_v;
+  return pm::zmod::draw_model(node, mask, pm::zvid::device_call);
 }
 
 }  // namespace
@@ -157,7 +87,9 @@ std::string pm_world_load(const std::string& mission, platform::Render3D* render
 
   zvid::install_model_draw_table();
   zmod::walk_state() = zmod::WalkState{};
-  zmod::walk_state().draw = draw_unlit;
+  zmod::walk_state().draw = draw_pm_model;
+  zvid::overlay_list().limit = zvid::OverlayList::kMaxPm;
+  pm::zmod::draw_state().flare = zrndr::flare_add;  // 0x00588910
   zcls::WorldRenderHooks& h = zcls::world_render_hooks();
   h = zcls::WorldRenderHooks{};
   h.begin_scene = [](void*) { zvid::scene_begin(); };

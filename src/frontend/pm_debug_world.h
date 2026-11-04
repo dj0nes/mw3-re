@@ -4,8 +4,7 @@
 namespace platform { class Render3D; }
 
 // mw3pm's debug start (ours): one Pirate's Moon world on screen before the
-// game around it. The polygons go through the real seam (zmod::DrawTable) by a
-// dev-only unlit draw, which 0x00543b10's submit replaces (docs/pm-map.md).
+// game around it. The models go through 0x00543b10 (docs/pm-map.md).
 namespace frontend {
 
 // Empty, or what went wrong. `eye` is set over the middle of the world.
