@@ -5,6 +5,7 @@
 #include <cstring>
 #include <string>
 
+#include "gamez/zclass/class.h"
 #include "gamez/zgame/zgame_table.h"
 #include "gamez/zreader/zreader.h"
 #include "gamez/zutil/zutl_path.h"
@@ -602,6 +603,44 @@ void probe_pm_model_view(const float* below, float* out) {
   zmth::load_model_view();
   std::memcpy(out, t.m, 48);
   st = saved;
+}
+// test_pm_nodebox.py: a node's model box 0x004fef40 and its box's corners
+// 0x004fda40 under `world` (null: no matrix): flags, the two boxes, the model's
+// sphere, the corners.
+int probe_pm_node_box(int node, const float* world, uint8_t* out) {
+  ::zcls::Node* n = ::zcls::node_at(node);
+  const int ret = ::zcls::node_model_box(n);
+  zmth::MatrixStack& st = zmth::matrix_stack();
+  const zmth::MatrixStack saved = st;
+  zmth::Mat34 m;
+  st.top = 0;
+  if (world) {
+    std::memcpy(m.m, world, 48);
+    st.slot[0] = &m, st.identity[0] = 0;
+  } else {
+    st.slot[0] = nullptr, st.identity[0] = 1;
+  }
+  float corners[8][3] = {};
+  const int status = ::zcls::node_box_corners(n, corners);
+  st = saved;
+  const uint32_t flags = n->flags();
+  std::memcpy(out, &ret, 4), std::memcpy(out + 4, &status, 4), std::memcpy(out + 8, &flags, 4);
+  std::memcpy(out + 12, n->raw + 0x8c, 24);
+  std::memset(out + 36, 0, 16);
+  if (n->pm_model) std::memcpy(out + 36, n->pm_model->header + 0x48, 16);
+  std::memcpy(out + 52, corners, sizeof corners);
+  return 52 + sizeof corners;
+}
+void probe_pm_flip_flags(int node, uint32_t mask) {
+  ::zcls::Node* n = ::zcls::node_at(node);
+  n->set_flags(n->flags() ^ mask);
+}
+void probe_pm_set_light(int node, const float* points, int count) {
+  auto* l = new ::zmod::Light{};
+  std::memcpy(l->raw + 0xc, &count, 4);
+  l->vertices = new float[static_cast<size_t>(count) * 3];
+  std::memcpy(l->vertices, points, static_cast<size_t>(count) * 12);
+  ::zcls::node_at(node)->pm_model->lights = l;
 }
 void probe_pm_set_model(int node, int off, uint32_t v) {
   pm::zmod::Model* m = ::zcls::node_at(node)->pm_model;

@@ -43,6 +43,7 @@ struct Table {
   // PM's node points at its box, its light data is 0x100 bytes.
   zcls::Node* (*zcls_node_alloc)();                      // 0x004eacd0; PM 0x004fc550
   int (*zcls_node_set_active)(zcls::Node* node, int on);  // 0x004eb170; PM 0x004fca50
+  int (*zcls_node_model_box)(zcls::Node* node);          // 0x004ed220; PM 0x004fef40 (its model type)
   zcls::Node* (*zcls_light_create)();                    // 0x004fa720; PM 0x0050e470
   // A mission's anim.zbd (zeff/zeff_anim_init.h): PM's is version 50.
   int (*zeff_anim_read_zbd)();  // 0x0050a0e0; PM 0x00523140

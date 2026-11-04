@@ -89,6 +89,8 @@ PM model, so a PM world never silently draws nothing.
 - **`pmcore`**: the library of `src/pm/`, on top of `mw3core`.
 - **`mw3pm`** (`src/frontend/sdl/mw3pm_main.cpp`):
   - It takes `mw3pm [install-dir] [--write-dir DIR] [--hidden]`.
+    `--fly NAME` is a debug start into one world (docs/pm-map.md, The debug
+    start).
   - It uses PM's table and its own write dir: SDL's app data for "Pirate's
     Moon", apart from MW3's.
   - The install comes from the command line, else `mw3pm.cfg`'s

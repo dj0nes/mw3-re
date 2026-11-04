@@ -12,6 +12,7 @@
 #include "gamez/zclass/sound.h"
 #include "gamez/zerror/zerr.h"
 #include "gamez/zmath/zmth_matrix.h"
+#include "gamez/zgame/zgame_table.h"
 #include "gamez/zmodel/gmod_const.h"
 
 namespace zcls {
@@ -267,7 +268,8 @@ int node_box_corners(Node* node, float out[8][3]) {
   zmth::MatrixStack& s = zmth::matrix_stack();
   const bool top_identity = s.slot[s.top] ? s.is_identity() != 0 : true;
   float box[6];
-  std::memcpy(box, node->raw + 0x74, sizeof box);
+  // PM's goes through the node's box pointer (0x004fda40, its +0x70: pm_box).
+  std::memcpy(box, node->pm_box ? node->pm_box : reinterpret_cast<const float*>(node->raw + 0x74), sizeof box);
   if (top_identity) {
     if (local_identity) {
       static const int kPick[8][3] = {{0, 1, 5}, {3, 1, 5}, {3, 1, 2}, {0, 1, 2},
@@ -504,8 +506,10 @@ void build(float* m, const float* rot, const float* pos, const float* scale) {
 }
 }  // namespace
 
+int node_model_box(Node* node) { return zgame::game().zcls_node_model_box(node); }
+
 // Mech3.exe 1.2 @ 0x004ed220
-int node_model_box(Node* node) {
+int mw3_node_model_box(Node* node) {
   if (!node) return zerr::report(0x400, kFile, 0xebc, "Null node pointer."), 5;
   float* box = reinterpret_cast<float*>(node->raw + 0x8c);
   if (node->model) {

@@ -15,7 +15,8 @@ int node_update(Node* node);        // 0x004eca00
 // A test's observer, told of each node_update before it runs (null in the game).
 using NodeObserver = void (*)(Node* node);
 NodeObserver& node_update_observer();
-int node_model_box(Node* node);     // 0x004ed220  +0x8c from the model, flag 0x200
+int node_model_box(Node* node);     // the running game's (zgame::Table)
+int mw3_node_model_box(Node* node);  // 0x004ed220  +0x8c from the model, flag 0x200
 int node_children_box(Node* node);  // 0x004ecf70  +0xa4 from the children's, flag 0x400
 int node_bound_box(Node* node);     // 0x004ecc00  +0x74 = model box u children's box, flag 0x100
 

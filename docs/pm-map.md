@@ -329,10 +329,48 @@ PM's ported functions use the shared accessors, never PM's raw offsets,
 with a one-line comment where the offset differs. A node's model is
 `model` (MW3's) or `pm_model` (PM's; `model` stays null): the shared code
 reading `model` (73 places: gamez/zeffect/zeff_anim_events.cpp 11, gamez/zclass/cls_di.cpp 8, gamez/zeffect/zeff_anim_save.cpp 7, gamez/zclass/cls_node.cpp 7, gamez/zclass/camera.cpp 6, gamez/zinterp/zinterp.cpp 5, gamez/zgeometry/zgeo_model.cpp 5, mech3/zainet_inout.cpp 3, gamez/zclass/cls_mechlib.cpp 3, gamez/zmodel/gmod_cull.cpp 2, gamez/zclass/cls_zbd.cpp 2, gamez/zclass/class.cpp 2, pm/gamez/zclass/cls_zbd.cpp 1, mech3/veh_controls.cpp 1, mech3/veh_basic_object.cpp 1, mech3/mech_skin.cpp 1, mech3/mech_build.cpp 1, mech3/app_turret.cpp 1, mech3/app_mech.cpp 1, gamez/zmodel/gmod_draw.cpp 1, gamez/zeffect/zeff_anim_run.cpp 1, gamez/zdeclient/zdec_crater.cpp 1, gamez/zclass/cls_util.cpp 1, gamez/zclass/cls_node.h 1) must be routed before a PM world is
-drawn or collided with. PM's loader says in the log how many nodes carry a
-PM model, so a PM world never silently draws nothing.
+drawn or collided with, apart from the walk and the model box (The debug start,
+below). PM's loader says in the log how many nodes carry a PM model, so a PM
+world never silently draws nothing.
 
 See docs/games-layout.md.
+
+## The debug start (2026-11-04)
+
+`mw3pm --fly c1 [--pos X Y Z] [--look YAW PITCH] [--shot FILE.bmp]` draws one
+PM world through the real path: `pm::zcls` read, textures, the shared walk
+`zcls::render_world`, `zmod::DrawTable`, `Render3D`
+(`src/frontend/pm_debug_world.cpp`). It is a debug flag; the program otherwise
+still stops at "data not loadable yet". All four worlds draw.
+
+Dev only, deleted when 0x543b10's submit replaces it: `draw_unlit`, every
+polygon's first material and the file's vertex colours, near clip only, no
+lights, fog, sets, priority, cycles or transparency. Stubbed: the camera's far
+clip (the file's 800 is opened to 4,000; the game's own setter is not ported),
+world.zrd, sky, clutter, the world class's update, the interpreter's commands.
+
+What the walk needed from the shared code for PM's nodes:
+
+- `draw_model_of` skipped a node whose `model` is null: it now also takes
+  `pm_model`, and the morph set-up runs on MW3's model only.
+- `node_model_box` (MW3 0x4ed220, PM 0x4fef40) goes through the game table.
+  PM's 0x55b1c0 and 0x55b360 read the same header offsets as MW3's 0x53b4e0 and
+  0x53b680, so PM's calls the shared `zmod::model_box`.
+- `node_box_corners` (MW3 0x4ebdb0, PM 0x4fda40) reads PM's box through its
+  pointer (`pm_box`, PM's +0x70). It read box 0, empty on PM's world nodes, so
+  every sphere sat at the origin and whole cells went missing depending on where
+  the origin stood against the view.
+
+`test_pm_nodebox.py` checks those two against the exe. Other shared code reading
+the box at +0x74 directly (`class.cpp`: `node_box_xz` and three more) has not
+met PM's nodes yet and is listed for the world class. The walk itself needed no
+fork: PM's 0x509dd0, 0x509830 and 0x5050e0 are MW3's with PM's offsets.
+
+Seen on screen, not yet explained: polygons with flag 0x2000 are strips (drawn as
+triangles here); a large unlit shape in each world's view from the middle (black
+in c1, c3 and c4, tan in c2), which may be a dome or a sky piece the game moves;
+in c4 a flat green area beside the grid texture, which may be a priority or
+overlay matter this draw leaves out. Each is to look at again under the real draw.
 
 ## A porting order
 

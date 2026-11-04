@@ -7,6 +7,8 @@
 #include "gamez/zclass/list.h"
 #include "gamez/zclass/sound.h"
 #include "gamez/zerror/zerr.h"
+#include "gamez/zmodel/gmod_const.h"
+#include "pm/gamez/zmodel/gmod_const.h"
 
 namespace pm::zcls {
 
@@ -35,6 +37,17 @@ Node* node_alloc() {
   n->put<int32_t>(0xbc, 0);
   n->pm_box = reinterpret_cast<const float*>(n->raw + 0x74);  // PM +0x70
   return n;
+}
+
+int node_model_box(Node* node) {
+  if (!node) return zerr::report(0x400, "C:\\zipper\\branchep1\\gamez\\zClass\\Class.c", 0xf84, "Null node pointer."), 5;
+  if (pm::zmod::Model* m = node->pm_model) {
+    ::zmod::model_box(m->header, m->vertices, m->lights, m->morphs, reinterpret_cast<float*>(node->raw + 0x8c));
+    node->set_flags(node->flags() | 0x200);
+  } else {
+    node->set_flags(node->flags() & ~0x200u);
+  }
+  return 0;
 }
 
 int node_set_active(Node* node, int on) {

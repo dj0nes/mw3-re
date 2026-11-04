@@ -13,5 +13,8 @@ namespace pm::zcls {
 // Pirate's Moon 1.0 @ 0x004fca50: MW3's, with a light's static bit at
 // PM's 0x200 (+0xb0 of the shared Light, PM's +0xe0).
 int node_set_active(::zcls::Node* node, int on);
+// Pirate's Moon 1.0 @ 0x004fef40: MW3's on PM's model. Its 0x0055b1c0 and
+// 0x0055b360 read the same header offsets as MW3's, so zmod::model_box is shared.
+int node_model_box(::zcls::Node* node);
 
 }  // namespace pm::zcls

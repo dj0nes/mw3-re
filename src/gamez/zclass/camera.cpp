@@ -66,8 +66,8 @@ void push_mask(uint32_t mask) {
 void pop_mask() { --zmod::walk_state().top; }
 
 void draw_model_of(Node* node, uint32_t mask) {
-  if (!node->model) return;
-  if (g_walk.morph) {
+  if (!node->model && !node->pm_model) return;  // PM's models: its own draw (walk_state().draw)
+  if (g_walk.morph && node->model) {
     uint8_t* h = node->model->header;
     uint32_t f;
     std::memcpy(&f, h + 8, 4);
