@@ -28,6 +28,9 @@
 #include "gamez/zinterp/zinterp.h"
 #include "pm/gamez/zimage/zimg_texture.h"
 #include "pm/gamez/zmodel/gmod_clip3d.h"
+#include "gamez/zmath/zmth_matrix.h"
+#include "gamez/zmodel/gmod_draw.h"
+#include "pm/gamez/zmodel/gmod_draw.h"
 #include "pm/pm_game.h"
 
 namespace {
@@ -580,4 +583,31 @@ TEST(pm_model_alloc_starts_with_flags_3) {
   std::memcpy(&flags, m->header + 8, 4);
   EXPECT(flags == 3 && m->count(0x10) == 0 && m->count(0x14) == 0);
   pm::zmod::models() = pm::zmod::ModelPool{};
+}
+
+// FIX (bug), the port alone (the exe reads through a null polygon list): points
+// on a model with no polygons, and with no vertices, draw nothing.
+TEST(pm_points_without_polygons) {
+  zmth::Mat34 w{}, local{};
+  for (int i : {0, 4, 8}) w.m[i] = 1.0f;
+  zmth::MatrixStack& st = zmth::matrix_stack();
+  st.top = 0, st.slot[0] = &w, st.identity[0] = 0;
+  zmth::push(&local);
+  static int points;
+  points = 0;
+  ::zmod::DrawTable keep = ::zmod::draw_table();
+  ::zmod::draw_table().point = [](void*, const float*, uint32_t, int32_t) { ++points; };
+  float vertices[6] = {};
+  pm::zmod::Model m;
+  const int32_t two = 2;
+  std::memcpy(m.header, &two, 4);
+  std::memcpy(m.header + 0x14, &two, 4);
+  m.vertices = vertices;
+  float centre[3] = {};
+  EXPECT(pm::zmod::prepare_model(m, centre) == 0 && points == 0);
+  const int32_t none = 0;
+  std::memcpy(m.header + 0x14, &none, 4);
+  EXPECT(pm::zmod::prepare_model(m, centre) == 0 && points == 0);
+  zmth::pop();
+  ::zmod::draw_table() = keep;
 }

@@ -786,6 +786,24 @@ functions PM changed, and PM's new ones.
        mode on from 0x49e82b; 0x4161f6 and 0x4c33ff turn it off). Fixed in Skis
        and `Mech::collide_query` behind bugs. Check PM's twins of those two calls
        when PM's zones are reached, and tell the lead if PM differs.
+     - **The draw, piece 1: the type dispatch ported** (2026-11-03,
+       `pm/gamez/zmodel/gmod_draw`): `0x542a70` and `0x5416e0` (the facade's centre,
+       MW3's `0x53dcf0` on PM's polygons). Type 0 the model-view, 1 a facade, 2
+       points, drawn here to `zmod::DrawTable`'s point, the same seam as MW3's.
+       The facade's turn is MW3's own, split out as `zmod::facade_turn`. Shipped
+       worlds use only types 0 and 1, modes 0 and 1, no flag 0x40, no morphs. As
+       MW3's port, modes 2 and 3 draw as a default model. FIX (bug): points with
+       no vertices or no polygons draw nothing (the exe loops 2^32 times, or reads
+       through null; `pm_points_without_polygons`). `test_pm_modeldraw.py`, importing
+       `modeldraw_common.py`, on PM's exe with c1 and c3: 3,000 draws, the result,
+       the default flag, the stack's top and the one below, the points and the
+       camera-space vertices, editing the data for what shipped data lacks. Points
+       past a shorter morph list are the last draw's, on both sides, so the test
+       morphs them all. About 93% of the matrix floats are bit-identical and the worst
+       differs by about 1e-6, except a facade about a centre thousands of units out
+       with the camera near it, where the tolerance grows with their ratio (no
+       shipped model has flag 0x40); the centre itself is compared bit for bit.
+       Breaks, 14 of 14. Emulator only.
      - Order from here: the option's state; the other helpers in groups,
        each with the setters it first reads; then `0x543b10` by call trace, as
        `0x53f2e0` was. Emulator only until the world class and the mission can

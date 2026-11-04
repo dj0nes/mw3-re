@@ -744,16 +744,21 @@ void billboard_sphere() {
 // polygons' centre (shifting the world matrix's translation around the turn).
 // c is the draw's [ebp-0x24], the slot the polygon normal uses later.
 void facade_top(const Model& m, float c[3]) {
-  zmth::MatrixStack& st = zmth::matrix_stack();
   const bool about_centre = field<uint8_t>(m, 8) & 0x40;
+  if (about_centre) facade_centre(m, c);
+  facade_turn(field<int32_t>(m, 4), about_centre, c);
+}
+
+}  // namespace
+void facade_turn(int32_t mode, bool about_centre, const float c[3]) {
+  zmth::MatrixStack& st = zmth::matrix_stack();
   float v[3];
   if (about_centre) {
-    facade_centre(m, c);
     float* w = st.below().m;
     rotate_point(c, w, v);
     w[9] = w[9] + v[0], w[10] = w[10] + v[1], w[11] = w[11] + v[2];
   }
-  switch (field<int32_t>(m, 4)) {
+  switch (mode) {
     case 0: billboard_y(g_state.camera_data ? g_state.camera_data[0x3c / 4] : 0.0f); break;
     case 1: billboard_sphere(); break;
     // Modes 2 (0x51f390, about x) and 3 (0x51f750, about z) are not ported: no
@@ -770,6 +775,7 @@ void facade_top(const Model& m, float c[3]) {
     t[9] = t[9] - v[0], t[10] = t[10] - v[1], t[11] = t[11] - v[2];
   }
 }
+namespace {
 
 void draw_points(Model& m) {
   DrawState& s = g_state;

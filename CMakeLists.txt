@@ -577,6 +577,7 @@ if(MW3_BUILD_PM)
     src/pm/gamez/zimage/zimg_texture.cpp
     src/pm/gamez/zmodel/gmod_clip3d.cpp
     src/pm/gamez/zmodel/gmod_cull.cpp
+    src/pm/gamez/zmodel/gmod_draw.cpp
     src/pm/gamez/zmodel/gmod_matl.cpp
     src/pm/gamez/zmodel/gmod_const.cpp
   )

@@ -136,6 +136,9 @@ DrawHooks& draw_hooks();
 void material_cycle(Material& material);      // 0x005376c0  (gmod_matl.c)
 float normalize(float v[3]);                  // 0x004020d0
 int32_t screen_reject(const ClipPlanes& rect, int32_t count);  // 0x00535d20
+// The stack's top for a facade (0x0053f2e0's type 1), about its centre with
+// model flag 0x40. Shared with Pirate's Moon's draw, whose model types differ.
+void facade_turn(int32_t mode, bool about_centre, const float centre[3]);
 int32_t draw_model(zcls::Node* node, uint32_t mask);  // 0x0053f2e0, ECX node, EDX plane mask
 
 }  // namespace zmod
