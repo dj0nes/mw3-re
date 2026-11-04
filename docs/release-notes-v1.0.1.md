@@ -66,8 +66,10 @@ settings are kept.
   MechWarrior 3 in it.
 - **Jump jets lighting up water (Op 3, Mission 5):** one report, not
   reproduced; a screenshot and `mw3.log` help.
-- Being looked at: APCs leaving the ground near the town in Op 1,
-  Mission 2, and how mech speed reacts to water and hills.
+- **APCs leaving the ground** near the town in Op 1, Mission 2, on very
+  fast machines: being worked on.
+- Mech speed in shallow water and on hills is the original's: speed has no
+  slope term, and water only slows a mech deeper than a tenth of its height.
 - Pirate's Moon is not supported yet.
 
 ## Downloads
