@@ -55,6 +55,8 @@ struct Table {
   // The script's LightMapTexture (PM's dispatcher 0x005b2d10): the texture it
   // names is the light map. Null in MW3, where the word is unknown.
   void (*zint_light_map_texture)(zimg::TextureEntry* texture);
+  // The script's TextureAdditiveTransparent (0x005b644e): the image's +0x0c bit 2. Null in MW3.
+  void (*zint_texture_additive)(zimg::TextureEntry* texture);
   // The walk's cells (zcls/camera.cpp, 0x004f6720; PM 0x00509dd0): the bit that
   // says a light reaches the cell (MW3 0x200; PM's 0x200 is its static bit), PM's
   // reach test taking off the wrapped camera offset, MW3's fades.

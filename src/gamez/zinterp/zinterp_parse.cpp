@@ -498,6 +498,11 @@ Result letter_m(Interp& in, const char* argv0) {
     call(e.make_shadows);
     return kKnown;
   }
+  // 0x005b4b6e: D3D's mip bias (0x00598230, -1 in common.gw). Read, not applied: fixes.md.
+  if (zgame::game().zint_texture_additive && exact(argv0, "MipBias") && in.argc == 2) {
+    a.f();
+    return kKnown;
+  }
   if (is(argv0, "MatlFaceColor", 0xd)) {
     bput(b, 4, a.f());
     bput(b, 8, a.f());
@@ -1207,6 +1212,12 @@ bool dispatch(Interp& in, const char* argv0) {
     case 'R': r = letter_r(in, argv0); break;
     case 'S': r = letter_s(in, argv0); break;
     case 'T':
+      if (const auto set = zgame::game().zint_texture_additive; set && exact(argv0, "TextureAdditiveTransparent")) {
+        Args a{in};
+        if (zimg::TextureEntry* t = call(engine().find_texture, static_cast<const char*>(a.s()))) set(t);
+        r = kKnown;
+        break;
+      }
       r = is(argv0, "TextureAdd", 0xa) ? (call(engine().texture_add, static_cast<const char*>(next_arg(in))), kKnown)
                                        : kMiss;
       break;

@@ -1,5 +1,7 @@
 #include "pm/gamez/zimage/zimg_texture.h"
 
+#include "gamez/zimage/zimg_library.h"
+
 #include <cstdint>
 #include <cstring>
 
@@ -43,6 +45,9 @@ namespace {
 }  // namespace
 ::zimg::TextureEntry* light_map() { return g_light_map; }
 void set_light_map(::zimg::TextureEntry* texture) { g_light_map = texture; }
+void set_additive(::zimg::TextureEntry* texture) {
+  if (texture->image) static_cast<::zimg::Texture*>(texture->image)->stretch |= 4;
+}
 
 void textures_free() {
   g_light_map = nullptr;

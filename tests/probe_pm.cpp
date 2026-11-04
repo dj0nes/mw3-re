@@ -11,6 +11,7 @@
 #include "gamez/zvideo/zvid_ddd3d.h"
 #include "platform/render3d.h"
 #include "pm/gamez/zvideo/zvid_tl.h"
+#include "pm/gamez/zclass/light.h"
 #include "gamez/zclass/class.h"
 #include "gamez/zclass/camera.h"
 #include "gamez/zmodel/gmod_init.h"
@@ -1097,6 +1098,35 @@ int probe_pm_device_flush(int which, int32_t* out, int cap) {
   return device_probe::take(out, cap);
 }
 
+// PM's light setters on a light given by PM's offsets (0x100 bytes): the result and the bytes,
+// and how many times the world's bake was marked stale (frames().update_frame's move).
+int probe_pm_light_setter(int which, uint8_t* pm_bytes, float a, float b, float c) {
+  static ::zcls::Node node;
+  static ::zcls::Light light;
+  const auto copy_in = [&] {
+    std::memcpy(light.raw, pm_bytes, 0xb0);
+    std::memcpy(light.pm_colors, pm_bytes + 0xb0, 0x30);
+    std::memcpy(light.raw + 0xb0, pm_bytes + 0xe0, 0x20);
+  };
+  copy_in();
+  node.data = &light;
+  ::zcls::frames() = ::zcls::Frames{};
+  ::zcls::frames().update_frame = 0;
+  int r = 0;
+  switch (which) {
+    case 0: r = pm::zcls::light_set_orientation(&node, a, b, c); break;
+    case 1: r = pm::zcls::light_set_ambient(&node, a); break;
+    case 2: r = pm::zcls::light_set_diffuse(&node, a); break;
+    case 3: r = pm::zcls::light_set_diffuse_color(&node, a, b, c); break;
+    case 4: r = pm::zcls::light_set_ambient_color(&node, a, b, c); break;
+    default: r = pm::zcls::light_set_own_colors(&node, static_cast<int>(a)); break;
+  }
+  std::memcpy(pm_bytes, light.raw, 0xb0);
+  std::memcpy(pm_bytes + 0xb0, light.pm_colors, 0x30);
+  std::memcpy(pm_bytes + 0xe0, light.raw + 0xb0, 0x20);
+  return r | (::zcls::frames().update_frame != 0) << 8;
+}
+
 // A material's texture says it has an alpha plane, or the material takes back what it had.
 void probe_pm_material_alpha(int node, int ref, int on) {
   static zimg::Texture image;
@@ -1417,6 +1447,41 @@ int probe_pm_clip2d(int which, uint32_t codes, const float* sides, int count, fl
 // test_pm_light_map.py: script lines ('|'-separated, words by spaces) through
 // the dispatcher with PM's table. texture_add answers 0x70000000 + 0x10 * call
 // number. Out, per line: the light map, the cursor, the misses, the names asked.
+// The script's TextureAdditiveTransparent and MipBias: per line the cursor and the known images' +0x0c.
+int probe_pm_additive(const char* lines, int16_t* images, int count, int32_t* cursors) {
+  static ::zimg::Texture image[2];
+  static ::zimg::TextureEntry entry[3];
+  zgame::set_game(pm::table());
+  ::zint::Engine keep = ::zint::engine();
+  entry[0].image = &image[0], entry[1].image = &image[1], entry[2].image = nullptr;
+  ::zint::engine().find_texture = [](const char* name) -> ::zimg::TextureEntry* {
+    if (!std::strcmp(name, "one")) return &entry[0];
+    if (!std::strcmp(name, "two")) return &entry[1];
+    if (!std::strcmp(name, "noimage")) return &entry[2];
+    return nullptr;
+  };
+  image[0].stretch = 3, image[1].stretch = 0;
+  std::string all = lines;
+  int n = 0;
+  for (size_t at = 0; at < all.size();) {
+    size_t bar = all.find('|', at);
+    if (bar == std::string::npos) bar = all.size();
+    std::string line = all.substr(at, bar - at);
+    at = bar + 1;
+    ::zint::Interp in;
+    for (size_t i = 0; i < line.size() && in.argc < 16; ++i) {
+      if (line[i] == ' ') { line[i] = 0; continue; }
+      if (i == 0 || line[i - 1] == 0) in.argv[in.argc++] = &line[i];
+    }
+    in.cursor = 1;
+    ::zint::dispatch(in, in.argv[0]);
+    cursors[n++] = static_cast<int32_t>(in.cursor);
+  }
+  images[0] = image[0].stretch, images[1] = image[1].stretch;
+  ::zint::engine() = keep;
+  return count == n ? 0 : -1;
+}
+
 int probe_pm_light_map(const char* lines, uint8_t* out, int cap) {
   static std::string asked;
   static int calls;

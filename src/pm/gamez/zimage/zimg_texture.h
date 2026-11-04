@@ -17,6 +17,7 @@ int read_texture_directory(int count, std::FILE* f);
 // by the script's LightMapTexture and read by the Direct3D model draw.
 ::zimg::TextureEntry* light_map();
 void set_light_map(::zimg::TextureEntry* texture);
+void set_additive(::zimg::TextureEntry* texture);  // 0x005b6491: drawn adding light (zvid_tl)
 
 // Pirate's Moon 1.0 @ 0x00530810: MW3's 0x00516f30, and the light map gone.
 void textures_free();

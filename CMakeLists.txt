@@ -581,6 +581,7 @@ if(MW3_BUILD_PM)
     src/pm/gamez/zmodel/gmod_matl.cpp
     src/pm/gamez/zmodel/gmod_projected.cpp
     src/pm/gamez/zvideo/zvid_tl.cpp
+    src/pm/mech3/mission_world.cpp
     src/pm/gamez/zmodel/gmod_const.cpp
   )
   # mechlib (pm-map step 1e)

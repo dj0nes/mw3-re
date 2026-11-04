@@ -8,9 +8,11 @@
 #include "gamez/zclass/class.h"
 #include "gamez/zclass/cls_data.h"
 #include "gamez/zclass/cls_node.h"
+#include "gamez/zclass/cls_world.h"
 #include "gamez/zclass/list.h"
 #include "gamez/zgame/zgame_table.h"
 #include "gamez/zimage/zimg_library.h"
+#include "gamez/zinterp/zinterp.h"
 #include "gamez/zimage/zimg_texture.h"
 #include "gamez/zmath/zmth_matrix.h"
 #include "gamez/zmodel/gmod_clip2d.h"
@@ -19,6 +21,7 @@
 #include "gamez/zmodel/gmod_init.h"
 #include "gamez/zmodel/gmod_light.h"
 #include "gamez/zmodel/gmod_matl.h"
+#include "gamez/zreader/zreader.h"
 #include "gamez/zrender/zrndr_flare.h"
 #include "gamez/zrender/zrndr_fog.h"
 #include "gamez/zutil/zutl_path.h"
@@ -32,6 +35,7 @@
 #include "pm/gamez/zmodel/gmod_cull.h"
 #include "pm/gamez/zmodel/gmod_draw.h"
 #include "pm/gamez/zvideo/zvid_tl.h"
+#include "pm/mech3/mission_world.h"
 
 namespace frontend {
 namespace {
@@ -87,7 +91,15 @@ std::string pm_world_load(const std::string& mission, platform::Render3D* render
   zvid::channel_masks() = {0xf800, 0x07e0, 0x001f};
   zrndr::device_fog().active = 1;
   const std::string path = "zbd\\" + mission + "\\gamez.zbd";
-  if (zgame::game().zcls_read_zbd(path.c_str()) != 0) return "could not read " + path;
+  // The mission's own script, as 0x00492c..: the world (GameZReadZBDFile), the tolerances, vertex
+  // shading, scrolls and cycles, the light map.
+  for (const std::string& r : zutl::mounts().read) zutl::mount(r + "/zbd");
+  zmod::gfx_flags_start(true);
+  static zint::Interp interp;
+  zint::init(interp, "interp.zbd", ".;zbd");
+  zint::globals().use_archive = 1;
+  zint::macro_set_true(interp, "USEZBD"), zint::macro_set_true(interp, "HARDWARE");
+  if (!zint::source(interp, (mission + ".gs").c_str())) return "could not run " + mission + ".gs";
   if (!camera_node()) return "no camera in " + path;
   for (zcls::ListItem* i = zcls::list_head(zcls::kWindows); i; i = i->next)
     if (i->node && i->node->data) {
@@ -111,6 +123,7 @@ std::string pm_world_load(const std::string& mission, platform::Render3D* render
   zvid::default_texture() = &g_fallback;
   zimg::load_group(-1);
   zimg::default_entry()->surface = &g_fallback;
+  zint::source(interp, "support\\additive.gw");  // 0x00492cc9, once the textures are in
 
   zvid::install_model_draw_table();
   zmod::walk_state() = zmod::WalkState{};
@@ -125,11 +138,17 @@ std::string pm_world_load(const std::string& mission, platform::Render3D* render
   h.flush_overlay = [](void*) { zvid::flush_overlay(); };
   zmth::reset_stack();
 
-  // The file's camera sees 800; the game sets its own clip later (not ported).
-  {
-    zcls::Node* c = camera_node();
-    zcls::camera_set_clip(c, static_cast<zcls::Camera*>(c->data)->get<float>(0xb0), 4000.0f);
-  }
+  zvid::set_fog(1);  // 0x0057b05a, the device's setup
+  // The player's view (mech3/player_view): the horizon follows the camera.
+  if (zcls::Node* horizon = zcls::list_find_by_name(zcls::kAllNodes, "horizon")) zcls::camera_set_horizon(camera_node(), horizon);
+  zrdr::init();
+  zrdr::open_archive(("zbd\\" + mission + "\\reader.zbd").c_str(), false);  // 0x00490630's first
+  pm::mech3::world_read_params(zcls::camera_world(camera_node()), camera_node(), nullptr);
+  // The mission's `day` on `horizon` (night_day.zrd; the animation's call is not ported here).
+  for (const char* on : {"horscrollday", "horizon_planet", "horizon_day_stars"})
+    if (zcls::Node* n = zcls::list_find_by_name(zcls::kAllNodes, on)) zcls::node_set_active(n, 1);
+  for (const char* off : {"horscrollnight", "horizon_night_stars"})
+    if (zcls::Node* n = zcls::list_find_by_name(zcls::kAllNodes, off)) zcls::node_set_active(n, 0);
   // Over the middle of the world's area (+0x34..+0x44, +0x38..+0x48).
   const auto* w = static_cast<const zcls::World*>(zcls::camera_world(camera_node())->data);
   eye[0] = (w->get<float>(0x34) + w->get<float>(0x44)) * 0.5f;
@@ -157,9 +176,6 @@ void pm_world_map_light(const float pos[3], float range) {
   g_map_light.put<float>(0xec - 0x30, near_range * near_range), g_map_light.put<float>(0xf0 - 0x30, range * range);
   g_map_light.put<float>(0xf4 - 0x30, 1.0f / (range - near_range));
   g_map_light_on = true;
-  // GfxFlags' lighting, off in --fly: the scripts that colour the world's lights are not ported, so
-  // with it on the world goes dark and polygons no light reaches stay bright.
-  zmod::lighting().mask_base |= 1;
 }
 
 void pm_world_frame(const float eye[3], float yaw, float pitch, platform::Render3D* render) {
@@ -168,7 +184,8 @@ void pm_world_frame(const float eye[3], float yaw, float pitch, platform::Render
   zcls::camera_set_rotation(cam, -pitch, yaw + 3.14159265f, 0.0f);
   zcls::camera_set_position(cam, eye[0], eye[1], eye[2]);
   ++zcls::frames().frame;
-  render->clear(true, 89, 115, 140);
+  zcls::world_push_fog(zcls::camera_world(cam));  // the world's update, not ported here
+  render->clear(false, 0, 0, 0);  // a mission clears depth only (mech3/app_states: video_set_clear(0))
   zcls::render_world(cam, 0);
   render->present();
 }

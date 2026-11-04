@@ -1078,8 +1078,7 @@ functions PM changed, and PM's new ones.
        by the diffuse but its alpha takes no diffuse, so it loses the fade. **Open, for Owen's PC:**
        what the original shows there.
        No world shows a light map yet: `LightSetLightMap` waits for the interpreter's item. To see one,
-       `mw3pm --fly c1 --look 0 20 --map-light 2432 5 -2300 120` (debug only), with GfxFlags' lighting on,
-       which the debug start otherwise leaves off, so the rest of the world goes dark.
+       `mw3pm --fly c1 --look 0 20 --map-light 2432 5 -2300 120` (debug only).
      - **`cls_clutter`: mapped, not ported** (0x5106b0..0x514b90, 65 functions, ~3,500 lines of
        pseudocode). Scattered props laid on the ground by its material. **It waits for the interpreter
        and the mission load**: its template names come from the script command `AddClutterTemplates`
@@ -1098,6 +1097,36 @@ functions PM changed, and PM's new ones.
        all at the mission's end. 0x513d90 (from 0x517e45, a crater) sets flags 5 on clutter within a
        radius in the grid. 0x514170 is called from 0x564c67, 0x574999, 0x574b89, 0x590c79: not read.
        0x510830, 0x510910, 0x5109c0, 0x510b50, 0x510b90 are called from the 0x4863ec.. range: not read.
+     - **World lighting in the debug start (2026-11-04).** `mw3pm --fly` now runs the mission's own
+       script (`c1.gs`, with USEZBD and HARDWARE) instead of reading `gamez.zbd` directly, then the
+       shipped `support\additive.gw`, and PM's `world.zrd` reader (`pm/mech3/mission_world`, 0x495ba0,
+       0x495250: `defaults`, optionally a mission's block). **What the four worlds' scripts use**, run
+       with USEZBD: 37, 53, 37, 62 lines. Tolerances (`SetBFETolerance 0.00005`, `SetInverseZTolerance`,
+       ...), `SetVertexShading on`, `LightMapTexture lightmap`, `Object3DSetScrollAlways`, `AddClutterTemplates`
+       (3, 2, 3, 2), `CycleTexture*` (c2, c4), `LoadSoils`, `MipBias -1`, `GameZReadZBDFile`. Everything else
+       in the 30 scripts (`LightNew`, `WorldOrigin`, `LoadGameGen`: 491 lines) is in `ifndef USEZBD` blocks:
+       the data was compiled from them, and the lights come from `gamez.zbd`. No script uses
+       `LightSetLightMap`, `LightSetBicolored`, `NodeSetOverride*`; of PM's 12 words missing from the
+       dispatcher only `TextureAdditiveTransparent` (104 textures, fire, flares, sparks, explosions: that is
+       what sets the additive bit) and `MipBias` are shipped (`test_pm_additive.py`).
+       **What was wrong before:** strips have no face normal, and without `SetVertexShading on` no vertex
+       normals, so the sun gave them nothing (ambient 0.11, dark, with polygons the bright triangles of the
+       `--map-light` shot beside them). That script line is the fix; those triangles are gone.
+       `world.zrd`: fog (`hwrange`, colour, altitude, `node`), `camera nearfar_clip`, `sun` (orientation,
+       diffuse, ambient, `diffuse_color`, `ambient_color`, which turn on PM's own colours), `fluctuate`. PM's
+       light setters keep mixed colours and test static by 0x200 (`test_pm_light_setters.py`). Left for the
+       mission: wind, weather, temperature, jet ceiling, `ai_headlights`, underwater, `cloud_cover`.
+       **The black shape is sky:** `horizon` > `hormain` holds `horizon_top` (flat, colour 0, a wall of radius
+       1750), `horscrollday` (`sky01`), `horscrollnight`, stars. The camera follows it (`camera_set_horizon`, as
+       0x4087f0's call; before, it sat at the world's origin) and `world.zrd`'s `fog node` picks `hormain`. The
+       mission calls `day` or `night` on `horizon` (`night_day.zrd`): `--fly` applies `day`'s list by name.
+       **Not reproduced:** `MipBias -1`: read, not applied; the port's textures have no bias (fixes.md).
+       **Stubs left in `--fly`:** a mission's depth-only clear is copied, not reached through the state;
+       `horscroll*` scroll words run but with no frame's tick.
+     - **For Owen's PC, with the view:** a gap between terrain and sky in c2 and c4 from height (`mw3pm --fly c2
+       --pos 1536 120 -1792 --look 0 8`, `c4 --pos 2048 130 -2048 --look 0 8`): with the colour clear off the
+       port shows the frame's old contents there, as the original's device would; compare in the original at
+       those places, as far as a jump jet reaches.
      - **Eye check, still to do with the game around it:** points meeting blended polygons (batched,
        0x59ee90, not ported); a short light's pool on a regular polygon; a projected light over a
        light-mapped polygon, bugs on and off; an axis-aligned wall with a light map (seam); c2's jagged
