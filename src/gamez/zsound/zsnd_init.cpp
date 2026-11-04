@@ -1,7 +1,9 @@
-// C:\zipper\GameZMech3\zSound\zsnd_init.cpp: start-up, sounds.zrd and the
-// DirectSound device (docs/sound.md section 1).
+// C:\zipper\branchep1\gamez\zSound\zsnd_init.cpp: start-up, sounds.zrd and the
+// DirectSound device (docs/sound.md section 1). The sounds.zrd reader is
+// Pirate's Moon's, rewritten smaller (docs/sound.md, Pirate's Moon).
 #include <cstdio>
 #include <cstring>
+#include <vector>
 
 #include "gamez/zerror/zerr.h"
 #include "gamez/zreader/zreader.h"
@@ -12,53 +14,51 @@
 namespace zsnd {
 
 namespace {
-const char kFile[] = "C:\\zipper\\GameZMech3\\zSound\\zsnd_init.cpp";
+const char kFile[] = "C:\\zipper\\branchep1\\gamez\\zSound\\zsnd_init.cpp";
 State g_state;
 Hooks g_hooks;
 platform::SoundOutput* out() { return g_hooks.output; }
 
 uint32_t raw(const zrdr::Node& n) { return static_cast<uint32_t>(n.i); }
-float raw_float(const zrdr::Node& n) {
-  float f;
-  std::memcpy(&f, &n.i, 4);
-  return f;
-}
-
-// A list value's items 1..3 as raw dwords, as the exe copies them.
-void read_triple(zrdr::Node* n, int32_t* a, int32_t* b, int32_t* c) {
-  const zrdr::Node* l = n->list;
-  *a = static_cast<int32_t>(raw(l[1])), *b = static_cast<int32_t>(raw(l[2])), *c = static_cast<int32_t>(raw(l[3]));
-}
-
-// One of a sound's HIGH / MED / LOW entries: a file name, or a format list.
-void read_format(zrdr::Node* n, Format& f) {
-  if (!n) return;
-  if (n->type == zrdr::String) {
-    f = Format{};
-    f.file = n->s, f.has_file = true;
-  } else if (n->type == zrdr::List) {
-    f.file.clear(), f.has_file = false;
-    read_triple(n, &f.rate, &f.bits, &f.channels);
-  }
-}
-
-// PLAYBACK_FORMAT's entries keep rate and bits; the channels are set to 1,
-// whatever the data says (docs/sound.md, discoveries).
-void read_playback(zrdr::Node* pf, const char* key, int i) {
-  zrdr::Node* n = zrdr::find(pf, key);
-  if (!n) return;
-  State& st = g_state;
-  st.has_playback[i] = true;
-  st.playback[i] = Format{};
-  st.playback[i].rate = static_cast<int32_t>(raw(n->list[1]));
-  st.playback[i].bits = static_cast<int32_t>(raw(n->list[2]));
-  st.playback[i].channels = 1;
-  // FIX (bug): the data's channel count is read, so the high format is stereo
-  // and the 3D sounds' pan is heard (the exe forced mono).
-  if (zfix::options().bugs) st.playback[i].channels = static_cast<int32_t>(raw(n->list[3]));
-}
-
 bool has(zrdr::Node* n, const char* key) { return zrdr::find(n, key) != nullptr; }
+
+// FIX (bug), as MW3's reader: the exe asks for "MED", which never matches the data's "MEDIUM".
+const char* med() { return zfix::options().bugs ? "MEDIUM" : "MED"; }
+
+// Pirate's Moon 1.0 @ 0x00592060: a format entry, a file name or a list of
+// rate, bits and channels (at least three items); false leaves `f` as it was.
+bool read_spec(Format* f, zrdr::Node* n) {
+  if (!n) return false;
+  if (n->type == zrdr::String) {
+    *f = Format{};
+    f->file = n->s, f->has_file = true;
+    return true;
+  }
+  if (n->type == zrdr::List && n->list[0].i > 3) {
+    f->file.clear(), f->has_file = false;
+    f->rate = static_cast<int32_t>(raw(n->list[1]));
+    f->bits = static_cast<int32_t>(raw(n->list[2]));
+    f->channels = static_cast<int32_t>(raw(n->list[3]));
+    return true;
+  }
+  return false;
+}
+
+void read_specs(Format* out, zrdr::Node* parent) {
+  read_spec(&out[0], zrdr::find(parent, "HIGH"));
+  read_spec(&out[1], zrdr::find(parent, med()));
+  read_spec(&out[2], zrdr::find(parent, "LOW"));
+}
+
+// Pirate's Moon 1.0 @ 0x005917c0 (ECX the list): a set INCLUDE_SETS names
+// (strcmp), or any set when it names none.
+bool included(const std::vector<const char*>& include, const char* name) {
+  if (!name) return false;
+  if (include.empty()) return true;
+  for (const char* i : include)
+    if (i && std::strcmp(i, name) == 0) return true;
+  return false;
+}
 }  // namespace
 
 State& state() { return g_state; }
@@ -163,17 +163,15 @@ void drop_queued(Sound* sound) {
   }
 }
 
-// Mech3.exe 1.2 @ 0x00570510. After close_device the device calls do nothing
-// (they check the open flag).
+// Pirate's Moon 1.0 @ 0x00591700: MW3's 0x00570510 without its second round
+// of frees: the CD, the groups and the sets go only with the device (0x00591f30),
+// so not at all when it was never opened.
 int32_t shutdown() {
   State& st = g_state;
   stop_queue(0);
   delete st.queue;
   st.queue = nullptr;
-  free_groups(nullptr);
-  close_device(nullptr);  // 0x005715c0; ECX there is whatever 0x005742d0 left
-  if (g_hooks.cd_close) g_hooks.cd_close();
-  free_sets(nullptr);
+  close_device(nullptr);
   fades_shutdown();
   if (st.root) {
     zrdr::free_node(st.root);
@@ -186,11 +184,9 @@ int32_t shutdown() {
   return 1;
 }
 
-// Mech3.exe 1.2 @ 0x005705e0 (ECX window, EDX file, the load callback, the
-// demo flag). Opens DirectSound, reads the file, then its SYNTAX: 2 is the
-// shipped one. The older syntax 1 reader (0x005706f0) is not ported; no data
-// uses it (docs/sound.md).
-int32_t load(uint32_t window, const char* name, LoadFn fn, int32_t demo) {
+// Pirate's Moon 1.0 @ 0x00591840 (the window, the file, the load callback):
+// as MW3's 0x005705e0, then the reader whatever SYNTAX says.
+int32_t load(uint32_t window, const char* name, LoadFn fn, int32_t /*demo*/) {
   State& st = g_state;
   if (st.open || !st.initialized) return 0;
   if (window) st.window = window;
@@ -200,125 +196,129 @@ int32_t load(uint32_t window, const char* name, LoadFn fn, int32_t demo) {
   if (!st.root) {
     char msg[300];
     std::snprintf(msg, sizeof msg, "Failed to find menu sounds (%s)", name);
-    zerr::report(0x200, kFile, 0x45a, msg);
+    zerr::report(0x200, kFile, 0x31c, msg);
     return 0;
   }
-  int32_t syntax = 0;
-  if (!zrdr::get_int(st.root, "SYNTAX", &syntax)) syntax = 1;
-  if (syntax == 2) read_syntax2(st.root, fn, demo);  // syntax 1 reads nothing here
+  read_sounds(st.root, fn);
   return 1;
 }
 
-// Mech3.exe 1.2 @ 0x00570af0 (ECX the root, EDX the load callback, the demo
-// flag): CD_TRACKS, SOUND_PATH, the default formats, SPEED_OF_SOUND,
-// PLAYBACK_FORMAT, every SET (or only DEMO_SETS), then SOUND_GROUPS.
-int32_t read_syntax2(zrdr::Node* root, LoadFn fn, int32_t demo) {
+// Pirate's Moon 1.0 @ 0x00591830
+void set_range_scale(float scale) { g_state.range_scale = scale; }
+
+// Pirate's Moon 1.0 @ 0x00591900: CD_TRACKS, SOUND_PATH, COMPILE_FORMAT,
+// DEFAULT_QUEUE_PRIORITY, SPEED_OF_SOUND, PLAYBACK_FORMAT, the SETS that
+// INCLUDE_SETS names (all when it names none; the data's EXCLUDE_SETS is not
+// read), then SOUND_GROUPS (no DEMO_GROUPS).
+int32_t read_sounds(zrdr::Node* root, LoadFn fn) {
   State& st = g_state;
-  Format defaults[3];
-  defaults[0].rate = 44100, defaults[0].bits = 16, defaults[0].channels = 2;
-  defaults[1].rate = 22050, defaults[1].bits = 16, defaults[1].channels = 1;
-  defaults[2].rate = 11025, defaults[2].bits = 8, defaults[2].channels = 1;
-  if (g_hooks.cd_open) g_hooks.cd_open(zrdr::find(root, "CD_TRACKS"));  // 0x00572450
+  if (g_hooks.cd_open) g_hooks.cd_open(zrdr::find(root, "CD_TRACKS"));  // 0x00593190
   if (const char* sp = zrdr::get_string(root, "SOUND_PATH")) {
-    if (!st.has_search) st.search = sp, st.has_search = true;  // 0x00576100
-    else st.search = st.search + ";" + sp;                      // 0x00576140
+    if (!st.has_search) st.search = sp, st.has_search = true;  // 0x00596f10
+    else st.search = st.search + ";" + sp;                      // 0x00596f50
   }
-  static const char* const kDefaults[3] = {"HIGH_DEFAULT", "MEDIUM_DEFAULT", "LOW_DEFAULT"};
-  for (int i = 0; i < 3; ++i)
-    if (zrdr::Node* n = zrdr::find(root, kDefaults[i]))
-      read_triple(n, &defaults[i].rate, &defaults[i].bits, &defaults[i].channels);
+  if (zrdr::Node* cf = zrdr::find(root, "COMPILE_FORMAT")) read_specs(st.compile, cf);
+  // The value's first item, raw (a value not a list crashes the exe).
+  if (zrdr::Node* q = zrdr::find(root, "DEFAULT_QUEUE_PRIORITY"); q && q->type == zrdr::List)
+    st.default_qpriority = q->list[0].i > 1 ? q->list[1].i : 0;
   float sos = 0.0f;
   if (zrdr::get_float(root, "SPEED_OF_SOUND", &sos)) set_speed_of_sound(sos);
   if (zrdr::Node* pf = zrdr::find(root, "PLAYBACK_FORMAT")) {
-    read_playback(pf, "HIGH", 0);
-    // FIX (bug): the exe asks for "MED", which never matches the data's "MEDIUM".
-    read_playback(pf, zfix::options().bugs ? "MEDIUM" : "MED", 1);
-    read_playback(pf, "LOW", 2);
-  }
-  zrdr::Node* demo_sets = nullptr;
-  int32_t demo_count = 0;
-  if (demo) {
-    demo_sets = zrdr::find(root, "DEMO_SETS");
-    if (demo_sets) demo_count = demo_sets->list[0].i - 1;
-    else demo = 0;
-  }
-  zrdr::Node* sets = zrdr::find(root, "SETS");
-  if (!sets) return 1;  // the exe dereferences it regardless
-  zrdr::Node* items = sets->list;
-  const int32_t pairs = (items[0].i - 1) / 2;
-  for (int32_t k = 0; k < pairs; ++k) {
-    zrdr::Node& name_node = items[1 + 2 * k];
-    zrdr::Node& set_node = items[2 + 2 * k];
-    if (demo) {
-      bool listed = false;
-      for (int32_t j = 1; j <= demo_count; ++j)
-        if (std::strcmp(demo_sets->list[j].s, name_node.s) == 0) listed = true;
-      if (!listed) continue;
-    }
-    int32_t n = set_node.list[0].i - 1;
-    zrdr::Node* sub = zrdr::find(&set_node, "SUB_SET");
-    auto* set = new Set;  // 0x0056f760
-    if (sub) n -= 2;
-    set->name = name_node.s;
-    if (n > 0) set->sounds.resize(n);
-    st.sets.push_back(set);
-    if (sub) {  // 0x0056f9d0, 0x0056fbd0: sets defined later are not found
-      const int32_t m = sub->list[0].i - 1;
-      set->subsets.assign(m > 0 ? m : 0, nullptr);
-      for (int32_t i = 1; i <= m; ++i) set->subsets[i - 1] = find_set(sub->list[i].s);
-    }
-    zrdr::Node* node = &set_node.list[1];
-    zrdr::Node* const end = &set_node.list[set_node.list[0].i];
-    int32_t i = 0;
-    while (i < n && node < end) {  // the exe reads on past the list when it holds fewer sounds
-      if (node->type != zrdr::List) {
-        node += 2;  // a keyword and its value
-        continue;
-      }
-      Sound& s = set->sounds[i];
-      const zrdr::Node* e = node->list;
-      s.kind = 0;
-      s.name = e[1].s;
-      s.file = e[2].s;
-      s.flags = has(node, "3D") ? (s.flags | k3D) : (s.flags & ~k3D);
-      s.flags = has(node, "LOOPED") ? (s.flags | kLooped) : (s.flags & ~kLooped);
-      s.flags = has(node, "FREQUENCY") ? (s.flags | kFrequency) : (s.flags & ~kFrequency);
-      s.flags = has(node, "HARDWARE") ? (s.flags | kHardware) : (s.flags & ~kHardware);
-      s.flags = has(node, "PURGEABLE") ? (s.flags | kPurgeable) : (s.flags & ~kPurgeable);
-      s.flags = has(node, "VOICE") ? (s.flags | kVoice) : (s.flags & ~kVoice);
-      s.queue_life = 5.0f;
-      if (zrdr::Node* q = zrdr::find(node, "QUEUE")) {
-        s.flags |= kQueue;
-        if (q->list[0].i > 1) s.queue_life = raw_float(q->list[1]);
-      }
-      s.volume = 1.0f;
-      zrdr::get_float(node, "VOLUME", &s.volume);
-      if (s.volume > 1.0f) s.volume = 1.0f;
-      else if (!(s.volume >= 0.0f)) s.volume = 0.0f;
-      s.a3d_dist = 1.0f;
-      zrdr::get_float(node, "A3DDIST", &s.a3d_dist);
-      if (zrdr::Node* r = zrdr::find(node, "RANGE")) {
-        s.flags |= k3D;
-        s.range_min = raw_float(r->list[1]);
-        s.range_max = raw_float(r->list[2]);
-      } else {
-        s.range_min = 50.0f, s.range_max = 400.0f;
-      }
-      for (int f = 0; f < 3; ++f) s.formats[f] = defaults[f];
-      read_format(zrdr::find(node, "HIGH"), s.formats[0]);
-      read_format(zrdr::find(node, zfix::options().bugs ? "MEDIUM" : "MED"), s.formats[1]);  // FIX (bug) as above
-      read_format(zrdr::find(node, "LOW"), s.formats[2]);
-      s.freq_min = 20000.0f;
-      s.freq_max = 90000.0f;
-      s.subtitle = st.subtitle_hook ? st.subtitle_hook(node) : nullptr;
-      s.user = fn ? fn(&s, node) : nullptr;
-      ++i;
-      node += 1;
+    // Each as the data has it, channels too (MW3's forced mono).
+    const char* const keys[3] = {"HIGH", med(), "LOW"};
+    for (int i = 0; i < 3; ++i) {
+      Format f;
+      if (!read_spec(&f, zrdr::find(pf, keys[i]))) continue;
+      st.has_playback[i] = true;  // calloc'd at 0x0061328c + 4i
+      st.playback[i] = f;
     }
   }
-  zrdr::Node* demo_groups = demo ? zrdr::find(root, "DEMO_GROUPS") : nullptr;
-  if (zrdr::Node* g = zrdr::find(root, "SOUND_GROUPS")) read_groups(g, demo_groups, fn);
+  std::vector<const char*> include;
+  if (zrdr::Node* inc = zrdr::find(root, "INCLUDE_SETS"); inc && inc->type == zrdr::List)
+    for (int32_t i = 1; i < inc->list[0].i; ++i)
+      if (inc->list[i].type == zrdr::String) include.push_back(inc->list[i].s);
+  if (zrdr::Node* sets = zrdr::find(root, "SETS"); sets && sets->type == zrdr::List) {
+    zrdr::Node* items = sets->list;
+    for (int32_t i = 1; i < items[0].i; i += 2)
+      if (items[i].type == zrdr::String && included(include, items[i].s)) read_set(&items[i], fn);
+  }
+  if (zrdr::Node* g = zrdr::find(root, "SOUND_GROUPS")) read_groups(g, nullptr, fn);  // 0x00594150
   return 1;
+}
+
+// Pirate's Moon 1.0 @ 0x005920e0 (the set's name node, its list after it):
+// the set of that name, new or not, its SUB_SET names (made if not read yet)
+// and its sounds. A keyword item steps over three: itself, its value and the
+// item after (MW3 steps two); the shipped sets put SUB_SET last.
+Set* read_set(zrdr::Node* name_node, LoadFn fn) {
+  Set* set = make_set(name_node->s);
+  zrdr::Node* body = name_node + 1;
+  if (zrdr::Node* sub = zrdr::find(body, "SUB_SET"); sub && sub->type == zrdr::List)
+    for (int32_t j = 1; j < sub->list[0].i; ++j)
+      if (sub->list[j].type == zrdr::String) set->subsets.push_back(make_set(sub->list[j].s));  // 0x00590d20
+  zrdr::Node* items = body->list;
+  const int32_t n = items[0].i;
+  for (int32_t i = 1; i < n; ++i) {
+    if (items[i].type == zrdr::List) read_sound(set, &items[i], fn);
+    else i += 2;
+  }
+  return set;
+}
+
+// Pirate's Moon 1.0 @ 0x00592170 (ECX the set, the sound's list): as MW3's
+// (0x00570af0's loop), with RANGE through the vec2 getter and times the range
+// scale, the formats from COMPILE_FORMAT, QPRIORITY, and the volume clamped
+// after the callbacks. The sound goes to the set's end.
+Sound* read_sound(Set* set, zrdr::Node* node, LoadFn fn) {
+  State& st = g_state;
+  set->sounds.emplace_back();  // calloc(0xd0) (0x00592040)
+  Sound& s = set->sounds.back();
+  s.kind = 0;
+  s.queue_life = 5.0f;
+  s.volume = 1.0f;
+  s.a3d_dist = 1.0f;
+  s.range_min = st.range_scale * 50.0f;
+  s.range_max = st.range_scale * 400.0f;
+  for (int f = 0; f < 3; ++f) s.formats[f] = st.compile[f];
+  s.freq_max = 90000.0f;
+  s.freq_min = 20000.0f;
+  s.subtitle = nullptr;
+  s.user = nullptr;
+  const zrdr::Node* e = node->list;
+  s.name = e[1].s;
+  s.file = e[2].s;
+  s.flags = has(node, "3D") ? (s.flags | k3D) : (s.flags & ~k3D);
+  s.flags = has(node, "LOOPED") ? (s.flags | kLooped) : (s.flags & ~kLooped);
+  s.flags = has(node, "FREQUENCY") ? (s.flags | kFrequency) : (s.flags & ~kFrequency);
+  s.flags = has(node, "HARDWARE") ? (s.flags | kHardware) : (s.flags & ~kHardware);
+  s.flags = has(node, "PURGEABLE") ? (s.flags | kPurgeable) : (s.flags & ~kPurgeable);
+  s.flags = has(node, "VOICE") ? (s.flags | kVoice) : (s.flags & ~kVoice);
+  if (zrdr::Node* q = zrdr::find(node, "QUEUE")) {
+    s.flags |= kQueue;
+    zrdr::get_float_value(q, &s.queue_life);  // 0x00578fc0
+  } else {
+    s.flags &= ~kQueue;
+  }
+  // The default, or the value's first item, raw; 0..7 only (a value not a
+  // list crashes the exe).
+  if (zrdr::Node* q = zrdr::find(node, "QPRIORITY"); q && q->type == zrdr::List) {
+    const int32_t v = q->list[0].i > 1 ? q->list[1].i : st.default_qpriority;
+    if (v >= 0 && v < 8) s.flags = (s.flags & ~kQPriority) | (static_cast<uint32_t>(v) << 10);
+  }
+  zrdr::get_float(node, "VOLUME", &s.volume);
+  zrdr::get_float(node, "A3DDIST", &s.a3d_dist);
+  float r[2];
+  if (zrdr::get_vec2(node, "RANGE", r)) {  // 0x005790f0
+    s.flags |= k3D;
+    s.range_min = st.range_scale * r[0];
+    s.range_max = st.range_scale * r[1];
+  }
+  read_specs(s.formats, node);
+  if (st.subtitle_hook) s.subtitle = st.subtitle_hook(node);
+  if (fn) s.user = fn(&s, node);
+  if (s.volume > 1.0f) s.volume = 1.0f;
+  else if (!(s.volume >= 0.0f)) s.volume = 0.0f;
+  return &s;
 }
 
 // Mech3.exe 1.2 @ 0x00571460: DirectSoundCreate, normal cooperation, the

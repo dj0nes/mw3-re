@@ -4304,3 +4304,27 @@ The screen after the pilot for INSTANT ACTION, 0x00488bc0 (details:
   The code that handles props never reads the other two sets (other code might; not searched). No shipped prop
   sets either one, only being shot, so a prop with no health for being run over goes at the first touch.
   (docs/pm-map.md, cls_clutter)
+
+- **Pirate's Moon's radio chatter plays in order.** MechWarrior 3 queues
+  lines marked QUEUE as a stack, so the newest line plays next; Pirate's
+  Moon turned the queue around: the oldest line still waiting plays first.
+  It also added priorities (`QPRIORITY`, 0 to 7, and a file-wide default),
+  which no shipped sound uses. (docs/sound.md, Pirate's Moon)
+- **Pirate's Moon fixed unpausing.** Where MechWarrior 3 restarts every
+  copy of every sound that was playing when you paused, Pirate's Moon
+  resumes only what was playing, from where it stopped (what the rebuild
+  does for MechWarrior 3 too).
+- **Five copies of a sound at most in Pirate's Moon.** MechWarrior 3
+  plays up to eight copies of one sound at once (rapid fire, explosions);
+  Pirate's Moon allows five, and a sixth restarts the first.
+- **At the lowest object detail, Pirate's Moon's sounds carry half as
+  far.** The expansion halves every 3D sound's range when Object Detail is
+  set to low, so distant guns and engines fall silent sooner. MechWarrior
+  3's ranges do not depend on any setting.
+- **Pirate's Moon still asks for "MED".** The expansion rewrote the sound
+  setup but kept the typo: its medium formats are looked up as `MED`
+  while the file says `MEDIUM`, so they are never read. It does read the
+  playback channels from the file now (MechWarrior 3 forced mono), but
+  Pirate's Moon's file asks for mono anyway. Its file also lists a
+  `DEMO_FMV` set under `EXCLUDE_SETS`, a key the game no longer reads (it
+  looks for `INCLUDE_SETS`), so nothing is left out.

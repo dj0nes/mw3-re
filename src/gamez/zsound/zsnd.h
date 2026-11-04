@@ -1,5 +1,6 @@
 #pragma once
 #include <cstdint>
+#include <deque>
 #include <list>
 #include <string>
 #include <vector>
@@ -63,6 +64,7 @@ struct Format {
 enum : uint32_t {
   kLooped = 0x1, kPurgeable = 0x2, k3D = 0x4, kLoaded = 0x8, kVoice = 0x10, kFrequency = 0x20,
   kHardware = 0x40, kCreated = 0x80, kStream = 0x100, kQueue = 0x200,
+  kQPriority = 0x1c00,  // PM: QPRIORITY 0..7 (bits 10-12), the queue's order
 };
 
 using CueFn = void (*)(uint32_t index, Sound* sound);  // ECX index, EDX sound
@@ -88,17 +90,19 @@ struct Sound : Object {
   std::vector<float> cue_at;        // +0x44  game time of each, set by play
   std::vector<uint32_t> cue_bytes;  // +0x48  byte offset of each (8-byte slots)
   Voice voice;                 // +0x4c
-  std::vector<Voice*> dups;    // +0x94 count, +0x98  duplicates, at most kMaxDuplicates
+  std::vector<Voice*> dups;    // +0x94 count, +0x98  duplicates, at most State::max_duplicates
   Format formats[3];           // +0x9c  HIGH, MED, LOW
   void* user = nullptr;        // +0xcc  the load callback's result
 };
 
-// A named set of sounds (0x18 bytes), loaded and unloaded together.
+// A named set of sounds (PM: 0x20 bytes, sounds and subsets in std::lists),
+// loaded and unloaded together. A deque: the reader adds sounds to a set
+// already made, and their addresses must stay (docs/sound.md, Pirate's Moon).
 struct Set {
-  std::string name;            // +0x00
-  std::vector<Sound> sounds;   // +0x04 count, +0x08
-  int32_t loaded = 0;          // +0x0c
-  std::vector<Set*> subsets;   // +0x10 count, +0x14  SUB_SET, null when not found
+  std::string name;            // +0x0c
+  std::deque<Sound> sounds;    // +0x04 list, +0x08 count
+  int32_t loaded = 0;          // +0x10  a count of loads
+  std::vector<Set*> subsets;   // +0x18 list, +0x1c  SUB_SET, made by name when not read yet
 };
 
 // One step of a group (0x1c bytes): a sound, possibly followed by more (+0x18).
@@ -174,8 +178,6 @@ using Snapshot = std::list<Record>;
 using LoadFn = void* (*)(Object* obj, zrdr::Node* node);  // ECX object, EDX its data
 using FreeFn = void (*)(Object* obj, void* user);         // ECX object, EDX what LoadFn made
 
-constexpr int kMaxDuplicates = 7;  // [0x005efba8]: 8 voices per sound
-
 struct State {
   int32_t initialized = 0;     // 0x0072c2c0
   int32_t open = 0;            // 0x0072c2c4  device open, sounds.zrd read
@@ -212,7 +214,7 @@ struct State {
   uint32_t cue_index = 0;      // 0x0072c4b4
   uint32_t cue_limit = 999;    // 0x0072c4b8
   float queue_clock = 0.0f;    // 0x0072c4bc
-  std::list<Queued*>* queue = nullptr;  // 0x0072c4c0  newest first
+  std::list<Queued*>* queue = nullptr;  // 0x0072c4c0  oldest first, by QPRIORITY (PM)
   Voice* queued = nullptr;     // 0x0072c4c4  the queued line playing
   float queue_next = 0.0f;     // 0x0072c4c8  no queued line before this
   void* (*subtitle_hook)(zrdr::Node* node) = nullptr;  // 0x0072c4cc, never set
@@ -227,8 +229,16 @@ struct State {
   int32_t finished_count = 0;  // 0x0072c518
   std::vector<Set*> sets;      // 0x0072c2ac
   int32_t archives_on = 1;     // 0x005efc2c  0x0056f4b0
-  float speed_of_sound = 343.0f;      // 0x005efd98
-  float inv_speed_of_sound = 1.0f / 343.0f;  // 0x005efd9c
+  // PM's image: 4 duplicates a sound ([0x00613188]; MW3's 7) and 345 m/s
+  // ([0x006135cc]; MW3's 343, which no sounds.zrd sets).
+  int32_t max_duplicates = 4;
+  float speed_of_sound = 345.0f;
+  float inv_speed_of_sound = 1.0f / 345.0f;
+  float range_scale = 1.0f;    // 0x00613488  RANGE times this; 0.5 at the lowest object detail
+  int32_t default_qpriority = 0;  // 0x008c1af0  DEFAULT_QUEUE_PRIORITY
+  // 0x0061324c  COMPILE_FORMAT: each sound's HIGH, MED, LOW to start with; the
+  // image's values are MW3's built-in three.
+  Format compile[3] = {{"", 44100, 16, 2}, {"", 22050, 16, 1}, {"", 11025, 8, 1}};
 };
 
 State& state();
@@ -252,9 +262,13 @@ int32_t quality(int32_t lod);                        // 0x00570280
 int32_t set_primary_format(const int32_t* quality);  // 0x005702a0
 void stop_queue(int32_t stop_playing);               // 0x00570410
 void drop_queued(Sound* sound);                      // 0x00570490
-int32_t shutdown();                                  // 0x00570510
-int32_t load(uint32_t window, const char* name, LoadFn fn, int32_t demo);  // 0x005705e0
-int32_t read_syntax2(zrdr::Node* root, LoadFn fn, int32_t demo);  // 0x00570af0
+int32_t shutdown();                                  // Pirate's Moon 1.0 @ 0x00591700
+// No SYNTAX and no demo sets: `demo` is ignored (PM has none).
+int32_t load(uint32_t window, const char* name, LoadFn fn, int32_t demo);  // Pirate's Moon 1.0 @ 0x00591840
+int32_t read_sounds(zrdr::Node* root, LoadFn fn);    // Pirate's Moon 1.0 @ 0x00591900
+Set* read_set(zrdr::Node* name_node, LoadFn fn);     // Pirate's Moon 1.0 @ 0x005920e0
+Sound* read_sound(Set* set, zrdr::Node* node, LoadFn fn);  // Pirate's Moon 1.0 @ 0x00592170
+void set_range_scale(float scale);                   // Pirate's Moon 1.0 @ 0x00591830
 int32_t open_device();                               // 0x00571460
 
 // zsnd_3d.cpp (with the device shutdown and the fades before it)
@@ -279,7 +293,8 @@ int32_t status(VoiceBase* voice);                    // 0x0056e8e0  1 playing, 0
 int32_t stop(VoiceBase* voice);                      // 0x0056e9f0
 Snapshot* snapshot();                                // 0x0056eb10
 int32_t stop_snapshot(Snapshot* s);                  // 0x0056f0a0
-int32_t resume_snapshot(Snapshot* s);                // 0x0056f130
+// Only the voices that were playing, each once from where it stopped.
+int32_t resume_snapshot(Snapshot* s);                // Pirate's Moon 1.0 @ 0x00590530
 int32_t free_snapshot(Snapshot* s);                  // 0x0056f190
 bool muted();                                        // 0x0056f210
 float set_volume(float v);                           // 0x0056f260  the master volume
@@ -294,17 +309,21 @@ void* user_data(Object* obj);                        // 0x0056f430
 void set_archives(int32_t on);                       // 0x0056f4b0
 void load_set(const char* name);                     // 0x0056f520
 void unload_set(const char* name);                   // 0x0056f530
-int32_t unload_all();                                // 0x0056f540
-void free_sets(FreeFn fn);                           // 0x0056f5c0
+int32_t unload_all();                                // Pirate's Moon 1.0 @ 0x00590950
+void free_sets(FreeFn fn);                           // Pirate's Moon 1.0 @ 0x00590990
 Set* set_at(int32_t i);                              // 0x0056f630
 int32_t set_count();                                 // 0x0056f660
-Set* find_set(const char* name);                     // 0x0056f680
+Set* find_set(const char* name);                     // Pirate's Moon 1.0 @ 0x00590a20, any case
+Set* make_set(const char* name);                     // Pirate's Moon 1.0 @ 0x00590ae0, made if new
 Object* find(const char* name);                      // 0x0056f6f0
 const char* name_of(Object* obj);                    // 0x0056f740
-int32_t load_set(Set* set);                          // 0x0056fbf0
-int32_t unload_set(Set* set);                        // 0x0056fe00
+int32_t load_set(Set* set);                          // Pirate's Moon 1.0 @ 0x00590d70, counted
+int32_t unload_set(Set* set);                        // Pirate's Moon 1.0 @ 0x00590f80, counted
 Sound* set_sound(Set* set, int32_t i);               // 0x0056fe70
 Sound* find_in_set(Set* set, const char* name);      // 0x0056fea0
+// 0x005762b0 on SOUND_PATH: the file in the first directory that has it, "" for none.
+std::string path_find(const char* name);
+int32_t load_from_archive(Set* set, zutl_zar::Archive& a);  // 0x0056ffc0
 
 // zsnd_grp.cpp
 void groups_reset();                                 // 0x00573270

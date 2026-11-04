@@ -1307,6 +1307,16 @@ functions PM changed, and PM's new ones.
    is read into the mission's +0x30 (`mission_world`); its reader is still to trace. Then the HUD's lamp in step 7.
 7. **Sound and the HUD**: the sound syntax reader (rewritten smaller), the
    HUD objectives, spot and headlights.
+   - **zSound: done** (2026-11-04, `src/gamez/zsound` in place; docs/sound.md, Pirate's Moon):
+     - PM's: the load 0x00591840 and the reader 0x00591900 / 0x005920e0 / 0x00592170 (no SYNTAX, no demo,
+       sets made by name 0x00590ae0, INCLUDE_SETS, COMPILE_FORMAT, QPRIORITY, a 3-item keyword step);
+       shutdown 0x00591700; sets found in any case 0x00590a20, loaded and unloaded by count 0x00590d70 /
+       0x00590f80, unload_all 0x00590950, free_sets 0x00590990; the queue oldest first 0x0058fb60; unpause
+       0x00590530; the CD notify 0x005938c0 (mode 3 loops the disc); the range scale 0x00591830; 345 m/s and
+       4 duplicates as State's defaults. `Set::sounds` a deque. The rest pairs with MW3's.
+     - Test: `test_pm_sound.py` (PM's exe at its own addresses, the shared sound probe in pmprobe), with breaks.
+     - Left: mw3pm opening sound at its start (with the mission); the range scale's callers 0x00482ca0,
+       0x00408120 (object detail).
 8. **Multiplayer**: PM's game types (Mw3 dev has multiplayer).
 
 The `mw3pm` program, its own mount of PM's install and its own settings

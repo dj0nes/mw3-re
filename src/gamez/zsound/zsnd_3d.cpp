@@ -181,10 +181,12 @@ int32_t update_3d(Voice* v, const float* pos, const float* vel, int32_t doppler)
       const float* lv = st.listener_vel;
       const float rel[3] = {v->vel[0] - lv[0], v->vel[1] - lv[1], v->vel[2] - lv[2]};
       const float closing = (rel[0] * d[0] + rel[1] * d[1]) + rel[2] * d[2];
-      const float k = 1.0f - closing * inv * st.inv_speed_of_sound;
+      const float k = 1.0f - closing * st.inv_speed_of_sound * inv;  // PM's order (0x0059300c); MW3's times inv first
       uint32_t hz = 0;
       out()->get_frequency(v->buffer, &hz);
-      out()->set_frequency(v->buffer, static_cast<uint32_t>(static_cast<int64_t>(static_cast<double>(hz) * k)));
+      // fild qword, fmul dword, ftol (0x005722e8): the product rounds to float
+      // at the game's 24-bit x87 before it is truncated.
+      out()->set_frequency(v->buffer, static_cast<uint32_t>(static_cast<int64_t>(static_cast<float>(static_cast<double>(hz) * k))));
     }
   } else {
     vol = muted() ? -10000 : v->volume;
