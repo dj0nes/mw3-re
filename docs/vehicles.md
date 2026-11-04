@@ -1881,3 +1881,50 @@ the new game keeps the cut store and the reduced base count. On a win, what
 a lost base cut is gone for good (campaign.md section 9). No sign in
 0x00458xxx..0x0045bxxx of repairs looking at the mechs carried: the store
 is touched only here and by the repair (above).
+
+## High frame rates: why a vehicle tips and hops (W57, 2026-11-04)
+
+Reported on Reddit as APCs leaving the ground near the town in c1m2 on very fast
+machines. Two things, the first the original's at any frame rate:
+
+**1. APCs jump off banks at top speed, at 30 fps too.** An APC at 30 m/s that runs
+off the road onto a steep bank (c2m3's `world1/g13358`, normals down to 0.78, about
+39 degrees) goes up it at 20 m/s and leaves the ground for a moment, 8 m up,
+nose high. At 33 ms frames: c2m3's APCs reach 30 to 40 degrees and 20 to 25 m/s,
+7 times a minute. Seen in a hidden shot (`w57-c2m3-apc-airborne-33ms.png`). The
+exe's own suspension (0x4a1760 with its support step 0x4a2820) run in Unicorn on
+the port's dumped state, frame by frame through that launch (80 frames at 33 ms,
+150 at 6 ms with a roll of 84 degrees), gives the port's numbers exactly. So it is
+the original's, and stays (no change without Owen's word).
+
+**2. Short frames make it much worse.** A support on the ground takes its vertical
+speed from the ground's step over the frame, `(ground - y) / dt` (0x4a2820): the
+same 0.2 m is 6 m/s at 33 ms and 66 m/s at 3 ms. Measured, the original's path and
+the fix (below), the largest tilt / vertical speed of each 58 s run, the player idle:
+
+| | 40..20 ms | 16 | 8 | 6 | 5 | 4 |
+|---|---|---|---|---|---|---|
+| c1m1, the original | 12..14 / 5..7 | 17 / 6 | 82 / 35 | 82 / 45 | 82 / 47 | 8x |
+| c1m1, fixed | 12 / 4..6 | 12 / 4 | 12 / 2 | 12 / 2 | 12 / 2 | 12 / 2 |
+| c2m3, the original | 31..89 / 17..28 | 80 / 40 | 86 / 64 | 85 / 67 | | |
+| c2m3, fixed | 32..65 / 10..26 | 33 / 11 | 40 / 10 | 34 / 8 | 3x / 9 | 16 / 9 |
+
+c1m2 is like c1m1 (the original 73 to 80 degrees at 5 and 6 ms, fixed 11 or less),
+except one fixed run at 20 ms that took another route and met a bank (74 degrees).
+From 20 to 40 ms the two agree within a run's spread: no hops come back near 30 fps
+(W50b's worry). c2m1's Bulldogs and Harassers do not change with the fix; their
+time in the air grows on short frames either way, by another cause, not looked at.
+
+**The fix** (FIX (B), behind `per_second`): on frames under 1/30 s the step counts
+as over a 1/30 s frame, `(ground - y) * min(1/dt, 30)`; frames of 1/30 s and longer
+are the exe's. Test `fix_vehicle_support_rise_per_second`.
+
+**Tried and dropped: the vehicles' physics at a fixed 1/30 s** (time accumulated in
+`vehicle_frame`, the move run once per 1/30 s; the controls still per frame). 6, 2
+and 16 ms came out clean, 8, 4 and 3 ms worse (up to 77 degrees and 65 m/s, near
+-1415 -1710 in c1m2, on a route no unstepped run took). Probably the routes changing
+(single runs swing between 11 and 74 degrees by route alone, item 2), but not shown.
+Do not try it again without many runs per frame time.
+
+Not covered: a fight (the APCs drive their routes with the player idle or held
+near), the other vehicle classes (BASIC, flying), PM.

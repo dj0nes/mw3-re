@@ -871,6 +871,18 @@ functions PM changed, and PM's new ones.
        mode on from 0x49e82b; 0x4161f6 and 0x4c33ff turn it off). Fixed in Skis
        and `Mech::collide_query` behind bugs. Check PM's twins of those two calls
        when PM's zones are reached, and tell the lead if PM differs.
+       **Checked after main's merge (2026-11-04), from the code:** PM keeps the same zone switch, MW3's
+       `[0x5ea1d0]` at PM's `[0x60d5e8]`: set on in the player's setup (0x4a19c0, MW3 0x49e810), saved, cleared
+       and put back in the twins of MW3's places (0x416c70, 0x4cd2f0, 0x4519e7, 0x49477c, 0x50a8cb..0x50ab43),
+       read by the zone test (0x55d160, 0x55d1e0, 0x55d270). So the lancemate's lost floor is PM's too, and W58's
+       fix in the shared `Skis::update` and `Mech::collide_query` applies the same way (behind bugs, AI mechs).
+       What W58's grid assumes that PM changes: (1) the ground and segment queries it builds from (PM's
+       0x5003a0, 0x502360) also visit a cell's clutter records, which the port's `cls_di` skips on PM (see the
+       mission load's note), so the grid sees no props; (2) the boundary: PM's `inout` loader (0x4cddb0, MW3
+       0x4c3930) has its own area container (0xc0-byte areas), counts standalone missions (type 5, by 0x435db0)
+       and training, and MW3's selection call 0x4c3b80 has no twin in PM's setup (PM picks the area while it
+       loads, 0x4cdff0). The port's `inout` is still MW3's, so on PM a standalone mission has no boundary and
+       the grid none to keep to. Both go with PM's AI step; W58 is off for enemies and multiplayer anyway.
      - **The draw, piece 1: the type dispatch ported** (2026-11-03,
        `pm/gamez/zmodel/gmod_draw`): `0x542a70` and `0x5416e0` (the facade's centre,
        MW3's `0x53dcf0` on PM's polygons). Type 0 the model-view, 1 a facade, 2

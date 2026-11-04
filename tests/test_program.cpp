@@ -6,7 +6,6 @@
 #include "mech3/mech_skin.h"
 #include "mech3/veh_controls.h"
 #include <array>
-#include <set>
 // The program's pieces that run without a window (docs/program.md): the
 // message DLL, the mounts and write dir, the music lookup, and the start-up
 // through InitInstance and the original main loop to the main menu's state.
@@ -22,6 +21,7 @@
 #if defined(__APPLE__)
 #include <mach/mach.h>
 #endif
+#include <set>
 #include <string>
 #include <tuple>
 #include <vector>
@@ -30,6 +30,7 @@
 #include "check.h"
 #include "gamez/zsave/zsave.h"
 #include "gamez/zmodel/gmod_light.h"
+#include "gamez/zmodel/gmod_puff.h"
 #include "gamez/zinterp/zinterp.h"
 #include "gamez/zeffect/zeff_anim_save.h"
 #include "gamez/zentity/zent_manager.h"
@@ -264,6 +265,20 @@ void reset_process_state() {
   // started the walk part-way, so the mechs updated in another order (W61:
   // the c3m5 homing fight changed after two other missions).
   zent::budget() = zent::Budget{};
+  // The stealth object outlives a mission's cleanup, for a restart on the same
+  // world; in a test it outlives stop_game too, whose node pool is freed, and
+  // the next mission read and deleted it through that freed node.
+  mech3::program_vehicles_new_process();
+  // The puffers' tick node: stop_game frees the node pool, and puff_shutdown
+  // only ran if animations were still loaded, so a test that cleaned up first
+  // kept the freed node, and the next test's stop_game wrote through it (the
+  // Windows crash after the Escape test). The exe exits after its stop_game.
+  zmod::puff_state().tick_node = nullptr;
+  // The axis table ([0x006040d0]): a test that bound the throttle to a slider
+  // left it there, and with no stick an axis reads its offset, so the player
+  // of every later mission walked at full throttle (the c2m4 lancemate tests).
+  mech3::axis_table() = mech3::AxisTable{};
+  for (mech3::AxisBinding& a : mech3::axis_table().axes) a = mech3::AxisBinding{};
 }
 
 // The data version (ours; assets.md, Data versions): the install's, then a
@@ -844,8 +859,11 @@ TEST(mounts_confined_names_stay_inside) {
   zutl::mounts() = zutl::Mounts{};
   zutl::mount(d + "/install");
   zutl::set_write_dir(d + "/saves");
-  EXPECT(zutl::find(abs.c_str()) == abs);  // off: as given
-  EXPECT(zutl::find("..\\secret.zrd") == d + "/install/../secret.zrd");
+  EXPECT(zutl::find(abs.c_str()) == zutl::host(abs.c_str()));  // off: as given (forward slashes on Windows)
+  // Off, ".." is followed. By which mount differs: Windows resolves it through
+  // the write dir, which does not exist yet; POSIX needs the folder.
+  const std::string up = zutl::find("..\\secret.zrd");
+  EXPECT(up == d + "/install/../secret.zrd" || up == d + "/saves/../secret.zrd");
   zutl::mounts().confined = true;
   for (const char* name : {"..\\secret.zrd", "zbd\\..\\..\\secret.zrd", "zbd/c1/../../../secret.zrd", "..",
                            "C:\\secret.zrd", "secret.zrd:stream", "\\secret.zrd", abs.c_str()}) {
@@ -11910,8 +11928,15 @@ TEST(mission_c2m1_lancemate_forms_up_only_in_training_headless) {
   EXPECT(moved(campaign) > 10.0f && moved(training) < 2.0f);
 }
 
+// W58: the lance's grid (zfix nav_allies) for a run, restored after.
+struct NavAllies {
+  bool was;
+  explicit NavAllies(bool on) : was(zfix::options().nav_allies) { zfix::options().nav_allies = on; }
+  ~NavAllies() { zfix::options().nav_allies = was; }
+};
 TEST(mission_c1m4_pocket_commander_sends_dominic_to_a_spot_headless) {
   if (!have_game()) return;
+  const NavAllies nav_off(false);  // the W17/W27 walk it pins (W58 measures the grid)
   SavedMounts keep;
   zutl::mounts() = zutl::Mounts{};
   zutl::mount(MW3_GAME_DIR);
@@ -12122,8 +12147,9 @@ TEST(mission_c1m4_pocket_commander_sends_dominic_to_a_spot_headless) {
 // Shift+R): the cursor on a pixel of it picks the ground under that pixel
 // (0x004587b0), the marker goes there and Dominic is sent to it. Until
 // 2026-10-30 the frame never saw the map up and ordered at the reticle's aim.
-TEST(mission_c1m4_pocket_commander_sends_dominic_to_a_map_spot_headless) {
+static void c1m4_map_spot_run(bool grid) {
   if (!have_game()) return;
+  const NavAllies nav_on(grid);
   SavedMounts keep;
   zutl::mounts() = zutl::Mounts{};
   zutl::mount(MW3_GAME_DIR);
@@ -12253,7 +12279,7 @@ TEST(mission_c1m4_pocket_commander_sends_dominic_to_a_map_spot_headless) {
       }
     };
     CountingPump pump;
-    pump.limit = 1100;
+    pump.limit = grid ? 6000 : 1100;
     pump.on_quit = [&] { mech3::missions().cleanup(false); };
     app.run(pump);
     if (std::getenv("MW3_LANCE_LOG"))
@@ -12267,8 +12293,9 @@ TEST(mission_c1m4_pocket_commander_sends_dominic_to_a_map_spot_headless) {
     EXPECT(std::fabs(seen.got[0] - seen.want[0]) < 1e-3f && std::fabs(seen.got[1] - seen.want[1]) < 1e-3f &&
            std::fabs(seen.got[2] - seen.want[2]) < 1e-3f);
     EXPECT(seen.ordered && seen.follows_marker > 800);
-    // He walks to it and stops at his reach of an enemy (193 m to 58 m).
-    EXPECT(seen.d0 > 150.0f && seen.closest < 80.0f);
+    // He walks to it and stops at his reach of an enemy (193 m to 58 m), at the
+    // foot of the cliff it stands on. By the grid (W58): the way round, up the hill, to it.
+    EXPECT(seen.d0 > 150.0f && seen.closest < (grid ? 20.0f : 80.0f));
     mech3::missions().cleanup(false);
     app.stop_game();
     app.exit_instance();
@@ -12280,6 +12307,8 @@ TEST(mission_c1m4_pocket_commander_sends_dominic_to_a_map_spot_headless) {
   reset_process_state();
   mech3::options() = mech3::Options{};
 }
+TEST(mission_c1m4_pocket_commander_sends_dominic_to_a_map_spot_headless) { c1m4_map_spot_run(false); }
+TEST(mission_c1m4_map_spot_up_a_cliff_by_the_grid_headless) { c1m4_map_spot_run(true); }
 
 // Playtest W11 (docs/ai.md 17.6): the lance order keys through the
 // command handler (0x00469930) to the selected lancemate's brain, the brain's
@@ -12685,8 +12714,9 @@ struct FollowRun {
   int walked = 0, gave_up = 0;
   bool placed = false;
 };
-FollowRun c2_follow_run(int mission, bool wall, bool bugs, bool blocked = false) {
+FollowRun c2_follow_run(int mission, bool wall, bool bugs, bool blocked = false, bool nav = false) {
   FollowRun out;
+  const NavAllies nav_on(nav);
   SavedMounts keep;
   zutl::mounts() = zutl::Mounts{};
   zutl::mount(MW3_GAME_DIR);
@@ -12827,6 +12857,9 @@ TEST(mission_c2m1_dominic_follows_round_walls_headless) {
   print_follow("c2m1 open ground, bugs off", open_exe);
   EXPECT(open.placed && open.walked == 0 && open.gave_up == 0 && open.d_end <= open.range);
   EXPECT(std::fabs(open.d_end - open_exe.d_end) < 0.01f);
+  const FollowRun open_nav = c2_follow_run(1, false, true, false, true);  // W58: the grid leaves open ground the exe's
+  print_follow("c2m1 open ground, the grid on", open_nav);
+  EXPECT(std::fabs(open_nav.d_end - open_exe.d_end) < 0.01f);
   // Every heading blocked: he gives up and stands where the exe leaves him.
   const FollowRun blocked = c2_follow_run(1, true, true, true);
   print_follow("c2m1 behind the wall, every heading blocked", blocked);
@@ -12919,11 +12952,12 @@ std::vector<std::array<float, 3>> grid_route(const float from[3], const float to
 struct TrailRun {
   bool placed = false;
   float route_len = 0, range = 0, d_end = 0;
-  int corners = 0, arrived = -1, reached = -1, stuck_s = 0, crumbs = 0, frames = 0;
+  int corners = 0, arrived = -1, reached = -1, stuck_s = 0, crumbs = 0, frames = 0, paths = 0, waypoints = 0;
 };
 // The player walks round the wall nearest Dominic to 60 m past it.
-TrailRun c2_trail_run(int mission, bool bugs, bool corner = false) {
+TrailRun c2_trail_run(int mission, bool bugs, bool corner = false, bool nav = false) {
   TrailRun out;
+  const NavAllies nav_on(nav);
   SavedMounts keep;
   zutl::mounts() = zutl::Mounts{};
   zutl::mount(MW3_GAME_DIR);
@@ -13148,8 +13182,11 @@ TrailRun c2_trail_run(int mission, bool bugs, bool corner = false) {
         if (dd > out.range && std::hypot(dp[0] - mark[0], dp[2] - mark[1]) < 2.0f) out.stuck_s += 2;
         mark[0] = dp[0], mark[1] = dp[2], mark_f = frames;
       }
-      if (auto* fs = dynamic_cast<mech3::ai::FollowState*>(brain->current().state.get()))
+      if (auto* fs = dynamic_cast<mech3::ai::FollowState*>(brain->current().state.get())) {
         out.crumbs = std::max(out.crumbs, fs->trail.used);
+        out.paths = std::max(out.paths, static_cast<int>(fs->nav.follow.paths));
+        out.waypoints = std::max(out.waypoints, static_cast<int>(fs->nav.follow.waypoints));
+      }
       if (std::getenv("MW3_W27_PROBE") && frames == std::atoi(std::getenv("MW3_W27_PROBE"))) {  // what is round him
         for (int k = 0; k < 16; ++k) {
           const float a = k * 0.3926991f, sx = std::sin(a), sz = std::cos(a);
@@ -13211,6 +13248,37 @@ void print_trail(const char* what, const TrailRun& r) {
 }
 }  // namespace
 
+// W58 (docs/lancemate-pathing.md, Testing): the player walks a way round a
+// wall (W27's routes: the nearest wall's A* way, and its sharp corner) on
+// c2m1, c3m2 and c4bm4 while Dominic follows; the exe (bugs off), the port
+// before (W17's detour, W27's breadcrumbs) and the grid. The grid is to get
+// him to the player sooner and stuck less, never later than the port before.
+TEST(mission_c2_lancemate_grid_before_and_after_headless) {
+  if (!have_game()) return;
+  int better = 0, runs = 0;
+  for (const int m : {1, 2, 4})
+    for (const bool corner : {false, true}) {
+      const TrailRun exe = c2_trail_run(m, false, corner), port = c2_trail_run(m, true, corner),
+                     grid = c2_trail_run(m, true, corner, true);
+      if (!grid.placed || !port.placed) continue;
+      ++runs;
+      char what[96];
+      for (const auto& [r, who] : {std::pair{&exe, "the exe"}, {&port, "W17/W27"}, {&grid, "the grid"}}) {
+        // The harness's mission is both the directory (Launch::index) and the number.
+        std::snprintf(what, sizeof what, "%sm%d %s, %s", mech3::mission_dir(m), m, corner ? "round a corner" : "round the wall", who);
+        print_trail(what, *r);
+        if (r == &grid) std::printf("    paths %d, waypoints %d\n", grid.paths, grid.waypoints);
+      }
+      // Reached: frames after the player's arrival (never: past the run's end).
+      auto late = [](const TrailRun& r) { return r.reached > 0 ? r.reached - r.arrived : 1 << 20; };
+      EXPECT(late(grid) <= late(port) + 90 || grid.reached > 0);  // not later than before by 3 s, or reached anyway
+      EXPECT(grid.stuck_s <= port.stuck_s + 4);
+      better += late(grid) < late(port) || grid.stuck_s < port.stuck_s;
+    }
+  std::printf("  the grid better in %d of %d runs\n", better, runs);
+  EXPECT(runs >= 4);
+}
+
 TEST(mission_c2_dominic_follows_the_players_way_round_corners_headless) {
   if (!have_game()) return;
   // The lead's sharp corner: round the end of a building's wall at close
@@ -13247,10 +13315,11 @@ namespace {
 struct AttackRun {
   bool placed = false, ordered = false;
   float d0 = 0, d_min = 1e9f, range = 0;
-  int walked = 0, gave_up = 0, reached = -1;
+  int walked = 0, gave_up = 0, reached = -1, sighted = -1, spots = 0;
 };
-AttackRun c2m1_attack_run(bool bugs) {
+AttackRun c2m1_attack_run(bool bugs, bool nav = false, float past = 80.0f) {
   AttackRun out;
+  const NavAllies nav_on(nav);
   SavedMounts keep;
   zutl::mounts() = zutl::Mounts{};
   zutl::mount(MW3_GAME_DIR);
@@ -13337,7 +13406,7 @@ AttackRun c2m1_attack_run(bool bugs) {
           }
         }
         if (best > 1e8f) return;
-        const float x = bx + 80 * ux, z = bz + 80 * uz;
+        const float x = bx + past * ux, z = bz + past * uz;
         const float at[3] = {x, ground_under(x, d.pos[1] + 300.0f, z), z};
         mech3::move_mech(enemy, at, 0.0f);
         mech3::mech_power(enemy, 1);  // stays where it is
@@ -13357,16 +13426,27 @@ AttackRun c2m1_attack_run(bool bugs) {
       const float dd = dist(dominic, enemy);
       out.d_min = std::min(out.d_min, dd);
       if (out.reached < 0 && dd <= out.range) out.reached = frames;
+      if (out.sighted < 0 && dd <= out.range) {  // W58: in range and in sight (eye 6 m up to 5 m over the enemy)
+        mech3::LaunchedMech a, b;
+        mech3::describe_mech(dominic, &a), mech3::describe_mech(enemy, &b);
+        const float e[3] = {a.pos[0], a.pos[1] + 6, a.pos[2]}, t[3] = {b.pos[0], b.pos[1] + 5, b.pos[2]};
+        if (!wall_between_seg(e, t)) out.sighted = frames;
+      }
       // "Attack my target" (0x004ea450) is the target's follow; the AI's own
       // attacks the fight. Either's detour.
       const mech3::ai::WallDetour* wd = nullptr;
-      if (auto* fs = dynamic_cast<mech3::ai::FightState*>(brain->current().state.get())) wd = &fs->detour;
-      if (auto* fo = dynamic_cast<mech3::ai::FollowState*>(brain->current().state.get())) wd = &fo->detour;
+      if (auto* fs = dynamic_cast<mech3::ai::FightState*>(brain->current().state.get()))
+        wd = &fs->detour, out.spots = std::max(out.spots, static_cast<int>(fs->nav.spots));
+      if (auto* fo = dynamic_cast<mech3::ai::FollowState*>(brain->current().state.get()))
+        wd = &fo->detour, out.spots = std::max(out.spots, static_cast<int>(fo->nav.spots));
       if (wd) out.walked = std::max(out.walked, wd->walked), out.gave_up = std::max(out.gave_up, wd->gave_up);
     };
     CountingPump pump;
     pump.limit = 8000;
-    pump.stop = [&] { return frames >= 1800 || (frames > 3 && !out.placed) || (frames > 30 && !out.ordered) || out.reached > 0; };
+    pump.stop = [&] {
+      return frames >= 1800 || (frames > 3 && !out.placed) || (frames > 30 && !out.ordered) ||
+             (nav ? out.sighted > 0 : out.reached > 0);
+    };
     app.run(pump);
     mech3::missions().cleanup(false);
     app.stop_game();
@@ -13392,6 +13472,22 @@ TEST(mission_c2m1_dominic_attacks_round_a_wall_headless) {
   EXPECT(r.placed && r.ordered && exe.ordered);
   EXPECT(r.reached > 0 && r.walked > 0);
   EXPECT(exe.reached < 0);
+}
+
+// W58: by the grid, to a firing spot with a line of sight: in range and in
+// sight of the enemy behind the wall, not only near it.
+TEST(mission_c2m1_dominic_attacks_from_a_spot_in_sight_headless) {
+  if (!have_game()) return;
+  // 80 m past the wall (W17's): out of range the enemy itself, as the port.
+  // 25 m past: in range behind it, a spot round it in sight.
+  const AttackRun far = c2m1_attack_run(true, true), far_port = c2m1_attack_run(true);
+  const AttackRun near = c2m1_attack_run(true, true, 25.0f), near_port = c2m1_attack_run(true, false, 25.0f);
+  for (const AttackRun* a : {&far, &far_port, &near, &near_port})
+    std::printf("  %s, %s: %.1f m, nearest %.1f m (range %.0f), in range at %d, in sight at %d; spots %d, detours %d\n",
+                a == &far || a == &far_port ? "80 m past" : "25 m past", a == &far || a == &near ? "the grid" : "W17", a->d0,
+                a->d_min, a->range, a->reached, a->sighted, a->spots, a->walked);
+  EXPECT(far.placed && far.ordered && far.sighted > 0 && far.sighted <= far_port.sighted + 180);  // within 3 s of the port's (a moving enemy)
+  EXPECT(near.placed && near.ordered && near.spots > 0 && near.sighted > 0 && near.sighted - near.reached < 300);  // in sight within 10 s
 }
 
 TEST(mission_c1m4_lance_orders_reach_dominic_and_he_answers_headless) {
@@ -14135,6 +14231,7 @@ TEST(mission_c1m4_dominic_fires_on_a_target_headless) {
 
 TEST(mission_c1m4_dominic_stops_at_a_no_go_patch_headless) {
   if (!have_game()) return;
+  const NavAllies nav_off(false);  // the exe's stop at the edge (the grid walks on: W58)
   SavedMounts keep;
   zutl::mounts() = zutl::Mounts{};
   zutl::mount(MW3_GAME_DIR);
@@ -14289,6 +14386,7 @@ TEST(mission_c1m4_dominic_stops_at_a_no_go_patch_headless) {
 // thresholds he aims at it and holds his fire (below).
 TEST(mission_c1m4_dominic_aims_at_a_near_enemy_unordered_headless) {
   if (!have_game()) return;
+  const NavAllies nav_off(false);  // the exe's aim and walk it pins
   SavedMounts keep;
   zutl::mounts() = zutl::Mounts{};
   zutl::mount(MW3_GAME_DIR);
@@ -19550,6 +19648,8 @@ struct CheatKeys : platform::Input {
   int32_t mouse_state(platform::MouseState*) override { return kNotAcquired; }
   int32_t joystick_state(platform::JoyState*) override { return kNotAcquired; }
 };
+platform::Settings* g_cheat_mission_settings = nullptr;  // the launch's saved settings; none the default
+int g_cheat_mission_op = 0;  // the campaign's operation for the launch (a lancemate comes with it); 0 the default
 int cheat_mission(const char* write, int32_t index, int32_t number, int limit,
                   const std::function<bool(int, mech3::GameEngine&, CheatKeys&)>& step,
                   const std::function<bool(mech3::GameEngine&, mech3::Mech3App&)>& other = nullptr) {
@@ -19573,6 +19673,7 @@ int cheat_mission(const char* write, int32_t index, int32_t number, int limit,
   mech3::Platform p;
   p.window = &window, p.alert = &alert, p.clock = &clock, p.movie_clock = &fast_movie_clock(), p.screen = &screen, p.sound = &sound, p.files = &files;
   p.input = &keys;
+  if (g_cheat_mission_settings) p.settings = g_cheat_mission_settings;
   int frames = 0;
   {
     mech3::GameEngine engine(p, "mech3.exe -nofmv");
@@ -19582,6 +19683,7 @@ int cheat_mission(const char* write, int32_t index, int32_t number, int limit,
     EXPECT(app.init_instance());
     mech3::GameEngine::Launch l;
     l.index = index, l.number = number;
+    if (g_cheat_mission_op) l.op = g_cheat_mission_op;
     engine.set_launch(l);
     app.post_intro_ = &mech3::states().load;
     bool done = false;
@@ -19604,6 +19706,77 @@ int cheat_mission(const char* write, int32_t index, int32_t number, int limit,
   reset_process_state();
   mech3::options() = mech3::Options{};
   return frames;
+}
+
+// A controls file saved with an axis on the stick, loaded at a launch with no
+// stick: does the mech walk by itself? (1.0.2; docs/controls.md.)
+struct NoStick { float throttle = 0, moved = 0, twist = 0, pitch = 0; int32_t source = -1, frames = 0; };
+// `throttle`: the Throttle axis's line as controls_save writes it (0x00411e60);
+// empty: no file saved. Loaded through ActiveCtlCfg, as a launch does.
+NoStick no_stick_run(const char* name, const char* throttle, const char* twist = "joystick(Rz)\tslope(-1.000000)\tintercept(0.000000)\tdeadzone(0.000000)",
+                     const char* pitch = "joystick(Y)\tslope(1.000000)\tintercept(0.000000)\tdeadzone(0.000000)") {
+  NoStick out;
+  const std::string d = temp_dir(name);
+  const std::string file = d + "/saved_controls";
+  platform::RegFile settings(d + "/settings.reg");
+  if (*throttle) {
+    std::ofstream(file) << "(\n\tKEYS (\n\t)\n\tAXES (\n\t\t(Throttle\t" << throttle
+                        << ")\n\t\t(Twist\t" << twist << ")\n\t\t(Pitch\t" << pitch << ")\n"
+                           "\t\t(LR\tjoystick(X)\tslope(-1.000000)\tintercept(0.000000)\tdeadzone(0.000000))\n\t)\n)\n";
+    std::string hex;
+    std::string bytes = file;
+    bytes.resize(sizeof mech3::Options{}.active_ctl_cfg);  // zreg takes a value only at its entry's size
+    for (const char c : bytes) {
+      char b[8];
+      std::snprintf(b, sizeof b, "%s%02x", hex.empty() ? "" : ",", static_cast<unsigned char>(c));
+      hex += b;
+    }
+    std::ofstream(d + "/settings.reg") << "Windows Registry Editor Version 5.00\r\n\r\n"
+                                          "[HKEY_CURRENT_USER\\Software\\MicroProse\\MechWarrior 3\\1.0]\r\n"
+                                          "\"ActiveCtlCfg\"=hex:" << hex << "\r\n";
+  }
+  g_cheat_mission_settings = &settings;
+  float at[3] = {};
+  cheat_mission((std::string(name) + "_write").c_str(), 0, 1, 900, [&](int f, mech3::GameEngine&, CheatKeys&) {
+    mech3::LaunchedMech x;
+    mech3::describe_mech(mech3::mission_player_mech(), &x);
+    if (f == 1) at[0] = x.pos[0], at[2] = x.pos[2];
+    out.frames = f;
+    out.moved = std::hypot(x.pos[0] - at[0], x.pos[2] - at[2]);
+    out.source = mech3::axis_table().axes[0].source;
+    if (auto* c = mech3::player_controls_instance()) out.throttle = c->throttle_target, out.twist = c->twist, out.pitch = c->pitch;
+    return f >= 150;
+  });
+  g_cheat_mission_settings = nullptr;
+  std::printf("  no stick, %s: throttle axis %d, target %.2f, moved %.1f m in %d frames, twist %.2f pitch %.2f\n", name, out.source,
+              out.throttle, out.moved, out.frames, out.twist, out.pitch);
+  return out;
+}
+TEST(controls_saved_stick_axes_with_no_stick_do_not_walk_the_mech_headless) {
+  if (!have_game()) return;
+  const NoStick none = no_stick_run("nostick_none", "");
+  const NoStick stock = no_stick_run("nostick_stock", "joystick(Z)\tslope(-0.500000)\tintercept(0.500000)\tdeadzone(0.050000)");
+  const NoStick slider = no_stick_run("nostick_slider", "joystick(Slider0)\tslope(-0.000015)\tintercept(1.000000)\tdeadzone(0.000000)");
+  const NoStick zone = no_stick_run("nostick_zone", "joystick(Z)\tslope(-0.500000)\tintercept(0.500000)\tdeadzone(0.100000)");
+  EXPECT(none.frames == 150 && none.moved < 1.0f);
+  EXPECT(stock.frames == 150 && stock.moved < 1.0f);
+  EXPECT(slider.frames == 150 && slider.moved < 1.0f);
+  EXPECT(zone.frames == 150 && zone.moved < 1.0f);
+  const char* const off = "joystick(Z)\tslope(-0.500000)\tintercept(0.500000)\tdeadzone(0.050000)";
+  const char* const up = "joystick(Slider1)\tslope(0.000031)\tintercept(-1.000000)\tdeadzone(0.000000)";
+  const NoStick twist = no_stick_run("nostick_twist", off, up);
+  const NoStick pitch = no_stick_run("nostick_pitch", off, "joystick(Rz)\tslope(-1.000000)\tintercept(0.000000)\tdeadzone(0.000000)", up);
+  EXPECT(std::fabs(twist.twist) < 0.01f && std::fabs(pitch.pitch) < 0.01f);
+  // A mouse-look file keeps its mouse: it was never the stick's.
+  const NoStick mouse = no_stick_run("nostick_mouse", off, "mouse(X)\tslope(1.000000)\tintercept(0.000000)\tdeadzone(0.000000)",
+                                     "mouse(Y)\tslope(1.000000)\tintercept(0.000000)\tdeadzone(0.000000)");
+  EXPECT(mouse.frames == 150 && std::fabs(mouse.twist) < 0.01f && mouse.moved < 1.0f);
+  EXPECT(slider.source == 7 && zone.source == 3);  // still bound: the stick works when it comes back
+  // The original's path, bug fixes off: it walks.
+  zfix::options().bugs = false;
+  const NoStick original = no_stick_run("nostick_original", "joystick(Slider0)\tslope(-0.000015)\tintercept(1.000000)\tdeadzone(0.000000)");
+  zfix::options().bugs = true;
+  EXPECT(original.moved > 5.0f);
 }
 
 // Food for thought: a mech that lost a leg comes whole and a vehicle's
@@ -22942,6 +23115,271 @@ TEST(node_world_cached_of_a_moved_node_keeps_the_matrix_stack_headless) {
   EXPECT(checked && same);
   EXPECT(faults.empty == 0 && faults.under_pop == 0 && faults.over_push == 0);
   EXPECT(zmth::matrix_stack().top == 0);
+}
+
+// W58 (docs/lancemate-pathing.md, Testing): the lance's long way. The player
+// stands where the grid finds the longest way round from the lancemate (the
+// straight line blocked, 150..400 m off), the lancemate following as he does unordered; the exe (bugs off), the port before (W17,
+// W27) and the grid, in range and in sight of him by when, and stuck how long.
+namespace {
+struct FarRun {
+  bool placed = false, ordered = false;
+  int crossings = 0, reached = -1, stuck_s = 0, paths = 0, frames = 0;
+  float d0 = 0, d_min = 1e9f, d_end = 0, range = 0;
+};
+FarRun lance_far_run(int32_t index, int32_t number, bool bugs, bool nav) {
+  namespace nv = mech3::ai::nav;
+  FarRun out;
+  const NavAllies nav_on(nav);
+  const bool bugs_was = zfix::options().bugs;
+  zfix::options().bugs = bugs;
+  g_cheat_mission_op = index >= 3 ? 4 : index + 1;  // c1 c2 c3, c4 and c4b
+  void *mate = nullptr, *player = nullptr;
+  mech3::ai::Brain* brain = nullptr;
+  float mark[2] = {};
+  auto pos_of = [](void* m, float o[3]) {
+    mech3::LaunchedMech x;
+    mech3::describe_mech(m, &x);
+    o[0] = x.pos[0], o[1] = x.pos[1], o[2] = x.pos[2];
+  };
+  cheat_mission("w58_far_write", index, number, 6000, [&](int f, mech3::GameEngine& engine, CheatKeys&) {
+    out.frames = f;
+    if (f == 3) {
+      int32_t made = 0;
+      const mech3::AiMechMade* ai = mech3::mission_ai_mechs(&made);
+      player = mech3::mech_mission_player();
+      const zgame::Handle pv = player ? engine.handle_of(player) : 0;
+      for (int32_t i = 0; i < made && !mate; ++i) {  // the lance's first (Dominic where he is)
+        const mech3::ai::AiTarget* t = ai[i].mech ? mech3::ai::brain_hooks().targetable(engine.handle_of(ai[i].mech)) : nullptr;
+        if (t && pv && t->is_ally(pv)) {
+          if (!ai[i].name || std::string(ai[i].name) != "Dominic_Paine") continue;
+          mate = ai[i].mech;
+          brain = static_cast<mech3::AiControls*>(ai[i].controls)->brain.get();
+        }
+      }
+      if (!mate) return true;
+      float d[3];
+      pos_of(mate, d);
+      // By the grid: the place 150..400 m off whose straight line is blocked
+      // and whose way round is the longest against it. With bug fixes off the
+      // mission start left the last mission's grid (only this test asks for it then).
+      if (!bugs) nv::restart();
+      nv::service(0.0f, 0);
+      nv::Grid& g = nv::grid();
+      const int ct = nv::tile_of(nv::cell_of(d[0])), rt = nv::tile_of(nv::cell_of(d[2]));
+      for (int tz = rt - 3; tz <= rt + 3; ++tz)
+        for (int tx = ct - 3; tx <= ct + 3; ++tx) {
+          int budget = 1 << 30;
+          g.build(tx, tz, &budget);
+        }
+      g.parked_t = -1e30f;
+      nv::service(0.0f, 0);  // the parked vehicles, on the built tiles
+      float best[3] = {}, best_ratio = 0;
+      for (float r = 150.0f; r <= 400.0f; r += 50.0f)
+        for (int k = 0; k < 24; ++k) {
+          const float a = static_cast<float>(k) * 0.2617994f;
+          const float x = d[0] + std::sin(a) * r, z = d[2] + std::cos(a) * r;
+          const int lv = g.level_at(nv::cell_of(x), nv::cell_of(z), d[1]);
+          if (lv < 0 || !g.walkable(nv::cell_of(x), nv::cell_of(z), lv)) continue;
+          const float p[3] = {x, g.cell(nv::cell_of(x), nv::cell_of(z), lv)->y, z};
+          if (nv::line_clear(g, d, p)) continue;
+          float clamped[3];
+          if (mech3::ai::brain_hooks().inout_clamp(engine.handle_of(mate), p, clamped)) continue;
+          nv::Way way;
+          if (nv::find_path(g, d, p, &way) != nv::Find::kOk) continue;
+          float len = 0, px = d[0], pz = d[2];
+          for (const auto& q : way) len += std::hypot(q[0] - px, q[2] - pz), px = q[0], pz = q[2];
+          if (len / r > best_ratio) best_ratio = len / r, best[0] = x, best[1] = p[1], best[2] = z;
+        }
+      out.crossings = static_cast<int>(best_ratio * 100.0f);
+      if (best_ratio < 1.1f) return true;
+      mech3::program_mech_set_invincible(player, true);
+      mech3::program_mech_set_invincible(mate, true);
+      mech3::move_mech(player, best, 0.0f);
+      out.range = brain->params.get<float>(0x28);
+      out.placed = true;
+      return false;
+    }
+    if (!out.placed || f < 5) return false;
+    if (f == 5) out.ordered = true;  // a lancemate follows unordered (form on me is his "stop")
+    float a[3], b[3];
+    pos_of(mate, a), pos_of(player, b);
+    const float dd = std::hypot(a[0] - b[0], a[2] - b[2]);
+    if (f == 5) out.d0 = dd, mark[0] = a[0], mark[1] = a[2];
+    out.d_min = std::min(out.d_min, dd), out.d_end = dd;
+    if (f % 120 == 0) {  // not 2 m in 2 s, past his range
+      if (dd > out.range && std::hypot(a[0] - mark[0], a[2] - mark[1]) < 2.0f) out.stuck_s += 2;
+      mark[0] = a[0], mark[1] = a[2];
+      if (std::getenv("W58_LOG")) std::fprintf(stderr, "  t %d: at %.0f %.0f %.0f, %.0f m, player %.0f %.0f %.0f\n", f / 60, a[0], a[1], a[2], dd, b[0], b[1], b[2]);
+    }
+    if (auto* fs = dynamic_cast<mech3::ai::FollowState*>(brain->current().state.get()))
+      out.paths = std::max(out.paths, static_cast<int>(fs->nav.follow.paths));
+    if (dd <= out.range && std::fabs(a[1] - b[1]) < 12.0f) {
+      const float e[3] = {a[0], a[1] + 6, a[2]}, t[3] = {b[0], b[1] + 5, b[2]};
+      if (!wall_between_seg(e, t)) return out.reached = f, true;
+    }
+    return f >= 5400;  // 90 s
+  });
+  g_cheat_mission_op = 0;
+  zfix::options().bugs = bugs_was;
+  return out;
+}
+}  // namespace
+
+TEST(mission_lance_far_way_before_and_after_headless) {
+  if (!have_game()) return;
+  const std::array<int32_t, 2> kMissions[] = {{0, 4}, {1, 1}, {1, 3}, {2, 2}, {2, 5}, {4, 4}, {4, 6}};
+  int measured = 0;
+  const char* one = std::getenv("W58_ONE");  // "2 5": that mission, the grid only
+  for (const auto& m : kMissions) {
+    if (one && std::atoi(one) != m[0] * 10 + m[1]) continue;
+    const FarRun exe = one ? FarRun{} : lance_far_run(m[0], m[1], false, false), port = one ? FarRun{} : lance_far_run(m[0], m[1], true, false),
+                   grid = lance_far_run(m[0], m[1], true, true);
+    if (!grid.placed) {
+      std::printf("  %sm%d: no Dominic, or no place with a long way round\n", mech3::mission_dir(m[0]), m[1]);
+      continue;
+    }
+    ++measured;
+    for (const auto& [r, who] : {std::pair{&exe, "the exe"}, {&port, "W17/W27"}, {&grid, "the grid"}})
+      std::printf("  %sm%d %s: %.0f m, the way %d%% of it, ordered %d, range %.0f; there at %d (%.1f s) of %d, nearest %.0f m, stuck %d s, paths %d\n",
+                  mech3::mission_dir(m[0]), m[1], who, r->d0, r->crossings, r->ordered, r->range, r->reached,
+                  r->reached / 60.0f, r->frames, r->d_min, r->stuck_s, r->paths);
+  }
+  EXPECT(measured >= 3);
+}
+
+// W58: Epona's first mission (Owen: "that one gave me the most trouble with
+// lancemate pathing"). c2m4 has two floors, the ground and the works 90 m
+// under it, joined by ramps and thin walkways. The player stands in the works,
+// Dominic follows from the start: the exe, the port before, the grid.
+namespace {
+struct WorksRun {
+  bool placed = false, door = false;
+  int reached = -1, stuck_s = 0, paths = 0, way_points = 0, way_at = 0, frames = 0;
+  float way_len = 0, d0 = 0, d_min = 1e9f, y_end = 0, range = 0;
+};
+WorksRun c2m4_works_run(bool bugs, bool nav, const float spot[3], const float* mate_at = nullptr) {
+  namespace nv = mech3::ai::nav;
+  WorksRun out;
+  const NavAllies nav_on(nav);
+  const bool bugs_was = zfix::options().bugs;
+  zfix::options().bugs = bugs;
+  g_cheat_mission_op = 2;
+  void *mate = nullptr, *player = nullptr;
+  mech3::ai::Brain* brain = nullptr;
+  float mark[2] = {};
+  auto pos_of = [](void* m, float o[3]) {
+    mech3::LaunchedMech x;
+    mech3::describe_mech(m, &x);
+    o[0] = x.pos[0], o[1] = x.pos[1], o[2] = x.pos[2];
+  };
+  cheat_mission("w58_works_write", 1, 4, 14000, [&](int f, mech3::GameEngine& engine, CheatKeys&) {
+    out.frames = f;
+    (void)engine;
+    if (f == 3) {
+      int32_t made = 0;
+      const mech3::AiMechMade* ai = mech3::mission_ai_mechs(&made);
+      player = mech3::mech_mission_player();
+      for (int32_t i = 0; i < made && !mate; ++i)
+        if (ai[i].mech && ai[i].name && std::string(ai[i].name) == "Dominic_Paine") {
+          mate = ai[i].mech;
+          brain = static_cast<mech3::AiControls*>(ai[i].controls)->brain.get();
+        }
+      if (!mate || !player) return true;
+      mech3::program_mech_set_invincible(player, true);
+      mech3::program_mech_set_invincible(mate, true);
+      // On the floor there nearest the height asked.
+      const auto on_floor = [](const float* in, float* o) {
+        namespace nv = mech3::ai::nav;
+        nv::Floor fl[nv::kLevels];
+        const int n = nv::zcls_world().ground(in[0], in[2], fl, nv::kLevels);
+        o[0] = in[0], o[1] = in[1], o[2] = in[2];
+        float best = 1e30f;
+        for (int i = 0; i < n; ++i)
+          if (std::fabs(fl[i].y - in[1]) < best) best = std::fabs(fl[i].y - in[1]), o[1] = fl[i].y;
+      };
+      float there[3];
+      if (mate_at) on_floor(mate_at, there), mech3::move_mech(mate, there, 0.0f);
+      on_floor(spot, there), mech3::move_mech(player, there, 0.0f);
+          out.range = brain->params.get<float>(0x28);
+      out.placed = true;
+      return false;
+    }
+    if (!out.placed || f < 5) return false;
+    float a[3], b[3];
+    pos_of(mate, a), pos_of(player, b);
+    const float dd = std::hypot(a[0] - b[0], a[2] - b[2]);
+    if (f == 5) out.d0 = dd, mark[0] = a[0], mark[1] = a[2];
+    out.d_min = std::min(out.d_min, dd), out.y_end = a[1];
+    if (f % 120 == 0) {
+      if (dd > out.range && std::hypot(a[0] - mark[0], a[2] - mark[1]) < 2.0f) out.stuck_s += 2;
+      mark[0] = a[0], mark[1] = a[2];
+      if (std::getenv("W58_LOG")) {
+        std::fprintf(stderr, "  t %d: at %.0f %.0f %.0f, %.0f m\n", f / 60, a[0], a[1], a[2], dd);
+      }
+    }
+    if (f == 60)  // the player has shot the factory door down (its target's destroy_anim)
+      if (zeff::AnimDef* door = zeff::anim_find("open_fdoors")) zeff::anim_start(door, nullptr, 0, 0, 0), out.door = true;
+    if (auto* fs = dynamic_cast<mech3::ai::FollowState*>(brain->current().state.get())) {
+      out.paths = std::max(out.paths, static_cast<int>(fs->nav.follow.paths));
+      if (!fs->nav.follow.path.empty() && out.way_points == 0) {
+        out.way_points = static_cast<int>(fs->nav.follow.path.size());
+        out.way_at = f;
+        float px = a[0], pz = a[2];
+        for (const auto& q : fs->nav.follow.path) {
+          out.way_len += std::hypot(q[0] - px, q[2] - pz), px = q[0], pz = q[2];
+          if (std::getenv("W58_LOG")) std::fprintf(stderr, "    way %.0f %.0f %.0f\n", q[0], q[1], q[2]);
+        }
+      }
+    }
+    if (dd <= out.range && std::fabs(a[1] - b[1]) < 12.0f) return out.reached = f, true;
+    return f >= 10800;  // 3 minutes
+  });
+  g_cheat_mission_op = 0;
+  zfix::options().bugs = bugs_was;
+  return out;
+}
+}  // namespace
+
+TEST(mission_c2m4_lancemate_reaches_the_works_headless) {
+  if (!have_game()) return;
+  // The hub past the thin conveyor, on its floor (the land 40 m over it).
+  const float spot[3] = {-1024.0f, std::getenv("W58_Y") ? static_cast<float>(std::atof(std::getenv("W58_Y"))) : -98.8f, -1500.0f};
+  const bool only = std::getenv("W58_ONLY") != nullptr;
+  const WorksRun exe = only ? WorksRun{} : c2m4_works_run(false, false, spot), port = only ? WorksRun{} : c2m4_works_run(true, false, spot),
+                 grid = c2m4_works_run(true, true, spot);
+  for (const auto& [r, who] : {std::pair{&exe, "the exe"}, {&port, "W17/W27"}, {&grid, "the grid"}})
+    std::printf("  %s: door %d, %.0f m off, there at %d (%.0f s) of %d frames, nearest %.0f m, his height at the end %.0f, stuck %d s, paths %d (the first at %d: %d points, %.0f m)\n", who, r->door, r->d0,
+                r->reached, r->reached / 60.0f, r->frames, r->d_min, r->y_end, r->stuck_s, r->paths, r->way_at, r->way_points, r->way_len);
+  EXPECT(exe.placed && exe.reached < 0);  // the exe's: his feet read the land over the tunnel as a wall
+  EXPECT(port.reached > 0 && port.stuck_s < 10);
+  EXPECT(grid.placed && grid.reached > 0 && grid.stuck_s < 10);
+}
+
+// W58, Owen's two: "you're on a conveyor" and "a river you keep bumping into".
+// The player on the works' slab line (c2m4's conveyor); then Dominic on one bank
+// of the river and the player on the other, 125 m up from its bridge.
+TEST(mission_c2m4_lancemate_to_the_conveyor_and_over_the_river_headless) {
+  if (!have_game()) return;
+  const char* only = std::getenv("W58_CASE");
+  const auto three = [&](const char* what, const float* spot, const float* from) {
+    const WorksRun exe = c2m4_works_run(false, false, spot, from), port = c2m4_works_run(true, false, spot, from), grid = c2m4_works_run(true, true, spot, from);
+    for (const auto& [r, who] : {std::pair{&exe, "the exe"}, {&port, "W17/W27"}, {&grid, "the grid"}})
+      std::printf("  %s, %s: %.0f m off, there at %d (%.0f s), nearest %.0f m, height at the end %.0f, stuck %d s, paths %d\n", what, who, r->d0, r->reached,
+                  r->reached / 60.0f, r->d_min, r->y_end, r->stuck_s, r->paths);
+    EXPECT(grid.placed && grid.reached > 0);
+    EXPECT(grid.stuck_s <= port.stuck_s + 4 || (port.reached > 0 && grid.reached < port.reached));  // or there sooner all the same
+  };
+  if (!only || only[0] == 'c') {
+    // The strip's top joins nothing until its pieces move in play: he comes
+    // under it, in range; his reaching the top is for the playtest.
+    const float under[3] = {-1100.0f, -102.3f, -1380.0f};
+    three("under the conveyor", under, nullptr);
+  }
+  if (!only || only[0] == 'r') {
+    const float east[3] = {-2050.0f, 0.0f, -180.0f}, west[3] = {-2260.0f, 0.0f, -180.0f};
+    three("river", east, west);
+  }
 }
 
 // W61: reset_process_state leaves zEntity's update walk as a new process has

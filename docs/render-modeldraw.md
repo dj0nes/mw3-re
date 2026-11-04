@@ -115,8 +115,12 @@ The saved vertex normals are copied back at the end (positions are not).
   nothing for |speed| < 1; the texture shown is the one before the step.
 - **No bound checks**: the copies are do-whiles (a 0-vertex polygon would run
   2^32 times) into 64-vertex buffers. The only polygons over 64 vertices are
-  in `inout` (up to 159), deleted at mission load; the port skips them
-  (FIX (bug)).
+  in `inout` (up to 242, c4), deleted at mission load; the port skips them
+  (FIX (bug)). Counted 2026-11-04 on every world and mechlib, 1.0 and 1.2
+  data: outside `inout` the largest is c4's concave 32-gon
+  (`world1/clan/g21/tires01/healthy`), which reached 35 vertices in 300,000
+  random 5-plane clips, then 20; mechlib's is 12. Static data only: polygons
+  added at run time (craters) and Pirate's Moon's worlds are not in this count.
 - **Facade mode >3** leaves the pushed slot uninitialised (draws as default
   in the port).
 - **Second pass** ([0x74a32c], 0x740338): flat and lit untextured polygons are

@@ -1308,6 +1308,35 @@ TEST(fix_vehicle_collision_fire_floor) {
   set_veh_basic_hooks(nullptr);
 }
 
+// W57 (vehicles.md, High frame rates): a support on the ground takes the
+// ground's step over the frame as its speed (0x004a2820). The same 0.2 m rise
+// at 144 fps launched a vehicle 4.8 times as hard as at 30; now as at 30.
+TEST(fix_vehicle_support_rise_per_second) {
+  using namespace mech3;
+  struct Hooks : VehBasicHooks {
+    float dt = 1.0f / 30.0f;
+    float frame_dt() override { return dt; }
+    float frame_inv_dt() override { return 1.0f / dt; }
+  } hooks;
+  set_veh_basic_hooks(&hooks);
+  auto rise = [&](float dt) {
+    hooks.dt = dt;
+    float y = 0.0f, vs = 0.0f;
+    int32_t air = 0;
+    vehicle_support_step(&y, &vs, 0.2f, &air, 0.0f, 0.0f);
+    return vs;
+  };
+  const bool was = zfix::options().per_second;
+  zfix::options().per_second = true;
+  const float at30 = rise(1.0f / 30.0f), at144 = rise(1.0f / 144.0f), at20 = rise(1.0f / 20.0f);
+  EXPECT(std::fabs(at30 - 6.0f) < 1e-4f && std::fabs(at144 - at30) < 1e-4f);
+  EXPECT(std::fabs(at20 - 4.0f) < 1e-4f);  // a slow frame is the exe's
+  zfix::options().per_second = false;
+  EXPECT(std::fabs(rise(1.0f / 144.0f) - 28.8f) < 1e-3f);  // the exe's
+  zfix::options().per_second = was;
+  set_veh_basic_hooks(nullptr);
+}
+
 // 0x0045a000 after a fourth base (FieldBases::add's fix): only the three
 // slots are read; the extra base is inactive.
 TEST(fix_field_bases_alive_reads_three_slots) {

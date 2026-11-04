@@ -246,6 +246,114 @@ bool drive_to(Brain& b, zgame::Handle v, const float from[3], const float to[3],
   return done;
 }
 
+bool nav_for(zgame::Handle v) {
+  BrainHooks& h = brain_hooks();
+  const AiTarget* t = h.targetable(v);
+  return nav::on_for(t && t->is_ally(h.player_vehicle()));
+}
+
+namespace {
+// The grid's work once a frame (the first pilot to ask): a tile in about 11 frames, some 2 ms a frame.
+void nav_frame(float now) {
+  static float last = -1e30f;
+  if (now == last) return;
+  last = now;
+  nav::service(now, 768);
+}
+
+// A place to fire from at `tgt` within `range`: on rings at 0.6 and 0.8 of
+// it, 16 ways round, walkable, with a line of sight from 6 m over its
+// ground to 5 m over the enemy's place, not in the player's line of fire
+// (within 15 degrees of the way from the player to the enemy, nearer than
+// it); the nearest to `pos`.
+bool firing_spot(const float pos[3], const float tgt[3], float range, float out[3]) {
+  BrainHooks& h = brain_hooks();
+  const nav::Grid& g = nav::grid();
+  float pl[3] = {};
+  const bool has_player = h.player_vehicle() != 0;
+  if (has_player) h.position(h.player_vehicle(), pl);
+  const float aim[3] = {tgt[0], tgt[1] + 5.0f, tgt[2]};
+  const float pd = std::hypot(tgt[0] - pl[0], tgt[2] - pl[2]);
+  float best = 1e30f;
+  for (float ring : {0.6f, 0.8f})
+    for (int k = 0; k < 16; ++k) {
+      const float a = 0.39269908f * static_cast<float>(k);
+      const float x = tgt[0] + std::cos(a) * ring * range, z = tgt[2] + std::sin(a) * ring * range;
+      const int cx = nav::cell_of(x), cz = nav::cell_of(z);
+      const int level = g.level_at(cx, cz, tgt[1]);  // on the enemy's storey
+      if (level < 0 || !g.walkable(cx, cz, level)) continue;
+      const float y = g.cell(cx, cz, level)->y;
+      if (has_player && pd > 1.0f) {
+        const float ux = (tgt[0] - pl[0]) / pd, uz = (tgt[2] - pl[2]) / pd;
+        const float sx = x - pl[0], sz = z - pl[2], sl = std::hypot(sx, sz);
+        if (sl < pd && sl > 1.0f && (sx * ux + sz * uz) / sl > 0.9659f) continue;  // cos 15 degrees
+      }
+      const float eye[3] = {x, y + 6.0f, z};
+      if (h.wall_between(eye, aim)) continue;
+      const float d = std::hypot(x - pos[0], z - pos[2]);
+      if (d < best) best = d, out[0] = x, out[1] = y, out[2] = z;
+    }
+  return best < 1e30f;
+}
+}  // namespace
+
+bool NavWay::step(zgame::Handle v, const float pos[3], const float to[3], bool enemy, float range, float dt, float out[3], bool must_find) {
+  BrainHooks& h = brain_hooks();
+  const float now = h.now();
+  nav_frame(now);
+  (void)v;
+  float goal[3] = {to[0], to[1], to[2]};
+  // Out of range: the enemy itself (the brain's range band stops him). In
+  // range without a line of sight: a firing spot with one.
+  // Near over or under it on another storey is not near.
+  const bool near_it = range > 1.0f && std::hypot(to[0] - pos[0], to[2] - pos[2]) <= range && std::fabs(to[1] - pos[1]) < nav::kHead;
+  if (enemy && near_it) {
+    const float eye[3] = {pos[0], pos[1] + 6.0f, pos[2]}, aim[3] = {to[0], to[1] + 5.0f, to[2]};
+    if (!h.wall_between(eye, aim)) {
+      has_spot = false;
+      follow.path.clear();
+      return false;  // in sight and in range: the exe's fight
+    }
+    const bool moved = std::hypot(to[0] - spot_for[0], to[2] - spot_for[2]) > 25.0f;
+    if ((!has_spot || moved) && now - spot_t >= 1.0f) {
+      spot_t = now;
+      has_spot = firing_spot(pos, to, range, spot);
+      if (has_spot) ++spots, spot_for[0] = to[0], spot_for[1] = to[1], spot_for[2] = to[2];
+    }
+    if (has_spot) goal[0] = spot[0], goal[1] = spot[1], goal[2] = spot[2];
+  } else {
+    has_spot = false;
+    // A leader in range and in sight: the exe's follow and its band.
+    if (!enemy && near_it) {
+      const float eye[3] = {pos[0], pos[1] + 6.0f, pos[2]}, aim[3] = {to[0], to[1] + 5.0f, to[2]};
+      if (!h.wall_between(eye, aim)) return follow.path.clear(), false;
+    }
+  }
+  if (follow.step(pos, goal, now, dt, out, must_find, has_spot ? 0.0f : range)) return true;
+  // The spot in a straight line: walked to as it is (the fallbacks head for the enemy).
+  if (has_spot && now >= follow.fallback_until && std::hypot(spot[0] - pos[0], spot[2] - pos[2]) > 6.0f &&
+      nav::line_clear_avoiding(nav::grid(), pos, spot)) {
+    out[0] = spot[0], out[1] = pos[1], out[2] = spot[2];
+    return true;
+  }
+  return false;
+}
+
+// Straight at the grid's waypoint, as the follow's crumbs: walking only while
+// it is within 60 degrees ahead.
+void nav_drive(Brain& b, zgame::Handle v, const float pos[3], const float goal[3], float* turn) {
+  BrainHooks& h = brain_hooks();
+  float fwd[3] = {0, 0, 0};
+  h.forward(v, &fwd[0], &fwd[2]);
+  float dir[3] = {goal[0] - pos[0], 0.0f, goal[2] - pos[2]};
+  const float gl = std::hypot(dir[0], dir[2]);
+  if (gl > 0.01f) dir[0] /= gl, dir[2] /= gl;
+  float dot = 0, cross = 0;
+  *turn = turn_toward(fwd, dir, &dot, &cross, *turn, turn_params());
+  b.controls->set_turn(*turn);
+  b.controls->set_throttle(dot >= 0.5f ? dot : 0.0f);
+}
+
 // Mech3.exe 1.2 @ 0x004d1d10. The exe takes the order's part as the vehicle
 // net's (its vt+0x0c), as it always is: the brain pushes the fight on that
 // net; any other part here gives up.
@@ -272,6 +380,11 @@ void FightState::run(float dt) {
   float ahead[2] = {0, 0}, goal[3];
   if (zfix::options().bugs) {
     h.forward(v, &ahead[0], &ahead[1]);
+    // Ours (W58): by the grid to a firing spot, when the straight way or the sight is blocked.
+    if (nav_for(v) && nav.step(v, from, to, true, b.params.get<float>(0x28), dt, goal)) {
+      drive_to(b, v, from, goal, &turn, &throttle, false);
+      return;
+    }
     if (detour.goal(from, ahead, to, b.params.get<float>(0x28), dt, goal)) {
       drive_to(b, v, from, goal, &turn, &throttle, false);
       return;
@@ -706,7 +819,19 @@ void FollowState::run(float dt) {
   float at[3] = {to[0], to[1], to[2]};
   float goal[3], ahead[2] = {0, 0};
   if (zfix::options().bugs) h.forward(v, &ahead[0], &ahead[1]), trail_record(to);  // ours, for the detour and the trail
-  if (h.inout_clamp(v, to, at)) {  // 0x004c3000: the boundary pulls the target's place
+  const bool clamped = h.inout_clamp(v, to, at);  // 0x004c3000: the boundary pulls the target's place
+  // FIX (bug), ours (W58): a lancemate by the grid when the exe's walk fails:
+  // a wall on the way, or no progress, the boundary's pull included (the leader
+  // stands in a shape: it holds him at the edge).
+  const bool at_edge = clamped && !nav.follow.path.empty();  // keeps to a path it took
+  if (zfix::options().bugs && nav_for(v) &&
+      nav.step(v, pos, to, !h.targetable(target) || !h.targetable(target)->is_ally(v), b.params.get<float>(0x28), dt, goal, at_edge)) {
+    aim(b, v, pos, goal, 0.0f);
+    slack_side = 2.0f;
+    pulled = 0;
+    detour.on = false, detour.watch_t = 0;
+    on_crumb = true;
+  } else if (clamped) {
     const Steer& s = b.steer;
     if (!(pulled && same_or_nan(at[0], s.start[0]) && same_or_nan(at[2], s.start[2]))) aim(b, v, pos, at, 0.0f);
     pulled = 1;

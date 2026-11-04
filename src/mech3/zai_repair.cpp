@@ -1,5 +1,8 @@
 #include "mech3/zai_repair.h"
 
+#include "gamez/zutil/zfix.h"
+#include "mech3/zai_attack.h"
+
 #include <cmath>
 
 #include "gamez/zmath/zmth_vector.h"
@@ -125,7 +128,6 @@ void RepairState::power(Brain& b, zgame::Handle v, int32_t down) {
 // Mech3.exe 1.2 @ 0x004d0ce0. Without a dock point (phase 0) the order pops
 // at once.
 void RepairState::run(float dt) {
-  (void)dt;
   BrainHooks& h = brain_hooks();
   Brain& b = *order->owner;
   BrainControls& c = *b.controls;
@@ -147,6 +149,13 @@ void RepairState::run(float dt) {
         const float turn = turn_toward(fwd, to, &dot, &cross, c.turn_goal(), turn_params());  // 0x004cdd40
         c.set_turn(turn);
         c.set_throttle(dot > cos_quarter_turn() ? b.xec : 0.0f);  // [0x0060b4a0]
+        phase = 2;
+        return;
+      }
+      // Ours (W58): by the grid to the approach point when the way is blocked.
+      float goal[3];
+      if (zfix::options().bugs && nav_for(v) && nav.step(v, pos, approach, false, 0.0f, dt, goal)) {
+        nav_drive(b, v, pos, goal, &nav_turn);
         phase = 2;
         return;
       }

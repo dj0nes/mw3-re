@@ -661,6 +661,7 @@ class Engine : public zgame::AppHooks {
   virtual void reader_close_archives(int32_t all) { unported("0x005573d0", {all}); }
   virtual void anim_stop(int32_t a) { unported("0x0050ace0", {a}); }
   virtual void debug_mark(const char* text) { unported("0x0040fef0", {text}); }
+  virtual void nav_prebuild() {}  // ours (W58): the AI's walkability grid round the player, as play starts
   virtual uint32_t network_lobby_active() { return unported("0x00586ce0", {}) & 0xff; }
   virtual Handle message_box_new(const char* file, const char* name) {  // new(0x12688)
     return unported("0x0048dfe0", {file, name});

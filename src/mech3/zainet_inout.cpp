@@ -515,8 +515,14 @@ bool inout_pull(const float pos[3], const float in[3], float out[3]) {
 
 // Mech3.exe 1.2 @ 0x004c3bd0 -> 0x004c2a30 over 0x004c29a0. Any other
 // message tests the red ones (kind 0).
+namespace {
+int32_t g_inout_changes = 0;
+}
+int32_t inout_changes() { return g_inout_changes; }
+
 void inout_set_state(const char* name, int32_t message) {
   if (!name || !g_inout.current) return;
+  ++g_inout_changes;
   int32_t kind = 0;
   switch (message) {
     case 0x39: kind = 1; break;
@@ -531,6 +537,7 @@ void inout_set_state(const char* name, int32_t message) {
 // Mech3.exe 1.2 @ 0x004c3dd0
 void inout_mission_end() {
   g_inout.areas.reset();
+  ++g_inout_changes;
   // FIX (bug): the exe leaves [0x0060b344] pointing at the freed area; a next
   // mission without one (multiplayer, or a world without `inout`) then pulls
   // the AI's destinations with freed memory (docs/ai.md section 11).

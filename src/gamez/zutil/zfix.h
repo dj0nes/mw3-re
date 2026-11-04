@@ -26,6 +26,11 @@ struct Options {
   // reverse too (mech3::lever_throttle); mw3.cfg's throttle_reverse=0 keeps
   // the original's stop at the bottom.
   bool throttle_reverse = true;
+  // Ours (W58, with bugs: docs/lancemate-pathing.md): AI pilots walk round
+  // walls by a walkability grid when their straight way is blocked; the
+  // player's side on, the enemies off until Owen decides (the game harder).
+  bool nav_allies = true;
+  bool nav_enemies = false;
 };
 
 inline Options& options() {

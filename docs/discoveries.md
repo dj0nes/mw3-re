@@ -2710,6 +2710,19 @@ file (docs/assets.md, Data versions):
   The rebuild reads it as the new lap (bug fixes on). (docs/fmv.md
   section 5)
 
+## Vehicles
+
+- **APCs really do jump.** An APC at full speed that runs off the road onto a steep
+  bank goes up it so fast it leaves the ground for a moment, nose high, a few
+  metres up. It happens in the original at its normal 30 frames a second (Op 2,
+  Mission 3 has a bank where it happens about every minute).
+- **On a fast machine they fly.** The suspension takes how far the ground rose
+  since the last frame and turns it into speed, so the shorter the frame, the
+  harder a small bump throws the vehicle. Above about 120 fps a small bump can roll
+  an APC on its side. The game was built for slow frames; the rebuild caps that
+  reaction at its 30 fps size, which calms most of it. (From the
+  code, 0x004a2820, checked against the exe in an emulator.)
+
 ## The cameras
 
 From the view and its cameras (0x40aca0, 0x430e70; details: `view.md`).
@@ -2737,6 +2750,13 @@ From the view and its cameras (0x40aca0, 0x430e70; details: `view.md`).
   camera key cycles to (tether behind, zippercam beside), each mech has
   godseye (150 m up, looking straight down), mcbtether (30 m back) and area
   (40 m off); what switches to those is not traced yet.
+- **The side camera can go under the water, and the game knows.** The zippercam
+  rides low, about 4 m above the mech's feet at the start of c1 m1, and nothing
+  keeps a camera out of water, only out of the ground. Standing in 5 m of water
+  puts it 1 m under the surface: the world switches to its underwater fog, the
+  sky turns dark, and a hard line runs across the mech where the surface meets
+  the horizon. The tether camera stays above it there. (From the code:
+  0x0040af30, 0x0040b0e0; not yet compared on the original running.)
 - **The cockpit view bobs with the mech's motion,** and twisting or pitching
   the torso adds to the tilt; the bob is 0.15 of the motion, behind a switch
   that is on in 1.2 ([0x5e2448]; no menu sets it that we know of).
@@ -2851,6 +2871,13 @@ From the view and its cameras (0x40aca0, 0x430e70; details: `view.md`).
   imported movies)
 
 ## Keyboard, mouse and joystick
+
+- **Save your stick setup, unplug the stick, and the mech drives itself.** The game
+  only forgets the stick's axes when your controls file exactly matches the
+  defaults. Change anything about the throttle axis, even its dead zone, and with
+  no stick attached the axis reads its resting value every frame, which opens the
+  throttle (a slider on the twist or pitch swings the torso the same way). (From the code as ported: 0x00480570, 0x00427d60; not run on the
+  original. Fixed in the rebuild with bug fixes on.)
 
 - **Force feedback felt most weapons, but not all.** On a force feedback
   joystick each autocannon, missile and Gauss shot kicked (Recoil) and each
@@ -4153,6 +4180,25 @@ The screen after the pilot for INSTANT ACTION, 0x00488bc0 (details:
   a slider (many throttles are) is not offered there at all. (Found from the
   code: 0x004274d0, 0x0042e5b0, 0x00430180. The rebuild's lever covers
   reverse by itself. docs/controls.md)
+- **Why your lancemate gets stuck in the mission where you meet Epona Rhi.**
+  That mission has two floors in one place: the land on top, and a tunnel and
+  works 45 to 90 m under it. The game tests only the "zones" the camera can
+  see, and it uses the same list for a mech's feet. So once you are in a
+  different zone from your lancemate, the floor under him stops existing as
+  far as his legs can tell. The only ground left is the land far over his
+  head, which his legs read as a 45 m wall right in front of him, and the game
+  kicks him backwards every frame, at full throttle, for as long as you stay
+  away. He looks like he is walking into nothing. In the rebuild with bug
+  fixes off (the original's logic) he stood there for all 3 minutes of the
+  test. The game knew the trick: several other checks turn the zones off
+  first, just not this one. (Found from the code: 0x00476a30, 0x00477820,
+  0x0049e82b. The rebuild's AI mechs read every zone. docs/lancemate-pathing.md)
+- **The AI's only route planning is a set of "keep out" patches.** Every map
+  has shapes painted for the AI to stay out of, and a lancemate's straight
+  line that crosses one is pulled round its edge. That pull is the closest
+  thing the original has to pathfinding: it is why a lancemate walks a neat L
+  round a hill, and why he will not follow you into a patch at all. (Found
+  from the code: 0x004c3000. docs/ai.md section 11)
 
 ## Pirate's Moon
 
