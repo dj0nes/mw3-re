@@ -403,6 +403,14 @@ floats keep the six decimals `%f` gives.
 - A file named like one of reader.zbd's (`keys\detail.zrd`) loads the
   archive's file instead: nothing in it is KEYS or AXES, so nothing changes.
 
+- **A saved stick axis with no stick walks the mech.** With no stick, 0x00480570
+  sets `ready` only for a file exactly like the defaults (`t.stock`), which lets
+  `set_use_joystick(0)` move the axes off the stick. Any other file keeps them, and
+  `read_axes` returns at "no stick" with `*thr` already the axis's offset, added to
+  the throttle each frame. Measured on the program, a slider binding (offset 1) or
+  stick Z with deadzone 0.1, c1m1: target 1.00, 15.7 m in 150 frames. Fixed behind
+  `bugs` (fixes.md); read from the port, not run on the exe.
+
 ### Where the file lives
 
 FIX (A): the original's `keys\` is relative to the game's folder (its

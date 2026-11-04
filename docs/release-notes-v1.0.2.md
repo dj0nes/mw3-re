@@ -52,6 +52,11 @@ did in the original.
   This follows the original's code, but we haven't compared how strong it
   looks with the original running. If you were used to 1.0.1, fights and
   jumps will look brighter; if something looks too strong, a screenshot helps.
+- **A mech that walked by itself with no joystick attached.** If you had saved
+  controls with the throttle on the stick (a slider from 1.0.1's Controls screen,
+  or a changed dead zone) and then played without the stick, the throttle opened
+  on its own. It now stays shut, and your binding is kept for when the stick is
+  back. This is part of bug fixes.
 - **Undefined colour in a new picture.** A rebuild bug: when the picture
   changed size during a mission, the parts of the screen nothing draws on
   could show random memory until something covered them. They now start

@@ -30,6 +30,7 @@
 #include "check.h"
 #include "gamez/zsave/zsave.h"
 #include "gamez/zmodel/gmod_light.h"
+#include "gamez/zmodel/gmod_puff.h"
 #include "gamez/zinterp/zinterp.h"
 #include "gamez/zeffect/zeff_anim_save.h"
 #include "gamez/zentity/zent_manager.h"
@@ -264,6 +265,20 @@ void reset_process_state() {
   // started the walk part-way, so the mechs updated in another order (W61:
   // the c3m5 homing fight changed after two other missions).
   zent::budget() = zent::Budget{};
+  // The stealth object outlives a mission's cleanup, for a restart on the same
+  // world; in a test it outlives stop_game too, whose node pool is freed, and
+  // the next mission read and deleted it through that freed node.
+  mech3::program_vehicles_new_process();
+  // The puffers' tick node: stop_game frees the node pool, and puff_shutdown
+  // only ran if animations were still loaded, so a test that cleaned up first
+  // kept the freed node, and the next test's stop_game wrote through it (the
+  // Windows crash after the Escape test). The exe exits after its stop_game.
+  zmod::puff_state().tick_node = nullptr;
+  // The axis table ([0x006040d0]): a test that bound the throttle to a slider
+  // left it there, and with no stick an axis reads its offset, so the player
+  // of every later mission walked at full throttle (the c2m4 lancemate tests).
+  mech3::axis_table() = mech3::AxisTable{};
+  for (mech3::AxisBinding& a : mech3::axis_table().axes) a = mech3::AxisBinding{};
 }
 
 // The data version (ours; assets.md, Data versions): the install's, then a
@@ -844,8 +859,11 @@ TEST(mounts_confined_names_stay_inside) {
   zutl::mounts() = zutl::Mounts{};
   zutl::mount(d + "/install");
   zutl::set_write_dir(d + "/saves");
-  EXPECT(zutl::find(abs.c_str()) == abs);  // off: as given
-  EXPECT(zutl::find("..\\secret.zrd") == d + "/install/../secret.zrd");
+  EXPECT(zutl::find(abs.c_str()) == zutl::host(abs.c_str()));  // off: as given (forward slashes on Windows)
+  // Off, ".." is followed. By which mount differs: Windows resolves it through
+  // the write dir, which does not exist yet; POSIX needs the folder.
+  const std::string up = zutl::find("..\\secret.zrd");
+  EXPECT(up == d + "/install/../secret.zrd" || up == d + "/saves/../secret.zrd");
   zutl::mounts().confined = true;
   for (const char* name : {"..\\secret.zrd", "zbd\\..\\..\\secret.zrd", "zbd/c1/../../../secret.zrd", "..",
                            "C:\\secret.zrd", "secret.zrd:stream", "\\secret.zrd", abs.c_str()}) {
@@ -19630,6 +19648,7 @@ struct CheatKeys : platform::Input {
   int32_t mouse_state(platform::MouseState*) override { return kNotAcquired; }
   int32_t joystick_state(platform::JoyState*) override { return kNotAcquired; }
 };
+platform::Settings* g_cheat_mission_settings = nullptr;  // the launch's saved settings; none the default
 int g_cheat_mission_op = 0;  // the campaign's operation for the launch (a lancemate comes with it); 0 the default
 int cheat_mission(const char* write, int32_t index, int32_t number, int limit,
                   const std::function<bool(int, mech3::GameEngine&, CheatKeys&)>& step,
@@ -19654,6 +19673,7 @@ int cheat_mission(const char* write, int32_t index, int32_t number, int limit,
   mech3::Platform p;
   p.window = &window, p.alert = &alert, p.clock = &clock, p.movie_clock = &fast_movie_clock(), p.screen = &screen, p.sound = &sound, p.files = &files;
   p.input = &keys;
+  if (g_cheat_mission_settings) p.settings = g_cheat_mission_settings;
   int frames = 0;
   {
     mech3::GameEngine engine(p, "mech3.exe -nofmv");
@@ -19686,6 +19706,68 @@ int cheat_mission(const char* write, int32_t index, int32_t number, int limit,
   reset_process_state();
   mech3::options() = mech3::Options{};
   return frames;
+}
+
+// A controls file saved with an axis on the stick, loaded at a launch with no
+// stick: does the mech walk by itself? (1.0.2; docs/controls.md.)
+struct NoStick { float throttle = 0, moved = 0; int32_t source = -1, frames = 0; };
+// `throttle`: the Throttle axis's line as controls_save writes it (0x00411e60);
+// empty: no file saved. Loaded through ActiveCtlCfg, as a launch does.
+NoStick no_stick_run(const char* name, const char* throttle) {
+  NoStick out;
+  const std::string d = temp_dir(name);
+  const std::string file = d + "/saved_controls";
+  platform::RegFile settings(d + "/settings.reg");
+  if (*throttle) {
+    std::ofstream(file) << "(\n\tKEYS (\n\t)\n\tAXES (\n\t\t(Throttle\t" << throttle
+                        << ")\n\t\t(Twist\tjoystick(Rz)\tslope(-1.000000)\tintercept(0.000000)\tdeadzone(0.000000))\n"
+                           "\t\t(Pitch\tjoystick(Y)\tslope(1.000000)\tintercept(0.000000)\tdeadzone(0.000000))\n"
+                           "\t\t(LR\tjoystick(X)\tslope(-1.000000)\tintercept(0.000000)\tdeadzone(0.000000))\n\t)\n)\n";
+    std::string hex;
+    std::string bytes = file;
+    bytes.resize(sizeof mech3::Options{}.active_ctl_cfg);  // zreg takes a value only at its entry's size
+    for (const char c : bytes) {
+      char b[8];
+      std::snprintf(b, sizeof b, "%s%02x", hex.empty() ? "" : ",", static_cast<unsigned char>(c));
+      hex += b;
+    }
+    std::ofstream(d + "/settings.reg") << "Windows Registry Editor Version 5.00\r\n\r\n"
+                                          "[HKEY_CURRENT_USER\\Software\\MicroProse\\MechWarrior 3\\1.0]\r\n"
+                                          "\"ActiveCtlCfg\"=hex:" << hex << "\r\n";
+  }
+  g_cheat_mission_settings = &settings;
+  float at[3] = {};
+  cheat_mission((std::string(name) + "_write").c_str(), 0, 1, 900, [&](int f, mech3::GameEngine&, CheatKeys&) {
+    mech3::LaunchedMech x;
+    mech3::describe_mech(mech3::mission_player_mech(), &x);
+    if (f == 1) at[0] = x.pos[0], at[2] = x.pos[2];
+    out.frames = f;
+    out.moved = std::hypot(x.pos[0] - at[0], x.pos[2] - at[2]);
+    out.source = mech3::axis_table().axes[0].source;
+    if (auto* c = mech3::player_controls_instance()) out.throttle = c->throttle_target;
+    return f >= 150;
+  });
+  g_cheat_mission_settings = nullptr;
+  std::printf("  no stick, %s: throttle axis %d, target %.2f, moved %.1f m in %d frames\n", name, out.source, out.throttle,
+              out.moved, out.frames);
+  return out;
+}
+TEST(controls_saved_stick_axes_with_no_stick_do_not_walk_the_mech_headless) {
+  if (!have_game()) return;
+  const NoStick none = no_stick_run("nostick_none", "");
+  const NoStick stock = no_stick_run("nostick_stock", "joystick(Z)\tslope(-0.500000)\tintercept(0.500000)\tdeadzone(0.050000)");
+  const NoStick slider = no_stick_run("nostick_slider", "joystick(Slider0)\tslope(-0.000015)\tintercept(1.000000)\tdeadzone(0.000000)");
+  const NoStick zone = no_stick_run("nostick_zone", "joystick(Z)\tslope(-0.500000)\tintercept(0.500000)\tdeadzone(0.100000)");
+  EXPECT(none.frames == 150 && none.moved < 1.0f);
+  EXPECT(stock.frames == 150 && stock.moved < 1.0f);
+  EXPECT(slider.frames == 150 && slider.moved < 1.0f);
+  EXPECT(zone.frames == 150 && zone.moved < 1.0f);
+  EXPECT(slider.source == 7 && zone.source == 3);  // still bound: the stick works when it comes back
+  // The original's path, bug fixes off: it walks.
+  zfix::options().bugs = false;
+  const NoStick original = no_stick_run("nostick_original", "joystick(Slider0)\tslope(-0.000015)\tintercept(1.000000)\tdeadzone(0.000000)");
+  zfix::options().bugs = true;
+  EXPECT(original.moved > 5.0f);
 }
 
 // Food for thought: a mech that lost a leg comes whole and a vehicle's
@@ -23070,7 +23152,9 @@ FarRun lance_far_run(int32_t index, int32_t number, bool bugs, bool nav) {
       float d[3];
       pos_of(mate, d);
       // By the grid: the place 150..400 m off whose straight line is blocked
-      // and whose way round is the longest against it.
+      // and whose way round is the longest against it. With bug fixes off the
+      // mission start left the last mission's grid (only this test asks for it then).
+      if (!bugs) nv::restart();
       nv::service(0.0f, 0);
       nv::Grid& g = nv::grid();
       const int ct = nv::tile_of(nv::cell_of(d[0])), rt = nv::tile_of(nv::cell_of(d[2]));

@@ -2859,6 +2859,13 @@ From the view and its cameras (0x40aca0, 0x430e70; details: `view.md`).
 
 ## Keyboard, mouse and joystick
 
+- **Save your stick setup, unplug the stick, and the mech drives itself.** The game
+  only forgets the stick's axes when your controls file exactly matches the
+  defaults. Change anything about the throttle axis, even its dead zone, and with
+  no stick attached the axis reads its resting value every frame, which opens the
+  throttle. (From the code as ported: 0x00480570, 0x00427d60; not run on the
+  original. Fixed in the rebuild with bug fixes on.)
+
 - **Force feedback felt most weapons, but not all.** On a force feedback
   joystick each autocannon, missile and Gauss shot kicked (Recoil) and each
   laser buzzed, harder for bigger lasers. The machine gun, the flamer, the

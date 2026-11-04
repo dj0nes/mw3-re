@@ -349,7 +349,16 @@ void PlayerControls::read_axes(float dt, float* thr, float* tn, float* p, float*
     }
     look_y = free ? clamp1(look_y - kLookReturn * dt * *p) : 0.0f;
   }
-  if (!(g_calls.joy_present ? g_calls.joy_present() : zin::joy_present())) return;
+  if (!(g_calls.joy_present ? g_calls.joy_present() : zin::joy_present())) {
+    // FIX (bug): a saved file's stick axes stay bound with no stick (only the
+    // stock file is moved off it, 0x00480790), and read their offset each frame:
+    // the mech walked by itself (docs/fixes.md).
+    if (zfix::options().bugs) {
+      if (ax[0].source >= 1 && ax[0].source <= 8) *thr = 0.0f;
+      if (ax[3].source >= 1 && ax[3].source <= 8) *tn = 0.0f;
+    }
+    return;
+  }
   // Ours (W56): with reverse on the lever, a first reading in reverse is taken
   // as the last one, so a lever left at its end (stop, before) does not back
   // the mech off at the start; it counts once it moves. Ahead, it drives at
