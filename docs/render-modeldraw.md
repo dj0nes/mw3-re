@@ -24,7 +24,8 @@ Ported since and the hooks' defaults: 0x547540 / 0x547740 (projected
 lights, `projected_strip` / `projected_draw`) and the projected-shadow
 receiver block (0x540552.., 0x540ef6..: `collect_shadows`),
 render-shadows.md. Facade modes 2 and 3
-(0x51f390, 0x51f750) are used by no shipped world and draw as default models.
+(0x51f390, 0x51f750) are used by no shipped MW3 world; Pirate's Moon's headlight
+beam is mode 2.
 The draw table is `draw_table()` (function pointers with the original's
 arguments, FIX (A)); wiring it to `zvid::draw_flat` etc. is left to the
 integration (signatures match `zvid_ddd3d.h`).

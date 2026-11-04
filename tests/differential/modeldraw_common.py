@@ -6,6 +6,15 @@ import os
 import struct
 
 
+# The C runtime's _copysign(x, sign), which answers on the x87 stack: fld qword
+# [esp+4]; fabs; test the sign's top byte; fchs if set; ret.
+COPYSIGN = b'\xdd\x44\x24\x04\xd9\xe1\xf6\x44\x24\x13\x80\x74\x02\xd9\xe0\xc3'
+
+# The C runtime's _CIasin, on the x87 stack: atan2(x, sqrt(1 - x * x)). Its own
+# code goes on into the CRT's error handling, which the benches do not stand in for.
+CIASIN = b'\xd9\xc0\xd8\xc8\xd9\xe8\xde\xe1\xd9\xfa\xd9\xf3\xc3'
+
+
 def f32(x):
     return struct.unpack('<f', struct.pack('<f', x))[0]
 

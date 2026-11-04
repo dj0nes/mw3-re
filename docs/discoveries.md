@@ -4186,6 +4186,11 @@ The screen after the pilot for INSTANT ACTION, 0x00488bc0 (details:
   corner's colour and fog but copies its point-light value from one neighbour,
   so the light on the cut edge can jump. Pirate's Moon blends it like the rest.
   Very rarely visible. (docs/pm-map.md, gmod_matl.c)
+- **Pirate's Moon's mechs have headlights with a beam.** It's new in the
+  expansion: `headlight.flt` holds a small glow that always faces you and a long
+  flat beam, 66 long and 47 wide, which turns about its own length so that you
+  never see it edge-on. MechWarrior 3's code could already do that turn, but no
+  MechWarrior 3 model uses it. (docs/pm-map.md, gmod_matl.c)
 - **Pirate's Moon's level designers stopped at 64 corners, and it mattered.**
   The drawing code has room for 64 corners on a polygon and never checks. The
   largest polygon the game draws has exactly 64. If the camera clips off exactly

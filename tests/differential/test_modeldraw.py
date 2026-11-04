@@ -34,7 +34,7 @@ from pathlib import Path
 os.environ.setdefault('MW3_X87', '24')
 sys.path.insert(0, str(Path(__file__).parent))
 from original import ROOT  # noqa: E402
-from modeldraw_common import Stats, f32, fbits, mat_mul, rotation, same_float, scenario  # noqa: E402,F401
+from modeldraw_common import CIASIN, COPYSIGN, Stats, f32, fbits, mat_mul, rotation, same_float, scenario  # noqa: E402,F401
 from test_gamez import ZBD, Emulated, probe  # noqa: E402
 
 if os.environ.get('MW3_PROBE'):  # another build of libmw3probe (e.g. one with -ffp-contract=off)
@@ -124,6 +124,8 @@ class Original:
         cpu.u32(0x74639c, 0x74039c)
         cpu.u32(0x7463a0, 0x74339c)
         cpu.u32(0x72f348, 1)
+        cpu.u32(0x5bb5ac, cpu.code(COPYSIGN))  # the facade modes' import slot
+        cpu.write(0x5ac380, CIASIN)
         cpu.u32(0x74a2c8, 0xffffffff)
         cpu.u32(0x74a2cc, 0x74a2c8)
         cpu.u32(0x74981c, 0)
@@ -563,6 +565,12 @@ def run_world(world, draws, rng, stats, breaks=False):
         orig.state(st, fog)
         probe.probe_md_state(fbits(*st), fog)
         undo = edit(orig, rng, mi, mtype, i)
+        # The turns about one axis, which no shipped world uses; not with a camera
+        # exactly on the node, where the direction to it is rounding noise.
+        if mtype == 1 and rng.random() < 0.4 and any(abs(a - b) >= 1e-3 for a, b in zip(world_m[9:], cam[9:])):
+            old_mode = orig.model_u32(mi, 4)
+            orig.set_model(mi, 4, rng.choice((2, 3)))
+            undo.append(lambda old=old_mode: orig.set_model(mi, 4, old))
         if mtype == 1:
             # Facades turn by zmth's sin/cos and atan2, a last bit apart; with vertices behind the camera and no near clip (a mask the
             # cull never leaves for a sphere crossing the near plane) that bit

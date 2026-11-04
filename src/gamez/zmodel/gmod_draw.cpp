@@ -743,6 +743,63 @@ void billboard_sphere() {
 // 0x53f5fa..0x53f846: the facade's top. Model flag 0x40 turns it about its
 // polygons' centre (shifting the world matrix's translation around the turn).
 // c is the draw's [ebp-0x24], the slot the polygon normal uses later.
+// Mech3.exe 1.2 @ 0x0051f390 (mode 2) and 0x0051f750 (mode 3); Pirate's Moon 1.0
+// @ 0x00538e40, 0x00539200. A facade turning about one of its axes to face the
+// camera: the model-view, y and z negated, its rotation taken apart into angles,
+// turned by the angle to the camera in the model's own axes and put back.
+// Pirate's Moon's headlight beam is mode 2.
+void billboard_axis(int mode) {
+  zmth::MatrixStack& st = zmth::matrix_stack();
+  float* m = st.matrix().m;
+  const float* b = st.below().m;
+  const float* v = zmth::view().view.m;
+  for (int r = 0; r < 3; ++r) {
+    const float f0 = b[3 * r], f1 = b[3 * r + 1], f2 = b[3 * r + 2];
+    m[3 * r] = v[6] * f2 + v[3] * f1 + v[0] * f0;
+    m[3 * r + 1] = v[7] * f2 + v[1] * f0 + v[4] * f1;
+    m[3 * r + 2] = f0 * v[2] + f1 * v[5] + f2 * v[8];
+  }
+  m[9] = v[6] * b[11] + v[3] * b[10] + v[0] * b[9] + v[9];
+  m[10] = v[1] * b[9] + v[4] * b[10] + v[7] * b[11] + v[10];
+  m[11] = b[9] * v[2] + v[11] + b[10] * v[5] + b[11] * v[8];
+  st.is_identity() = 0;
+  auto flip = [m] {
+    for (int k : {1, 4, 7, 10, 2, 5, 8, 11}) m[k] = -m[k];
+  };
+  flip();
+  const float tx = -m[9], ty = -m[10], tz = -m[11];
+  const double along_x = tz * m[2] + ty * m[1] + tx * m[0];
+  const double along_y = tz * m[5] + ty * m[4] + tx * m[3];
+  const double along_z = tz * m[8] + ty * m[7] + tx * m[6];
+  const float angle = static_cast<float>(mode == 2 ? std::atan2(-along_x, along_y) : std::atan2(along_z, along_y));
+  float pitch, yaw, roll = 0.0f;
+  if (std::fabs(static_cast<double>(m[7])) >= 1.0) {  // straight up or down (a NaN is not)
+    pitch = -static_cast<float>(std::copysign(1.570796326795, static_cast<double>(m[7])));
+    yaw = static_cast<float>(std::atan2(-static_cast<double>(m[2]), static_cast<double>(m[0])));
+  } else {
+    pitch = static_cast<float>(std::asin(-static_cast<double>(m[7])));
+    yaw = static_cast<float>(std::atan2(static_cast<double>(m[6]), static_cast<double>(m[8])));
+    roll = static_cast<float>(std::atan2(static_cast<double>(m[1]), static_cast<double>(m[4])));
+  }
+  float q[4];
+  if (mode == 2) {
+    zmth::euler_to_quat(yaw, pitch, roll + angle, q);
+  } else {
+    zmth::euler_to_quat(yaw, pitch, roll, q);
+    zmth::Quat turn, both;
+    zmth::quat_axis_angle(zmth::Vec3{m[0], m[1], m[2]}, angle, &turn);
+    zmth::quat_mul(turn, zmth::Quat{q[0], q[1], q[2], q[3]}, both);
+    q[0] = both.w, q[1] = both.x, q[2] = both.y, q[3] = both.z;
+  }
+  zmth::Quat unit;
+  zmth::quat_normalize(zmth::Quat{q[0], q[1], q[2], q[3]}, unit);
+  const float u[4] = {unit.w, unit.x, unit.y, unit.z};
+  float r[9];
+  zmth::quat_matrix(u, r);
+  std::memcpy(m, r, sizeof r);
+  flip();
+}
+
 void facade_top(const Model& m, float c[3]) {
   const bool about_centre = field<uint8_t>(m, 8) & 0x40;
   if (about_centre) facade_centre(m, c);
@@ -761,9 +818,10 @@ void facade_turn(int32_t mode, bool about_centre, const float c[3]) {
   switch (mode) {
     case 0: billboard_y(g_state.camera_data ? g_state.camera_data[0x3c / 4] : 0.0f); break;
     case 1: billboard_sphere(); break;
-    // Modes 2 (0x51f390, about x) and 3 (0x51f750, about z) are not ported: no
-    // shipped world uses them. Any other mode leaves the pushed slot
-    // uninitialised in the original. Both draw as a default model here.
+    case 2:
+    case 3: billboard_axis(mode); break;
+    // Any other mode leaves the pushed slot uninitialised in the exe: a default
+    // model here.
     default: zmth::load_model_view(); break;
   }
   if (about_centre) {

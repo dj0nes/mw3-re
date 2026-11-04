@@ -793,8 +793,11 @@ functions PM changed, and PM's new ones.
        The facade's turn is MW3's own, split out as `zmod::facade_turn`. Counted on
        all four worlds and mechlib: types 0 and 1 only, no points, no flag 0x40 or
        flag 8. Facade modes 0 and 1 in the worlds; **mechlib ships a mode 2**,
-       `g4` in `headlight.flt`, the headlight's beam, so `0x538e40` is to port (not
-       yet: it draws as a default model until then). Mode 3 ships nowhere. FIX (bug): points with
+       `g4` in `headlight.flt`, the headlight's beam. Mode 3 ships nowhere. Modes 2
+       and 3 (`0x538e40`, `0x539200`; MW3's `0x51f390`, `0x51f750`) are one shared
+       version in `facade_turn`, which MW3 gains too with no effect on its data:
+       its callees are twins, and PM's quaternion product `0x53ef90` differs from
+       MW3's `0x5255d0` only in the order of its sums. FIX (bug): points with
        no vertices or no polygons draw nothing (the exe loops 2^32 times, or reads
        through null; `pm_points_without_polygons`). `test_pm_modeldraw.py`, importing
        `modeldraw_common.py`, on PM's exe with c1 and c3: 3,000 draws, the result,

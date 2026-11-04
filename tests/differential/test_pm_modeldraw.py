@@ -15,7 +15,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from modeldraw_common import Stats, fbits, same_float, scenario  # noqa: E402
+from modeldraw_common import CIASIN, COPYSIGN, Stats, fbits, same_float, scenario  # noqa: E402
 import test_pm_gamez as g  # noqa: E402
 import test_pm_zar  # noqa: E402
 
@@ -41,6 +41,8 @@ class Emulated(g.Emulated):
         self.w32(D3D_ON, 1)
         self.w32(CAM_P, 0x8d4bac)  # 0x53fe30's, which the bench does not run
         self.w32(CAMERA, self.camera)
+        self.w32(0x5de5bc, self.cpu.code(COPYSIGN))  # the modes' import slot
+        self.cpu._uc.mem_write(0x5cefd6, CIASIN)
         self.native_stub(MODEL_VIEW, self.model_view)
 
     def point(self, c):
@@ -177,16 +179,17 @@ def main():
             def set_model(off, v):
                 emu.w32(model + off, v)
                 p.probe_pm_set_model(i, off, v)
-            kind = rng.choice(('as is', 'as is', 'points', 'points', 'facade 0', 'facade 1', 'centre', 'type 3', 'morph'))
+            kind = rng.choice(('as is', 'as is', 'points', 'points', 'facade 0', 'facade 1', 'facade 2', 'facade 3',
+                               'vertical 2', 'vertical 3', 'nan 2', 'nan 3', 'centre', 'type 3', 'morph'))
             nv = saved and emu.i32(model + 0x14)
             if kind in ('points', 'morph') and emu.i32(model + 0x10) <= 0:
                 kind = 'type 3'  # the exe reads through a null polygon list: pm_points_without_polygons
             if kind == 'points':
                 set_model(0, 2)
-            elif kind in ('facade 0', 'facade 1'):
+            elif kind.startswith(('facade', 'vertical', 'nan')):
                 set_model(0, 1), set_model(4, int(kind[-1]))
             elif kind == 'centre':
-                set_model(0, 1), set_model(4, rng.choice((0, 1))), set_model(8, saved[8] | 0x40)
+                set_model(0, 1), set_model(4, rng.choice((0, 1, 2, 3))), set_model(8, saved[8] | 0x40)
             elif kind == 'type 3':
                 set_model(0, 3)
             elif kind == 'morph' and nv > 0:
@@ -207,6 +210,17 @@ def main():
                 p.probe_pm_set_model(i, 0x24, emu.i32(model + 0x24) & 0xffffffff)
             kinds[kind] = kinds.get(kind, 0) + 1
             world, cam, proj, clip, *_ = scenario(rng, (0, 0, 0), 50.0)
+            # Modes 2 and 3 turn by the direction to the camera: a camera exactly on
+            # the node makes that atan2 of rounding noise, and any turn is valid.
+            while kind[-1] in '23' and all(abs(a - b) < 1e-3 for a, b in zip(world[9:], cam[9:])):
+                world, cam, proj, clip, *_ = scenario(rng, (0, 0, 0), 50.0)
+            if kind.startswith('vertical'):  # the model's y row straight along the camera's: |m7| is 1
+                sign = rng.choice((1, -1))
+                world = [1, 0, 0, 0, 0, 1, 0, sign, 0] + list(world[9:])
+                cam = [1, 0, 0, 0, 1, 0, 0, 0, 1] + list(cam[9:])
+            elif kind.startswith('nan'):
+                world = list(world)
+                world[7] = float('nan')
             near = proj[6]
             rect = (proj[0], proj[1], proj[0] + proj[2] * 2 - 0.001, proj[1] + proj[3] * 2 - 0.001)
             yaw = rng.uniform(-3.2, 3.2)

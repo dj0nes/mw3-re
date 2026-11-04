@@ -116,8 +116,7 @@ void facade_centre(const Model& m, float out[3]) {
   out[0] = r * out[0], out[1] = r * out[1], out[2] = r * out[2];
 }
 
-// Pirate's Moon 1.0 @ 0x00542a70. Facade modes 2 and 3 (0x00538e40, 0x00539200)
-// draw as a default model, as MW3's port: no shipped world uses them.
+// Pirate's Moon 1.0 @ 0x00542a70
 int prepare_model(Model& m, float centre[3]) {
   switch (m.count(0)) {
     case 0:
