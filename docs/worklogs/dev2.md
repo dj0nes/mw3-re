@@ -609,22 +609,16 @@ works alongside it; stay out of its files.
 - Break scripts: never run a game binary bare; only the test harness's
   hidden runs (a bare build/mw3 opened a full game on Owen's Mac).
 
-## 2026-11-03: where Pirate's Moon stands (stopped)
+## 2026-11-03: mechlib 41 (e) done; Pirate's Moon goes on
 
-Owen is closing the project, so PM stops here, unmerged past what the lead
-already took. `mac5/pm` is pushed as it stands; docs/pm-map.md's porting order
-has the detail.
+The old lead's stop was reversed the same evening (Owen; the new lead reviews
+and merges). (e) is finished, pm-map.md has the results. Next, in pm-map's
+order, each cut sent to the lead first: light maps and lighting, cls_clutter,
+the world class, the interpreter's commands.
 
-- Done with tests and breaks: zArchive 2, zrdr_main.cpp, gamez.zbd 41 (c1
-  textures and materials, c2 models and on), anim.zbd 50 (a to d).
-- Work in progress, not reviewed: (e) mechlib 41 (e180356a and the map's
-  entry). `test_pm_mechlib.py` matched PM's exe on all 76 trees over c1, 23
-  over c3, 10 with no world and 6 crafted runs. Left: 11 of 15 breaks (the
-  "colours always" break hangs the test), the two new C++ tests never run,
-  the full regression. Treat it as unverified.
-- Not started: the world (light maps, clutter, the world class, the
-  interpreter's new commands) and everything after it in the porting order.
-
-Other branches of mine: `mac5/w61` (test-only, the entity walk's reset) was
-accepted for main after the v1.0.1 tag. The PC copy (mw3-re-dev2) stays at
-v1.0.1. The v1.0.1 maps are in the file home's keep/mw3-re/v1.0.1-symbols.
+- The "hanging" break was a crash in the probe's dump, which the Mac leaves
+  unkillable in UE. Break runs now load a small library (scratch only) that
+  turns a fatal signal into a backtrace and `_exit`: no new stuck process.
+- `pm_worlds_stack_through_the_table` was flaky: it compared pointers across a
+  pool's separate blocks (failed 1 run in 6). It tests block membership now
+  (12 of 12).

@@ -239,7 +239,13 @@ TEST(pm_worlds_stack_through_the_table) {
   EXPECT(::zmod::materials().capacity == 2000 && pm::zmod::models().capacity == 3000 + 2250);
   EXPECT(::zcls::nodes().capacity > nodes);
   EXPECT(pm::zcls::zbd_state().files.size() == 2);
-  // A node of c2 links to c2's nodes and models, not c1's.
+  // A node of c2 links to c2's nodes and models, not c1's. By block: a pool's
+  // blocks are separate allocations, in no address order.
+  auto in_first = [](const auto& blocks, int32_t per_block, int32_t slots, const auto* p) {
+    for (int32_t k = 0; k < slots / per_block; ++k)
+      if (p >= blocks[k].get() && p < blocks[k].get() + per_block) return true;
+    return false;
+  };
   int linked = 0, wrong = 0;
   for (int32_t i = nodes; i < ::zcls::nodes().capacity; ++i) {
     const ::zcls::Node* n = ::zcls::node_at(i);
@@ -247,9 +253,9 @@ TEST(pm_worlds_stack_through_the_table) {
     for (int32_t k = 0; k < n->parent_count(); ++k) {
       ++linked;
       const ::zcls::Node* q = n->parents[k];
-      wrong += q < ::zcls::node_at(nodes) && q >= ::zcls::node_at(0);
+      wrong += in_first(::zcls::nodes().blocks, ::zcls::nodes().block_size, nodes, q);
     }
-    if (n->pm_model) wrong += n->pm_model < &pm::zmod::models().at(3000);
+    if (n->pm_model) wrong += in_first(pm::zmod::models().blocks, pm::zmod::models().block, 3000, n->pm_model);
   }
   EXPECT(linked > 100 && wrong == 0);
   // Refused files: the pools and the list stay as they are.
@@ -330,7 +336,8 @@ TEST(pm_mechlib_reads_the_shipped_trees_whole) {
     loaded += zgame::game().zcls_mechlib_load(lib, e.name.c_str()) != nullptr;
   }
   for (int32_t i = 0; i < ::zcls::nodes().capacity; ++i)
-    lods += (::zcls::node_at(i)->link & ::zcls::kNodeLive) && ::zcls::node_at(i)->cls() == 6;
+    lods += ::zcls::node_at(i)->cls() == 6;  // a free slot's class is 0
+  std::printf("  pm mechlib: %d trees, %d loaded, %zu kept, %d LODs\n", trees, loaded, lib.trees.size(), lods);
   EXPECT(trees == 76 && loaded == 76 && lib.trees.size() == 76 && lods == 2);
   ::zcls::mechlib_close(lib);
   const std::string mw3 = std::string(MW3_GAME_DIR) + "/zbd/mechlib.zbd";
@@ -361,7 +368,7 @@ TEST(pm_mechlib_fuzz_never_crashes) {
   std::filesystem::create_directories(dir);
   const std::string copy = dir + "/mechlib.zbd";
   std::mt19937 r(41);
-  int runs = 0, refused = 0, read = 0, cut = 0, cut_refused = 0;
+  int runs = 0, refused = 0, read = 0, cut = 0, cut_refused = 0, bad_polys = 0;
   for (int seed = 0; seed < 180; ++seed) {
     std::vector<ZarEntry> m = all;
     ZarEntry& target = m[trees[r() % trees.size()]];
@@ -388,11 +395,24 @@ TEST(pm_mechlib_fuzz_never_crashes) {
     ++runs;
     t ? ++read : ++refused;
     if (kind == 0 && d.size() < before) ++cut, cut_refused += t == nullptr;
+    // A refused tree stays in the pool: what is left of it must be whole
+    // (its model empty once broken), every polygon's indices in its arrays.
+    pm::zmod::ModelPool& pool = pm::zmod::models();
+    for (int32_t i = 0; i < pool.capacity; ++i) {
+      const pm::zmod::Model& model = pool.at(i);
+      for (int32_t k = 0; k < model.count(0x10); ++k) {
+        const pm::zmod::Polygon& q = model.polygons[k];
+        const uint32_t n = q.flags & 0x3ff;
+        bad_polys += q.material_count < 1 || (n && !q.vertex_indices);
+        for (uint32_t j = 0; j < n && q.vertex_indices; ++j)
+          bad_polys += q.vertex_indices[j] >= static_cast<uint32_t>(model.count(0x14));
+      }
+    }
     ::zcls::mechlib_close(lib);
     zutl_zar::destroy(lib.archive);
   }
   std::printf("  pm mechlib fuzz: %d trees, %d refused, %d read; cut short %d, refused %d\n", runs, refused, read, cut,
               cut_refused);
-  EXPECT(runs == 180 && refused > 0 && cut == cut_refused);
+  EXPECT(runs == 180 && refused > 0 && cut == cut_refused && bad_polys == 0);
   zgame::set_game(zgame::mw3_table());
 }

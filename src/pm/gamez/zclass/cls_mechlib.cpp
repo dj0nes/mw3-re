@@ -39,8 +39,9 @@ bool bounded() { return g_end >= 0; }
 template <typename T>
 T* read_array(std::FILE* f, int64_t count, size_t size) {
   const size_t bytes = count > 0 ? static_cast<size_t>(count) * size : 0;
+  if (bytes && !fits(f, bytes)) return static_cast<T*>(std::calloc(1, size));  // bounded: before the allocation
   T* p = static_cast<T*>(std::calloc(bytes ? bytes : 1, 1));
-  if (bytes && fits(f, bytes)) std::fread(p, bytes, 1, f);
+  if (bytes) std::fread(p, bytes, 1, f);
   return p;
 }
 
@@ -182,14 +183,21 @@ void read_model(std::FILE* f, Node* node) {
   pm::zmod::Model* m = pm::zmod::model_alloc();
   std::memcpy(m->header, header, sizeof header);
   node->pm_model = m;
-  if (bounded() && g_broken) std::memset(m->header + 0x10, 0, 16), std::memset(m->header + 0x5c, 0, 4);
+  // Ours: once broken nothing more is read and the model is left with no
+  // counts, so what stays in the pool of a refused tree is empty.
+  auto refused = [&] {
+    if (!bounded() || !g_broken) return false;
+    std::memset(m->header + 0x10, 0, 16), std::memset(m->header + 0x5c, 0, 8);
+    return true;
+  };
+  if (refused()) return;
   if (m->count(0x14) > 0) m->vertices = read_array<float>(f, m->count(0x14), 12);
   if (m->count(0x18) > 0) m->normals = read_array<float>(f, m->count(0x18), 12);
   if (m->count(0x1c) > 0) m->morphs = read_array<float>(f, m->count(0x1c), 12);
   const int32_t polys = m->count(0x10);
   if (polys > 0) {
     if (bounded() && !fits(f, static_cast<uint64_t>(polys) * 0x28)) {  // ours: none of them read
-      std::memset(m->header + 0x10, 0, 16);
+      refused();
       return;
     }
     std::vector<uint8_t> raw(static_cast<size_t>(polys) * 0x28);
@@ -207,6 +215,7 @@ void read_model(std::FILE* f, Node* node) {
       if (k) q.vertex_indices = read_array<uint32_t>(f, k, 4);
       if ((q.flags & 0x1000) && u32_at(r, 0xc)) q.normal_indices = read_array<uint32_t>(f, k, 4);
       q.library_indices = read_array<int32_t>(f, q.material_count, 4);
+      if (refused()) return;  // before a broken count's UV arrays
       if (q.file_uvs) {
         const size_t n = q.material_count > 0 ? static_cast<size_t>(q.material_count) : 0;
         q.uvs = static_cast<float**>(std::calloc(n ? n : 1, sizeof(float*)));
@@ -224,6 +233,7 @@ void read_model(std::FILE* f, Node* node) {
         for (uint32_t j = 0; q.normal_indices && j < k && !g_broken; ++j)
           if (q.normal_indices[j] >= static_cast<uint32_t>(m->count(0x18))) g_broken = true;
       }
+      if (refused()) return;
     }
   }
   if (const int32_t refs = m->count(0x5c); refs > 0) {  // read and dropped

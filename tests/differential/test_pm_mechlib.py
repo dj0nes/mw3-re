@@ -142,9 +142,10 @@ def crafted(scratch, emu, world, cycled_flag=True):
     mats[0:4] = struct.pack('<I', count + 1)
     mats += raw + struct.pack('<I', len(name) + 1) + name + b'\0'
     cyc = count  # its library index
-    # The crafted tree: an object3d with a model of six polygons (two on the
+    # The crafted tree: an object3d with a model of seven polygons (two on the
     # cycled material, one with two materials and their UVs, one without
-    # colours, one with normals) and a box index of 3, then a LOD child
+    # colours, one with normals, one with the normals' flag 0x1000 but none in
+    # the file: +0xc is 0) and a box index of 3, then a LOD child
     # (box 1) under it, and below that an object3d with a one-polygon model
     # without flag 0x80 (the exe's strip conversion; box 2).
     first = blob(next(n for n in ents if n not in ('version', 'format', 'materials')))
@@ -169,13 +170,13 @@ def crafted(scratch, emu, world, cycled_flag=True):
         for k, mats_, uvs, colours, normals in polys:
             q = bytearray(0x28)
             struct.pack_into('<Ii', q, 0, k | (0x1000 if normals else 0), 3)
-            struct.pack_into('<I', q, 0xc, 1 if normals else 0)
+            struct.pack_into('<I', q, 0xc, 1 if normals == 1 else 0)
             struct.pack_into('<i', q, 0x10, len(mats_))
             struct.pack_into('<III', q, 0x18, 1 if uvs else 0, 1 if colours else 0, 0)
             struct.pack_into('<I', q, 0x24, 5)
             table += bytes(q)
             arrays += struct.pack(f'<{k}I', *range(k))
-            if normals:
+            if normals == 1:
                 arrays += struct.pack(f'<{k}I', *([0] * k))
             arrays += struct.pack(f'<{len(mats_)}i', *mats_)
             if uvs:
@@ -189,7 +190,7 @@ def crafted(scratch, emu, world, cycled_flag=True):
     lod = bytes(range(0x5c))
     tree = (node('crafted', 5, True, 1, 3) + obj
             + model(0x80, verts, [(3, [0], 1, 1, 0), (3, [cyc], 1, 1, 0), (4, [1], 0, 1, 1),
-                                  (3, [0, 1], 1, 1, 0), (3, [cyc], 0, 0, 0), (3, [2], 1, 0, 0)])
+                                  (3, [0, 1], 1, 1, 0), (3, [cyc], 0, 0, 0), (3, [2], 1, 0, 0), (3, [2], 1, 1, 2)])
             + node('crafted_lod', 6, False, 1, 1) + lod
             + node('crafted_leaf', 5, True, 0, 2) + obj + model(0, verts, [(3, [1], 1, 1, 0)]))
     trees = [n for n in ents if n not in ('version', 'format', 'materials')][:2]
