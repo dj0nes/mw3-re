@@ -20,9 +20,13 @@ struct PufferStateEvent {
   static constexpr int kActive = 0x38;       // i32
   static constexpr int kTranslate = 0x3c;    // vec3; then +0x48 local velocity, +0x54 world
                                              // velocity, +0x60 / +0x6c random min / max, +0x78 accel
-  static constexpr int kTextures = 0xc4;     // i32 timed, then 6 x {f32 time, char[32] name}
-  static constexpr int kColors = 0x1a0;      // i32 count, then 6 x {time, r, g, b, a}
-  static constexpr int kGrowth = 0x21c;      // i32 count, then 6 x {time, growth}
+  // Pirate's Moon (0x0051bbf0) inserts the priority at +0xc0: the number is at +0xc4 and what
+  // follows four bytes on (MW3: textures +0xc4, colours +0x1a0, growth +0x21c).
+  static constexpr int kPriority = 0xc0;     // f32, flag 0x400000
+  static constexpr int kNumber = 0xc4;       // i32
+  static constexpr int kTextures = 0xc8;     // i32 timed, then 6 x {f32 time, char[32] name}
+  static constexpr int kColors = 0x1a4;      // i32 count, then 6 x {time, r, g, b, a}
+  static constexpr int kGrowth = 0x220;      // i32 count, then 6 x {time, growth}
 };
 
 // Flags at +0x30 and what each sets (the fields after +0x84 are f32).
@@ -48,7 +52,8 @@ enum PufferStateFlag : uint32_t {
   kPuffColors = 0x40000,      // +0x1a0
   kPuffNearFade = 0x80000,    // +0xa8, +0xac
   kPuffWindFactor = 0x100000, // +0xbc
-  kPuffNumber = 0x200000,     // +0xc0, an i32
+  kPuffNumber = 0x200000,     // +0xc4 in Pirate's Moon, an i32
+  kPuffPriority = 0x400000,   // Pirate's Moon: +0xc0
 };
 
 // The ref named `name` among 1..count-1 with a puffer, else -1.

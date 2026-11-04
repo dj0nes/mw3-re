@@ -1283,6 +1283,17 @@ functions PM changed, and PM's new ones.
      puffer object differs too (its +0x70 is a float the tick 0x565320 reads; MW3's +0x70 is the node), so
      the fix is PM's puffers as one item: the event, the object, the tick and the draw, with a
      differential (the MW3 one is `test_puffers`). Every PM animation with smoke or fire is hit.
+     **Ported (2026-11-04), in place in `gmod_puff` and `zeff_anim_puffer`; `test_pm_puffers.py` against
+     PM's exe:** the emission tick 0x565320, the particle draw 0x563f10, the event 0x51bbf0, the gate
+     before the first reset, on random puffers, frames, views and events (120 runs: 1,076 ticks, 6,711
+     particles, 14,425 sprites, 480 events, all identical; 14 breaks caught). The new field is the
+     sprites' **priority**: depth and size by (priority x the inverse-Z tolerance + 1), the tolerance being
+     `SetInverseZTolerance`'s (`draw_state().priority_scale`, PM [0xa4e090]); the position is not moved. A
+     node's turn is its world matrix (0x4ff360). Kept from MW3, same values: each particle's own copy of
+     the colour and growth tracks (PM shares one block, dropped by every colour or growth setter). Seen
+     only in the test: a timed puffer with no textures reads through a null iterator at the draw (exe and
+     port alike); whether shipped data makes one is not checked. Not covered by the test: the tick of
+     every particle (0x564710, read but not compared line by line with MW3's) and the sprite itself (0x588c50, the shared draw).
    - **PM's command table is renumbered** (0x411980's 110 commands against MW3's 105): new `CMD_EJECT`,
      `CMD_HEADLIGHT_TOGGLE` 0x3c, `CMD_SNAPSHOT`, `CMD_TARGET_*_L` (lancemates), no `CMD_LOOK_REAR`, and most ids
      moved (`CMD_MISSION_COMPLETE` 0x79 against 0x71). The port on `pm` still has MW3's table, so its ids agree
