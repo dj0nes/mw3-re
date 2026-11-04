@@ -103,7 +103,7 @@ struct Follower {
   int at = 0;                  // the waypoint walked to
   float goal[2] = {};          // the brain's point the path was found for
   float found_t = -1e9f;       // when
-  float watch_t = 0, watch_d = 0;  // progress: the distance to the waypoint at the window's start
+  float watch_t = 0, watch_pos[2] = {};  // progress: where the pilot stood at the window's start
   float last_ask = -1e9f;      // the last find (one each 0.5 s)
   int stuck = 0;               // unstuck rounds in the last 20 s
   float stuck_t = -1e9f;

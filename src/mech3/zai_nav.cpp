@@ -10,6 +10,8 @@
 #include "gamez/zmodel/gmod_cull.h"
 #include "gamez/zmodel/gmod_matl.h"
 #include "gamez/zutil/zfix.h"
+#include "mech3/app_mech.h"
+#include "mech3/app_vehicle.h"
 #include "mech3/mission_world.h"
 #include "mech3/options.h"
 
@@ -46,8 +48,14 @@ struct ZclsWorld : World {
     float seg[6] = {a[0], a[1], a[2], b[0], b[1], b[2]};
     static zcls::SegmentHits hits[1];
     zcls::segment_query(w, seg, 2, hits);
-    for (int i = 0; i < hits[0].count; ++i)
-      if (std::fabs(hits[0].hit[i].normal[1]) < 0.5f) return true;
+    for (int i = 0; i < hits[0].count; ++i) {
+      if (!(std::fabs(hits[0].hit[i].normal[1]) < 0.5f)) continue;
+      // What stays only: a mech or a vehicle (the leader himself, one
+      // standing on a tile as it is built) is no wall; a building is.
+      const void* owner = node_entity(hits[0].hit[i].node);
+      if (owner && (entity_is_mech(owner) || is_program_vehicle(owner))) continue;
+      return true;
+    }
     return false;
   }
 };
@@ -386,13 +394,12 @@ bool on_for(bool ally) {
 }
 
 bool Follower::step(const float pos[3], const float to[3], float now, float dt, float out[3]) {
-  (void)dt;
   Grid& g = grid();
   if (now < fallback_until) return false;
-  // The straight way first: on open ground the exe's walk, untouched.
-  const bool straight = line_clear(g, pos[0], pos[2], to[0], to[2]);
   const float flat = std::hypot(to[0] - pos[0], to[2] - pos[2]);
   if (flat < 8.0f) return path.clear(), false;
+  // The straight way first: on open ground the exe's walk, untouched.
+  const bool straight = line_clear(g, pos[0], pos[2], to[0], to[2]);
   if (straight && path.empty()) return false;
   if (straight && g.built(cell_of(pos[0]), cell_of(pos[2]))) {
     path.clear();
@@ -413,8 +420,8 @@ bool Follower::step(const float pos[3], const float to[3], float now, float dt, 
     if (f == Find::kOk) {
       if (!path.empty()) ++repaths;
       ++paths;
+      if (path.empty()) watch_t = now, watch_pos[0] = pos[0], watch_pos[1] = pos[2];
       path = std::move(p), at = 0, goal[0] = to[0], goal[1] = to[2], found_t = now;
-      watch_t = now, watch_d = std::hypot(path[0][0] - pos[0], path[0][1] - pos[2]);
     } else if (f == Find::kNone) {
       path.clear();
       fallback_until = now + 5.0f;  // W17/W27 and the exe's walk
@@ -429,16 +436,16 @@ bool Follower::step(const float pos[3], const float to[3], float now, float dt, 
          (std::hypot(path[at][0] - pos[0], path[at][1] - pos[2]) < 6.0f ||
           line_clear(g, pos[0], pos[2], path[at + 1][0], path[at + 1][1]))) {
     ++at, ++waypoints;
-    watch_t = now, watch_d = std::hypot(path[at][0] - pos[0], path[at][1] - pos[2]);
   }
   const float d = std::hypot(path[at][0] - pos[0], path[at][1] - pos[2]);
-  // Unstuck: no 2 m of progress in 3 s: the cells ahead held for 10 s, a
-  // new path; the third time in 20 s, a step back; then the fallback.
-  if (d < watch_d - 2.0f) watch_t = now, watch_d = d;
-  else if (now - watch_t > 3.0f) {
+  // Unstuck: not 2 m from where it stood 3 s ago: the cells ahead held for
+  // 10 s, a new path; the third time in 20 s, a step back; then the fallback.
+  if (std::hypot(pos[0] - watch_pos[0], pos[2] - watch_pos[1]) > 2.0f) {
+    watch_t = now, watch_pos[0] = pos[0], watch_pos[1] = pos[2];
+  } else if (now - watch_t > 3.0f) {
     if (now - stuck_t > 20.0f) stuck = 0;
     ++stuck, stuck_t = now;
-    watch_t = now, watch_d = d;
+    watch_t = now;
     if (stuck >= 4) {
       path.clear(), stuck = 0;
       fallback_until = now + 10.0f;
@@ -456,6 +463,10 @@ bool Follower::step(const float pos[3], const float to[3], float now, float dt, 
   }
   out[1] = pos[1];
   if (std::getenv("MW3_NAV_DUMP")) dump_paths()[this] = path;
+  static const bool log = std::getenv("MW3_NAV_LOG") != nullptr;
+  if (log && static_cast<int>(now * 2) != static_cast<int>((now - dt) * 2))
+    std::fprintf(stderr, "nav %.1f: at %.0f %.0f to %.0f %.0f, wp %d/%zu %.0f %.0f (%.0f m), stuck %d\n", now, pos[0], pos[2], to[0],
+                 to[2], at, path.size(), out[0], out[2], d, stuck);
   return true;
 }
 
@@ -504,7 +515,7 @@ void dump(const char* file, const std::vector<const Follower*>& followers) {
         }
     }
   if (std::FILE* fp = std::fopen(file, "wb")) {
-    std::fprintf(fp, "P6\n%d %d\n255\n", w, h);
+    std::fprintf(fp, "P6\n# origin %d %d cell %g\n%d %d\n255\n", x0, z0, static_cast<double>(kCell), w, h);
     std::fwrite(px.data(), 1, px.size(), fp);
     std::fclose(fp);
   }

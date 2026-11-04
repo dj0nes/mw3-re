@@ -87,6 +87,7 @@ uint32_t program_slot_count();  // the chosen pilot's campaign's slot count (0x0
 
 class GameEngine : public Engine {
  public:
+  void nav_prebuild() override;  // ours (W58, app_mission.cpp)
   // A mission started from the command line (our addition, docs/program.md):
   // the pilot's game answers these, and the load goes on to the Core state.
   struct Launch {

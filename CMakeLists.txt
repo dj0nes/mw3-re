@@ -535,6 +535,7 @@ add_executable(mw3tests
   tests/test_zrndr_span.cpp
   tests/test_fixes.cpp
   tests/test_lance.cpp
+  tests/test_nav.cpp
   tests/test_setup_sources.cpp
   tests/test_patch12.cpp
   tests/test_video_device.cpp

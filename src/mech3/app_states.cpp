@@ -354,6 +354,7 @@ void CoreState::start_mission() {
     en.video_unlock();
   }
   if (en.pixel_double() != 0) en.video_double(0, 0);
+  en.nav_prebuild();  // ours (W58)
   en.input_reset();
   elapsed_ = 0;
   en.debug_mark(" L e t s  P l a y ! ");

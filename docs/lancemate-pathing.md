@@ -159,3 +159,41 @@ network games until checked.
 - Enemies: `nav_enemies` (Owen's call).
 - Whether the W17 detour and W27 breadcrumbs stay as the fallback while a
   tile builds (proposed: yes).
+
+## As built (W58, 2026-11-03)
+
+Decided with the lead: 4 m cells; water costed by the gait's slowdown
+(0x004181c0's factor, not avoided); `nav_enemies` off; W17/W27 stay the
+fallback while a tile builds and when A* finds nothing; off in network
+games; the 3 x 3 tiles round the player built at mission start; a dump.
+Code: `mech3/zai_nav` (the grid, A*, the follower), `zai_attack`'s `NavWay`
+(the follow and fight states' use, the firing spot), `app_mission`'s
+`nav_prebuild`. Changed from the design above, by what the runs showed:
+
+- **When the grid steers.** Not by the grid's cells along the straight
+  way (a steep cell or one near the leader turned open ground into a
+  path): only when the world's segment query finds a wall on the line at
+  2.5 and 6.5 m (as the grid's edges), or when a straight walk makes no
+  2 m in 3 s; then the line is judged with the grid's buffer for 10 s (a
+  wall's corner, a cliff, a hole). On open ground the exe's walk, to the
+  centimetre (`mission_c2m1_dominic_follows_round_walls_headless`).
+- **What stays only.** A wall hit whose owner is a mech or a vehicle
+  (0x0040e920) does not count: otherwise the leader's own body read as a
+  wall at the line's end, and a mech standing on a tile as it is built
+  would be baked in as one. Buildings count, destructible or not: one
+  brought down stays a wall in the grid for the mission (the grid is walked
+  round it; the exe's straight walk still goes through the gap when the
+  line itself is clear).
+- **In range and in sight, the exe's.** The follow and the fight hand back
+  to the exe (its range band, its fight) once the point is within the
+  brain's range (+0x28) and in sight (eye 6 m up, 5 m over the other).
+- **Firing spots only in range without sight.** Out of range the goal is
+  the enemy itself (a spot on a ring round a moving enemy was a detour);
+  in range behind a wall, a spot with a line of sight (the rings, 16 ways,
+  off the player's line of fire), walked to with the buffer always.
+- **Unstuck by place.** Progress is the pilot's own place (2 m in 3 s), not
+  the distance to a waypoint: the 2 s re-path reset that one for ever.
+
+Debugging: `MW3_NAV_DUMP=file.ppm` (the grid and the paths; its header
+gives the origin cell), `MW3_NAV_LOG=1` (the follower and the fight's
+choice twice a second).

@@ -11904,8 +11904,15 @@ TEST(mission_c2m1_lancemate_forms_up_only_in_training_headless) {
   EXPECT(moved(campaign) > 10.0f && moved(training) < 2.0f);
 }
 
+// W58: the lance's grid (zfix nav_allies) for a run, restored after.
+struct NavAllies {
+  bool was;
+  explicit NavAllies(bool on) : was(zfix::options().nav_allies) { zfix::options().nav_allies = on; }
+  ~NavAllies() { zfix::options().nav_allies = was; }
+};
 TEST(mission_c1m4_pocket_commander_sends_dominic_to_a_spot_headless) {
   if (!have_game()) return;
+  const NavAllies nav_off(false);  // the W17/W27 walk it pins (W58 measures the grid)
   SavedMounts keep;
   zutl::mounts() = zutl::Mounts{};
   zutl::mount(MW3_GAME_DIR);
@@ -12679,8 +12686,9 @@ struct FollowRun {
   int walked = 0, gave_up = 0;
   bool placed = false;
 };
-FollowRun c2_follow_run(int mission, bool wall, bool bugs, bool blocked = false) {
+FollowRun c2_follow_run(int mission, bool wall, bool bugs, bool blocked = false, bool nav = false) {
   FollowRun out;
+  const NavAllies nav_on(nav);
   SavedMounts keep;
   zutl::mounts() = zutl::Mounts{};
   zutl::mount(MW3_GAME_DIR);
@@ -12821,6 +12829,9 @@ TEST(mission_c2m1_dominic_follows_round_walls_headless) {
   print_follow("c2m1 open ground, bugs off", open_exe);
   EXPECT(open.placed && open.walked == 0 && open.gave_up == 0 && open.d_end <= open.range);
   EXPECT(std::fabs(open.d_end - open_exe.d_end) < 0.01f);
+  const FollowRun open_nav = c2_follow_run(1, false, true, false, true);  // W58: the grid leaves open ground the exe's
+  print_follow("c2m1 open ground, the grid on", open_nav);
+  EXPECT(std::fabs(open_nav.d_end - open_exe.d_end) < 0.01f);
   // Every heading blocked: he gives up and stands where the exe leaves him.
   const FollowRun blocked = c2_follow_run(1, true, true, true);
   print_follow("c2m1 behind the wall, every heading blocked", blocked);
@@ -12913,11 +12924,12 @@ std::vector<std::array<float, 3>> grid_route(const float from[3], const float to
 struct TrailRun {
   bool placed = false;
   float route_len = 0, range = 0, d_end = 0;
-  int corners = 0, arrived = -1, reached = -1, stuck_s = 0, crumbs = 0, frames = 0;
+  int corners = 0, arrived = -1, reached = -1, stuck_s = 0, crumbs = 0, frames = 0, paths = 0, waypoints = 0;
 };
 // The player walks round the wall nearest Dominic to 60 m past it.
-TrailRun c2_trail_run(int mission, bool bugs, bool corner = false) {
+TrailRun c2_trail_run(int mission, bool bugs, bool corner = false, bool nav = false) {
   TrailRun out;
+  const NavAllies nav_on(nav);
   SavedMounts keep;
   zutl::mounts() = zutl::Mounts{};
   zutl::mount(MW3_GAME_DIR);
@@ -13142,8 +13154,11 @@ TrailRun c2_trail_run(int mission, bool bugs, bool corner = false) {
         if (dd > out.range && std::hypot(dp[0] - mark[0], dp[2] - mark[1]) < 2.0f) out.stuck_s += 2;
         mark[0] = dp[0], mark[1] = dp[2], mark_f = frames;
       }
-      if (auto* fs = dynamic_cast<mech3::ai::FollowState*>(brain->current().state.get()))
+      if (auto* fs = dynamic_cast<mech3::ai::FollowState*>(brain->current().state.get())) {
         out.crumbs = std::max(out.crumbs, fs->trail.used);
+        out.paths = std::max(out.paths, static_cast<int>(fs->nav.follow.paths));
+        out.waypoints = std::max(out.waypoints, static_cast<int>(fs->nav.follow.waypoints));
+      }
       if (std::getenv("MW3_W27_PROBE") && frames == std::atoi(std::getenv("MW3_W27_PROBE"))) {  // what is round him
         for (int k = 0; k < 16; ++k) {
           const float a = k * 0.3926991f, sx = std::sin(a), sz = std::cos(a);
@@ -13205,6 +13220,37 @@ void print_trail(const char* what, const TrailRun& r) {
 }
 }  // namespace
 
+// W58 (docs/lancemate-pathing.md, Testing): the player walks a way round a
+// wall (W27's routes: the nearest wall's A* way, and its sharp corner) on
+// c2m1, c3m2 and c4bm4 while Dominic follows; the exe (bugs off), the port
+// before (W17's detour, W27's breadcrumbs) and the grid. The grid is to get
+// him to the player sooner and stuck less, never later than the port before.
+TEST(mission_c2_lancemate_grid_before_and_after_headless) {
+  if (!have_game()) return;
+  int better = 0, runs = 0;
+  for (const int m : {1, 2, 4})
+    for (const bool corner : {false, true}) {
+      const TrailRun exe = c2_trail_run(m, false, corner), port = c2_trail_run(m, true, corner),
+                     grid = c2_trail_run(m, true, corner, true);
+      if (!grid.placed || !port.placed) continue;
+      ++runs;
+      char what[96];
+      for (const auto& [r, who] : {std::pair{&exe, "the exe"}, {&port, "W17/W27"}, {&grid, "the grid"}}) {
+        // The harness's mission is both the directory (Launch::index) and the number.
+        std::snprintf(what, sizeof what, "%sm%d %s, %s", mech3::mission_dir(m), m, corner ? "round a corner" : "round the wall", who);
+        print_trail(what, *r);
+        if (r == &grid) std::printf("    paths %d, waypoints %d\n", grid.paths, grid.waypoints);
+      }
+      // Reached: frames after the player's arrival (never: past the run's end).
+      auto late = [](const TrailRun& r) { return r.reached > 0 ? r.reached - r.arrived : 1 << 20; };
+      EXPECT(late(grid) <= late(port) + 90 || grid.reached > 0);  // not later than before by 3 s, or reached anyway
+      EXPECT(grid.stuck_s <= port.stuck_s + 4);
+      better += late(grid) < late(port) || grid.stuck_s < port.stuck_s;
+    }
+  std::printf("  the grid better in %d of %d runs\n", better, runs);
+  EXPECT(runs >= 4);
+}
+
 TEST(mission_c2_dominic_follows_the_players_way_round_corners_headless) {
   if (!have_game()) return;
   // The lead's sharp corner: round the end of a building's wall at close
@@ -13241,10 +13287,11 @@ namespace {
 struct AttackRun {
   bool placed = false, ordered = false;
   float d0 = 0, d_min = 1e9f, range = 0;
-  int walked = 0, gave_up = 0, reached = -1;
+  int walked = 0, gave_up = 0, reached = -1, sighted = -1, spots = 0;
 };
-AttackRun c2m1_attack_run(bool bugs) {
+AttackRun c2m1_attack_run(bool bugs, bool nav = false, float past = 80.0f) {
   AttackRun out;
+  const NavAllies nav_on(nav);
   SavedMounts keep;
   zutl::mounts() = zutl::Mounts{};
   zutl::mount(MW3_GAME_DIR);
@@ -13331,7 +13378,7 @@ AttackRun c2m1_attack_run(bool bugs) {
           }
         }
         if (best > 1e8f) return;
-        const float x = bx + 80 * ux, z = bz + 80 * uz;
+        const float x = bx + past * ux, z = bz + past * uz;
         const float at[3] = {x, ground_under(x, d.pos[1] + 300.0f, z), z};
         mech3::move_mech(enemy, at, 0.0f);
         mech3::mech_power(enemy, 1);  // stays where it is
@@ -13351,16 +13398,27 @@ AttackRun c2m1_attack_run(bool bugs) {
       const float dd = dist(dominic, enemy);
       out.d_min = std::min(out.d_min, dd);
       if (out.reached < 0 && dd <= out.range) out.reached = frames;
+      if (out.sighted < 0 && dd <= out.range) {  // W58: in range and in sight (eye 6 m up to 5 m over the enemy)
+        mech3::LaunchedMech a, b;
+        mech3::describe_mech(dominic, &a), mech3::describe_mech(enemy, &b);
+        const float e[3] = {a.pos[0], a.pos[1] + 6, a.pos[2]}, t[3] = {b.pos[0], b.pos[1] + 5, b.pos[2]};
+        if (!wall_between_seg(e, t)) out.sighted = frames;
+      }
       // "Attack my target" (0x004ea450) is the target's follow; the AI's own
       // attacks the fight. Either's detour.
       const mech3::ai::WallDetour* wd = nullptr;
-      if (auto* fs = dynamic_cast<mech3::ai::FightState*>(brain->current().state.get())) wd = &fs->detour;
-      if (auto* fo = dynamic_cast<mech3::ai::FollowState*>(brain->current().state.get())) wd = &fo->detour;
+      if (auto* fs = dynamic_cast<mech3::ai::FightState*>(brain->current().state.get()))
+        wd = &fs->detour, out.spots = std::max(out.spots, static_cast<int>(fs->nav.spots));
+      if (auto* fo = dynamic_cast<mech3::ai::FollowState*>(brain->current().state.get()))
+        wd = &fo->detour, out.spots = std::max(out.spots, static_cast<int>(fo->nav.spots));
       if (wd) out.walked = std::max(out.walked, wd->walked), out.gave_up = std::max(out.gave_up, wd->gave_up);
     };
     CountingPump pump;
     pump.limit = 8000;
-    pump.stop = [&] { return frames >= 1800 || (frames > 3 && !out.placed) || (frames > 30 && !out.ordered) || out.reached > 0; };
+    pump.stop = [&] {
+      return frames >= 1800 || (frames > 3 && !out.placed) || (frames > 30 && !out.ordered) ||
+             (nav ? out.sighted > 0 : out.reached > 0);
+    };
     app.run(pump);
     mech3::missions().cleanup(false);
     app.stop_game();
@@ -13386,6 +13444,22 @@ TEST(mission_c2m1_dominic_attacks_round_a_wall_headless) {
   EXPECT(r.placed && r.ordered && exe.ordered);
   EXPECT(r.reached > 0 && r.walked > 0);
   EXPECT(exe.reached < 0);
+}
+
+// W58: by the grid, to a firing spot with a line of sight: in range and in
+// sight of the enemy behind the wall, not only near it.
+TEST(mission_c2m1_dominic_attacks_from_a_spot_in_sight_headless) {
+  if (!have_game()) return;
+  // 80 m past the wall (W17's): out of range the enemy itself, as the port.
+  // 25 m past: in range behind it, a spot round it in sight.
+  const AttackRun far = c2m1_attack_run(true, true), far_port = c2m1_attack_run(true);
+  const AttackRun near = c2m1_attack_run(true, true, 25.0f), near_port = c2m1_attack_run(true, false, 25.0f);
+  for (const AttackRun* a : {&far, &far_port, &near, &near_port})
+    std::printf("  %s, %s: %.1f m, nearest %.1f m (range %.0f), in range at %d, in sight at %d; spots %d, detours %d\n",
+                a == &far || a == &far_port ? "80 m past" : "25 m past", a == &far || a == &near ? "the grid" : "W17", a->d0,
+                a->d_min, a->range, a->reached, a->sighted, a->spots, a->walked);
+  EXPECT(far.placed && far.ordered && far.sighted > 0 && far.sighted <= far_port.sighted + 90);
+  EXPECT(near.placed && near.ordered && near.spots > 0 && near.sighted > 0 && near.sighted - near.reached < 300);  // in sight within 10 s
 }
 
 TEST(mission_c1m4_lance_orders_reach_dominic_and_he_answers_headless) {

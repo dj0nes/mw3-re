@@ -302,10 +302,11 @@ bool NavWay::step(zgame::Handle v, const float pos[3], const float to[3], bool e
   nav_frame(now);
   (void)v;
   float goal[3] = {to[0], to[1], to[2]};
-  if (enemy && range > 1.0f) {
+  // Out of range: the enemy itself (the brain's range band stops him). In
+  // range without a line of sight: a firing spot with one.
+  if (enemy && range > 1.0f && std::hypot(to[0] - pos[0], to[2] - pos[2]) <= range) {
     const float eye[3] = {pos[0], pos[1] + 6.0f, pos[2]}, aim[3] = {to[0], to[1] + 5.0f, to[2]};
-    const bool sees = !h.wall_between(eye, aim) && std::hypot(to[0] - pos[0], to[2] - pos[2]) <= range;
-    if (sees) {
+    if (!h.wall_between(eye, aim)) {
       has_spot = false;
       follow.path.clear();
       return false;  // in sight and in range: the exe's fight
@@ -317,8 +318,27 @@ bool NavWay::step(zgame::Handle v, const float pos[3], const float to[3], bool e
       if (has_spot) ++spots, spot_for[0] = to[0], spot_for[1] = to[1], spot_for[2] = to[2];
     }
     if (has_spot) goal[0] = spot[0], goal[1] = spot[1], goal[2] = spot[2];
+  } else {
+    has_spot = false;
+    // A leader in range and in sight: the exe's follow and its band.
+    if (!enemy && range > 1.0f && std::hypot(to[0] - pos[0], to[2] - pos[2]) <= range) {
+      const float eye[3] = {pos[0], pos[1] + 6.0f, pos[2]}, aim[3] = {to[0], to[1] + 5.0f, to[2]};
+      if (!h.wall_between(eye, aim)) return follow.path.clear(), false;
+    }
   }
-  return follow.step(pos, goal, now, dt, out);
+  static const bool log = std::getenv("MW3_NAV_LOG") != nullptr;
+  if (log && static_cast<int>(now) != static_cast<int>(now - dt))
+    std::fprintf(stderr, "navway %.1f: at %.0f %.0f %.0f enemy %d to %.0f %.0f, spot %d %.0f %.0f %.0f, open %d, fallback %.1f\n", now,
+                 pos[0], pos[1], pos[2], enemy, to[0], to[2], has_spot, spot[0], spot[1], spot[2],
+                 nav::line_clear(nav::grid(), pos[0], pos[2], goal[0], goal[2]), follow.fallback_until);
+  if (follow.step(pos, goal, now, dt, out)) return true;
+  // The spot in a straight line: walked to as it is (the fallbacks head for the enemy).
+  if (has_spot && now >= follow.fallback_until && std::hypot(spot[0] - pos[0], spot[2] - pos[2]) > 6.0f &&
+      nav::line_clear(nav::grid(), pos[0], pos[2], spot[0], spot[2])) {
+    out[0] = spot[0], out[1] = pos[1], out[2] = spot[2];
+    return true;
+  }
+  return false;
 }
 
 // Mech3.exe 1.2 @ 0x004d1d10. The exe takes the order's part as the vehicle

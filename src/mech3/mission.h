@@ -34,7 +34,6 @@ class MissionHooks : public zgame::Unported {
   // The loading screen (briefing.cpp).
   virtual void progress(float f) { unported("0x004050d0", {zgame::bits(f)}); }
   virtual void progress_text(const char* s) { unported("0x00405120", {s}); }
-  virtual void nav_prebuild() {}  // ours (W58): the AI's walkability grid round the player, before the first frame
   // The pilot's game ([[0x0060861c]+0x6c]).
   virtual int32_t game_mission_index() { return static_cast<int32_t>(unported("game.vt+0x54", {})); }
   virtual int32_t game_type() { return static_cast<int32_t>(unported("game.vt+0x2c", {})); }

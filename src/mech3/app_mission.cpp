@@ -87,6 +87,7 @@
 #include "mech3/player_view.h"
 #include "mech3/mech3_interp.h"
 #include "mech3/mission.h"
+#include "mech3/zai_attack.h"
 #include "mech3/zai_nav.h"
 #include "mech3/mech_config.h"
 #include "mech3/pilot.h"
@@ -1741,28 +1742,6 @@ struct WiredMissionHooks : MissionHooks {
     else if (seq == states().tr_dummy.addr()) fade_replace(&states().tr_dummy, 0, 1, 2, kFadeSeconds, 0, 0, 0);
     else MissionHooks::fade_out(seq);
   }
-  // Ours (W58): the 3 x 3 tiles round the player built now, so the lance's
-  // first fight has its grid (the lance starts by the player).
-  void nav_prebuild() override {
-    if (!ai::nav::on_for(true)) return;
-    void* p = mech_mission_player();
-    if (!p) return;
-    float pos[3];
-    mech_world_position(p, pos);
-    const auto t0 = std::chrono::steady_clock::now();
-    ai::nav::service(0.0f, 0.0);  // the grid on this world
-    ai::nav::Grid& g = ai::nav::grid();
-    const int tx = ai::nav::tile_of(ai::nav::cell_of(pos[0])), tz = ai::nav::tile_of(ai::nav::cell_of(pos[2]));
-    for (int dz = -1; dz <= 1; ++dz)
-      for (int dx = -1; dx <= 1; ++dx) {
-        double budget = 1e12;
-        g.build(tx + dx, tz + dz, &budget);
-      }
-    if (!e->quiet)
-      std::printf("mw3: nav: %d tiles round the player built in %lld ms\n", g.tiles_done(),
-                  static_cast<long long>(
-                      std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0).count()));
-  }
   void progress_text(const char* s) override {
     program_briefing_line(s);
     if (s && *s && !e->quiet)
@@ -2819,6 +2798,33 @@ Handle GameEngine::alloc_block(uint32_t size) {
 // The census stand-ins' report (app_hook_census.cpp).
 void hook_census_report(const char* key) {
   if (GameEngine* g = engine_of_hooks()) g->unported(key, {});
+}
+
+// Ours (W58, docs/lancemate-pathing.md): as play starts, the 3 x 3 tiles
+// round the player built when a pilot uses the grid (the lance starts by him).
+void GameEngine::nav_prebuild() {
+  void* p = mech_mission_player();
+  if (!p) return;
+  int32_t made = 0;
+  const AiMechMade* ai_mechs = mission_ai_mechs(&made);
+  bool any = false;
+  for (int32_t i = 0; i < made && !any; ++i) any = ai_mechs[i].mech && ai::nav_for(handle_of(ai_mechs[i].mech));
+  if (!any) return;
+  float pos[3];
+  mech_world_position(p, pos);
+  const auto t0 = std::chrono::steady_clock::now();
+  ai::nav::service(0.0f, 0.0);  // the grid on this world
+  ai::nav::Grid& g = ai::nav::grid();
+  const int tx = ai::nav::tile_of(ai::nav::cell_of(pos[0])), tz = ai::nav::tile_of(ai::nav::cell_of(pos[2]));
+  for (int dz = -1; dz <= 1; ++dz)
+    for (int dx = -1; dx <= 1; ++dx) {
+      double budget = 1e12;
+      g.build(tx + dx, tz + dz, &budget);
+    }
+  if (!quiet)
+    std::printf("mw3: nav: %d tiles round the player built in %lld ms\n", g.tiles_done(),
+                static_cast<long long>(
+                    std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0).count()));
 }
 
 }  // namespace mech3
