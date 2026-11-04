@@ -60,6 +60,11 @@ int32_t record_draw(zcls::Node* node, uint32_t mask) {
   f32(ds.opacity), u32(ds.overlay), u32(ds.shadows);
   u32(zmod::lighting().tint_on);
   u32(static_cast<uint32_t>(zcls::scene_walk().morph));
+  // Event 8: the lights' flags as this cell left them (render_cells' 0x200).
+  auto* w = static_cast<zcls::World*>(zcls::camera_world(zcls::list_head(zcls::kCameras)->node)->data);
+  const int32_t lights = w->get<int32_t>(0xa0);
+  u32(8), u32(static_cast<uint32_t>(lights));
+  for (int32_t i = 0; i < lights; ++i) u32(static_cast<zcls::Light*>(w->light_data[i])->get<uint32_t>(0xb0));
   return 0;
 }
 
@@ -155,6 +160,16 @@ int sw_set_camera(float px, float py, float pz, float rx, float ry, float rz) {
   const int a = zcls::camera_set_rotation(c, rx, ry, rz);
   const int b = zcls::camera_set_position(c, px, py, pz);
   return a | (b << 4);
+}
+
+// A positioned, ranged light for the cells' reach test (shipped worlds start with
+// none; the game adds them): world light 0 at x, y, z with its range, or as read.
+void sw_light_edit(uint32_t flags, float x, float y, float z, float range) {
+  auto* w = static_cast<zcls::World*>(zcls::camera_world(camera_node())->data);
+  if (w->get<int32_t>(0xa0) < 1) return;
+  auto* l = static_cast<zcls::Light*>(w->light_data[0]);
+  l->put<uint32_t>(0xb0, flags);
+  l->put<float>(0x60, x), l->put<float>(0x64, y), l->put<float>(0x68, z), l->put<float>(0xb8, range);
 }
 
 int sw_set_fov(float h, float v) { return zcls::camera_set_fov(camera_node(), h, v); }
