@@ -627,10 +627,51 @@ functions PM changed, and PM's new ones.
        gives the same order), the alloc's flags 3 (the only caller replaces
        the header), allocating before the check (calloc is lazy on the Mac:
        no memory seen; kept, as MW3's reader does).
-2. **The world**: the light maps and lighting (`gmod_matl.c` 39 new; PM
-   drops MW3's fog), `cls_clutter.cpp` (32 new), the world class
+2. **The world**: the light maps and lighting (`gmod_matl.c`; PM drops MW3's
+   fog; mapped below), `cls_clutter.cpp` (32 new), the world class
    (`cls_world.c` 20 new), the script interpreter's new commands (the
    dispatcher gained 97 calls).
+   - **`gmod_matl.c` mapped** (2026-11-03, from the pseudocode and the asm; no
+     port yet). Light maps are a small part of it. Of the file's 113
+     functions by the function map, 42 have no MW3 twin (the table above's 39
+     counts differently). Sorted by what calls them, following direct calls
+     only:
+     - **The Direct3D model draw: 18 new, 20 with the shared.** `0x543b10`
+       (2,006 lines) does the job of MW3's `0x53f2e0` and has no byte twin.
+       `0x5400e0` puts it in the draw slot `[0xa4e100]` when `[0x8c4b70]` is
+       set (`0x5981d0` sets it; read as the hardware flag, not yet confirmed).
+       Its new helpers: `0x542a70`, `0x5439e0`, `0x549440`, `0x549630`,
+       `0x549ab0`, `0x54a450`, `0x54a6f0`, `0x54aa50`, `0x54faa0`, `0x54fc60`,
+       and `0x552e50` through six one-line wrappers (`0x54ade0`..`0x54ae80`).
+       To port.
+     - **The software draw: 8 new, out.** `0x541a40` is the twin of MW3's
+       `0x53e050`, and the software path is not ported (CLAUDE.md). Only it
+       reaches `0x548f50`, `0x5490e0`, `0x549290`, `0x549f30`, `0x54a3b0`,
+       `0x54a3d0`, `0x54a3f0`, `0x5502d0`. Two more new ones are reached from
+       both draws, so they stay in.
+     - **The other 14.** Setters and start-up: `0x5404f0`, `0x540740`,
+       `0x541a30`, `0x556420` (resets the draw state from `0x5400e0`).
+       Already ported or called from the loader: `0x557be0` (the model pool's
+       growth), `0x557b30` and `0x557ba0` (called from `cls_zbd`; check they
+       are done). Chosen through `PTR_FUN_00611354` from `0x546a00` and each
+       other, purpose not read: `0x546d50`, `0x5470a0`, `0x5473f0`, `0x547740`.
+       No direct call and no code reference found (a data table, or dead):
+       `0x5415b0`, `0x543010`, `0x5432b0`.
+     - **The light map itself.** `[0x683cb0]` holds one texture. The script's
+       `LightMapTexture` (`0x5b2d10`) sets it through `0x532450`, and
+       `0x530810` clears it. The draw uses it only when it is set, `[0x8ccc64]`
+       is not -1, and `[0x8ccc68]` and `[0x8ccc6c]` are at least 2 (those three
+       not read yet). `0x4aefe0` and `0x5995a0` also read it (not read yet).
+       `LIGHT MAPS` is in the exe twice, used by `0x439a30`, `0x43a060`,
+       `0x43ab30`, `0x43af70` (the graphics options' range; not read yet).
+     - **Shipped use**, searching the zbd folder's files as raw bytes: only
+       `interp.zbd` has `LightMapTexture`, 4 times, all naming `lightmap`.
+       `LightSetLightMap`, `LightSetBicolored`, `LightSetAmbientColor`,
+       `LightSetDiffuseColor` and `NodeSetOverrideAmbient/Diffuse` were not
+       found there.
+     - Order: the setters and reset; the light-map commands; the helpers in
+       groups; then `0x543b10` by call trace, as `0x53f2e0` was. Emulator only
+       until the world class and the mission can draw in `mw3pm`.
 3. **The mission**: load, setup and the world parameters (`mission.cpp`
    114 new, 14 of the port's changed), the standalone missions
    (`readersa1..4`), the objectives.
