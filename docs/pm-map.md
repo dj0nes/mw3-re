@@ -1089,11 +1089,15 @@ functions PM changed, and PM's new ones.
        (0x513a30, 0x512d90, 0x512d20, 0x512c60, 0x512c00, 0x512bb0, 0x512a80, 0x512000, 0x505e10): on the four
        worlds with their templates 13,090, 1,750, 6,485 and 4,263 records in the cells, the rand sequence in step,
        every field bit for bit but the rotated turns (x87 `fsin`/`fcos`: 7,775 of 7,893 words identical, worst
-       1.2e-7; 222,399 words of aligned records, no trig, all exact). The ground test (0x4ff8d0, on a made-up
-       ground in the test) and the cell's box (0x5043d0) are hooks until the world class and PM's ground queries
-       land. Records live in `Partition::pm_clutter`; nothing frees them yet (0x513a40) and nothing draws them.
+       1.2e-7; 222,399 words of aligned records, no trig, all exact). A mission's load turns the ground test off first (0x5116a0(1), 0x492f9a; c2 then lays 2,129 records, compared
+       too), so the made-up ground of the other runs (0x4ff8d0, hooked) only tests that branch, which the load does
+       not take. The cell's box (0x5043d0) is a hook until the world class lands. Records live in
+       `Partition::pm_clutter`, and nothing draws them yet.
        A crafted world reaches what shipped data does not: zones, moved objects, LoDs, inactive nodes, cells
-       past the grid, a second material. Next: the free, the crater 0x513d90, the hits, then what draws them. The rest is not ported
+       past the grid, a second material. The crater 0x513d90 is ported and compared at records' places and past the
+       world's corners (0x505230 keeps a point inside the area; the decompile does not show it, the assembly does).
+       The free 0x513a40 is ported, untested: `clutter_free`; the cells' records go with the world, which frees
+       them when its class lands. Next: the hits (0x513c60, 0x513cf0), then what draws them. The rest is not ported
        (0x5106b0..0x514b90, 65 functions, ~3,500 lines of pseudocode). Scattered props laid on the ground by its material. **It waits for the interpreter
        and the mission load**: its template names come from the script command `AddClutterTemplates`
        (0x512fd0, from 0x5b2e15, a list at [0x639c14]). The load (0x492f8c.., unless `-noclutter`,
