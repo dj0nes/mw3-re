@@ -2710,6 +2710,19 @@ file (docs/assets.md, Data versions):
   The rebuild reads it as the new lap (bug fixes on). (docs/fmv.md
   section 5)
 
+## Vehicles
+
+- **APCs really do jump.** An APC at full speed that runs off the road onto a steep
+  bank goes up it so fast it leaves the ground for a moment, nose high, a few
+  metres up. It happens in the original at its normal 30 frames a second (Op 2,
+  Mission 3 has a bank where it happens about every minute).
+- **On a fast machine they fly.** The suspension takes how far the ground rose
+  since the last frame and turns it into speed, so the shorter the frame, the
+  harder a small bump throws the vehicle. Above about 120 fps a small bump can roll
+  an APC on its side. The game was built for slow frames; the rebuild now reacts as
+  it does at 30 fps. (From the
+  code, 0x004a2820, checked against the exe in an emulator.)
+
 ## The cameras
 
 From the view and its cameras (0x40aca0, 0x430e70; details: `view.md`).
