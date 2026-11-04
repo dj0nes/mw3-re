@@ -32,6 +32,7 @@
 #include "gamez/zmodel/gmod_light.h"
 #include "gamez/zinterp/zinterp.h"
 #include "gamez/zeffect/zeff_anim_save.h"
+#include "gamez/zentity/zent_manager.h"
 #include "gamez/zutil/ztimer.h"
 #include "gamez/zclass/cls_di.h"
 #include "gamez/zclass/class.h"
@@ -258,6 +259,11 @@ void reset_process_state() {
   // (0x0063c4a4) is only ever set, so a test whose input had a stick left one
   // to every later test (the c3m5 homing fight played the stick's axes).
   if (zin::state().window == 0) zin::reset_state();
+  // zEntity's update walk ([0x00736558]+0x10): where the next frame starts,
+  // a pointer into the last mission's freed list. A new list put over it
+  // started the walk part-way, so the mechs updated in another order (W61:
+  // the c3m5 homing fight changed after two other missions).
+  zent::budget() = zent::Budget{};
 }
 
 // The data version (ours; assets.md, Data versions): the install's, then a
@@ -22936,4 +22942,18 @@ TEST(node_world_cached_of_a_moved_node_keeps_the_matrix_stack_headless) {
   EXPECT(checked && same);
   EXPECT(faults.empty == 0 && faults.under_pop == 0 && faults.over_push == 0);
   EXPECT(zmth::matrix_stack().top == 0);
+}
+
+// W61: reset_process_state leaves zEntity's update walk as a new process has
+// it (no resume point into a freed list).
+TEST(reset_process_state_clears_the_entity_walk) {
+  static int stale[4];
+  zent::budget().resume = &stale[2];
+  zent::budget().left = 7;
+  reset_process_state();
+  EXPECT(zent::budget().resume == nullptr && zent::budget().left == 0 && zent::budget().per_frame == 0x40);
+  std::vector<int> list = {0, 1, 2, 3};
+  std::vector<int> order;
+  zent::budget().update_all(list, [&](int i) { order.push_back(i); });
+  EXPECT(order == (std::vector<int>{0, 1, 2, 3}));  // from the start
 }
