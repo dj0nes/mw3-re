@@ -873,7 +873,7 @@ void Arm::aim(float dt) {
     const float lv[3] = {l.x, l.y, l.z};
     float ang[3];
     zmth::direction_angles(zero, lv, ang);
-    const float k = zmth::exp_neg(aim_rate * dt);
+    const float k = zmth::exp_neg_dt(aim_rate * dt, dt);
     aim_pitch = (aim_pitch - ang[0]) * k + ang[0];
     aim_yaw = (aim_yaw - ang[1]) * k + ang[1];
     if (aim_pitch > max_pitch) aim_pitch = max_pitch;
@@ -887,7 +887,7 @@ void Arm::aim(float dt) {
       else if (!(aim_yaw >= lo)) aim_yaw = lo;
     }
   } else {
-    const float k = zmth::exp_neg(aim_rate * dt * 0.5f);
+    const float k = zmth::exp_neg_dt(aim_rate * dt * 0.5f, dt);
     aim_pitch = k * aim_pitch;
     aim_yaw = k * aim_yaw;
   }
@@ -920,9 +920,9 @@ void Arm::update(float dt) {
   if (!(mech->detail & 0x10)) return;
   aim(dt);
   if (recoil > 0.0f) {
-    const float e1 = zmth::exp_neg(dt * kRecoilHold);
+    const float e1 = zmth::exp_neg_dt(dt * kRecoilHold, dt);
     recoil_hold = e1 * recoil_hold;
-    const float e2 = zmth::exp_neg(dt * kRecoilDecay);
+    const float e2 = zmth::exp_neg_dt(dt * kRecoilDecay, dt);
     recoil = (recoil - recoil_hold) * e2 + recoil_hold;
     recoil_pose();
     if (recoil < kRecoilMin) recoil = 0.0f;

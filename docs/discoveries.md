@@ -1369,6 +1369,16 @@ From the network code (network-messages.md).
 - **Game speed does not depend on CPU speed.** Everything is scaled by the real
   time each frame took, capped at 1/8 second a frame. The exceptions found so
   far are per-frame, like the lava heat above.
+- **Above about 150 fps the original's turrets froze.** Turrets ease their
+  aim toward a target by e^-(3 x the frame time), looked up in a table that
+  rounds down to steps of 1/51; on any frame shorter than 6.5 ms the lookup
+  gives "don't move". Mech arms, recoil and vehicle turning use the same
+  table and stall the same way. On 1999 machines it never mattered. The
+  tripod missile platforms of Op 1 Mission 2 also start facing straight up,
+  and the aim's quick square root of 0 is not 0, so on such a fast frame a
+  platform's first aim squashed its launcher flat: still alive and
+  targetable, but invisible, so the mission's objective looked impossible. The
+  rebuild eases by time and keeps a straight-up turret's shape (W50).
 
 - **Some vehicles' starting directions are written down and then ignored.**
   The mission files give a few vehicles a heading (c1m1's two APCs face 110
@@ -4125,6 +4135,24 @@ The screen after the pilot for INSTANT ACTION, 0x00488bc0 (details:
   game after, until the controls are reset or rebound. (Found from the
   code; the rebuild saves the controls only when you set them in the
   controls menus. docs/fixes.md, playtest W40)
+- **Rebinding a key could take a second press in the original.** On the
+  controls screen, after you click a command's key box, the game asks for
+  the key you pressed only after it has drawn the screen, and its own
+  keyboard read at the start of each frame has already taken that key. A
+  key only reaches the box if it is pressed while the screen is being
+  drawn, so on a fast machine a press can be missed and you have to press
+  again. (Found from the code: the rebuild hands the box the key the frame
+  saw go down. docs/fixes.md)
+- **A joystick's throttle can go in reverse: press Backspace.** The throttle
+  lever only runs from stop to full ahead, but "Toggle throttle direction"
+  (Backspace, or joystick button 10) flips it: the same lever then drives
+  the mech backwards, and Backspace again turns it round. And when you bind
+  the throttle yourself with Assign Axis, wherever the lever sits when you
+  press OK becomes stop: press OK with it in the middle and the lower half
+  of its travel is reverse; at an end you get stop to full only. A lever on
+  a slider (many throttles are) is not offered there at all. (Found from the
+  code: 0x004274d0, 0x0042e5b0, 0x00430180. The rebuild's lever covers
+  reverse by itself. docs/controls.md)
 
 ## Pirate's Moon
 

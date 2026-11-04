@@ -30,8 +30,18 @@ keeps its log here, so it can pick up after a compaction by reading it.
   - Grep `analysis-output/decomp` and `mech3.asm` instead of reading whole
     files, and keep tool output short.
   - While iterating, run only the tests you touch.
-  - Before reporting, run the related set, plus `mw3tests` and
-    `mw3sdltests` (about 3 minutes: fine, Owen 2026-10-22). While
+  - Tests cover what was touched, nothing more (Owen, 2026-11-03,
+    replacing "the related set plus the full suites"). Before reporting,
+    run the tests of the code you changed: its module's units and program
+    tests by name, the differential tests of the functions changed, every
+    test importing a changed harness, and the break tests. A PM change in
+    one area (say its controls) runs that area's tests only. The full
+    `mw3tests` / `mw3sdltests` run only when shared code changed (a
+    `src/gamez/` header or type both games use, zfix, the program's main
+    loop or input/render layers), and then once per lead batch, not per
+    branch. The campaign runs only for loading or play changes. The lead
+    does not rerun what the dev ran on the same tree; the lead runs the
+    combined batch once before a merge to main or a tag. While
     iterating, `MW3_SKIP=headless ./build/mw3tests` runs the units in under
     a second, and `MW3_TEST=name` runs one test by name.
   - Keep each test run short (Owen, 2026-10-22: runs of 10 to 20+ minutes

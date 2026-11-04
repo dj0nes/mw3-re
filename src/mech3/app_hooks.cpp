@@ -45,6 +45,7 @@ uint32_t Engine::vcall(Handle obj, uint32_t slot, std::initializer_list<Arg> arg
 
 // The controls screen's calls, to the ports.
 uint32_t Engine::input_read_key(int32_t wait) { return zin::read_key(wait != 0); }
+uint32_t Engine::input_frame_key() { return zin::frame_key(); }
 int32_t Engine::joy_wait_button(int32_t wait) { return zin::joy_wait_button(wait != 0); }
 int32_t Engine::mouse_wait_button(int32_t wait) { return zin::mouse_wait_button(wait != 0); }
 void Engine::joy_use() { zin::joy_use(); }

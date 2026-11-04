@@ -259,6 +259,27 @@ float AxisBinding::value(const void* j, const void* m) const {
   return deadzone > std::fabs(v) ? 0.0f : v;
 }
 
+bool lever_reverse_on(const AxisBinding& b) {
+  if (!zfix::options().bugs || !zfix::options().throttle_reverse || b.source < 1 || b.source > 8) return false;
+  // No stick: the original's reading (its axes then read the offset).
+  if (!(g_calls.joy_present ? g_calls.joy_present() : zin::joy_present())) return false;
+  return !(g_calls.joy_gamepad ? g_calls.joy_gamepad() : zin::joy_gamepad());
+}
+
+float lever_throttle(const AxisBinding& b, const void* joy) {
+  const platform::JoyState* j = static_cast<const platform::JoyState*>(joy);
+  const float r = source_value(b.source, j, nullptr);
+  // -1..1: the axes as zInput scaled them, a slider from DirectInput's
+  // default range (zInput sets none on them, 0x0051d700).
+  const float n = b.source <= 6 ? r : r / 32767.5f - 1.0f;
+  float u = (b.scale < 0.0f ? 1.0f - n : 1.0f + n) * 0.5f;  // 0 the reverse end, 1 full ahead
+  u = u < 0.0f ? 0.0f : u > 1.0f ? 1.0f : u;
+  const float lo = kLeverStop - kLeverStopZone, hi = kLeverStop + kLeverStopZone;
+  if (u < lo) return -(lo - u) / lo;
+  if (u > hi) return (u - hi) / (1.0f - hi);
+  return 0.0f;
+}
+
 // Mech3.exe 1.2 @ 0x0042fe70: the motion, scaled and offset (no dead zone).
 float AxisBinding::delta(const void* j, const void* m) const {
   return source_delta(source, static_cast<const platform::JoyState*>(j), static_cast<const zin::MouseInfo*>(m)) *
@@ -281,7 +302,7 @@ void PlayerControls::read_axes(float dt, float* thr, float* tn, float* p, float*
   if (ax[3].source != 0) *tn = ax[3].value(j, m);
   if (ax[0].source != 0) {
     const float sign = reverse ? -1.0f : 1.0f;  // IControls +0x18
-    *thr = ax[0].value(j, m) * sign;
+    *thr = (lever_reverse_on(ax[0]) ? lever_throttle(ax[0], j) : ax[0].value(j, m)) * sign;
   }
   if (ax[2].source >= 9 && ax[1].source >= 9) {
     const float inv = 1.0f / dt;
@@ -329,6 +350,14 @@ void PlayerControls::read_axes(float dt, float* thr, float* tn, float* p, float*
     look_y = free ? clamp1(look_y - kLookReturn * dt * *p) : 0.0f;
   }
   if (!(g_calls.joy_present ? g_calls.joy_present() : zin::joy_present())) return;
+  // Ours (W56): with reverse on the lever, a first reading in reverse is taken
+  // as the last one, so a lever left at its end (stop, before) does not back
+  // the mech off at the start; it counts once it moves. Ahead, it drives at
+  // once, as the original's does.
+  if (lever_reverse_on(axis_table().axes[0]) && !lever_seen) {
+    lever_seen = true;
+    if (*thr < 0.0f) joy_throttle = *thr;
+  }
   if (!joy_throttle_set) {
     if (!(*thr < joy_throttle || *thr > joy_throttle)) {
       *thr = 0.0f;
@@ -469,6 +498,7 @@ int PlayerControls::update(float dt) {
 // Mech3.exe 1.2 @ 0x004265a0 (the base of every mech controls; its most
 // derived branch is the class's own). +0x40 and +0x5b are left as they were.
 void MechControls::init() {
+  lever_seen = false;
   view = 2;
   axis_2c = axis_30 = 0;
   jump_held = false;

@@ -1,10 +1,19 @@
 #include "gamez/zmath/zmth_matrix.h"
 
-#include <cassert>
 #include <cmath>
+#include <cstdio>
 #include <cstring>
+#if defined(_WIN32)
+extern "C" __declspec(dllimport) unsigned short __stdcall RtlCaptureStackBackTrace(unsigned long, unsigned long, void**,
+                                                                                   unsigned long*);
+extern "C" const char __ImageBase;  // the linker's, the image's start
+#else
+#include <dlfcn.h>
+#include <execinfo.h>
+#endif
 
 #include "gamez/zrender/zrndr_fog.h"
+#include "gamez/zutil/zfix.h"
 
 namespace zmth {
 
@@ -38,28 +47,98 @@ MatrixStack& matrix_stack() { return g_stack; }
 View& view() { return g_view; }
 Projection& projection() { return g_proj; }
 
-// Mech3.exe 1.2 @ 0x0051e8b0
-void reset_stack() { g_stack.top = 0; }
+namespace {
+StackFaults g_faults;
+Mat34 g_scratch;
 
+// The callers, as image offsets a linker map finds (Owen's v1.0 crash at
+// load+0x1d, W59): a few frames, once per kind of fault.
+void print_address(const void* a) {
+#if defined(_WIN32)
+  std::fprintf(stderr, " mw3.exe+%#llx", static_cast<unsigned long long>(static_cast<const char*>(a) - &__ImageBase));
+#else
+  Dl_info d{};
+  if (dladdr(a, &d) && d.dli_fbase)
+    std::fprintf(stderr, " %s+%#lx", d.dli_sname ? d.dli_sname : "?",
+                 static_cast<unsigned long>(static_cast<const char*>(a) -
+                                            static_cast<const char*>(d.dli_saddr ? d.dli_saddr : d.dli_fbase)));
+  else std::fprintf(stderr, " %p", a);
+#endif
+}
+
+void report(const char* what, int at) {
+  std::fprintf(stderr, "mw3: matrix stack: %s (top %d) (logged once; docs/fixes.md, W59), from:", what, at);
+  void* frames[6] = {};
+#if defined(_WIN32)
+  const int n = RtlCaptureStackBackTrace(1, 6, frames, nullptr);
+  for (int i = 0; i < n; ++i) print_address(frames[i]);
+#else
+  const int n = backtrace(frames, 6);
+  for (int i = 1; i < n; ++i) print_address(frames[i]);
+#endif
+  std::fprintf(stderr, "; pushed by:");
+  for (int i = 1; i <= g_stack.top && i < kStackDepth; ++i) print_address(g_stack.pushed_by[i]);
+  std::fprintf(stderr, "\n");
+}
+}  // namespace
+
+StackFaults& stack_faults() { return g_faults; }
+
+Mat34& MatrixStack::empty_slot(int at) {
+  if (g_faults.empty++ == 0) report("a matrix asked of an empty slot", at);
+  return g_scratch;
+}
+
+// Mech3.exe 1.2 @ 0x0051e8b0
+void reset_stack() { g_stack.top = 0, g_stack.overflow = 0; }
+
+void check_stack_at_frame() {
+  if (g_stack.top == 0 && g_stack.overflow == 0) return;
+  if (g_faults.frame++ == 0) report("left unbalanced by the last frame", g_stack.top + g_stack.overflow);
+  reset_stack();
+}
+
+// The bounds below are FIX (bug), W59: the exe's run past its 32 slots (into
+// the FOV at 0x0063d7e0) or under them (reading 0x0063d75c as a slot).
 // Mech3.exe 1.2 @ 0x0051e9d0
 void push(Mat34* buffer) {
-  assert(g_stack.top + 1 < kStackDepth);
+  if (g_stack.overflow || g_stack.top + 1 >= kStackDepth) {
+    if (g_faults.over_push++ == 0) report("a push past the last slot, refused", g_stack.top);
+    ++g_stack.overflow;
+    return;
+  }
   ++g_stack.top;
   g_stack.slot[g_stack.top] = buffer;
+  g_stack.pushed_by[g_stack.top] = __builtin_return_address(0);
   g_stack.is_identity() = 0;
 }
 
 // Mech3.exe 1.2 @ 0x0051e930
 void push_copy(Mat34* buffer) {
-  assert(g_stack.top + 1 < kStackDepth);
+  if (g_stack.overflow || g_stack.top + 1 >= kStackDepth) {
+    if (g_faults.over_push++ == 0) report("a push past the last slot, refused", g_stack.top);
+    ++g_stack.overflow;
+    return;
+  }
   ++g_stack.top;
   g_stack.identity[g_stack.top] = g_stack.identity[g_stack.top - 1];
   g_stack.slot[g_stack.top] = buffer;
-  *buffer = *g_stack.slot[g_stack.top - 1];
+  g_stack.pushed_by[g_stack.top] = __builtin_return_address(0);
+  *buffer = g_stack.below();
 }
 
 // Mech3.exe 1.2 @ 0x0051ea00
-void pop() { --g_stack.top; }
+void pop() {
+  if (g_stack.overflow) {
+    --g_stack.overflow;  // a refused push's pop
+    return;
+  }
+  if (g_stack.top <= 0) {
+    if (g_faults.under_pop++ == 0) report("a pop with nothing pushed, refused", g_stack.top);
+    return;
+  }
+  --g_stack.top;
+}
 
 // Mech3.exe 1.2 @ 0x0051fd40
 void load(const Mat34& m) {
@@ -97,7 +176,7 @@ void load_camera() {
 void load_model_view() {
   load_view();
   float r[12];
-  mul34(g_stack.slot[g_stack.top - 1]->m, g_stack.matrix().m, r, true);
+  mul34(g_stack.below().m, g_stack.matrix().m, r, true);
   std::memcpy(g_stack.matrix().m, r, sizeof r);
   g_stack.is_identity() = 0;
 }
@@ -370,6 +449,20 @@ float exp_neg(float x) {
   if (x > 5.0f) return 0.0f;
   if (!(x >= 0.0f)) return 1.0f;
   return table[static_cast<int32_t>(51.0f * x)];
+}
+
+// FIX (B), W50: every caller eases by e^-(rate dt), and the table steps by
+// 1/51, so on frames shorter than 1 / (51 rate) it reads 1: above about
+// 150 fps for a rate of 3 nothing eased at all (the turrets froze). The
+// 30 fps frame's value, raised to this frame's share of it: at 1/30 s
+// exactly the table (play as the original at 30 fps), and at any other
+// frame time the same rate per second. No frame time (the first frame, a
+// pause) or no rate: the table, as the exe (fixes.md, Frame rate).
+float exp_neg_dt(float x, float dt) {
+  if (!zfix::options().per_second || !(dt > 1e-6f) || !(x > 0.0f)) return exp_neg(x);
+  constexpr float kRef = 1.0f / zfix::kReferenceFps;
+  if (dt == kRef) return exp_neg(x);
+  return static_cast<float>(std::pow(double{exp_neg(x * (kRef / dt))}, double{dt / kRef}));
 }
 
 // Mech3.exe 1.2 @ 0x00523c50. General 3x3 inverse by cofactors; with

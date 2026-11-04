@@ -3,6 +3,8 @@
 
 #include <deque>
 #include <functional>
+#include <string>
+#include <vector>
 
 #include "frontend/sdl/sdl_fit.h"
 #include "gamez/zinput/zinput.h"
@@ -20,6 +22,26 @@ namespace sdlfe {
 // The DIK code of an SDL scancode, 0 for keys a 1998 keyboard did not have.
 uint8_t dik_from_scancode(SDL_Scancode s);
 
+// W54 (ours, FIX (A); docs/input.md, the joystick on SDL): SDL numbers a raw
+// stick's axes by the ones it has, packed in DirectInput's order (X, Y, Z,
+// RX, RY, RZ, sliders), where DIJOYSTATE2 keeps each at its own place: a
+// stick with X, Y, twist (RZ) and a throttle slider gave the twist as Z, the
+// game's throttle. `slots[i]` is SDL's axis for DIJOYSTATE2's axis i (X, Y,
+// Z, RX, RY, RZ, slider 0, slider 1), -1 for none.
+// The Generic Desktop axis usages (0x30 X .. 0x38 Wheel) a HID report
+// descriptor's inputs carry, in SDL's order (by usage), each once.
+std::vector<uint16_t> hid_axis_usages(const uint8_t* desc, size_t n);
+// From those usages; false when their count is not SDL's.
+bool axis_slots_from_usages(const std::vector<uint16_t>& usages, int sdl_axes, int slots[8]);
+// mw3.cfg's joystick_axes= (SDL's axis 0, 1, ... each X, Y, Z, Rx, Ry, Rz,
+// S0, S1 or -); false for a word it does not know or a slot twice.
+bool axis_slots_from_text(const std::string& text, int sdl_axes, int slots[8]);
+// The slots as joystick_axes= writes them (for the log).
+std::string axis_slots_text(const int slots[8], int sdl_axes);
+// Which attached device a start opens, with no joystick= in mw3.cfg: a
+// gamepad, else one with 2 axes and 4 buttons or more, else any.
+int joystick_rank(bool gamepad, int axes, int buttons);
+
 class SdlInput : public platform::Input {
  public:
   ~SdlInput() override;
@@ -31,7 +53,18 @@ class SdlInput : public platform::Input {
   int32_t mouse_state(platform::MouseState* out) override;
   int32_t joystick_state(platform::JoyState* out) override;
   void set_cooperative_level(Device d, uint32_t flags) override;
+  // W54 (ours): mw3.cfg's joystick= (a part of the device's name, any case:
+  // that one, else the best ranked) and joystick_axes= (the axis map, else
+  // the device's HID descriptor, then kKnownSticks, then SDL's packed order).
+  std::string joystick_want, joystick_axes;
+  // The axis usages of the open stick's HID descriptor, empty when it cannot
+  // be read (tests replace it; read_hid_usages by default).
+  std::function<std::vector<uint16_t>(SDL_Joystick*)> hid_usages;
+  const char* axis_source() const { return axis_source_; }
+  const int* axis_slots() const { return slot_; }
+  bool unplugged() const { return unplugged_; }
   int32_t joystick_caps(uint32_t* flags, uint32_t* axes) override;
+  bool joystick_gamepad() const override { return pad_ != nullptr || (unplugged_ && pad_was_); }
   SDL_Joystick* joystick() const { return joy_; }  // the force feedback's device (sdl_force.h)
   int32_t joystick_object_name(uint32_t ofs, char* name, uint32_t n) override;
   int32_t joystick_set_range(uint32_t ofs, int32_t min, int32_t max) override;
@@ -85,6 +118,9 @@ class SdlInput : public platform::Input {
  private:
   void capture(bool on);
   int axis_count() const;
+  bool open_joystick();
+  void map_axes();
+  void neutral(platform::JoyState* out) const;
   double pad_axis(int i) const;
   bool opened_[3] = {};
   bool acquired_[3] = {};
@@ -126,7 +162,22 @@ class SdlInput : public platform::Input {
   // order differs by platform and its triggers rest at one end, which pinned
   // the game's throttle (Z) and twist (RZ). Other sticks keep the raw path.
   SDL_Gamepad* pad_ = nullptr;
+  int slot_[8] = {0, 1, 2, 3, 4, 5, 6, 7};
+  const char* axis_source_ = "";
+  SDL_JoystickID id_ = 0;
+  SDL_GUID guid_{};
+  bool unplugged_ = false;  // ours: taken out; it reads centred until it is back
+  bool pad_was_ = false;    // it was opened as a gamepad
+  platform::JoyState last_;  // the last live read
+  bool tried_ = false;      // zInput asked for a joystick
 };
+
+// The default hid_usages: the device's HID descriptor through SDL_hid, only
+// a joystick, gamepad or multi-axis interface of its vendor and product
+// (SDL lists no other kind, so no keyboard is opened: no macOS Input
+// Monitoring prompt); empty when it cannot be opened (Linux's root-only
+// hidraw, a virtual pad).
+std::vector<uint16_t> read_hid_usages(SDL_Joystick* j);
 
 // zInput's Win32 calls on SDL (FIX (A), docs/input.md): the client area is
 // the game's frame (the window scaled to it), the cursor SDL's, and the

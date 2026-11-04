@@ -2825,3 +2825,36 @@ Assigned after 8b2 merged (fd3f05f). The lead asked for a section stepped at bot
   (c2m1); renamed to c2m1, since in the real c3m1 the Clanners kill the
   bases before a second repair. A discoveries.md line for players.
 - The aim cone (Weapon::aim 0x4b36e0, cos 0.89) is next, as Owen decided.
+
+## W50: c1m2's invisible missile platform (2026-11-03, mac4/w50, v1.0.1)
+
+- Ruled out on the way: 1.0 data (c1's world is byte-identical), citybuild011
+  (a salvage typo in the data), the c1m1 carry-over (a platform killed there
+  is not remade; one spared starts c1m2 healthy), the shared destroy anim
+  (01's runs on its own nodes), Owen's save (a copy, headless: unchanged).
+  Headless never reached the aim (nothing moved the player through the
+  zones), so it took a hidden Metal run with --turret-ahead on 02.
+- Cause: exp_neg's table (0x00523f70) gives 1 below x = 1/51, so at 166 fps
+  the first aim leaves the straight-up facing as it is, and fake_sqrt(0) =
+  8e-20 makes the yaw c = -0, sn = 0. Fixed in exp_neg behind per_second
+  (all its callers are rate * dt easings: turret, arms, recoil, vehicles,
+  puffers, whose local fix now calls it) and the flat test behind bugs.
+- The exact easing changes c3m5's long fight (the arms' aim at 30 fps too),
+  which showed two timing gaps in the homing tests, not weapon faults: an
+  unlocked shot "turned" was a direction of length 0.9995 compared by raw
+  dot (now by angle), and one locked shot "on another entity" was an AI mech
+  that fired, then picked a new target in the same update (now its target a
+  frame before counts too).
+
+## W50b: exp_neg by the 30 fps frame (2026-11-03, mac4/w50b, v1.0.1)
+
+- W50's exact e^-x changed 30 fps play a little; the lead's W53 check
+  (c1m2's town APCs at 33 ms, 4 seeds) showed brief hops with it, none with
+  the table. exp_neg_dt(x, dt) = table(x / (30 dt)) ^ (30 dt): the table
+  bit for bit at 1/30 s, the 30 fps rate at any other frame time; every
+  call site passes its own dt (the lead's choice over a hidden global).
+- Still hops near 30 fps (30, 33, 35 ms) whenever the vehicle terms leave
+  the table's values; with veh_move on the plain table none at 30..36 ms.
+  So the vehicles keep the table at any frame rate (v1.0's and the
+  original's); exp_neg_dt is the turrets' and arms' (aim, recoil); the
+  puffers keep v1.0's exact drag.

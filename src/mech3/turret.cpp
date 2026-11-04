@@ -641,7 +641,7 @@ bool Turret::aim(Handle at) {
   h.dir_through_inverse(d);
   h.matrix_pop();
   const float old[3] = {facing[0], facing[1], facing[2]};
-  const float k = zmth::exp_neg(h.frame_dt() * (ams_on ? 8.0f : 3.0f));
+  const float k = zmth::exp_neg_dt(h.frame_dt() * (ams_on ? 8.0f : 3.0f), h.frame_dt());
   const float k1 = 1.0f - k;
   facing[0] = k * facing[0] + k1 * d[0];
   facing[1] = k * facing[1] + k1 * d[1];
@@ -659,7 +659,12 @@ bool Turret::aim(Handle at) {
   const float flat2 = hx * hx + hz * hz;
   const float flat = fake_sqrt(flat2);
   float c = 1.0f, sn = 0.0f;
-  if (nonzero(flat)) {
+  // FIX (bug): a facing straight up or down has no flat part, but the bit
+  // trick gives 8e-20 for 0, so the exe takes the heading branch with
+  // c = -0, sn = 0: the turret's matrix loses its yaw axes and the turret
+  // (and the gun under it) is drawn flat, invisible (W50, c1m2's
+  // triturret02). Its heading is then the one it has with none (c 1, sn 0).
+  if (zfix::options().bugs ? nonzero(flat2) : nonzero(flat)) {
     c = -(hz / flat);
     sn = -(hx / flat);
   }

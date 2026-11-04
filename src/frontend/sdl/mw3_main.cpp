@@ -135,6 +135,7 @@ struct Args {
   std::string install, write_dir, mission, variant, dialog_file, dialog_name, shot, movie;
   std::string cfg_install;  // mw3.cfg's install= (the command line's wins)
   std::string cfg_mw1_game;  // mw3.cfg's mw1_game= (ours: the launcher's MechWarrior 1989 folder)
+  std::string cfg_joystick, cfg_joystick_axes;  // mw3.cfg's joystick=, joystick_axes= (ours, W54: sdl_input.h)
   int wide_menus = -1, cfg_wide_menus = -1;  // --wide-menus / --no-wide-menus, mw3.cfg's widemenus= (ours)
   bool debug_camera = false;  // --debug-camera or debugcamera=1 (ours, docs/editor.md S4): the game editor on Shift+F12
   std::vector<std::string> assets;
@@ -149,6 +150,7 @@ struct Args {
   // bugfixes=0/1 (default 1), --original turns them off whatever it says.
   bool play_original = false;
   int cfg_bugfixes = 1;
+  int cfg_throttle_reverse = 1;  // mw3.cfg's throttle_reverse= (ours, W56: zfix.h)
   bool first_start = false;   // the install found by the search, not mw3.cfg's (ours: the first start's notes)
   float pos[3] = {0, 60, 0};
   float look[2] = {0, -2.9f};
@@ -392,11 +394,15 @@ void read_config(const std::string& dir, Args& a) {
     else if (line.rfind("mw1_game=", 0) == 0) a.cfg_mw1_game = line.substr(9);
     else if (line.rfind("assets=", 0) == 0) a.assets.push_back(line.substr(7));
     else if (line.rfind("mod=", 0) == 0) a.cfg_mods.push_back(line.substr(4));
+    else if (line.rfind("joystick=", 0) == 0) a.cfg_joystick = line.substr(9);
+    else if (line.rfind("joystick_axes=", 0) == 0) a.cfg_joystick_axes = line.substr(14);
     else if (line == "windowed=1") a.windowed = true;
     else if (line == "bugfixes=0") a.cfg_bugfixes = 0;
     else if (line == "bugfixes=1") a.cfg_bugfixes = 1;
     else if (line == "widemenus=0") a.cfg_wide_menus = 0;
     else if (line == "widemenus=1") a.cfg_wide_menus = 1;
+    else if (line == "throttle_reverse=0") a.cfg_throttle_reverse = 0;
+    else if (line == "throttle_reverse=1") a.cfg_throttle_reverse = 1;
     else if (line == "debugcamera=1") a.debug_camera = true;
   }
 }
@@ -648,6 +654,7 @@ int main(int argc, char** argv) {
   // The menus' 16:9 (a display choice, kept by --original): the command
   // line's, else mw3.cfg's widemenus=, else on.
   zfix::options().wide_menus = a.wide_menus >= 0 ? a.wide_menus != 0 : a.cfg_wide_menus != 0;
+  zfix::options().throttle_reverse = a.cfg_throttle_reverse != 0;  // with bugs (lever_reverse_on)
   mech3::app_key_calls().debug_camera = a.debug_camera;
   if (a.debug_camera) std::printf("mw3: --debug-camera: the game editor on Shift+F12 (docs/editor.md)\n");
   if (!zfix::options().bugs)
@@ -830,6 +837,7 @@ int run(const Args& a, platform::VideoForWindows* vfw) {
   sdlfe::SdlWindow window;
   if (!window.init(a.hidden, a.launcher_window)) return 1;
   sdlfe::SdlInput input;
+  input.joystick_want = a.cfg_joystick, input.joystick_axes = a.cfg_joystick_axes;
   sdlfe::SdlForceDevice force([&input] { return input.joystick(); });  // FIX (A): IFORCE2 as rumble (sdl_force.h)
   input.window = window.sdl();
   input.mickey_scale = a.win_w > 0 ? 640.0f / static_cast<float>(a.win_w) : 1.0f;
