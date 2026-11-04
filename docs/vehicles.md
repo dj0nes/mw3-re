@@ -1897,8 +1897,8 @@ APCs that drive), the largest tilt and vertical speed over both:
 the ground, `*vs = (ground - y) / dt` (`vehicle_support_step`, 0x004a2820). So the same small
 rise gives a speed that grows as the frame shortens: 0.2 m is 6 m/s at 33 ms and
 about 66 m/s at 3 ms. That speed goes into the body's pitch and roll rates and on
-the next frame can leave the support in the air. It is not the e^-x table this row
-first suspected: dividing by 30 changes nothing there.
+the next frame can leave the support in the air. The e^-x table first suspected is
+not needed for this: the change below leaves it alone and the tilt goes.
 
 **Tried, no good: physics at a fixed 1/30 s** (accumulated steps in `vehicle_frame`, the
 controls still per frame). 6, 2 and 16 ms came out clean, but 8, 4 and 3 ms were
@@ -1907,8 +1907,10 @@ unstepped run took). Not understood; dropped, as the next one needs none of it.
 
 **Tried, works: the speed as a 30 fps frame's**, `(ground - y) * min(1/dt, 30)`.
 At 16, 8, 6, 5, 4, 3, 2 and 1 ms: tilt at most 11 deg, vertical speed at most 1.8
-m/s, both APCs still driving their usual distance. Identical at 30 fps and below,
-so the original's look is kept and W50b's hops near 30 fps do not apply.
+m/s, both APCs still driving about their usual distance. Identical for frames of
+1/30 s and longer. A 33 ms frame is just under 1/30 s, so it changes by about 1%;
+20 to 33 ms were not run with this, and W50b found hops near 30 fps when other terms
+changed, so that range has to be measured before this ships.
 
 Not settled: other missions and vehicle types, a fight, a player near; this is one
 mission's first minute. Not seen on the exe at those frame rates; by the code
