@@ -1076,6 +1076,24 @@ functions PM changed, and PM's new ones.
        No world shows a light map yet: `LightSetLightMap` waits for the interpreter's item. To see one,
        `mw3pm --fly c1 --look 0 20 --map-light 2432 5 -2300 120` (debug only), with GfxFlags' lighting on,
        which the debug start otherwise leaves off, so the rest of the world goes dark.
+     - **`cls_clutter`: mapped, not ported** (0x5106b0..0x514b90, 65 functions, ~3,500 lines of
+       pseudocode). Scattered props laid on the ground by its material. **It waits for the interpreter
+       and the mission load**: its template names come from the script command `AddClutterTemplates`
+       (0x512fd0, from 0x5b2e15, a list at [0x639c14]). The load (0x492f8c.., unless `-noclutter`,
+       [0x62cc58]; "Loading Clutter"): 0x5116a0(1) turns it on; 0x513030(0x609980) reads the settings
+       file named there, one record of 0x88 bytes per entry: `scale_range`, `translate_uv_range`,
+       `far_fade_range`, `rotation_range` (degrees), `min_slope`, `max_slope` (cosines), `OnWeaponHit`,
+       `OnCrater`, `OnCollide` (each `health`, an effect, a `model`), `align_normal`, `substitute`
+       (weighted nodes, flagged 0x200000 and made inert) by 0x513310; 0x5139d0 finds each template node
+       by name (0x50b920) and 0x511ad0 walks it to single-polygon textured models; 0x511b50 projects
+       its children onto that polygon (0x568d00) for u, v in 0..1 (the "does not project to polygon" report),
+       kept per material in a map at [0x639be4]; 0x513a30 -> 0x512d90 walks the world's grid and each
+       node's tree (0x512d20, flag 4, not 0x4000000) and for each polygon of a type-0 model with
+       textures (0x512bb0, not 0x800) lays that material's templates over each triangle: 0x512a80, a strip
+       or a fan, the same triangle rule as `split_strips`; 0x512000 does the placing. 0x513a40 frees it
+       all at the mission's end. 0x513d90 (from 0x517e45, a crater) sets flags 5 on clutter within a
+       radius in the grid. 0x514170 is called from 0x564c67, 0x574999, 0x574b89, 0x590c79: not read.
+       0x510830, 0x510910, 0x5109c0, 0x510b50, 0x510b90 are called from the 0x4863ec.. range: not read.
      - **Eye check, still to do with the game around it:** points meeting blended polygons (batched,
        0x59ee90, not ported); a short light's pool on a regular polygon; a projected light over a
        light-mapped polygon, bugs on and off; an axis-aligned wall with a light map (seam); c2's jagged
