@@ -1142,22 +1142,19 @@ functions PM changed, and PM's new ones.
        black (`SdlRender3D`; it used to hold undefined memory, magenta on this Mac), so the gap is black in
        `--fly`, which stays depth-only like the mission: there it keeps what the last frame left, which is
        black until something draws there.
-       **For Owen's PC:** what the original shows there, as far as a jet reaches, at `mw3pm --fly c2 --pos
-       1536 150 -1792 --look 0 8` and `c4 --pos 1536 150 -1792 --look 0 8`: a black band, old frames, or none.
-       **Also for Owen:** the brightness of c1 (day: single m1; night: m2) and c3 (`mw3pm --fly c3`, default
-       view) against the original.
+       **For Owen's PC:** `docs/pm-eye-checks.md`, with the brightness of c1 and c3.
      - **Eye check, settled here** (no original compared, only that the port draws what the data says):
        the sky: day and night differ as `night_day.zrd` says (`--fly c1 --pos 2432 25 -2688 --look 0 -25`: clouds
        and small stars; with `--variant m2`: large stars, dim clouds), c2 clouds over a fog-coloured horizon
        (`--fly c2 --pos 1536 40 -1792 --look 0 -5`). c1 and c3 look nearly black from `--fly`'s default height
-       because their fog is black with altitude 80..100: at height 25 the ground shows. The light map pool:
-       `--map-light 1600 45 -1840 120` in that c2 view changes 116,466 pixels (range 80 at 1536 40 -1860: none).
-     - **Eye check, for Owen's PC:** `--fly c4` default view, the flat green next to the grids (it has
-       grain, so it is textured; whether it is that green in the original is the question). `--fly c1 --look 0
-       25`, single m1, the ground's stair-stepped sand and red (the data says transition tiles `tertrans01`,
-       `tertrans02`, 99 polygons within 800 units of the centre). `--fly c2 --pos 1500 135 -1600 --look 0 35`, the
-       jagged orange edge. Texture softness, as `MipBias -1` is read and not applied. The sky gap and the
-       brightness above.
+       because their fog is black with altitude 80..100: at height 25 the ground shows (c1 looking up,
+       `--look 0 -25`; c3 `--pos 1664 25 -2048 --look 0 15`). The light map pool: `--fly c2 --pos 1536 40 -1792
+       --look 0 15 --map-light 1536 40 -1700 80`, a pool over the water and the near land, soft-edged; the
+       blended edge polygons get no map (opaque only). `--look 0` faces +z, so a light at -z of that camera
+       lights nothing on screen until its range reaches the frame's near edge. A long polygon near a small
+       light (range 5, on the bridge) redraws whole, and 10,360 of its 10,363 changed pixels move by 1 level:
+       the map's clamped edge texel is not quite 0.
+     - **Eye check, for Owen's PC:** `docs/pm-eye-checks.md`: what he does in the original, the port's picture beside it.
      - **Eye check, waiting:** a short light's pool on a regular polygon, on the mission's lights; a
        projected light over a light-mapped polygon, bugs on and off, on the caster's port; an axis-aligned
        wall's light map seam, on a mission's light on a wall (`--map-light` could stand in, not tried);
