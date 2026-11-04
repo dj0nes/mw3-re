@@ -91,10 +91,10 @@ settings folder (the README says where it is).
 ## Checksums
 
 ```
-<sha256>  MW3-Rebuild-Setup-v1.0.1.exe
-<sha256>  mw3-v1.0.1-win64.zip
-<sha256>  MW3-Rebuild-v1.0.1-mac.dmg
-<sha256>  MW3-Rebuild-v1.0.1-x86_64.AppImage
+71cc59238c48a85f671b6ca34a8728fc62d06eecb2ba77aa13935324c76d7624  MW3-Rebuild-Setup-v1.0.1.exe
+db272bb4aad3a41f34f25a8ca6c84f9db4172d8080192a5f8013a0c876f3b8da  mw3-v1.0.1-win64.zip
+b6dd7c89a53f6b415c039d7ea9d378351342954e9b7645ce07783d7fb8042b32  MW3-Rebuild-v1.0.1-mac.dmg
+e942f30de575fb3de0e05e2c3f976cfbe4c7020d395450b9037ad61a4c7607d5  MW3-Rebuild-v1.0.1-x86_64.AppImage
 ```
 
 ---
