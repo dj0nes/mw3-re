@@ -7,6 +7,7 @@
 
 #include "crt/msvc_math.h"
 #include "gamez/zerror/zerr.h"
+#include "gamez/zgame/zgame_table.h"
 #include "gamez/zinterp/zinterp.h"
 #include "gamez/zmodel/gmod_const.h"
 #include "gamez/zmodel/gmod_draw.h"
@@ -405,6 +406,11 @@ Result letter_l(Interp& in, const char* argv0) {
     const int32_t index = a.i();
     zimg::TextureEntry* t = call(e.texture_add, static_cast<const char*>(a.s()));
     call(e.lens_flare_texture, index, t);
+    return kKnown;
+  }
+  // Pirate's Moon 1.0 @ 0x005b2d10 (MW3 has no such command): the whole word.
+  if (const auto set = zgame::game().zint_light_map_texture; set && exact(argv0, "LightMapTexture")) {
+    set(call(e.texture_add, static_cast<const char*>(a.s())));
     return kKnown;
   }
   if (is(argv0, "LightNew", 8)) return new_node(in, call(e.light_create));

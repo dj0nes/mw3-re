@@ -701,7 +701,18 @@ functions PM changed, and PM's new ones.
        `LightSetAmbientColor`, `LightSetDiffuseColor` and
        `NodeSetOverrideAmbient/Diffuse` are in the exe alone: they wait for
        the interpreter's item.
-     - Order: `LightMapTexture` and the option's state; the helpers in groups,
+     - **`LightMapTexture`: ported** (2026-11-03). The word through the shared
+       dispatcher behind the game table's `zint_light_map_texture`, null in
+       MW3's, so there it stays an unknown word; `pm/gamez/zimage/zimg_texture`
+       holds `[0x683cb0]` and PM's free `0x530810`. It matches the whole word,
+       unlike most commands (`LightMapTextureX` is a miss). With no argument
+       it calls the add with null, whose real `0x532450` would crash on
+       `strrchr`; the test's stand-in hides that, and no shipped line does it.
+       `test_pm_light_map.py` on PM's exe: 8 lines identical (the light map,
+       the cursor, the misses, the names). Breaks, 5 of 5: prefix match, not
+       stored, argument not taken (the differential); MW3 knowing the word,
+       the free keeping it (`pm_light_map_texture_is_pms_alone`).
+     - Order from here: the option's state; the helpers in groups,
        each with the setters it first reads; then `0x543b10` by call trace, as
        `0x53f2e0` was. Emulator only until the world class and the mission can
        draw in `mw3pm`.

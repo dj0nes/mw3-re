@@ -10,6 +10,7 @@
 #include "pm/gamez/zclass/cls_zbd.h"
 #include "pm/gamez/zclass/light.h"
 #include "pm/gamez/zeffect/zeff_anim_init.h"
+#include "pm/gamez/zimage/zimg_texture.h"
 #include "pm/gamez/zreader/zrdr_main.h"
 #include "pm/gamez/zutil/zutl_zar.h"
 
@@ -19,7 +20,8 @@ const zgame::Table kPm = {"Pirate's Moon", "Pirate's Moon 1.0", zar::read_table,
                          zrdr::parse_text, zcls::read_zbd, zcls::node_alloc, zcls::node_set_active,
                          zcls::light_create, zeff::anim_read_zbd,
                          // mechlib (pm-map step 1e)
-                         zcls::mechlib_open, zcls::mechlib_load};
+                         zcls::mechlib_open, zcls::mechlib_load,
+                         zimg::set_light_map};
 }  // namespace
 
 const zgame::Table& table() { return kPm; }

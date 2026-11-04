@@ -22,6 +22,7 @@
 #include "gamez/zvideo/zvid_format.h"
 #include "gamez/zclass/cls_mechlib.h"
 #include "pm/gamez/zclass/cls_mechlib.h"
+#include "gamez/zinterp/zinterp.h"
 #include "pm/gamez/zclass/cls_zbd.h"
 #include "pm/gamez/zeffect/zeff_anim_init.h"
 #include "pm/gamez/zimage/zimg_texture.h"
@@ -559,6 +560,46 @@ int probe_pm_mechlib(const char* world, const char* path, const char* names, uin
   put_tables(b, 1 << 30);
   put_models(b, 1 << 30);
   put_world_nodes(b, 1 << 30, true);
+  if (static_cast<int>(b.size()) > cap) return -1;
+  std::memcpy(out, b.data(), b.size());
+  return static_cast<int>(b.size());
+}
+
+// test_pm_light_map.py: script lines ('|'-separated, words by spaces) through
+// the dispatcher with PM's table. texture_add answers 0x70000000 + 0x10 * call
+// number. Out, per line: the light map, the cursor, the misses, the names asked.
+int probe_pm_light_map(const char* lines, uint8_t* out, int cap) {
+  static std::string asked;
+  static int calls;
+  asked.clear(), calls = 0;
+  zgame::set_game(pm::table());
+  ::zint::Engine keep = ::zint::engine();
+  ::zint::engine().texture_add = [](const char* name) {
+    asked += name ? name : "(none)", asked += '\n';
+    return reinterpret_cast<::zimg::TextureEntry*>(static_cast<uintptr_t>(0x70000000u + 0x10u * calls++));
+  };
+  pm::zimg::set_light_map(nullptr);
+  std::string b, all = lines;
+  auto put = [&](const void* p, size_t n) { b.append(static_cast<const char*>(p), n); };
+  for (size_t at = 0; at < all.size();) {
+    size_t bar = all.find('|', at);
+    if (bar == std::string::npos) bar = all.size();
+    std::string line = all.substr(at, bar - at);
+    at = bar + 1;
+    ::zint::Interp in;
+    for (size_t i = 0; i < line.size() && in.argc < 16; ++i) {
+      if (line[i] == ' ') { line[i] = 0; continue; }
+      if (i == 0 || line[i - 1] == 0) in.argv[in.argc++] = &line[i];
+    }
+    in.cursor = 1;
+    ::zint::dispatch(in, in.argv[0]);
+    const uint32_t lm = static_cast<uint32_t>(reinterpret_cast<uintptr_t>(pm::zimg::light_map()));
+    put(&lm, 4), put(&in.cursor, 4), put(&in.misses, 4);
+  }
+  b += asked;
+  ::zint::engine() = keep;
+  pm::zimg::set_light_map(nullptr);
+  zgame::set_game(zgame::mw3_table());
   if (static_cast<int>(b.size()) > cap) return -1;
   std::memcpy(out, b.data(), b.size());
   return static_cast<int>(b.size());

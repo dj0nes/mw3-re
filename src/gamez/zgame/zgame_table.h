@@ -9,6 +9,9 @@ struct Archive;
 namespace zrdr {
 struct Node;
 }
+namespace zimg {
+struct TextureEntry;
+}
 namespace zcls {
 struct Node;
 struct MechLib;
@@ -47,6 +50,9 @@ struct Table {
   // 41 with PM's nodes and models.
   bool (*zcls_mechlib_open)(zcls::MechLib& lib, const char* path);  // 0x004fc6d0; PM 0x00510910
   zcls::Node* (*zcls_mechlib_load)(zcls::MechLib& lib, const char* name);  // 0x004fc8f0; PM 0x00510b90
+  // The script's LightMapTexture (PM's dispatcher 0x005b2d10): the texture it
+  // names is the light map. Null in MW3, where the word is unknown.
+  void (*zint_light_map_texture)(zimg::TextureEntry* texture);
 };
 
 const Table& mw3_table();

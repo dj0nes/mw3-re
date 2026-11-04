@@ -38,4 +38,15 @@ int read_texture_directory(int count, std::FILE* f) {
   return count;
 }
 
+namespace {
+::zimg::TextureEntry* g_light_map = nullptr;
+}  // namespace
+::zimg::TextureEntry* light_map() { return g_light_map; }
+void set_light_map(::zimg::TextureEntry* texture) { g_light_map = texture; }
+
+void textures_free() {
+  g_light_map = nullptr;
+  ::zimg::textures_free();
+}
+
 }  // namespace pm::zimg

@@ -24,6 +24,8 @@
 #include "pm/gamez/zclass/cls_zbd.h"
 #include "pm/gamez/zmodel/gmod_const.h"
 #include "pm/gamez/zutil/zutl_zar.h"
+#include "gamez/zinterp/zinterp.h"
+#include "pm/gamez/zimage/zimg_texture.h"
 #include "pm/pm_game.h"
 
 namespace {
@@ -414,5 +416,29 @@ TEST(pm_mechlib_fuzz_never_crashes) {
   std::printf("  pm mechlib fuzz: %d trees, %d refused, %d read; cut short %d, refused %d\n", runs, refused, read, cut,
               cut_refused);
   EXPECT(runs == 180 && refused > 0 && cut == cut_refused && bad_polys == 0);
+  zgame::set_game(zgame::mw3_table());
+}
+
+// LightMapTexture (PM's 0x005b2d10): a word of PM's table only; MW3's counts
+// it unknown and stores nothing. The textures' free (0x00530810) clears it.
+TEST(pm_light_map_texture_is_pms_alone) {
+  static ::zimg::TextureEntry entry;
+  ::zint::Engine keep = ::zint::engine();
+  ::zint::engine().texture_add = [](const char*) { return &entry; };
+  auto run = [] {
+    char line[] = "LightMapTexture\0lightmap";
+    ::zint::Interp in;
+    in.argc = 2, in.argv[0] = line, in.argv[1] = line + 16, in.cursor = 1;
+    ::zint::dispatch(in, in.argv[0]);
+    return in.misses;
+  };
+  pm::zimg::set_light_map(nullptr);
+  zgame::set_game(zgame::mw3_table());
+  EXPECT(run() == 1 && pm::zimg::light_map() == nullptr);
+  zgame::set_game(pm::table());
+  EXPECT(run() == 0 && pm::zimg::light_map() == &entry);
+  pm::zimg::textures_free();
+  EXPECT(pm::zimg::light_map() == nullptr);
+  ::zint::engine() = keep;
   zgame::set_game(zgame::mw3_table());
 }
