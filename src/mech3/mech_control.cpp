@@ -299,8 +299,13 @@ void PlayerControls::read_axes(float dt, float* thr, float* tn, float* p, float*
   const zin::MouseInfo* m = mouse();
   const int cam = g_calls.camera_view ? g_calls.camera_view() : 0;
   const AxisBinding* ax = axis_table().axes;
-  if (ax[3].source != 0) *tn = ax[3].value(j, m);
-  if (ax[0].source != 0) {
+  // FIX (bug): with no stick a saved file's stick axes stay bound (only the stock
+  // file is moved off it, 0x00480570) and read their offset each frame: the mech
+  // walked and its torso turned by itself (docs/fixes.md).
+  const bool no_stick = zfix::options().bugs && !(g_calls.joy_present ? g_calls.joy_present() : zin::joy_present());
+  const auto bound = [&](const AxisBinding& a) { return a.source != 0 && !(no_stick && a.source <= 8); };
+  if (bound(ax[3])) *tn = ax[3].value(j, m);
+  if (bound(ax[0])) {
     const float sign = reverse ? -1.0f : 1.0f;  // IControls +0x18
     *thr = (lever_reverse_on(ax[0]) ? lever_throttle(ax[0], j) : ax[0].value(j, m)) * sign;
   }
@@ -339,26 +344,17 @@ void PlayerControls::read_axes(float dt, float* thr, float* tn, float* p, float*
     }
   } else {
     const bool free = cam == 0 || cam == 1;
-    if (ax[1].source != 0) {
+    if (bound(ax[1])) {
       *tw = clamp1(ax[1].value(j, m));
       if (view == 1) *ly = *tw, *tw = 0.0f;
     }
-    if (ax[2].source != 0) {
+    if (bound(ax[2])) {
       *p = clamp1(ax[2].value(j, m));
       if (view == 1) *lp = *p, *p = 0.0f;
     }
     look_y = free ? clamp1(look_y - kLookReturn * dt * *p) : 0.0f;
   }
-  if (!(g_calls.joy_present ? g_calls.joy_present() : zin::joy_present())) {
-    // FIX (bug): a saved file's stick axes stay bound with no stick (only the
-    // stock file is moved off it, 0x00480790), and read their offset each frame:
-    // the mech walked by itself (docs/fixes.md).
-    if (zfix::options().bugs) {
-      if (ax[0].source >= 1 && ax[0].source <= 8) *thr = 0.0f;
-      if (ax[3].source >= 1 && ax[3].source <= 8) *tn = 0.0f;
-    }
-    return;
-  }
+  if (!(g_calls.joy_present ? g_calls.joy_present() : zin::joy_present())) return;
   // Ours (W56): with reverse on the lever, a first reading in reverse is taken
   // as the last one, so a lever left at its end (stop, before) does not back
   // the mech off at the start; it counts once it moves. Ahead, it drives at

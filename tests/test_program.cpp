@@ -19710,18 +19710,18 @@ int cheat_mission(const char* write, int32_t index, int32_t number, int limit,
 
 // A controls file saved with an axis on the stick, loaded at a launch with no
 // stick: does the mech walk by itself? (1.0.2; docs/controls.md.)
-struct NoStick { float throttle = 0, moved = 0; int32_t source = -1, frames = 0; };
+struct NoStick { float throttle = 0, moved = 0, twist = 0, pitch = 0; int32_t source = -1, frames = 0; };
 // `throttle`: the Throttle axis's line as controls_save writes it (0x00411e60);
 // empty: no file saved. Loaded through ActiveCtlCfg, as a launch does.
-NoStick no_stick_run(const char* name, const char* throttle) {
+NoStick no_stick_run(const char* name, const char* throttle, const char* twist = "joystick(Rz)\tslope(-1.000000)\tintercept(0.000000)\tdeadzone(0.000000)",
+                     const char* pitch = "joystick(Y)\tslope(1.000000)\tintercept(0.000000)\tdeadzone(0.000000)") {
   NoStick out;
   const std::string d = temp_dir(name);
   const std::string file = d + "/saved_controls";
   platform::RegFile settings(d + "/settings.reg");
   if (*throttle) {
     std::ofstream(file) << "(\n\tKEYS (\n\t)\n\tAXES (\n\t\t(Throttle\t" << throttle
-                        << ")\n\t\t(Twist\tjoystick(Rz)\tslope(-1.000000)\tintercept(0.000000)\tdeadzone(0.000000))\n"
-                           "\t\t(Pitch\tjoystick(Y)\tslope(1.000000)\tintercept(0.000000)\tdeadzone(0.000000))\n"
+                        << ")\n\t\t(Twist\t" << twist << ")\n\t\t(Pitch\t" << pitch << ")\n"
                            "\t\t(LR\tjoystick(X)\tslope(-1.000000)\tintercept(0.000000)\tdeadzone(0.000000))\n\t)\n)\n";
     std::string hex;
     std::string bytes = file;
@@ -19744,12 +19744,12 @@ NoStick no_stick_run(const char* name, const char* throttle) {
     out.frames = f;
     out.moved = std::hypot(x.pos[0] - at[0], x.pos[2] - at[2]);
     out.source = mech3::axis_table().axes[0].source;
-    if (auto* c = mech3::player_controls_instance()) out.throttle = c->throttle_target;
+    if (auto* c = mech3::player_controls_instance()) out.throttle = c->throttle_target, out.twist = c->twist, out.pitch = c->pitch;
     return f >= 150;
   });
   g_cheat_mission_settings = nullptr;
-  std::printf("  no stick, %s: throttle axis %d, target %.2f, moved %.1f m in %d frames\n", name, out.source, out.throttle,
-              out.moved, out.frames);
+  std::printf("  no stick, %s: throttle axis %d, target %.2f, moved %.1f m in %d frames, twist %.2f pitch %.2f\n", name, out.source,
+              out.throttle, out.moved, out.frames, out.twist, out.pitch);
   return out;
 }
 TEST(controls_saved_stick_axes_with_no_stick_do_not_walk_the_mech_headless) {
@@ -19762,6 +19762,15 @@ TEST(controls_saved_stick_axes_with_no_stick_do_not_walk_the_mech_headless) {
   EXPECT(stock.frames == 150 && stock.moved < 1.0f);
   EXPECT(slider.frames == 150 && slider.moved < 1.0f);
   EXPECT(zone.frames == 150 && zone.moved < 1.0f);
+  const char* const off = "joystick(Z)\tslope(-0.500000)\tintercept(0.500000)\tdeadzone(0.050000)";
+  const char* const up = "joystick(Slider1)\tslope(0.000031)\tintercept(-1.000000)\tdeadzone(0.000000)";
+  const NoStick twist = no_stick_run("nostick_twist", off, up);
+  const NoStick pitch = no_stick_run("nostick_pitch", off, "joystick(Rz)\tslope(-1.000000)\tintercept(0.000000)\tdeadzone(0.000000)", up);
+  EXPECT(std::fabs(twist.twist) < 0.01f && std::fabs(pitch.pitch) < 0.01f);
+  // A mouse-look file keeps its mouse: it was never the stick's.
+  const NoStick mouse = no_stick_run("nostick_mouse", off, "mouse(X)\tslope(1.000000)\tintercept(0.000000)\tdeadzone(0.000000)",
+                                     "mouse(Y)\tslope(1.000000)\tintercept(0.000000)\tdeadzone(0.000000)");
+  EXPECT(mouse.frames == 150 && std::fabs(mouse.twist) < 0.01f && mouse.moved < 1.0f);
   EXPECT(slider.source == 7 && zone.source == 3);  // still bound: the stick works when it comes back
   // The original's path, bug fixes off: it walks.
   zfix::options().bugs = false;

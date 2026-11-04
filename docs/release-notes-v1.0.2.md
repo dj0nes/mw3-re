@@ -55,8 +55,8 @@ did in the original.
 - **A mech that walked by itself with no joystick attached.** If you had saved
   controls with the throttle on the stick (a slider from 1.0.1's Controls screen,
   or a changed dead zone) and then played without the stick, the throttle opened
-  on its own. It now stays shut, and your binding is kept for when the stick is
-  back. This is part of bug fixes.
+  on its own, and a slider on the torso's axes turned the torso. Now a missing
+  stick does nothing, and your binding is kept for when it is back. This is part of bug fixes.
 - **Undefined colour in a new picture.** A rebuild bug: when the picture
   changed size during a mission, the parts of the screen nothing draws on
   could show random memory until something covered them. They now start

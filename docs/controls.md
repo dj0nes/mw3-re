@@ -408,7 +408,10 @@ floats keep the six decimals `%f` gives.
   `set_use_joystick(0)` move the axes off the stick. Any other file keeps them, and
   `read_axes` returns at "no stick" with `*thr` already the axis's offset, added to
   the throttle each frame. Measured on the program, a slider binding (offset 1) or
-  stick Z with deadzone 0.1, c1m1: target 1.00, 15.7 m in 150 frames. Fixed behind
+  stick Z with deadzone 0.1, c1m1: target 1.00, 15.7 m in 150 frames; a slider on
+  twist or pitch (offset -1): the torso at -1.00. Unplugged in a mission it is not so:
+  the turning axes read centred, the throttle's (Z, sliders) their last value, so the
+  mech holds its speed and keys still change it (`neutral`, W54). Fixed behind
   `bugs` (fixes.md); read from the port, not run on the exe.
 
 ### Where the file lives
