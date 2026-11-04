@@ -6,6 +6,9 @@
 #include <cstring>
 #include <string>
 #include <tuple>
+#if !defined(_WIN32)
+#include <unistd.h>
+#endif
 
 #include "check.h"
 #include "gamez/zimage/zimg_library.h"
@@ -1682,4 +1685,56 @@ TEST(fix_throttle_lever_reaches_reverse) {
   zfix::options().bugs = false;
   EXPECT(near(lever_target(z, 0, 1000), 0.0f) && near(lever_target(z, 0, -1000), 1.0f));
   zfix::options().bugs = true;
+}
+
+// W59 (Owen's v1.0 crash, zmth::load+0x1d in c4b's last fight): an unbalanced
+// matrix stack is refused and logged, never a write through a stray slot.
+TEST(fix_matrix_stack_imbalance_is_refused_and_logged) {
+  zmth::MatrixStack& st = zmth::matrix_stack();
+  zmth::reset_stack();
+  zmth::stack_faults() = {};
+#if !defined(_WIN32)
+  std::FILE* log = std::tmpfile();
+  std::fflush(stderr);
+  const int saved = dup(2);
+  dup2(fileno(log), 2);
+#endif
+  // Under: a load and a pop with nothing pushed.
+  const zmth::Mat34 m = {{1, 0, 0, 0, 1, 0, 0, 0, 1, 7, 8, 9}};
+  zmth::load(m);
+  zmth::pop();
+  zmth::pop();
+  EXPECT(st.top == 0 && st.slot[0] == nullptr);
+  // Over: 40 pushes into 31 free slots; the 9 refused ones' pops come off first.
+  static zmth::Mat34 bufs[40];
+  for (zmth::Mat34& b : bufs) zmth::push(&b);
+  EXPECT(st.top == zmth::kStackDepth - 1 && st.overflow == 9);
+  zmth::load(m);  // into the last slot taken
+  EXPECT(bufs[30].m[9] == 7.0f && bufs[31].m[9] == 0.0f);
+  for (int i = 0; i < 9; ++i) zmth::pop();
+  EXPECT(st.top == zmth::kStackDepth - 1 && st.overflow == 0);
+  zmth::push_copy(&bufs[39]);  // full again: refused, not past the array
+  EXPECT(st.overflow == 1 && bufs[39].m[9] == 0.0f);
+  // The frame's start puts it back to empty.
+  zmth::check_stack_at_frame();
+  EXPECT(st.top == 0 && st.overflow == 0);
+  zmth::check_stack_at_frame();  // balanced now: nothing
+  const zmth::StackFaults f = zmth::stack_faults();
+  EXPECT(f.empty == 1 && f.under_pop == 2 && f.over_push == 10 && f.frame == 1);
+#if !defined(_WIN32)
+  std::fflush(stderr);
+  dup2(saved, 2);
+  close(saved);
+  std::string text;
+  std::rewind(log);
+  for (int c; (c = std::fgetc(log)) != EOF;) text += static_cast<char>(c);
+  std::fclose(log);
+  int lines = 0;
+  for (size_t at = 0; (at = text.find("mw3: matrix stack: ", at)) != std::string::npos; ++at) ++lines;
+  EXPECT(lines == 4);  // once each: empty, under, over, frame
+  EXPECT(text.find("a push past the last slot, refused") != std::string::npos);
+  EXPECT(text.find("from: ") != std::string::npos);
+#endif
+  zmth::reset_stack();
+  zmth::stack_faults() = {};
 }
