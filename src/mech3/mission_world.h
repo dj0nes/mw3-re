@@ -2,11 +2,11 @@
 #include <cstdint>
 
 #include "gamez/zclass/cls_data.h"
+#include "gamez/zreader/zreader.h"
 
-// mech3\mission.cpp: the mission's world parameters, the `world_params`
-// block of the mission's world.zrd (mpinfo.zrd for multiplayer maps 3 and
-// up): fog, sky, sun, wind, weather, temperature, jump-jet ceiling and the
-// cloud pattern (docs/drafts/world-params.md).
+// mech3\mission.cpp: the mission's world parameters, from the mission's block of
+// world.zrd: fog, sky, sun, wind, weather, temperature, jump-jet ceiling, the
+// cloud cover and the cloud pattern (docs/drafts/world-params.md).
 namespace mech3 {
 
 using zcls::Node;
@@ -40,6 +40,16 @@ struct MissionWorld {
   float water_range[2] = {};       // +0x30  underwater fog
   float water_altitude[2] = {};    // +0x38
   float water_color[3] = {};       // +0x40
+  // Pirate's Moon's (PM's offsets; its water is +0x34..+0x4f, with the headlights before it).
+  uint8_t ai_headlights = 0;       // +0x30
+  uint8_t cloud_on = 0;            // +0x50  a cloud_cover block was read
+  float cloud_color[3] = {};       // +0x54
+  uint16_t cloud_packed = 0;       // +0x60
+  float cloud_top = 0, cloud_bottom = 0;  // +0x64, +0x68
+  float cloud_depth = 0;           // +0x70  at most 0.9 of the height
+  uint8_t cloud_death_on = 0;      // +0x74
+  float cloud_death[2] = {};       // +0x78
+  float cloud_low = 0, cloud_high = 0;  // +0x80, +0x84  about the middle by the depth
 };
 
 // Globals the reader sets (heat.md, interp.md `ceiling`).
@@ -60,8 +70,7 @@ uint32_t game_soil(uint32_t zmodel_soil);  // [0x00608c00 + 4 * soil]; 0 past th
 
 // The calls into engine parts not ported yet; the front end or a test sets them.
 struct WorldHooks {
-  int32_t (*game_type)();                                  // [0x0060861c]+0x6c vtable +0x2c (3 multiplayer)
-  int32_t (*mission_number)();                             // [0x0060861c]+0x6c vtable +0x4c
+  zrdr::Node* (*game_block)();                             // [0x0062c40c]+0x6c vtable +0x74 (multiplayer's this+0x7640), null: use the key
   int32_t (*hw_card_flag)();                               // 0x0040d4d0, the HWCardFlag option
   Node* world;                                             // [0x00608c84]+4, null when there is no world object
   Node* camera;                                            // [0x005f4c8c]+4, the player view's camera
@@ -70,10 +79,6 @@ struct WorldHooks {
   void (*wind_max_speed)(float v);                         // 0x0054b650
   void (*wind_random_accel)(float v);                      // 0x0054b660
   void (*wind_random_angvel)(float radians);               // 0x0054b670
-  void (*light_get_orientation)(Node* light, float* x, float* y, float* z);  // 0x004fb060
-  void (*light_set_orientation)(Node* light, float x, float y, float z);     // 0x004faff0
-  void (*light_set_ambient)(Node* light, float v);         // 0x004fa940
-  void (*light_set_diffuse)(Node* light, float v);         // 0x004fa9b0
   Weather* (*create_snow)(int32_t particles);              // new(0x98) + 0x005a5ad0, null if out of memory
   Weather* (*create_rain)(int32_t particles);              // new(0x98) + 0x005a60a0
   void (*weather_add)(Weather* w);                         // 0x0059fbe0 on the manager 0x00736328
@@ -86,7 +91,6 @@ struct WorldHooks {
   void (*fluctuate_wavelength)(float v);                   // 0x00543940
   void (*fluctuate_base_amp)(float base, float amplitude); // 0x00543960
   void (*fluctuate_heading)(float radians);                // 0x005439f0
-  void (*software_color)(const float rgb[3]);              // 0x00566250, software renderer
   // The frame's (0x004926d0).
   const float* (*camera_angles)();                         // [[0x005f4c8c]+4] data +0x20, the camera's rotation
   float (*frame_dt)();                                     // [0x0072c52c]
@@ -100,8 +104,7 @@ bool world_clear(MissionWorld& m);                         // 0x00491d80
 // camera looks (its dt argument is not used: the frame's [0x0072c52c] is).
 void world_update(const MissionWorld& m);
 void world_set_enabled(MissionWorld& m, bool on);          // 0x00492660
-// Reads `key` of `file` (world.zrd and the mission's name); multiplayer maps
-// past 2 read mpinfo.zrd's world_params instead. Always true.
+// Reads `key` of `file` (world.zrd and the mission's name). Always true.
 bool world_read_params(MissionWorld& m, const char* file, const char* key);  // 0x00491de0
 
 }  // namespace mech3

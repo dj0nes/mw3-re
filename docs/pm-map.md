@@ -1153,7 +1153,7 @@ functions PM changed, and PM's new ones.
        0x510830, 0x510910, 0x5109c0, 0x510b50, 0x510b90 are called from the 0x4863ec.. range: not read.
      - **World lighting in the debug start (2026-11-04).** `mw3pm --fly` now runs the mission's own
        script (`c1.gs`, with USEZBD and HARDWARE) instead of reading `gamez.zbd` directly, then the
-       shipped `support\additive.gw`, and PM's `world.zrd` reader (`pm/mech3/mission_world`, 0x495ba0,
+       shipped `support\additive.gw`, and PM's `world.zrd` reader (`mech3/mission_world`, 0x495ba0,
        0x495250: `defaults`, optionally a mission's block). **What the four worlds' scripts use**, run
        with USEZBD: 37, 53, 37, 62 lines. Tolerances (`SetBFETolerance 0.00005`, `SetInverseZTolerance`,
        ...), `SetVertexShading on`, `LightMapTexture lightmap`, `Object3DSetScrollAlways`, `AddClutterTemplates`
@@ -1171,9 +1171,12 @@ functions PM changed, and PM's new ones.
        light setters keep mixed colours and test static by 0x200 (`test_pm_light_setters.py`). 0x495dd0(1)
        after the blocks: the sun on, then off without its option (0x40b360, a parameter here), the clouds on
        unless the last `fluctuate` had amplitude 0 (c1's m2 does). `test_pm_world_params.py` runs 0x495ba0
-       and 0x495250 against the port on every block of the four worlds and crafted ones. Left for the
-       mission: wind, weather, temperature, jet ceiling, `ai_headlights`, underwater, `cloud_cover`, the
-       puffers' reset (0x564ac0) and the caller's choice of block (0x495b3x, vt +0x74).
+       and 0x495250 against the port on every block of the four worlds and crafted ones. Since
+       2026-11-04 the whole reader is in `mech3/mission_world`, checked the same way, the game and `--fly` use
+       it: wind, weather, temperature, jet ceiling, `ai_headlights`, underwater, `cloud_cover`, the
+       puffers' reset (0x564ac0). PM has no `mpinfo.zrd`: the caller 0x495b30 takes multiplayer's block from the
+       game object's vt +0x74 (`this+0x7640`), the `game_block` hook, null until step 8. Rain and snow's own
+       classes (0x5c6010, 0x5c65e0, 0xc0 bytes against MW3's 0x98) are stubbed in the test and still MW3's in the game.
      - **Day and night.** Only c1 has `night_day.zrd`. `day`: single m1, standalone sa1, sa2, sa3, instant
        action, multiplayer. `night`: single m2 and m5, standalone sa4; those three are also `world.zrd`'s dim
        blocks (sun diffuse 0.15, ambient 0.05, against the defaults' 1.0 and 0.2). c2, c3 and c4 call neither
@@ -1226,6 +1229,20 @@ functions PM changed, and PM's new ones.
 6. **The front end**: the load/save screens and saved games
    (`%s%02d.mw3`), the saved configurations (`.m3c`), the pilot and
    briefing screens; no movies (zFMV's 21 ported functions are gone).
+   **Headlights go with the mech step (4), as the expansion's headline feature** (traced 2026-11-04, not ported).
+   The light map's real user: a light from `0x50e470` starts with flags 0x8b3, so 0x10 and 0x80 are on by default.
+   The headlight's builder `0x479780` sets 0x10 again (`0x50ea00`), clears 0x20 (`0x50ea80`), sets 0x40 from
+   `subdivide` (`0x50eb60`) and never touches 0x80 (`0x50ec30`, whose only callers are the script's
+   `LightSetLightMap` and the light reader `0x51b500`), so it reaches `0x543b10`'s light map sets. Not seen running:
+   read from the code. Who holds what: the mech's dfn has `headlight` (only `model_offset` ships; `0x46d8d0`
+   into `0x479440`); settings +0x1a8 are `0x479330`'s, new(0x40) in `0x46d50a`: lodrange 150..200, model offset
+   (0, 2, -5), light offset (+0x14, z -80), colour 0.8, ambient and diffuse 0.5, range 40..50, subdivide on. No
+   shipped file has `lodrange` or `subdivide`, so these defaults are what runs, unless a `light%d` block overrides.
+   The object: `0x479510` (hardware only, loads `headlight.flt`, the facade mode 2's beam) and `0x4795c0`, class
+   vtable 0x5e5bd8: a node `spotlight`, the light `light%d` under it, mech +0x7c holds it (`0x465b9b`, in the mech's
+   load). The toggle: `CMD_HEADLIGHT_TOGGLE` to `0x465dc0`, which flips it by `0x479940` and `0x4799b0`; fading
+   through `0x479a40`, whose +0x34 scales the light's ambient and diffuse. The AI's: `ai_headlights` of world.zrd
+   is read into the mission's +0x30 (`mission_world`); its reader is still to trace. Then the HUD's lamp in step 7.
 7. **Sound and the HUD**: the sound syntax reader (rewritten smaller), the
    HUD objectives, spot and headlights.
 8. **Multiplayer**: PM's game types (Mw3 dev has multiplayer).

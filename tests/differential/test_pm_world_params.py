@@ -1,14 +1,16 @@
-"""PM's world parameters (pm/mech3/mission_world, 0x495ba0 and 0x495250, the part that makes the
-picture) against PM's exe, on every block of the four worlds' world.zrd and on crafted blocks.
+"""PM's world parameters (mech3/mission_world, 0x495ba0, 0x495250, 0x4951e0) against PM's exe, on every
+block of the four worlds' world.zrd and on crafted blocks.
 
     cmake --build build --target pmprobe
     .venv/bin/python -P tests/differential/test_pm_world_params.py
 
 A small scene in both: the list's nodes (the skies a block names, under a horizon), the sun, a
 world and a camera. The exe's reader, list find, set active, fog, clip, light and cloud setters run
-for real, the wind's setters too (their globals not compared); the weather objects and the puffers' reset, which the port leaves out, are stubbed. Compared after the read: the
-world's fog words, the camera's clip, the sun's bytes, every node's flags, the clouds and whether the
-bake went stale. The heading goes through x87 fsin/fcos, so it is within 1e-6; the rest bit for bit.
+for real; the wind's setters, the weather objects and the puffers' reset are logged on both sides, in
+order. Compared after the read: the world's fog words, the camera's clip, the sun's bytes, every
+node's flags, the clouds, whether the bake went stale, the jet ceiling and temperature, all the reader's
+fields, the weather's and the log. The heading goes through x87 fsin/fcos, so it is within 1e-6; the
+rest bit for bit.
 """
 import ctypes
 import struct
@@ -31,7 +33,9 @@ CLOUDS = 0x612e18
 PUFFER_RESET = 0x564ac0
 SNOW, RAIN, WEATHER_ADD = 0x5c6010, 0x5c65e0, 0x5bfbe0
 PM = ROOT / 'game' / 'pm'
-HEADING_WORDS = (-3, -2)  # from the words' end, before the stale flag
+JET, TEMPERATURE, INV_TEMPERATURE = 0x607ed0, 0x607ec8, 0x607ecc
+WIND_VELOCITY, WIND_MAX, WIND_ACCEL, WIND_ANGVEL = 0x566720, 0x566740, 0x566750, 0x566760
+HEADING_WORDS = (-3, -2)  # from the end of the first part, before the stale flag
 STATIC = 0x200
 
 
@@ -47,25 +51,44 @@ class Emu(zr.Emulated):
         if not self.call(zr.OPEN_ARCHIVE, args=[self.string(rel.replace('/', '\\')), 1]):
             raise SystemExit(f'{rel}: PM does not open it')
         self.cpu.fpu_control(0x7f)
-        self.cpu.call(self.thunk(SET_FORMAT), ecx=5, edx=6, stack_args=(5, 0, 0, 0))
+        self.cpu.call(self.thunk(SET_FORMAT), stack_args=(5, 6, 5, 0, 0, 0))
         self.stale = 0
         self.native_stub(STALE, self.mark_stale)
         self.native_stub(POINT_COLOUR, lambda c: 0)
         self.cpu.stubs[ZERR] = (lambda c: self.errors.append(c.arg(2)) or 0, 0)  # the bench hooks it already
-        self.native_stub(PUFFER_RESET, lambda c: 0)
-        weather_vt = self.alloc(0x80)
-        code = self.cpu.code(b'\xc2\x04\x00')  # ret 4: start
-        code0 = self.cpu.code(b'\xc3')
-        for o in range(0, 0x80, 4):
-            self.w32(weather_vt + o, code0)
-        self.w32(weather_vt + 0x60, code)
+        self.log = []
+        self.weathers = []
+        self.native_stub(PUFFER_RESET, lambda c: self.log.append(6) or 0)
 
-        def made(c):
-            self.w32(c.ecx, weather_vt)
-            return c.ecx
-        self.native_stub(SNOW, made, 4)
-        self.native_stub(RAIN, made, 4)
-        self.native_stub(WEATHER_ADD, lambda c: 0, 4)
+        def word(c, i):
+            return c.arg(i)
+        self.native_stub(WIND_VELOCITY, lambda c: self.log.extend(
+            [13] + [self.r32(word(c, 0) + o) for o in (0, 4, 8)]) or 0)
+        self.native_stub(WIND_MAX, lambda c: self.log.extend([10, word(c, 0)]) or 0)
+        self.native_stub(WIND_ACCEL, lambda c: self.log.extend([11, word(c, 0)]) or 0)
+        self.native_stub(WIND_ANGVEL, lambda c: self.log.extend([12, word(c, 0)]) or 0)
+        weather_vt = self.alloc(0x80)
+        ret0 = self.cpu.code(b'\xc3')
+        for o in range(0, 0x80, 4):
+            self.w32(weather_vt + o, ret0)
+        destroy = self.cpu.code(b'\xc3' * 16)
+        start = self.cpu.code(b'\xc3' * 16)
+        self.w32(weather_vt, destroy)
+        self.w32(weather_vt + 0x60, start)
+        self.native_stub(destroy, lambda c: self.log.extend([4, self.weathers.index(c.ecx)]) or 0, 4)
+        self.native_stub(start, lambda c: self.log.extend([5, self.weathers.index(c.ecx), word(c, 0)]) or 0, 4)
+
+        def made(kind):
+            def f(c):
+                self.log.extend([kind, word(c, 0)])
+                self.cpu._uc.mem_write(c.ecx, bytes(0xc0))
+                self.w32(c.ecx, weather_vt)
+                self.weathers.append(c.ecx)
+                return c.ecx
+            return f
+        self.native_stub(SNOW, made(1), 4)
+        self.native_stub(RAIN, made(2), 4)
+        self.native_stub(WEATHER_ADD, lambda c: self.log.extend([3, self.weathers.index(word(c, 0))]) or 0, 4)
         self.w32(HW, 1)
         self.w32(LIST_DIRTY, 0)
         self.root = self.call(zr.LOAD, args=[self.string('world.zrd'), 0, 0])
@@ -131,7 +154,13 @@ class Emu(zr.Emulated):
         w(SUN_OPTION, option)
         uc.mem_write(CLOUDS, struct.pack('<I6f', 7, 1.0, 2.0, 0.25, 0.125, 0.5, 0.75))
         self.stale = 0
+        self.log.clear(), self.weathers.clear()
+        for addr, v in ((JET, 1.0), (TEMPERATURE, 2.0), (INV_TEMPERATURE, 3.0)):
+            w(addr, fbits(v))
         this = self.alloc(0x100)
+        uc.mem_write(this, bytes(0x100))
+        for o in (8, 9, 0x30, 0x50):  # the reset's own: not what the mission's memory held
+            uc.mem_write(this + o, b'\x77')
         defaults = self.call(zr.FIND, args=[self.root, self.string('defaults')])
         block = self.call(zr.FIND, args=[self.root, self.string(key)]) if key else 0
         self.call(READ, ecx=this, args=[defaults, block])
@@ -140,14 +169,28 @@ class Emu(zr.Emulated):
         out += [self.r32(ld + o) for o in range(0, 0x100, 4)]
         out += [self.r32(n + 0x24) for n in kids] + [self.r32(sun + 0x24)]
         out += [self.r32(CLOUDS + o) for o in range(0, 0x1c, 4)]
-        return out + [self.stale]
+        out.append(self.stale)
+        byte = lambda o: self.r32(this + o) & 0xff
+        fields = lambda o, n: [self.r32(this + o + 4 * i) for i in range(n)]
+        out += [self.r32(a) for a in (JET, TEMPERATURE, INV_TEMPERATURE)]
+        sky = self.r32(this + 0x28)
+        out += [byte(8), byte(9)] + fields(0xc, 7) + [kids.index(sky) + 1 if sky else 0] + fields(0x2c, 1)
+        out += [byte(0x30)] + fields(0x34, 7) + [byte(0x50)] + fields(0x54, 3) + [self.r32(this + 0x60) & 0xffff]
+        out += fields(0x64, 2) + fields(0x70, 1) + [byte(0x74)] + fields(0x78, 2) + fields(0x80, 1) + fields(0x84, 1)
+        weather = self.r32(this)
+        out.append(self.weathers.index(weather) + 1 if weather else 0)
+        if weather:
+            out += [self.r32(weather + 0x44) & 0xffff] + [self.r32(weather + o) for o in (0x48, 0x4c, 0x68, 0x6c, 0x70)]
+            out.append(int(self.r32(weather + 0x50) == camera))
+        return out + [len(self.log)] + self.log
 
 
 def compare(label, emu, probe, base, rel, key, names, cfg):
     want = emu.run(key, names, cfg)
+    HEADING_END = 13 + 3 + 0x40 + len(names) + 1 + 7
     if emu.errors:
         raise SystemExit(f'{label}: the exe reported errors at {emu.errors}')
-    out = (ctypes.c_uint32 * 256)()
+    out = (ctypes.c_uint32 * 512)()
     n = probe.probe_pm_world_params(str(base).encode(), rel.encode(), key.encode(), '\n'.join(names).encode(),
                                     (ctypes.c_int32 * 4)(*cfg), out)
     if n < 0:
@@ -158,11 +201,11 @@ def compare(label, emu, probe, base, rel, key, names, cfg):
     for i, (a, b) in enumerate(zip(want, got)):
         if a == b:
             continue
-        if i - len(want) in HEADING_WORDS and abs(struct.unpack('<f', struct.pack('<I', a))[0] -
+        if i - HEADING_END in HEADING_WORDS and abs(struct.unpack('<f', struct.pack('<I', a))[0] -
                                                  struct.unpack('<f', struct.pack('<I', b))[0]) < 1e-6:
             continue
         raise SystemExit(f'{label}: word {i} of {len(want)} (world 0..12, clip 13..15, light 16..79, then nodes, '
-                         f'sun, clouds 7, stale): exe {a:08x}, port {b:08x}')
+                         f'sun, clouds 7, stale at {HEADING_END}, then env 3, fields 40ish, weather, log): exe {a:08x}, port {b:08x}')
 
 
 def tree(v):
@@ -186,7 +229,8 @@ def crafted_archive(blocks):
 FLUCT = ['period', [8.0], 'wavelength', [600], 'base', [0.6], 'amplitude', [0.4], 'heading', [33.0]]
 SUN = ['orientation', [-20.0, 22.0, 0.5], 'diffuse', [0.7], 'ambient', [0.3]]
 CRAFTED = {
-    'defaults': ['camera', ['nearfar_clip', [1.0, 900.0]]],
+    'defaults': ['camera', ['nearfar_clip', [1.0, 900.0]],
+                 'weather', ['type', ['SNOW'], 'particles', [9]], 'jet_ceiling', [111.0], 'ambient_temperature', [40.0]],
     'empty': [],
     'full': ['fog', ['node', ['hormain'], 'color', [0.5, 0.25, 0.125], 'altitude', [10.0, 20.0], 'range', [100.0, 200.0],
                      'hwrange', [30, 400], 'state', [7]],
@@ -202,6 +246,23 @@ CRAFTED = {
     'fluct_partial': ['fluctuate', ['base', [1.5], 'heading', [-90.0]]],
     'fluct_mid': ['fluctuate', ['base', [0.5]]],
     'weather': ['weather', ['type', ['SNOW'], 'particles', [77], 'gravity', [0.2]]],
+    'rain_full': ['weather', ['type', ['RAIN'], 'particles', [5], 'color', [200, 100, 50], 'wind', ['dir', [1.5], 'vel', [2.5]],
+                              'gravity', [3.5], 'alpha_gradient', [0.25, 0.75]]],
+    'snow_default': ['weather', ['type', ['SNOW']]],
+    'weather_no_type': ['weather', ['particles', [5]]],
+    'weather_other': ['weather', ['type', ['HAIL']]],
+    'wind_full': ['global_wind', ['max_speed', [4.5], 'random_accel', [1.5], 'random_angvel', [90.0], 'velocity', [1.0, 2.0, 3.0]]],
+    'cloud': ['cloud_cover', ['top', [125.0], 'bottom', [85.0], 'depth', [10.0], 'death', [1.0, 2.0], 'color', [0.5, 0.25, 0.75]]],
+    'cloud_deep': ['cloud_cover', ['top', [125.0], 'bottom', [85.0], 'depth', [99.0]]],
+    'cloud_negative': ['cloud_cover', ['top', [125.0], 'bottom', [85.0], 'depth', [-5.0]]],
+    'cloud_bare': ['cloud_cover', []],
+    'heat': ['ambient_temperature', [35.0], 'jet_ceiling', [200.0]],
+    'heat_zero': ['ambient_temperature', [0.0]],
+    'heat_negative': ['ambient_temperature', [-3.0]],
+    'lights_on': ['ai_headlights', ['on']],
+    'lights_off': ['ai_headlights', ['off']],
+    'water': ['underwater', ['range', [1.0, 2.0], 'hwrange', [3.0, 4.0], 'color', [5.0, 6.0, 7.0], 'altitude', [8.0, 9.0]]],
+    'water_bare': ['underwater', []],
 }
 NAMES = ['decoy', 'horscroll', 'hormain', 'horblack']
 CONFIGS = [(1, 1, 1, 0), (0, 1, 1, 0), (1, 1, 1, STATIC), (0, 1, 1, STATIC), (1, 2, 1, STATIC), (0, 2, 1, STATIC),

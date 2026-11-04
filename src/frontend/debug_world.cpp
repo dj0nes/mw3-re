@@ -69,8 +69,6 @@ std::string read_world_params(const std::string& mission, const std::string& var
   }
   mech3::WorldHooks& h = mech3::world_hooks();
   h = mech3::WorldHooks{};
-  h.game_type = [] { return 1; };
-  h.mission_number = [] { return 1; };
   h.hw_card_flag = [] { return 1; };
   h.world = zcls::camera_world(camera_node());
   h.camera = camera_node();
@@ -80,10 +78,6 @@ std::string read_world_params(const std::string& mission, const std::string& var
   h.wind_max_speed = zmod::wind_set_max_speed;
   h.wind_random_accel = zmod::wind_set_random_accel;
   h.wind_random_angvel = zmod::wind_set_random_angvel;
-  h.light_get_orientation = [](zcls::Node* l, float* x, float* y, float* z) { zcls::light_get_orientation(l, x, y, z); };
-  h.light_set_orientation = [](zcls::Node* l, float x, float y, float z) { zcls::light_set_orientation(l, x, y, z); };
-  h.light_set_ambient = [](zcls::Node* l, float v) { zcls::light_set_ambient(l, v); };
-  h.light_set_diffuse = [](zcls::Node* l, float v) { zcls::light_set_diffuse(l, v); };
   h.create_snow = [](int32_t) -> mech3::Weather* { return nullptr; };
   h.create_rain = [](int32_t) -> mech3::Weather* { return nullptr; };
   h.weather_add = [](mech3::Weather*) {};
@@ -96,7 +90,6 @@ std::string read_world_params(const std::string& mission, const std::string& var
   h.fluctuate_wavelength = zmod::clouds_set_wavelength;
   h.fluctuate_base_amp = zmod::clouds_set_level;
   h.fluctuate_heading = zmod::clouds_set_heading;
-  h.software_color = [](const float*) {};
   static mech3::MissionWorld m;
   m = mech3::MissionWorld{};
   mech3::world_init(m);

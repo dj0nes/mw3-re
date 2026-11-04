@@ -17,7 +17,7 @@
 #include "pm/gamez/zvideo/zvid_tl.h"
 #include "pm/gamez/zclass/cls_clutter.h"
 #include "pm/gamez/zclass/light.h"
-#include "pm/mech3/mission_world.h"
+#include "mech3/mission_world.h"
 #include "gamez/zclass/class.h"
 #include "gamez/zclass/camera.h"
 #include "gamez/zmodel/gmod_init.h"
@@ -1776,7 +1776,44 @@ int probe_pm_world_params(const char* dir, const char* archive, const char* key,
   ::zmod::clouds() = {7, 1.0f, 2.0f, 0.25f, 0.125f, 0.5f, 0.75f, 0, 0};
   ::zcls::frames() = ::zcls::Frames{};
   ::zcls::frames().update_frame = 0;
-  pm::mech3::world_read_params(&world, &camera, key[0] ? key : nullptr, cfg[0] != 0);
+  zrndr::device_fog().active = 1;
+  static int32_t hw_option;
+  hw_option = cfg[0];
+  static uint32_t log[64];
+  static int logged;
+  logged = 0;
+  static ::mech3::Weather weathers[4];
+  static int made;
+  made = 0;
+  for (::mech3::Weather& w : weathers) w = ::mech3::Weather{};
+  static const auto note = [](std::initializer_list<uint32_t> words) {
+    for (uint32_t v : words) if (logged < 64) log[logged++] = v;
+  };
+  static const auto bits = [](float f) { uint32_t u; std::memcpy(&u, &f, 4); return u; };
+  static const auto index = [](::mech3::Weather* w) { return static_cast<uint32_t>(w - weathers); };
+  ::mech3::WorldHooks& h = ::mech3::world_hooks();
+  h = ::mech3::WorldHooks{};
+  h.hw_card_flag = [] { return hw_option; };
+  h.world = &world, h.camera = &camera;
+  h.puffer_tick_reset = [] { note({6}); };
+  h.wind_velocity = [](const float* v) { note({13, bits(v[0]), bits(v[1]), bits(v[2])}); };
+  h.wind_max_speed = [](float v) { note({10, bits(v)}); };
+  h.wind_random_accel = [](float v) { note({11, bits(v)}); };
+  h.wind_random_angvel = [](float v) { note({12, bits(v)}); };
+  h.create_snow = [](int32_t particles) { note({1, static_cast<uint32_t>(particles)}); return &weathers[made++]; };
+  h.create_rain = [](int32_t particles) { note({2, static_cast<uint32_t>(particles)}); return &weathers[made++]; };
+  h.weather_add = [](::mech3::Weather* w) { note({3, index(w)}); };
+  h.weather_destroy = [](::mech3::Weather* w) { note({4, index(w)}); };
+  h.weather_start = [](::mech3::Weather* w, float v) { note({5, index(w), bits(v)}); };
+  h.fluctuate_on = ::zmod::clouds_set_on, h.fluctuate_period = ::zmod::clouds_set_period;
+  h.fluctuate_wavelength = ::zmod::clouds_set_wavelength, h.fluctuate_base_amp = ::zmod::clouds_set_level;
+  h.fluctuate_heading = ::zmod::clouds_set_heading;
+  ::mech3::Environment& env = ::mech3::environment();
+  env.jet_ceiling = 1.0f, env.ambient_temperature = 2.0f, env.inv_temperature = 3.0f;
+  static ::mech3::MissionWorld m;
+  m = ::mech3::MissionWorld{};
+  m.fluctuate = m.fog = m.ai_headlights = m.cloud_on = 0x77;  // the reset's own
+  ::mech3::world_read_params(m, "world.zrd", key[0] ? key : nullptr);
   int n = 0;
   for (int o = 0; o < 0x34; o += 4) out[n++] = wd.get<uint32_t>(o);
   out[n++] = cd.get<uint32_t>(0xb0), out[n++] = cd.get<uint32_t>(0xb4), out[n++] = cd.get<uint32_t>(0xf8);
@@ -1790,6 +1827,30 @@ int probe_pm_world_params(const char* dir, const char* archive, const char* key,
   out[n++] = static_cast<uint32_t>(c.on);
   for (float f : {c.speed, c.scale, c.base, c.amplitude, c.heading_sin, c.heading_cos}) std::memcpy(out + n++, &f, 4);
   out[n++] = ::zcls::frames().update_frame != 0;
+  const auto words = [&](const void* at, int count) { std::memcpy(out + n, at, count * 4), n += count; };
+  words(&env.jet_ceiling, 1), words(&env.ambient_temperature, 1), words(&env.inv_temperature, 1);
+  out[n++] = m.fluctuate, out[n++] = m.fog;
+  words(m.fog_range, 2), words(m.fog_altitude, 2), words(m.fog_color, 3);
+  int sky = 0;
+  for (int i = 0; i < count; ++i) if (m.sky == &nodes[i]) sky = i + 1;
+  out[n++] = static_cast<uint32_t>(sky);
+  words(&m.fog_state, 1);
+  out[n++] = m.ai_headlights;
+  words(m.water_range, 2), words(m.water_altitude, 2), words(m.water_color, 3);
+  out[n++] = m.cloud_on;
+  words(m.cloud_color, 3);
+  out[n++] = m.cloud_packed;
+  words(&m.cloud_top, 1), words(&m.cloud_bottom, 1), words(&m.cloud_depth, 1);
+  out[n++] = m.cloud_death_on;
+  words(m.cloud_death, 2), words(&m.cloud_low, 1), words(&m.cloud_high, 1);
+  out[n++] = m.weather ? index(m.weather) + 1 : 0;
+  if (::mech3::Weather* w = m.weather) {
+    out[n++] = w->get<uint16_t>(0x44);
+    for (int o : {0x48, 0x4c, 0x68, 0x6c, 0x70}) out[n++] = w->get<uint32_t>(o);
+    out[n++] = w->camera == &camera;
+  }
+  out[n++] = static_cast<uint32_t>(logged);
+  words(log, logged);
   zrdr::close_archives(true);
   return n;
 }

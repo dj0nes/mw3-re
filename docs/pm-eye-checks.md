@@ -9,7 +9,10 @@ Pictures: `claude-files/outbox/2026-11-04/pm-eye-checks/`. They come from `mw3pm
 no cockpit, HUD, mechs or vehicles, so compare the land and sky only. The line under each makes the same
 picture. Camera heights are chosen to be about a mech's eye, and the direction faced will differ.
 
-1. **Is the first mission really this dark?** Mission 1, at the start, look at the sky and the ground.
+1. **Is the first mission really this dark?** Answered (Owen, 2026-11-04, from memory and the frame 900 picture): yes,
+   "the first few missions are very dark intentionally, to show off the new feature: headlights". That picture
+   was taken before the sun's own colours reached the real game; look again once the mechs and headlights are in.
+   Mission 1, at the start, look at the sky and the ground.
    The port shows a nearly black sky with grey clouds, though the data calls it `day`.
    `1-c1-day-start.png`: `mw3pm --fly c1 --pos 4468 56 -4186 --look 0 5`
 2. **How dark is a night mission?** Mission 2, near Allied Camp: can you see the ground at all, and are there

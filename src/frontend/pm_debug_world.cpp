@@ -36,7 +36,7 @@
 #include "pm/gamez/zmodel/gmod_cull.h"
 #include "pm/gamez/zmodel/gmod_draw.h"
 #include "pm/gamez/zvideo/zvid_tl.h"
-#include "pm/mech3/mission_world.h"
+#include "mech3/mission_world.h"
 
 namespace frontend {
 namespace {
@@ -133,7 +133,15 @@ std::string pm_world_load(const std::string& mission, const std::string& block, 
   if (zcls::Node* horizon = zcls::list_find_by_name(zcls::kAllNodes, "horizon")) zcls::camera_set_horizon(camera_node(), horizon);
   zrdr::init();
   zrdr::open_archive(("zbd\\" + mission + "\\reader.zbd").c_str(), false);  // 0x00490630's first
-  pm::mech3::world_read_params(zcls::camera_world(camera_node()), camera_node(), block.empty() ? nullptr : block.c_str(), true);
+  static mech3::MissionWorld params;
+  params = mech3::MissionWorld{};
+  mech3::WorldHooks& wh = mech3::world_hooks();
+  wh = mech3::WorldHooks{};
+  wh.world = zcls::camera_world(camera_node()), wh.camera = camera_node();
+  wh.fluctuate_on = zmod::clouds_set_on, wh.fluctuate_period = zmod::clouds_set_period;
+  wh.fluctuate_wavelength = zmod::clouds_set_wavelength, wh.fluctuate_base_amp = zmod::clouds_set_level;
+  wh.fluctuate_heading = zmod::clouds_set_heading;
+  mech3::world_read_params(params, "world.zrd", block.empty() ? nullptr : block.c_str());
   // The scattered props, as 0x00492f8c: no ground test, the settings, the script's templates, the laying.
   pm::zcls::clutter_skip_ground_test(true);
   pm::zcls::clutter_read_settings("templates.zrd");
