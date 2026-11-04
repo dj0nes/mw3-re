@@ -604,10 +604,10 @@ TEST(pm_points_without_polygons) {
   std::memcpy(m.header + 0x14, &two, 4);
   m.vertices = vertices;
   float centre[3] = {};
-  EXPECT(pm::zmod::prepare_model(m, centre) == 0 && points == 0);
+  EXPECT(pm::zmod::prepare_model(m, centre) == 0 && points == 0 && st.top == 0);  // popped, as 0x542a70
   const int32_t none = 0;
   std::memcpy(m.header + 0x14, &none, 4);
-  EXPECT(pm::zmod::prepare_model(m, centre) == 0 && points == 0);
-  zmth::pop();
+  zmth::push(&local);
+  EXPECT(pm::zmod::prepare_model(m, centre) == 0 && points == 0 && st.top == 0);
   ::zmod::draw_table() = keep;
 }

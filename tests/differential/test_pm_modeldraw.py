@@ -81,7 +81,8 @@ class Emulated(g.Emulated):
         node = self.node(i)
         model = self.i32(node + 0x3c) & 0xffffffff
         ret = self.call(PREPARE, args=[node, model])
-        out = struct.pack('<ii', ret, self.i32(DEFAULT)) + self.read(self.local, 48) + self.read(self.world, 48)
+        depth = ((self.i32(TOP_P) & 0xffffffff) - SLOTS) // 4  # what 0x542a70 left
+        out = struct.pack('<iii', ret, self.i32(DEFAULT), depth) + self.read(self.local, 48) + self.read(self.world, 48)
         # The centre stays a local of 0x542a70: asked for again, with flag 0x40.
         centre = bytes(12)
         if self.i32(model) == 1 and self.i32(model + 8) & 0x40:
@@ -91,7 +92,8 @@ class Emulated(g.Emulated):
         out += struct.pack('<i', len(self.points) // 20) + self.points
         if self.i32(model) == 2 and self.i32(model + 0x14) > 0:
             out += self.read(self.i32(CAM_P) & 0xffffffff, self.i32(model + 0x14) * 12)
-        self.call(POP)
+        if depth > 0:
+            self.call(POP)
         return out
 
 
@@ -117,17 +119,17 @@ def turn_cosine(world, centre, view):
 def compare(want, got, stats, tol):
     if len(want) != len(got):
         return f'{len(got)} bytes, the exe {len(want)}'
-    if want[:8] != got[:8]:
-        return f'result, default {struct.unpack_from("<ii", got)}, the exe {struct.unpack_from("<ii", want)}'
-    np_ = struct.unpack_from('<i', want, 116)[0]
-    if np_ != struct.unpack_from('<i', got, 116)[0]:
-        return f'{struct.unpack_from("<i", got, 116)[0]} points, the exe {np_}'
-    if want[104:116] != got[104:116]:  # the centre, bit for bit
-        return f'centre {struct.unpack_from("<3f", got, 104)}, the exe {struct.unpack_from("<3f", want, 104)}'
-    for off in range(8, len(want), 4):
-        if 104 <= off <= 116:
+    if want[:12] != got[:12]:
+        return f'result, default, stack depth {struct.unpack_from("<iii", got)}, the exe {struct.unpack_from("<iii", want)}'
+    np_ = struct.unpack_from('<i', want, 120)[0]
+    if np_ != struct.unpack_from('<i', got, 120)[0]:
+        return f'{struct.unpack_from("<i", got, 120)[0]} points, the exe {np_}'
+    if want[108:120] != got[108:120]:  # the centre, bit for bit
+        return f'centre {struct.unpack_from("<3f", got, 108)}, the exe {struct.unpack_from("<3f", want, 108)}'
+    for off in range(12, len(want), 4):
+        if 108 <= off <= 120:
             continue
-        if 120 <= off < 120 + 20 * np_ and (off - 120) % 20 >= 12:  # a point's colour, alpha
+        if 124 <= off < 124 + 20 * np_ and (off - 124) % 20 >= 12:  # a point's colour, alpha
             if want[off:off + 4] != got[off:off + 4]:
                 return f'point field at {off}'
             continue
@@ -154,7 +156,7 @@ def main():
     buf = ctypes.create_string_buffer(1 << 22)
     Emulated.probe = p
     rng = random.Random(0x542a70)
-    stats, kinds, degenerate = Stats(), {}, 0
+    stats, kinds, degenerate, near_opposite = Stats(), {}, 0, []
     for w in ('c1', 'c3'):
         path = g.ZBD / w / 'gamez.zbd'
         emu = Emulated(path)
@@ -219,20 +221,23 @@ def main():
             n = p.probe_pm_prepare(i, wm, buf, len(buf))
             assert n >= 0
             tol = FACADE_TOL if emu.i32(model) == 1 else TOL
-            # A sphere facade whose two vectors are opposite (a camera on the node,
-            # the centre along its y): rounding alone picks the turn, and any is
-            # valid. Only there, and counted.
-            if emu.i32(model) == 1 and emu.i32(model + 4) == 1 and \
-                    turn_cosine(world, struct.unpack_from('<3f', want, 104), emu.read(VIEW, 48)) < -0.9999:
-                tol, degenerate = 0.05, degenerate + 1
+            # A sphere facade's turn comes from h = u + d, the two unit vectors'
+            # sum (0x51efb0): nearly opposite, |h| is small and the rounding in it,
+            # 2^-23 of 1, becomes 2^-23 / |h| of the turn. That much, no more.
+            if emu.i32(model) == 1 and emu.i32(model + 4) == 1:
+                c = turn_cosine(world, struct.unpack_from('<3f', want, 108), emu.read(VIEW, 48))
+                allowed = 2 ** -23 / max(max(2 + 2 * c, 0.0) ** 0.5, 2 ** -23)
+                if allowed > tol:
+                    tol, degenerate = allowed, degenerate + 1
+                    near_opposite.append((c, allowed))
             problem = compare(want, buf.raw[:n], stats, tol)
             if problem:
                 print(f'{w} draw {d} node {i} {kind}: {problem}')
                 if os.environ.get('MW3_DUMP'):
-                    print('exe ', struct.unpack_from('<12f', want, 8))
-                    print('port', struct.unpack_from('<12f', buf.raw, 8))
+                    print('exe ', struct.unpack_from('<12f', want, 12))
+                    print('port', struct.unpack_from('<12f', buf.raw, 12))
                     print('type, mode', emu.i32(model), emu.i32(model + 4), 'world', world[:3], world[9:], 'cam', cam[9:])
-                    print('turn cosine', turn_cosine(world, struct.unpack_from('<3f', want, 104), emu.read(VIEW, 48)))
+                    print('turn cosine', turn_cosine(world, struct.unpack_from('<3f', want, 108), emu.read(VIEW, 48)), 'tol', tol)
                 sys.stdout.flush()
                 os._exit(1)
             for off, v in saved.items():
@@ -240,7 +245,7 @@ def main():
             emu.w32(model + 0x44, saved_m)
             if kind == 'morph':
                 p.probe_pm_set_morphs(i, b'', 0)
-    print(f'ok: {draws * 2} draws identical; {stats.floats} floats, {stats.exact} bit-identical, worst {stats.worst:.2g}; {degenerate} with opposite vectors; {kinds}')
+    print(f'ok: {draws * 2} draws identical; {stats.floats} floats, {stats.exact} bit-identical, worst {stats.worst:.2g}; {degenerate} nearly opposite {near_opposite}; {kinds}')
     sys.stdout.flush()
     os._exit(0)
 

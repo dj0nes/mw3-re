@@ -638,12 +638,13 @@ int probe_pm_prepare(int node, const float* world, uint8_t* out, int cap) {
   float centre[3] = {};
   const int32_t r = pm::zmod::prepare_model(m, centre);
   const int32_t d = pm::zmod::draw_state().default_model;
-  put(&r, 4), put(&d, 4), put(st.matrix().m, 48), put(st.below().m, 48), put(centre, 12);
+  const int32_t depth = st.top;  // what prepare left: read the matrices by address, as the exe's side
+  put(&r, 4), put(&d, 4), put(&depth, 4), put(local.m, 48), put(w.m, 48), put(centre, 12);
   const int32_t np = static_cast<int32_t>(points.size() / 20);
   put(&np, 4);
   b += points;
   if (m.count(0) == 2 && m.count(0x14) > 0) put(pm::zmod::draw_state().cam.data(), static_cast<size_t>(m.count(0x14)) * 12);
-  zmth::pop();
+  if (st.top > 0) zmth::pop();
   table = keep;
   if (static_cast<int>(b.size()) > cap) return -1;
   std::memcpy(out, b.data(), b.size());

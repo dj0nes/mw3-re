@@ -790,20 +790,23 @@ functions PM changed, and PM's new ones.
        `pm/gamez/zmodel/gmod_draw`): `0x542a70` and `0x5416e0` (the facade's centre,
        MW3's `0x53dcf0` on PM's polygons). Type 0 the model-view, 1 a facade, 2
        points, drawn here to `zmod::DrawTable`'s point, the same seam as MW3's.
-       The facade's turn is MW3's own, split out as `zmod::facade_turn`. Shipped
-       worlds use only types 0 and 1, modes 0 and 1, no flag 0x40, no morphs. As
-       MW3's port, modes 2 and 3 draw as a default model. FIX (bug): points with
+       The facade's turn is MW3's own, split out as `zmod::facade_turn`. Counted on
+       all four worlds and mechlib: types 0 and 1 only, no points, no flag 0x40 or
+       flag 8. Facade modes 0 and 1 in the worlds; **mechlib ships a mode 2**,
+       `g4` in `headlight.flt`, the headlight's beam, so `0x538e40` is to port (not
+       yet: it draws as a default model until then). Mode 3 ships nowhere. FIX (bug): points with
        no vertices or no polygons draw nothing (the exe loops 2^32 times, or reads
        through null; `pm_points_without_polygons`). `test_pm_modeldraw.py`, importing
        `modeldraw_common.py`, on PM's exe with c1 and c3: 3,000 draws, the result,
        the default flag, the stack's top and the one below, the points and the
        camera-space vertices, editing the data for what shipped data lacks. Points
        past a shorter morph list are the last draw's, on both sides, so the test
-       morphs them all. The centre is compared bit for bit, and about 93% of the
-       matrix floats are bit-identical. One exception: a sphere facade whose two
-       vectors are opposite (a camera exactly on the node, the centre along its y),
-       where rounding alone picks the turn; only there the tolerance is 5%, and the
-       test counts them.
+       morphs them all. The stack's depth after the call is compared, since type 2
+       pops the draw's push. The centre is compared bit for bit, and about 93% of
+       the matrix floats are bit-identical. One exception: a sphere facade whose
+       two vectors are nearly opposite, where the turn comes from their small sum
+       and its rounding grows to 2^-23 / |sum|; the test allows exactly that and
+       lists the cases (2 in 3,000, allowing 0.004 and 0.009, worst seen 0.0054).
        Breaks, 14 of 14. Emulator only.
      - Order from here: the option's state; the other helpers in groups,
        each with the setters it first reads; then `0x543b10` by call trace, as

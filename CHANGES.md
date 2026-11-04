@@ -254,6 +254,8 @@ unusual happens.
   `#include` others). Pirate's Moon's `#include` reads only files inside
   the game and its mods: a name with `..`, a drive or a full path reads
   nothing.
+- In Pirate's Moon, a points model with no points or no polygons draws nothing;
+  the original loops for hours or crashes. No shipped model is one.
 - In Pirate's Moon, a large polygon cut at the camera or the screen's sides keeps
   every corner. The original's working space held 64 corners, unchecked, so a
   64-corner polygon losing one corner to the camera wrote past the end.

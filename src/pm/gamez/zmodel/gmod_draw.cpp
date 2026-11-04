@@ -131,8 +131,9 @@ int prepare_model(Model& m, float centre[3]) {
       g_state.default_model = 0;
       return 1;
     }
-    case 2:
+    case 2:  // the only case that pops the draw's push: it returns 0, with no draw after
       draw_points(m);
+      zmth::pop();  // 0x005384a0
       g_state.default_model = 0;
       return 0;
     default:

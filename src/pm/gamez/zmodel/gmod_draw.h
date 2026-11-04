@@ -21,8 +21,9 @@ DrawState& draw_state();
 void facade_centre(const Model& m, float out[3]);
 
 // 0x00542a70: the top of the matrix stack by the model's type (0 default, 1 a
-// facade, 2 points, drawn here). 0 when the model has no polygons to draw.
-// `centre` is a facade's, with model flag 0x40.
+// facade, 2 points, drawn here). The caller has pushed; on 0 (points) the push
+// is popped here and nothing more is to draw. `centre` is a facade's, with
+// model flag 0x40.
 int prepare_model(Model& m, float centre[3]);
 
 }  // namespace pm::zmod
