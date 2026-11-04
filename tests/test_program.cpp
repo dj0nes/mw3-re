@@ -22903,3 +22903,37 @@ TEST(controls_axis_popup_binds_a_slider_to_the_throttle_headless) {
     }
   }
 }
+
+
+// W59 (Owen's v1.0 crash, zmth::load+0x1d late in c4b): 0x004ed530 takes a
+// node's world position on a matrix of its own (push, identity, 0x004ed280,
+// pop). The port's shortcut ran 0x004ed280 on whatever the stack's top was
+// for a changed node: outside a draw that is the empty base slot (a write
+// through null in v1.0). Between frames, a moved centroid read as the exe.
+TEST(node_world_cached_of_a_moved_node_keeps_the_matrix_stack_headless) {
+  if (!have_game()) return;
+  bool checked = false, same = false;
+  zmth::StackFaults faults;
+  cheat_mission("w59_cached_write", 0, 1, 400, [&](int f, mech3::GameEngine&, CheatKeys&) {
+    if (f < 5) return false;
+    auto* centroid = static_cast<zcls::Node*>(mech3::mech_centroid_of(mech3::mission_player_mech()));
+    EXPECT(centroid != nullptr && centroid->cls() == 5);
+    if (!centroid) return true;
+    float want[3];
+    zcls::node_world_position(centroid, want);
+    auto* d = static_cast<uint8_t*>(centroid->data);
+    d[0] |= 0x20;  // its cached world matrix out of date, as after a move
+    EXPECT(zmth::matrix_stack().top == 0);
+    zmth::stack_faults() = {};
+    float got[3] = {9, 9, 9};
+    mech3::node_world_cached(centroid, got);
+    faults = zmth::stack_faults();
+    same = std::fabs(got[0] - want[0]) < 1e-3f && std::fabs(got[1] - want[1]) < 1e-3f &&
+           std::fabs(got[2] - want[2]) < 1e-3f;
+    checked = true;
+    return true;
+  });
+  EXPECT(checked && same);
+  EXPECT(faults.empty == 0 && faults.under_pop == 0 && faults.over_push == 0);
+  EXPECT(zmth::matrix_stack().top == 0);
+}

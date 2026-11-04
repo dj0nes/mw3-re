@@ -28,6 +28,7 @@ struct MatrixStack {
   // FIX (bug), ours (W59): pushes refused past the last slot, counted so their
   // pops are too; an empty slot gives a scratch matrix. docs/fixes.md.
   int overflow = 0;
+  const void* pushed_by[kStackDepth] = {};  // each slot's push's return address, for the reports
   Mat34& matrix() { return slot[top] ? *slot[top] : empty_slot(top); }
   int32_t& is_identity() { return identity[top]; }
   // The slot under the top (the parent's matrix).

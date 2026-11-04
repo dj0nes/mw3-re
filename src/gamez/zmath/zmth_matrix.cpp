@@ -53,25 +53,31 @@ Mat34 g_scratch;
 
 // The callers, as image offsets a linker map finds (Owen's v1.0 crash at
 // load+0x1d, W59): a few frames, once per kind of fault.
+void print_address(const void* a) {
+#if defined(_WIN32)
+  std::fprintf(stderr, " mw3.exe+%#llx", static_cast<unsigned long long>(static_cast<const char*>(a) - &__ImageBase));
+#else
+  Dl_info d{};
+  if (dladdr(a, &d) && d.dli_fbase)
+    std::fprintf(stderr, " %s+%#lx", d.dli_sname ? d.dli_sname : "?",
+                 static_cast<unsigned long>(static_cast<const char*>(a) -
+                                            static_cast<const char*>(d.dli_saddr ? d.dli_saddr : d.dli_fbase)));
+  else std::fprintf(stderr, " %p", a);
+#endif
+}
+
 void report(const char* what, int at) {
   std::fprintf(stderr, "mw3: matrix stack: %s (top %d) (logged once; docs/fixes.md, W59), from:", what, at);
   void* frames[6] = {};
 #if defined(_WIN32)
   const int n = RtlCaptureStackBackTrace(1, 6, frames, nullptr);
-  for (int i = 0; i < n; ++i)
-    std::fprintf(stderr, " mw3.exe+%#llx", static_cast<unsigned long long>(
-                                              reinterpret_cast<const char*>(frames[i]) - &__ImageBase));
+  for (int i = 0; i < n; ++i) print_address(frames[i]);
 #else
   const int n = backtrace(frames, 6);
-  for (int i = 1; i < n; ++i) {
-    Dl_info d{};
-    if (dladdr(frames[i], &d) && d.dli_fbase)
-      std::fprintf(stderr, " %s+%#lx", d.dli_sname ? d.dli_sname : "?",
-                   static_cast<unsigned long>(reinterpret_cast<const char*>(frames[i]) -
-                                              static_cast<const char*>(d.dli_saddr ? d.dli_saddr : d.dli_fbase)));
-    else std::fprintf(stderr, " %p", frames[i]);
-  }
+  for (int i = 1; i < n; ++i) print_address(frames[i]);
 #endif
+  std::fprintf(stderr, "; pushed by:");
+  for (int i = 1; i <= g_stack.top && i < kStackDepth; ++i) print_address(g_stack.pushed_by[i]);
   std::fprintf(stderr, "\n");
 }
 }  // namespace
@@ -103,6 +109,7 @@ void push(Mat34* buffer) {
   }
   ++g_stack.top;
   g_stack.slot[g_stack.top] = buffer;
+  g_stack.pushed_by[g_stack.top] = __builtin_return_address(0);
   g_stack.is_identity() = 0;
 }
 
@@ -116,6 +123,7 @@ void push_copy(Mat34* buffer) {
   ++g_stack.top;
   g_stack.identity[g_stack.top] = g_stack.identity[g_stack.top - 1];
   g_stack.slot[g_stack.top] = buffer;
+  g_stack.pushed_by[g_stack.top] = __builtin_return_address(0);
   *buffer = g_stack.below();
 }
 

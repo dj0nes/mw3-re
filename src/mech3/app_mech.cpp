@@ -176,14 +176,7 @@ class WiredShade : public ShadeHooks {
     auto* m = static_cast<Mech*>(obj(e));
     return m ? id(m->centroid) : 0;
   }
-  void node_world_cached(zgame::Handle h, float out[3]) override {
-    out[0] = out[1] = out[2] = 0;
-    zcls::Node* n = node(h);
-    if (!n || !n->data) return;
-    auto* d = static_cast<uint8_t*>(n->data);
-    if (d[0] & 0x20) zcls::node_to_world(n, 1);  // its world matrix redone (0x004ed280(1))
-    std::memcpy(out, d + 0x84, 12);
-  }
+  void node_world_cached(zgame::Handle h, float out[3]) override { mech3::node_world_cached(node(h), out); }
   void node_world_position(zgame::Handle h, float out[3]) override {
     if (zcls::Node* n = node(h)) zcls::node_world_position(n, out);
   }
@@ -2516,13 +2509,11 @@ void wm_clear_aim(void* wm) {
   if (wm) static_cast<WeaponManager*>(wm)->set_aim(nullptr);
 }
 void* mech_centroid_of(void* mech) { return entity_is_mech(mech) ? static_cast<Mech*>(mech)->centroid : nullptr; }
+// Mech3.exe 1.2 @ 0x004ed530, on a matrix of its own: v1.0 ran 0x004ed280 on
+// the stack's top for a moved node, outside a draw its empty base (W59).
 void node_world_cached(void* node, float out[3]) {
   out[0] = out[1] = out[2] = 0;
-  auto* n = static_cast<zcls::Node*>(node);
-  if (!n || !n->data) return;
-  auto* d = static_cast<uint8_t*>(n->data);
-  if (d[0] & 0x20) zcls::node_to_world(n, 1);  // 0x004ed280(1)
-  std::memcpy(out, d + 0x84, 12);
+  if (auto* n = static_cast<zcls::Node*>(node); n && n->data) zcls::node_world_position(n, out);
 }
 bool node_intersects(void* node) { return node && (static_cast<zcls::Node*>(node)->flags() & 0x10); }  // 0x004eb710
 void node_intersect_set(void* node, bool on) {
