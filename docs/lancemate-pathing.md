@@ -281,5 +281,7 @@ and the world watch rebuilds on a move (unit tested on a door), but a lancemate
 following the player up onto it is for a playtest. Cost in a Release build: the
 worst search in these runs 16.8 ms, the median under 3 ms; building 768 places a
 frame about 2 ms (a tile in 11 frames; by work, not time, so a mission plays the
-same each run); the 9 tiles at the start 0.2 s. A failed search in the widest
-window is dearer (750 ms in Debug, not measured in Release) and backs off 5 to 60 s.
+same each run); the 9 tiles at the start 0.2 s. A failed search over the
+widest window would cost 344 ms at once in Release, so a search runs over frames
+(`PathSearch`, 3000 cells a frame shared by all pilots): the same one has a worst
+frame of 4.0 ms over 99 frames, and backs off 5 to 60 s when it finds none.
