@@ -186,12 +186,14 @@ way in are asked for before a wider one. No way at all: W17/W27 and the exe's
 walk, and asked again only when the grid changed, the goal moved 50 m, or
 after a wait that doubles (5 to 60 s).
 
-**The world changes.** The factory door (`factdoor`, destroy_anim
-`open_fdoors`) is a wall across the works' tunnel until it is shot down, and
-c2m4 also has falling ramps and moving slabs. Once a second every still
-object3d (no mech's or vehicle's) is compared with its matrix and active
-flags; a change builds the tiles under it again behind the old ones, each at
-most every 10 s. A building brought down opens up the same way.
+**The world changes.** c2m4's factory door (`factdoor`, x -860, destroy_anim
+`open_fdoors`), falling ramps and moving slabs (`fly_slab1..4`, `xramp_fall`,
+`zramp_fall`) change the way in play. Once a second every still object3d (no
+mech's or vehicle's) is compared with its matrix and active flags; a change
+builds the tiles under it again behind the old ones, each at most every 10 s. A
+node freed (a building down) does the same from its last box. All of it starts
+again at each mission's start (`nav::restart`): a replay has the same world
+address and new nodes, and the first version crashed there.
 
 **Mechs and vehicles.** Left out of the walls by their owner (0x0040e920), or
 the leader's own body reads as a wall and a mech standing on a tile as it is
@@ -220,12 +222,21 @@ on the land overhead, read a 45 m wall ahead and kick him back every frame.
 FIX (bug) behind `bugs`, for AI mechs (`Skis::update`, `Mech::collide_query`);
 c2m4: from never arriving, 158 s of 180 stuck, to there in 70 s.
 
-**When it steers.** Only when the buffered straight line is blocked: on open
-ground the exe's walk to the centimetre (`..follows_round_walls_headless`).
-It hands back to the exe once the point is within the brain's range (+0x28),
-in sight, **and on the same storey**: the exe's follow measures flat, so a
-lancemate 31 m off and 90 m over the player's head counts as arrived. That was
-the trouble in c2m4.
+**When it steers: walk first.** The rule that took the longest to find, and it
+fixed the worst results. The grid leaves the exe's walk only when that walk is
+failing: the straight way to the brain's range (+0x28) is blocked by the
+buffered grid, or the pilot made no 2 m in 3 s while he should be walking (the
+boundary's pull included: it holds him at a shape's edge when the leader stands
+in one). Then it takes over for at least 10 s and keeps to a path it took. On
+open ground the exe's walk to the centimetre. It hands back to the exe once the
+point is within range, in sight **and on the same storey**: the exe's follow
+measures flat, so 31 m off and 90 m over the player's head counted as arrived.
+
+**Paths hold still.** No answer from part of a window (ground not built yet
+reads as a wall, and a path round that is wrong; he walks the exe's way
+meanwhile). A path stays unless the goal moved 15 m, he got stuck, or the world
+changed and the way on is shut: re-planning on every new tile had him in
+circles.
 
 **Firing spots** only in range without sight, on the enemy's storey; out of
 range the goal is the enemy itself (a spot on a ring round a moving enemy was a
@@ -241,3 +252,21 @@ stay the exe's: those are the mission's script, not an order to a lancemate.
 
 Debugging: `MW3_NAV_DUMP=file.ppm` (the grid and the paths; its header gives
 the origin cell), `MW3_NAV_LOG=1` (the follower and the fight's choice).
+
+## Results (2026-11-04)
+
+Each in mw3tests, three ways: the exe's logic (bugs off), the port before (bugs
+on, the grid off: W17, W27 and the zone fix) and the grid. "There": in range and
+on the storey of the leader, seconds of game time.
+
+| Case | Exe | Before | Grid |
+|---|---|---|---|
+RESULTS_ROWS
+
+**Not shown by a run: the top of c2m4's conveyor.** The strip at x -1206..-942,
+z -1390..-1354, y -88.5 joins nothing at mission start (333 cells), and its
+pieces move in play by triggers these tests do not fire. The grid sees the strip
+and the world watch rebuilds on a move (unit tested on a door), but a lancemate
+following the player up onto it is for a playtest. Cost in a Release build: the
+worst search in these runs 15.9 ms, the median under 1 ms; a failed search in the
+widest window is dearer, and backs off 5 to 60 s.

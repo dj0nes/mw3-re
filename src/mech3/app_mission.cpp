@@ -2819,7 +2819,7 @@ void GameEngine::nav_prebuild() {
   const int tx = ai::nav::tile_of(ai::nav::cell_of(pos[0])), tz = ai::nav::tile_of(ai::nav::cell_of(pos[2]));
   for (int dz = -1; dz <= 1; ++dz)
     for (int dx = -1; dx <= 1; ++dx) {
-      double budget = 1e12;
+      int budget = 1 << 30;
       g.build(tx + dx, tz + dz, &budget);
     }
   if (!quiet)

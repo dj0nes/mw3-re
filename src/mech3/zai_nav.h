@@ -66,9 +66,9 @@ class Grid {
  public:
   void reset(World* w);  // a new world: every tile gone
   World* world() const { return world_; }
-  // The tile holding cell (cx, cz) built within `budget_us` of work (true
-  // when it is done); queued otherwise.
-  bool build(int tx, int tz, double* budget_us);
+  // The tile (tx, tz) built for at most `*steps` places' work, taken off it
+  // (true when it is done). By work, not time: the same mission plays the same.
+  bool build(int tx, int tz, int* steps);
   const Cell* cell(int cx, int cz, int level) const;  // null: its tile not built yet
   bool built(int cx, int cz) const { return cell(cx, cz, 0) != nullptr; }
   // The floor here nearest height y, -1 none.
@@ -127,7 +127,10 @@ inline int tile_of(int c) { return c >= 0 ? c / kTile : -((-c + kTile - 1) / kTi
 bool line_clear(const Grid& g, const float a[3], const float b[3]);
 // The same, not crossing into a shape the AI keeps out of or a tight cell
 // (from inside to inside it may): a way a mech's whole body takes.
-bool line_clear_avoiding(Grid& g, const float a[3], const float b[3]);
+bool line_clear_avoiding(Grid& g, const float a[3], const float b[3], bool shapes = true);
+// Whether the goal stands in a shape the AI keeps out of: sent there, the shapes
+// no longer count on the way (the fewest cells in one could be a long way round).
+bool goal_in_shape(Grid& g, const float to[3]);
 
 enum class Find { kOk, kBuilding, kNone };
 using Way = std::vector<std::array<float, 3>>;
@@ -138,9 +141,9 @@ using Way = std::vector<std::array<float, 3>>;
 // queued; kNone: no way in the widest window.
 Find find_path(Grid& g, const float from[3], const float to[3], Way* out);
 
-// The once-a-frame work: the queued tiles built within `budget_us`, the
-// holds past their time lifted. `now` the game's time (s).
-void service(float now, double budget_us);
+// The once-a-frame work: the queued tiles built for `steps` places, the holds
+// past their time lifted. `now` the game's time (s).
+void service(float now, int steps);
 // A mission's start, replays too (the same world's address, its nodes new): the
 // grid and what it watches begun again.
 void restart();

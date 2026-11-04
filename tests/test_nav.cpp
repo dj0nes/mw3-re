@@ -91,7 +91,7 @@ nav::Find find_pumped(nav::Grid& g, const float a[3], const float b[3], nav::Way
   for (int i = 0; i < 40 && f == nav::Find::kBuilding; ++i) {
     f = nav::find_path(g, a, b, p);
     while (!g.queue.empty()) {
-      double budget = 1e12;
+      int budget = 1 << 30;
       const auto [tx, tz] = g.queue.front();
       g.build(tx, tz, &budget);
       g.queue.erase(g.queue.begin());
@@ -103,7 +103,7 @@ nav::Find find_pumped(nav::Grid& g, const float a[3], const float b[3], nav::Way
 void build_all(nav::Grid& g, int tx0, int tz0, int tx1, int tz1) {
   for (int tz = tz0; tz <= tz1; ++tz)
     for (int tx = tx0; tx <= tx1; ++tx) {
-      double budget = 1e12;
+      int budget = 1 << 30;
       g.build(tx, tz, &budget);
     }
 }
@@ -297,12 +297,12 @@ TEST(nav_tiles_build_within_their_budget_and_paths_wait_for_them) {
   nav::Way p;
   EXPECT(nav::find_path(g, a, b, &p) == nav::Find::kBuilding && !g.queue.empty());
   EXPECT(!g.built(nav::cell_of(60), nav::cell_of(60)));
-  double budget = 1.0;  // 1 us: a few cells at most
-  EXPECT(!g.build(0, 0, &budget) && budget == 0.0);
+  int budget = 100;  // a hundred places: no tile yet
+  EXPECT(!g.build(0, 0, &budget) && budget == 0 && w.grounds == 100);
   EXPECT(!g.built(nav::cell_of(60), nav::cell_of(60)));  // a part-built tile reads as unknown
   int rounds = 1;
   for (; rounds < 100000; ++rounds) {
-    budget = 50.0;
+    budget = 100;
     if (g.build(0, 0, &budget)) break;
   }
   EXPECT(rounds > 1 && g.built(nav::cell_of(60), nav::cell_of(60)));
@@ -370,7 +370,7 @@ TEST(nav_a_door_opening_is_seen_behind_the_old_tiles) {
   EXPECT(g.built(nav::cell_of(122), nav::cell_of(120)));  // the old tile serves meanwhile
   EXPECT(!g.queue.empty());
   while (!g.queue.empty()) {
-    double budget = 1e12;
+    int budget = 1 << 30;
     const auto [tx, tz] = g.queue.front();
     g.build(tx, tz, &budget);
     g.queue.erase(g.queue.begin());
@@ -418,4 +418,5 @@ TEST(nav_a_keep_out_shape_is_walked_round_unless_the_goal_is_in_it) {
   const float inside[3] = {125, 0, 120};
   EXPECT(find_pumped(g, a, inside, &p) == nav::Find::kOk);
   EXPECT(p.back()[0] == inside[0] && p.back()[2] == inside[2]);
+  EXPECT(path_len(a, p) < 70.0f);  // straight in: sent there, the shape does not count
 }

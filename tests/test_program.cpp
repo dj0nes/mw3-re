@@ -12123,8 +12123,9 @@ TEST(mission_c1m4_pocket_commander_sends_dominic_to_a_spot_headless) {
 // Shift+R): the cursor on a pixel of it picks the ground under that pixel
 // (0x004587b0), the marker goes there and Dominic is sent to it. Until
 // 2026-10-30 the frame never saw the map up and ordered at the reticle's aim.
-TEST(mission_c1m4_pocket_commander_sends_dominic_to_a_map_spot_headless) {
+static void c1m4_map_spot_run(bool grid) {
   if (!have_game()) return;
+  const NavAllies nav_on(grid);
   SavedMounts keep;
   zutl::mounts() = zutl::Mounts{};
   zutl::mount(MW3_GAME_DIR);
@@ -12254,7 +12255,7 @@ TEST(mission_c1m4_pocket_commander_sends_dominic_to_a_map_spot_headless) {
       }
     };
     CountingPump pump;
-    pump.limit = 1100;
+    pump.limit = grid ? 6000 : 1100;
     pump.on_quit = [&] { mech3::missions().cleanup(false); };
     app.run(pump);
     if (std::getenv("MW3_LANCE_LOG"))
@@ -12268,8 +12269,9 @@ TEST(mission_c1m4_pocket_commander_sends_dominic_to_a_map_spot_headless) {
     EXPECT(std::fabs(seen.got[0] - seen.want[0]) < 1e-3f && std::fabs(seen.got[1] - seen.want[1]) < 1e-3f &&
            std::fabs(seen.got[2] - seen.want[2]) < 1e-3f);
     EXPECT(seen.ordered && seen.follows_marker > 800);
-    // He walks to it and stops at his reach of an enemy (193 m to 58 m).
-    EXPECT(seen.d0 > 150.0f && seen.closest < 80.0f);
+    // He walks to it and stops at his reach of an enemy (193 m to 58 m), at the
+    // foot of the cliff it stands on. By the grid (W58): the way round, up the hill, to it.
+    EXPECT(seen.d0 > 150.0f && seen.closest < (grid ? 20.0f : 80.0f));
     mech3::missions().cleanup(false);
     app.stop_game();
     app.exit_instance();
@@ -12281,6 +12283,8 @@ TEST(mission_c1m4_pocket_commander_sends_dominic_to_a_map_spot_headless) {
   reset_process_state();
   mech3::options() = mech3::Options{};
 }
+TEST(mission_c1m4_pocket_commander_sends_dominic_to_a_map_spot_headless) { c1m4_map_spot_run(false); }
+TEST(mission_c1m4_map_spot_up_a_cliff_by_the_grid_headless) { c1m4_map_spot_run(true); }
 
 // Playtest W11 (docs/ai.md 17.6): the lance order keys through the
 // command handler (0x00469930) to the selected lancemate's brain, the brain's
@@ -14203,6 +14207,7 @@ TEST(mission_c1m4_dominic_fires_on_a_target_headless) {
 
 TEST(mission_c1m4_dominic_stops_at_a_no_go_patch_headless) {
   if (!have_game()) return;
+  const NavAllies nav_off(false);  // the exe's stop at the edge (the grid walks on: W58)
   SavedMounts keep;
   zutl::mounts() = zutl::Mounts{};
   zutl::mount(MW3_GAME_DIR);
@@ -23059,16 +23064,16 @@ FarRun lance_far_run(int32_t index, int32_t number, bool bugs, bool nav) {
       pos_of(mate, d);
       // By the grid: the place 150..400 m off whose straight line is blocked
       // and whose way round is the longest against it.
-      nv::service(0.0f, 0.0);
+      nv::service(0.0f, 0);
       nv::Grid& g = nv::grid();
       const int ct = nv::tile_of(nv::cell_of(d[0])), rt = nv::tile_of(nv::cell_of(d[2]));
       for (int tz = rt - 3; tz <= rt + 3; ++tz)
         for (int tx = ct - 3; tx <= ct + 3; ++tx) {
-          double budget = 1e12;
+          int budget = 1 << 30;
           g.build(tx, tz, &budget);
         }
       g.parked_t = -1e30f;
-      nv::service(0.0f, 0.0);  // the parked vehicles, on the built tiles
+      nv::service(0.0f, 0);  // the parked vehicles, on the built tiles
       float best[3] = {}, best_ratio = 0;
       for (float r = 150.0f; r <= 400.0f; r += 50.0f)
         for (int k = 0; k < 24; ++k) {

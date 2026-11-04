@@ -217,25 +217,18 @@ void Grid::build_edges(Tile& t, int tx, int tz, int i) {
   }
 }
 
-bool Grid::build(int tx, int tz, double* budget_us) {
+bool Grid::build(int tx, int tz, int* steps) {
   auto again = fresh_.find(key(tx, tz));
   Tile* t = again != fresh_.end() ? again->second.get() : tile(tx, tz, true);
   if (t->done()) return true;
-  const auto t0 = std::chrono::steady_clock::now();
   const int n = kTile * kTile;
   while (!t->done()) {
+    if (*steps <= 0) return false;
     if (t->built < n) build_ground(*t, tx, tz, t->built);
     else build_edges(*t, tx, tz, t->built - n);
     ++t->built;
-    if ((t->built & 15) == 0) {
-      const double spent = std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - t0).count();
-      if (spent >= *budget_us) {
-        *budget_us = 0;
-        return false;
-      }
-    }
+    --*steps;
   }
-  *budget_us -= std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - t0).count();
   if (again != fresh_.end()) {  // in place of the old, its holds put back at the next release
     tiles_[key(tx, tz)] = std::move(again->second);
     fresh_.erase(again);
@@ -434,14 +427,19 @@ bool line_clear(const Grid& g, const float a[3], const float b[3]) {
   return level == g.level_at(cx, cz, b[1]);
 }
 
-bool line_clear_avoiding(Grid& g, const float a[3], const float b[3]) {
+bool goal_in_shape(Grid& g, const float to[3]) {
+  const int cx = cell_of(to[0]), cz = cell_of(to[2]), l = g.level_at(cx, cz, to[1]);
+  return l >= 0 && g.avoided(cx, cz, l);
+}
+
+bool line_clear_avoiding(Grid& g, const float a[3], const float b[3], bool shapes) {
   if (!line_clear(g, a, b)) return false;
   const float len = std::hypot(b[0] - a[0], b[2] - a[2]);
   const int steps = static_cast<int>(len / kCell) + 1;
   const auto in_it = [&](float t) {
     const float x = a[0] + (b[0] - a[0]) * t, y = a[1] + (b[1] - a[1]) * t, z = a[2] + (b[2] - a[2]) * t;
     const int cx = cell_of(x), cz = cell_of(z), l = g.level_at(cx, cz, y);
-    return l >= 0 && (g.avoided(cx, cz, l) || g.tight(cx, cz, l));
+    return l >= 0 && ((shapes && g.avoided(cx, cz, l)) || g.tight(cx, cz, l));
   };
   if (in_it(0.0f) && in_it(1.0f)) return true;
   for (int i = 0; i <= steps; ++i)
@@ -500,6 +498,7 @@ Find find_path(Grid& g, const float from[3], const float to[3], Way* out) {
     ask_ends();
     return g.queue.empty() ? Find::kNone : Find::kBuilding;
   }
+  const bool shapes = !goal_in_shape(g, to);
   Way cells;
   bool found = false;
   for (const int margin : kWindows) {
@@ -550,7 +549,7 @@ Find find_path(Grid& g, const float from[3], const float to[3], Way* out) {
           if (nl < 0) continue;
           const Cell* there = g.cell(nx, nz, nl);
           const float step = (dx && dz ? 1.41421356f : 1.0f) * kCell * water_cost(there->depth) * (there->flags & kNear ? 8.0f : 1.0f) *
-                             (g.avoided(nx, nz, nl) ? 20.0f : 1.0f) * (g.tight(nx, nz, nl) ? 3.0f : 1.0f);
+                             (shapes && g.avoided(nx, nz, nl) ? 20.0f : 1.0f) * (g.tight(nx, nz, nl) ? 3.0f : 1.0f);
           const int j = idx(nx, nz, nl);
           if (cost[i] + step < cost[j]) {
             cost[j] = cost[i] + step, from_of[j] = i;
@@ -575,7 +574,7 @@ Find find_path(Grid& g, const float from[3], const float to[3], Way* out) {
   while (k + 1 < cells.size()) {
     size_t far = k + 1;
     for (size_t j = cells.size() - 1; j > k + 1; --j)
-      if (line_clear_avoiding(g, here.data(), cells[j].data())) {
+      if (line_clear_avoiding(g, here.data(), cells[j].data(), shapes)) {
         far = j;
         break;
       }
@@ -661,7 +660,7 @@ void restart() {
   g_watch_t = -1e30f;
 }
 
-void service(float now, double budget_us) {
+void service(float now, int steps) {
   Grid& g = grid();
   if (g.world() != &zcls_world()) restart();
   if (now - g_watch_t >= 1.0f || now < g_watch_t) g_watch_t = now, watch_look(g, now);
@@ -690,9 +689,9 @@ void service(float now, double budget_us) {
     dump(file, {});
     dump_paths().clear();
   }
-  while (!g.queue.empty() && budget_us > 0) {
+  while (!g.queue.empty() && steps > 0) {
     const auto [tx, tz] = g.queue.front();
-    if (g.build(tx, tz, &budget_us)) g.queue.erase(g.queue.begin());
+    if (g.build(tx, tz, &steps)) g.queue.erase(g.queue.begin());
   }
 }
 
@@ -742,7 +741,12 @@ bool Follower::step(const float pos[3], const float to[3], float now, float dt, 
   if ((path.empty() || moved || changed || found_t < -1e8f) && now - last_ask >= 0.5f) {
     last_ask = now;
     Way p;
+    const auto t0 = std::chrono::steady_clock::now();
     const Find f = find_path(g, pos, to, &p);
+    static const bool find_log = std::getenv("MW3_NAV_LOG") != nullptr;
+    if (find_log)
+      std::fprintf(stderr, "find %.1f: %d, %zu points, %.2f ms, queue %zu\n", now, static_cast<int>(f), p.size(),
+                   std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count(), g.queue.size());
     if (f == Find::kOk) {
       if (!path.empty()) ++repaths;
       ++paths;
@@ -763,7 +767,7 @@ bool Follower::step(const float pos[3], const float to[3], float now, float dt, 
   // The waypoint: reached within 4 m (a walkway is narrow), or passed by when
   // the next is in a clear line.
   while (at + 1 < static_cast<int>(path.size()) &&
-         (std::hypot(path[at][0] - pos[0], path[at][2] - pos[2]) < 4.0f || line_clear_avoiding(g, pos, path[at + 1].data()))) {
+         (std::hypot(path[at][0] - pos[0], path[at][2] - pos[2]) < 4.0f || line_clear_avoiding(g, pos, path[at + 1].data(), !goal_in_shape(g, to)))) {
     ++at, ++waypoints;
   }
   const float d = std::hypot(path[at][0] - pos[0], path[at][2] - pos[2]);

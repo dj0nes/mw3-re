@@ -253,12 +253,12 @@ bool nav_for(zgame::Handle v) {
 }
 
 namespace {
-// The grid's work once a frame (the first pilot to ask), 3 ms of it.
+// The grid's work once a frame (the first pilot to ask): a tile in about 32 frames, some 2 ms a frame.
 void nav_frame(float now) {
   static float last = -1e30f;
   if (now == last) return;
   last = now;
-  nav::service(now, 3000.0);
+  nav::service(now, 256);
 }
 
 // A place to fire from at `tgt` within `range`: on rings at 0.6 and 0.8 of
