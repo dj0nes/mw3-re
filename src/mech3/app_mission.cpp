@@ -36,6 +36,7 @@
 #include "gamez/zimage/zimg_library.h"
 #include "gamez/zimage/zimg_texture.h"
 #include "gamez/zinterp/zinterp.h"
+#include "pm/gamez/zclass/cls_clutter.h"
 #include "gamez/zmath/zmth_matrix.h"
 #include "gamez/zmodel/gmod_cull.h"
 #include "gamez/zgame/zgame_table.h"
@@ -2092,6 +2093,16 @@ struct WiredMissionHooks : MissionHooks {
     };
   }
   void anim_load(const char*) override { zeff::anim_load(); }
+  int32_t object_lod() override { return mech3::object_lod(); }
+  void puffer_tick_reset() override { zmod::puff_tick_reset(); }
+  void weapon_detail_a(int32_t) override {}  // read by PM's zWeapon, not ported yet
+  void weapon_detail_b(int32_t) override {}
+  uint8_t no_clutter() override { return mech3::object_lod() == 2 ? 1 : 0; }  // [0x0062cc58], -noclutter not offered
+  void clutter_skip_ground_test(int32_t on) override { pm::zcls::clutter_skip_ground_test(on != 0); }
+  void clutter_read_settings(const char* file) override { pm::zcls::clutter_read_settings(file); }
+  void clutter_load_templates() override { pm::zcls::clutter_load_templates(zint::clutter_templates()); }
+  void clutter_lay(Handle world) override { pm::zcls::clutter_lay(static_cast<zcls::Node*>(e->object_of(world))); }
+  void clutter_free() override { pm::zcls::clutter_free(zint::clutter_templates()); }
   void anim_cleanup() override { zeff::anim_stop_all(1); }  // 0x0050ace0(1)
   // 0x00501ab0: declient.zrd's crater and quicksand settings (craters.md).
   // 0x00502020: the craters' history, the quicksand frames and the texture
@@ -2162,7 +2173,7 @@ struct WiredMissionHooks : MissionHooks {
         std::fprintf(stderr, "mw3: report %#x zwep_init.cpp:%d %s\n", level, line, what);
     };
     w.hardware = true;
-    if (callback != 0x004b0020) unported("0x00583880", {world, file, a, callback});
+    if (callback != 0x004b3eb0) unported("0x00583880", {world, file, a, callback});
     zwep::init(e->object_of(world), file, a, mech3::make_weapon_type);
   }
   // 0x0049e810: the mission's vehicles (mech3/player).

@@ -46,6 +46,8 @@ struct Recording : mech3::MissionHooks {
   uint32_t unported(const char* key, std::initializer_list<zgame::Arg> args) override { return rec(key, args); }
   int32_t game_mission_index() override { return static_cast<int32_t>(rec("game.vt+0x54", {})); }
   uint8_t mp_flag() override { return static_cast<uint8_t>(peek(peek(0x60861c) + 0xa8)); }
+  uint8_t no_clutter() override { return static_cast<uint8_t>(peek(0x62cc58)); }
+  void node_strip(Handle) override {}  // the test's mobilehq never exists
   uint8_t app_rgb() override { return static_cast<uint8_t>(peek(0x608e41)); }
   uint8_t app_turrets() override { return static_cast<uint8_t>(peek(0x608e3a)); }
   void set_holes(uint8_t on) override { g_mem[0x6061cc] = on; }

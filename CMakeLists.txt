@@ -608,7 +608,7 @@ if(MW3_BUILD_PM)
   add_test(NAME mw3pmtests COMMAND mw3pmtests)
   # PM's ported functions behind a C interface, for the differential tests
   # run against PM's exe (tests/differential/test_pm_*.py).
-  add_library(pmprobe SHARED tests/probe_pm.cpp)
+  add_library(pmprobe SHARED tests/probe_pm.cpp tests/probe_app.cpp tests/probe_mission.cpp)
   target_link_libraries(pmprobe PRIVATE pmcore mw3core)
 endif()
 

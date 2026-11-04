@@ -109,11 +109,11 @@ void Missions::open_readers(const char* name) {
   h.reader_open(format("zbd\\%s\\reader%s.zbd", name, block).c_str(), 0);
 }
 
-// Mech3.exe 1.2 @ 0x0048faf0: the world. A mission already up is kept, another
+// Pirate's Moon 1.0 @ 0x00492830: the world. A mission already up is kept, another
 // one unloaded first. The texture levels: `level` for "texture" (2 under 4 MB
-// of card memory, 3 under 8, else 0), `flags` 0x11 for the mech textures under
-// 4 MB or when the install has no 16-bit set (InstallOptions 2 or 4); the
-// mech set is "mechtex" on a 3D card, "mechtexS" in software.
+// of card memory, 1 in software, 3 under 8, else 0), `flags` 0x11 for the mech
+// textures under 4 MB or when the install has no 16-bit set (InstallOptions 2 or
+// 4); the mech set is "mechtex" on a 3D card, "mechtexS" in software.
 bool Missions::load_world(int32_t index) {
   MissionHooks& h = *g_hooks;
   h.progress(0.1f);
@@ -143,7 +143,7 @@ bool Missions::load_world(int32_t index) {
     level = 0;
   } else if (mb < 4) {
     flags = 0x11;
-    level = 2;
+    level = hw ? 2 : 1;
   } else if (mb < 8) {
     check_16bit();
     level = 3;
@@ -173,18 +173,23 @@ bool Missions::load_world(int32_t index) {
   h.progress_text(format("MechWarrior3 (%s) (%s)", "PRODUCTION", h.version_number()).c_str());
   h.progress_text(h.video_driver_name());
   h.progress_text(h.video_mode_name());
-  h.interp_source(format("support\\%ssize.gw", name.c_str()).c_str());  // its result is ignored
   h.classes_reset();
   h.models_reset();
   if (abort) return false;
   h.progress_text(format("Loading [ %s ]", name.c_str()).c_str());
-  h.fn_535ed0(0.5f);
+  h.fn_535ed0(!hw && h.object_lod() == 2 ? 2.0f : 0.5f);
   const std::string script = format("%s.gs", name.c_str());
   if (!h.interp_source(script.c_str())) {
-    h.zerr(0x800, "C:\\zipper\\Mech3\\mission.cpp", 0x261, "Failed to Interpret: %s -- Mission Load Aborted",
+    h.zerr(0x800, "C:\\zipper\\branchep1\\mech3ep1\\mission.cpp", 0x2a2, "Failed to Interpret: %s -- Mission Load Aborted",
            script.c_str());
     h.cleanup(1);
     return false;
+  }
+  // Software at the lowest detail, multiplayer: the vehicles go (not reached: no software path here).
+  if (!hw && h.object_lod() == 2 && h.game_type() == 3) {
+    if (const Handle hq = h.find_node(6, "mobilehq")) h.node_strip(hq);
+    for (int i = 1; i <= 16; ++i) h.strip_named(format("the_dude%02d", i).c_str());  // 0x00493280
+    h.strip_vehicles();
   }
   if (abort) return false;
   h.progress(0.3f);
@@ -195,6 +200,7 @@ bool Missions::load_world(int32_t index) {
                          holes ? "HOLES" : "NOHOLES").c_str());
   h.textures_load();
   h.progress(0.4f);
+  h.interp_source("support\\additive.gw");
   if (abort) return false;
   h.progress_text(h.message(0x104));
   const Handle world = h.find_node(0xd, "world1");
@@ -205,7 +211,7 @@ bool Missions::load_world(int32_t index) {
   h.set_608c84(mem ? h.make_608c84(mem, world) : 0);
   mem = h.alloc(0x3c);
   const Handle vw = mem ? h.make_view_window(mem, window) : 0;
-  mem = h.alloc(0x7c);
+  mem = h.alloc(0x80);
   h.set_view(mem ? h.make_view(mem, camera, vw, h.get_608c84()) : 0);
   h.lists_4f7f70();
   h.lists_4f7bd0();
@@ -230,6 +236,7 @@ bool Missions::load_world(int32_t index) {
   h.progress_text("Loading Effects");
   h.effects_load(world, camera, "effects.zrd");
   h.progress(0.5f);
+  h.puffer_tick_reset();
   if (abort) return false;
   h.progress_text("Loading Animations");
   h.anim_set_world(world);
@@ -240,22 +247,32 @@ bool Missions::load_world(int32_t index) {
   h.decals_load(world, 0);
   if (abort) return false;
   h.progress_text("Loading Weapons");
-  h.weapons_load(world, "weapons.zrd", 0, 0x4b0020);
+  const int32_t full = h.object_lod() != 2 ? 1 : 0;
+  h.weapon_detail_a(full);
+  h.weapon_detail_b(full);
+  h.weapons_load(world, "weapons.zrd", 0, 0x4b3eb0);
   h.progress(0.7f);
   if (abort) return false;
+  if (!h.no_clutter()) {
+    h.progress_text("Loading Clutter");
+    h.clutter_skip_ground_test(1);
+    h.clutter_read_settings("templates.zrd");
+    h.clutter_load_templates();
+    h.clutter_lay(world);
+  }
   h.progress_text("Loading HUD");
   const Handle w = h.window_rect();
   h.hud_load(h.display_rect(), w);
   h.fn_40db60();
   current = index;
-  h.progress_text("Creating Stealth");
-  mem = h.alloc(0x104);
+  mem = h.alloc(0x108);
   if (mem) {
-    const Handle obj = h.stealth_4ac860(0xa1c);
+    const Handle obj = h.stealth_4ac860(0xa40);
     h.set_stealth(h.stealth_4a4de0(mem, obj ? h.stealth_4a51b0(obj, 1) : 0));
   } else {
     h.set_stealth(0);
   }
+  h.progress_text("Database Loaded");
   return true;
 }
 
@@ -618,6 +635,7 @@ void MissionHooks::unload() { missions().unload(); }
 // named by the app's +0x14c, which nothing writes (an empty name: no set).
 bool Missions::unload() {
   MissionHooks& h = *g_hooks;
+  if (!h.no_clutter()) h.clutter_free();  // Pirate's Moon 0x004936f0
   if (const Handle view = h.view()) h.camera_flag_off(h.field32(view, 4));
   h.ai_lists_free();
   h.fn_414000();

@@ -1219,6 +1219,19 @@ functions PM changed, and PM's new ones.
 3. **The mission**: load, setup and the world parameters (`mission.cpp`
    114 new, 14 of the port's changed), the standalone missions
    (`readersa1..4`), the objectives.
+   - **The load `0x492830`: ported and checked** (`Missions::load_world`, `test_pm_mission_load.py`, by call
+     traces as MW3's test: every world, hardware and software, card memory, detail, clutter). Against MW3's:
+     no `<world>size.gw`; `support\additive.gw` after the textures; the puffers' reset after the effects; the
+     clutter after the weapons unless `[0x62cc58]` (`object_lod` 2 or `-noclutter`, the option not offered yet);
+     two weapon detail words `[0xb0e434]`, `[0xb0e438]` (written, PM's zWeapon reads them, not ported); no abort
+     flag; a software-only strip of `mobilehq`, `the_dude01..16` and the vehicles at the lowest detail
+     (never reached: no software path), and that software's own texture level 1 and model scale 2. Not checked
+     by the test: the strip with a `mobilehq` that exists.
+   - **Left, found on the way: a cell's clutter is not in the world queries.** PM's `+0x40` is the records'
+     count, not MW3's fades, so all four queries in `cls_di` (point, ground, segment, line) guard their fade loop
+     on `cell_fades`; PM's own for the records (`0x4ffb40`, `0x4ffb90`, `0x4ffc80` and siblings at `0x500270`,
+     `0x5007d0`, `0x5017e0`, `0x502a90`) are to port with the collision work, or a mech walks through props.
+     `launch_sl_dropship` (the anim the launch asks for) is not found in c1m1: not looked into.
 4. **Mechs and weapons**: the definition reader and its new weapons
    (`XPulseLaser_Large`, `HeavyLaser_Large`, `TBOLT5`), the firepoint
    fix-up (`promote1.cpp`, `CZMechFirePoint::CFixup`), `mech.cpp` (130

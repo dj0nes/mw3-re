@@ -94,6 +94,20 @@ class MissionHooks : public zgame::Unported {
   virtual void window_set_origin(Handle node, int32_t x, int32_t y) { unported("0x004fa0b0", {node, x, y}); }
   virtual void light_5269e0(int32_t v) { unported("0x005269e0", {v}); }
   virtual void fn_535ed0(float f) { unported("0x00535ed0", {zgame::bits(f)}); }
+  // Pirate's Moon's.
+  virtual int32_t object_lod() { return static_cast<int32_t>(unported("0x0040d3b0", {})); }
+  virtual void node_strip(Handle node) { unported("node_strip", {node}); }       // its children away, then it
+  virtual void strip_named(const char* name) { unported("0x00493280", {name}); }
+  virtual void strip_vehicles() { unported("0x004932c0", {}); }
+  virtual void puffer_tick_reset() { unported("0x00564ac0", {1}); }
+  virtual void weapon_detail_a(int32_t v) { unported("0x005a52c0", {v}); }      // [0x00b0e434]
+  virtual void weapon_detail_b(int32_t v) { unported("0x005a52d0", {v}); }      // [0x00b0e438]
+  virtual uint8_t no_clutter() { return static_cast<uint8_t>(unported("[0x0062cc58]", {})); }  // low detail or -noclutter
+  virtual void clutter_skip_ground_test(int32_t on) { unported("0x005116a0", {on}); }
+  virtual void clutter_read_settings(const char* file) { unported("0x00513030", {file}); }
+  virtual void clutter_load_templates() { unported("0x005139d0", {}); }
+  virtual void clutter_lay(Handle world) { unported("0x00513a30", {world}); }
+  virtual void clutter_free() { unported("0x00513a40", {}); }
   // Modules started for the mission.
   virtual void fn_518f50(int32_t v) { unported("0x00518f50", {v}); }
   virtual void fn_484270(int32_t v) { unported("0x00484270", {v}); }
@@ -304,7 +318,7 @@ struct Missions {
   uint8_t done = 0;              // the event +0x68 (set when the load ends)
   uint8_t failed = 0;            // the thread's exit code
 
-  bool load_world(int32_t index);          // 0x0048faf0
+  bool load_world(int32_t index);          // Pirate's Moon 0x00492830
   bool setup();                            // 0x00490ab0
   void start();                            // 0x00490880 (FIX (A): no thread)
   bool finished() const { return done; }   // 0x00490930

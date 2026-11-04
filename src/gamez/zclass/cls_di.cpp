@@ -1,4 +1,5 @@
 #include "gamez/zclass/cls_di.h"
+#include "gamez/zgame/zgame_table.h"
 
 #include <cmath>
 #include <cstdio>
@@ -438,7 +439,8 @@ void segment_cells(Node* world, const int32_t* valid) {
         segment_node(n, p.get<int16_t>(0x3a) + 1, valid);
         if (stop_early()) break;
       }
-      for (int32_t i = 0; i < p.get<int32_t>(0x40); ++i) {
+      // Pirate's Moon: +0x40 is the cell's clutter records; its queries (0x004ffb40 and siblings) are still to port.
+      for (int32_t i = 0; zgame::game().cell_fades && i < p.get<int32_t>(0x40); ++i) {
         uint8_t* e = p.fades + 0x44 * i;
         Node* n;
         std::memcpy(&n, e, sizeof n);  // FIX (A): a 32-bit pointer in the exe
@@ -725,7 +727,8 @@ int ground_point(Node* world, float x, float y, float z, GroundHits* out) {
       if ((n->flags() & kZoned) && !zmod::zone_visible(n->raw[0x30])) continue;
       point_node(n, p.get<int16_t>(0x3a) + 1);
     }
-    for (int32_t i = 0; i < p.get<int32_t>(0x40); ++i) {
+    // Pirate's Moon: +0x40 is the cell's clutter records; its queries (0x004ffb40 and siblings) are still to port.
+    for (int32_t i = 0; zgame::game().cell_fades && i < p.get<int32_t>(0x40); ++i) {
       uint8_t* e = p.fades + 0x44 * i;
       Node* n;
       std::memcpy(&n, e, sizeof n);  // FIX (A): a 32-bit pointer in the exe
@@ -838,7 +841,8 @@ int ground_query(Node* world, float* probes, int32_t count, float top, GroundHit
     for (int32_t i = 0; i < count; ++i) mask[i] = valid[i] && cell[i] == &p;
     for (int32_t i = 0; i < p.get<int16_t>(0x3a); ++i)
       if (tested(p.nodes[i])) ground_node(p.nodes[i], p.get<int16_t>(0x3a) + 1, mask);
-    for (int32_t i = 0; i < p.get<int32_t>(0x40); ++i) {
+    // Pirate's Moon: +0x40 is the cell's clutter records; its queries (0x004ffb40 and siblings) are still to port.
+    for (int32_t i = 0; zgame::game().cell_fades && i < p.get<int32_t>(0x40); ++i) {
       uint8_t* e = p.fades + 0x44 * i;
       Node* n;
       std::memcpy(&n, e, sizeof n);  // FIX (A): a 32-bit pointer in the exe
@@ -1139,7 +1143,8 @@ void line_cells(Node* world) {
         line_node(n, p.get<int16_t>(0x3a) + 1);
         if (line_done()) return;
       }
-      for (int32_t i = 0; i < p.get<int32_t>(0x40); ++i) {
+      // Pirate's Moon: +0x40 is the cell's clutter records; its queries (0x004ffb40 and siblings) are still to port.
+      for (int32_t i = 0; zgame::game().cell_fades && i < p.get<int32_t>(0x40); ++i) {
         uint8_t* e = p.fades + 0x44 * i;
         Node* n;
         std::memcpy(&n, e, sizeof n);  // FIX (A): a 32-bit pointer in the exe
