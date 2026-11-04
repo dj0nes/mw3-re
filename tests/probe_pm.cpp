@@ -5,12 +5,14 @@
 #include <cmath>
 #include <cstdint>
 #include <cstring>
+#include <memory>
 #include <string>
 
 #include "gamez/zimage/zimg_library.h"
 #include "gamez/zvideo/zvid_ddd3d.h"
 #include "platform/render3d.h"
 #include "pm/gamez/zvideo/zvid_tl.h"
+#include "pm/gamez/zclass/cls_clutter.h"
 #include "pm/gamez/zclass/light.h"
 #include "pm/mech3/mission_world.h"
 #include "gamez/zclass/class.h"
@@ -1784,6 +1786,101 @@ int probe_pm_world_params(const char* dir, const char* archive, const char* key,
   out[n++] = static_cast<uint32_t>(c.on);
   for (float f : {c.speed, c.scale, c.base, c.amplitude, c.heading_sin, c.heading_cos}) std::memcpy(out + n++, &f, 4);
   out[n++] = ::zcls::frames().update_frame != 0;
+  zrdr::close_archives(true);
+  return n;
+}
+
+}  // extern "C"
+
+extern "C" {
+
+// pm::zcls::clutter_read_settings on a scene (test_pm_clutter.py): `names` the list's nodes, each
+// with two children. Out: the words as the test reads them, the templates' names joined by \n.
+int probe_pm_clutter(const char* dir, const char* archive, const char* file, const char* names, uint32_t* out,
+                     int cap, char* text, int text_cap) {
+  mount_only(dir);
+  zrdr::close_archives(true);
+  zrdr::init();
+  if (!zrdr::open_archive(archive, true)) return -1;
+  ::zcls::reset_lists();
+  static std::vector<std::unique_ptr<::zcls::Node>> nodes;
+  static std::vector<::zcls::Node*> kids;
+  nodes.clear(), kids.clear();
+  kids.reserve(4096);
+  const auto make = [](const std::string& name) {
+    nodes.push_back(std::make_unique<::zcls::Node>());
+    ::zcls::Node* n = nodes.back().get();
+    std::strncpy(reinterpret_cast<char*>(n->raw), name.c_str(), 35);
+    n->put<int32_t>(0x34, 5);
+    n->set_flags(0x10);
+    return n;
+  };
+  std::string all(names);
+  for (size_t at = 0; at < all.size();) {
+    size_t end = all.find('\n', at);
+    if (end == std::string::npos) end = all.size();
+    const std::string name = all.substr(at, end - at);
+    ::zcls::Node* n = make(name);
+    ::zcls::Node* a = make(name + "_a");
+    ::zcls::Node* b = make(name + "_b");
+    ::zcls::push_back(::zcls::kAllNodes, n);
+    kids.push_back(a), kids.push_back(b);
+    n->put<int32_t>(0x5c, 2), n->children = &kids[kids.size() - 2];
+    at = end + 1;
+  }
+  static uint32_t* log_at;
+  static int log_n;
+  static uint32_t log[4096];
+  log_n = 0;
+  log_at = log;
+  const auto id = [](const ::zcls::Node* n) -> uint32_t {
+    for (size_t i = 0; i < nodes.size(); ++i)
+      if (nodes[i].get() == n) return static_cast<uint32_t>(i + 1);
+    return 0;
+  };
+  static auto s_id = +id;
+  pm::zcls::ClutterHooks& h = pm::zcls::clutter_hooks();
+  h.anim_find = [](const char* name) -> void* {
+    if (!name) return nullptr;
+    uint32_t v = 2166136261u;
+    for (const char* p = name; *p; ++p) v = (v ^ static_cast<uint8_t>(*p)) * 16777619u;
+    log_at[log_n++] = 0xa0000000u, log_at[log_n++] = v;
+    return reinterpret_cast<void*>(static_cast<uintptr_t>(v));
+  };
+  h.watch_hits = [](::zcls::Node* n) { log_at[log_n++] = 0xb0000000u, log_at[log_n++] = s_id(n); };
+  ::zerr::set_sink([](int level, const char*, int at, const char*) {
+    log_at[log_n++] = 0xc0000000u, log_at[log_n++] = static_cast<uint32_t>(level) << 16 | static_cast<uint32_t>(at);
+  });
+  pm::zcls::clutter_templates().clear();
+  pm::zcls::clutter_read_settings(file);
+  ::zerr::set_sink(nullptr);
+  int n = 0;
+  const auto word = [&](uint32_t v) { if (n < cap) out[n] = v; ++n; };
+  const auto fl = [&](float f) { uint32_t v; std::memcpy(&v, &f, 4); word(v); };
+  word(static_cast<uint32_t>(log_n));
+  for (int i = 0; i < log_n; ++i) word(log[i]);
+  word(static_cast<uint32_t>(pm::zcls::clutter_templates().size()));
+  std::string names_out;
+  for (const auto& t : pm::zcls::clutter_templates()) {
+    names_out += t->name + "\n";
+    fl(t->scale[0]), fl(t->scale[1]);
+    fl(t->uv_low[0]), fl(t->uv_low[1]), fl(t->uv_high[0]), fl(t->uv_high[1]);
+    fl(t->fade_low[0]), fl(t->fade_low[1]), fl(t->fade_high[0]), fl(t->fade_high[1]);
+    word(t->align_normal);
+    for (float f : t->rotation) fl(f);
+    fl(t->max_slope), fl(t->min_slope);
+    word(t->on_weapon_hit);
+    for (const pm::zcls::ClutterEvent* e : {&t->weapon_hit, &t->crater, &t->collide}) {
+      fl(e->health);
+      word(static_cast<uint32_t>(reinterpret_cast<uintptr_t>(e->anim)));
+      word(s_id(e->model));
+    }
+    word(static_cast<uint32_t>(t->substitutes.size()));
+    for (const auto& s : t->substitutes) fl(s.weight), word(s_id(s.node));
+  }
+  word(static_cast<uint32_t>(nodes.size()));
+  for (const auto& p : nodes) word(p->flags());
+  std::snprintf(text, static_cast<size_t>(text_cap), "%s", names_out.c_str());
   zrdr::close_archives(true);
   return n;
 }

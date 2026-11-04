@@ -51,7 +51,7 @@ class Emu(zr.Emulated):
         self.stale = 0
         self.native_stub(STALE, self.mark_stale)
         self.native_stub(POINT_COLOUR, lambda c: 0)
-        self.native_stub(ZERR, lambda c: self.errors.append(c.arg(1)) or 0)
+        self.cpu.stubs[ZERR] = (lambda c: self.errors.append(c.arg(2)) or 0, 0)  # the bench hooks it already
         self.native_stub(PUFFER_RESET, lambda c: 0)
         weather_vt = self.alloc(0x80)
         code = self.cpu.code(b'\xc2\x04\x00')  # ret 4: start

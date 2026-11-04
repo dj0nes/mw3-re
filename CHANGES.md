@@ -670,3 +670,4 @@ Known quirks the rebuild deliberately keeps:
 - Pirate's Moon: a textured polygon with a shadow or light map on it, cut by the camera's near plane, keeps its fog where it is cut (the original fogged those corners from leftover memory).
 - Pirate's Moon: an overlay polygon of more than 64 corners no longer writes past the list that holds it (the original overran it).
 - Pirate's Moon: light maps (pools of light on the ground) are drawn the same way on every graphics card and every LIGHT MAPS setting, with their fade at the edge of the light's range. The original's choice depended on the card, and one of its paths reads as losing the fade.
+- Pirate's Moon: a clutter settings file with a range too short no longer reads past its end (only a modded file could do this).
