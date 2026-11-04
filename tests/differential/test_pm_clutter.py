@@ -9,6 +9,7 @@ Compared: the log's order, every field of every record, every node's flags. Rota
 slopes go through x87 fcos, within 1e-6.
 """
 import ctypes
+import random
 import re
 import struct
 import sys
@@ -27,6 +28,7 @@ import zrd  # noqa: E402
 
 READ, ANIM, WATCH, WATCH2, ZERR, STRDUP_IAT = 0x513030, 0x524b50, 0x5a4d80, 0x5a4dc0, 0x406cb0, '_strdup'
 LISTS, LIST_DIRTY, BEGIN, END, CAP = 0x60db00, 0x60db84, 0x639bf4, 0x639bf8, 0x639bfc
+ON_HIT, ON_COLLIDE, ANIM_START = 0x513c60, 0x513cf0, 0x5216e0
 LAY, GROUND, BOX, CRATER, SKIP_GROUND = 0x513a30, 0x4ff8d0, 0x5043d0, 0x513d90, 0x639c1c
 TEXTURE_NAME = 0xc  # in PM's 0x2c-byte entry
 LOAD_TEMPLATES, TEMPLATE_NAMES, MAP_HEAD, MAP_FIND, MAP_INSERT = 0x5139d0, 0x639c14, 0x639be4, 0x514120, 0x513ed0
@@ -597,6 +599,7 @@ def compare_laying(probe, world, names, skip_ground=0):
     want, rands, changed, next_rand = emu.lay(names, skip_ground)
     if world == 'c1':
         compare_scene_lay(probe, emu)
+        compare_hits(probe, emu)
     buf = (ctypes.c_uint32 * (1 << 25))()
     rel = f'zbd/{world}/reader.zbd'
     n = probe.probe_pm_clutter_lay(str(g.ZBD / world / 'gamez.zbd').encode(), str(PM).encode(), rel.encode(), '\n'.join(names).encode(), skip_ground, buf, len(buf))
@@ -638,6 +641,47 @@ def compare_laying(probe, world, names, skip_ground=0):
 
 
 CRATERS = []
+
+
+def compare_hits(probe, emu):
+    """0x513c60 and 0x513cf0 on made-up records, with and without settings and a model."""
+    uc, w = emu.cpu._uc, emu.w32
+    calls = []
+    emu.native_stub(ANIM_START, lambda c: calls.append([c.arg(0), c.arg(2), c.arg(3), c.arg(4)]) or 0)
+    rng = random.Random(0x513c60)
+    rec, hit, tmpl = emu.alloc(0x5c), emu.alloc(0x2c), emu.alloc(0x88)
+    node_a, node_b = emu.alloc(0xd4), emu.alloc(0xd4)
+    w(tmpl + 0x68, 0x1111), w(tmpl + 0x80, 0x2222)
+    gone = 0
+    for n in range(4000):
+        collide = rng.randrange(2)
+        flags = rng.choice((0, 1, 2, 3, 4, 6, 7, 0x10, 0x12))
+        weapon, touch = rng.choice((0.0, 0.01, 1.0, rng.uniform(0, 3))), rng.choice((0.0, 0.5, rng.uniform(0, 3)))
+        damage = rng.choice((0.0, 0.01, 1.0, rng.uniform(0, 3), weapon, touch))
+        settings, model = rng.randrange(2), rng.randrange(2)
+        uc.mem_write(rec, bytes(0x5c))
+        w(rec, node_a), w(rec + 0x48, flags), w(rec + 0x58, tmpl if settings else 0)
+        uc.mem_write(rec + 0x50, struct.pack('<2f', weapon, touch))
+        uc.mem_write(rec + 0x28, struct.pack('<3f', 1.5, -2.5, 3.25))
+        w(tmpl + 0x6c, node_b if model else 0)
+        w(hit + 0x28, 0 if n % 50 == 0 else rec)
+        del calls[:]
+        if collide:
+            emu.call(ON_COLLIDE, args=[0, hit, bits(damage)])
+        else:
+            emu.call(ON_HIT, args=[0, 0, hit, bits(damage)])
+        want = [emu.r32(rec + 0x48), emu.r32(rec + 0x50), emu.r32(rec + 0x54), int(emu.r32(rec) == node_b), len(calls)]
+        want += calls[0] if calls else [0, 0, 0, 0]
+        out = (ctypes.c_uint32 * 9)()
+        if n % 50 == 0:  # no record: nothing happens, in the exe as here
+            if want[0] != flags or calls:
+                raise SystemExit(f'hit {n}: the exe touched a record it had no pointer to')
+            continue
+        probe.probe_pm_clutter_hit(collide, flags, weapon, touch, damage, settings, model, out)
+        if list(out) != want:
+            raise SystemExit(f'hit {n} collide {collide} flags {flags:x} {weapon} {touch} {damage} settings {settings} model {model}\n exe {want}\n port {list(out)}')
+        gone += want[0] != flags
+    print(f'hits: 4000 identical, {gone} changed a piece')
 
 
 def compare_world(probe, world, settings, names):
@@ -721,6 +765,8 @@ def main():
         print(f'{world}: {textures} textures, {pieces} pieces, {errors} errors, from {names}')
     compare_scenes(probe)
     probe.probe_pm_clutter_lay.argtypes = [ctypes.c_char_p] * 4 + [ctypes.c_int, ctypes.c_void_p, ctypes.c_int]
+    probe.probe_pm_clutter_hit.argtypes = [ctypes.c_int, ctypes.c_uint32, ctypes.c_float, ctypes.c_float, ctypes.c_float,
+                                           ctypes.c_int, ctypes.c_int, ctypes.c_void_p]
     probe.probe_pm_clutter_crater.argtypes = [ctypes.c_float] * 4 + [ctypes.c_void_p, ctypes.c_int]
     probe.probe_pm_clutter_scene_lay.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_void_p, ctypes.c_int]
     for world in ('c1', 'c2', 'c3', 'c4'):

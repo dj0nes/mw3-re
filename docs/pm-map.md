@@ -1097,7 +1097,10 @@ functions PM changed, and PM's new ones.
        past the grid, a second material. The crater 0x513d90 is ported and compared at records' places and past the
        world's corners (0x505230 keeps a point inside the area; the decompile does not show it, the assembly does).
        The free 0x513a40 is ported, untested: `clutter_free`; the cells' records go with the world, which frees
-       them when its class lands. Next: the hits (0x513c60, 0x513cf0), then what draws them. The rest is not ported
+       them when its class lands. The hits are ported (0x513c60, 0x513cf0; made-up records, 4,000 calls,
+       `clutter_on_weapon_hit`, `clutter_on_collide`), not wired: the record is the hit's +0x28 and PM's zWeapon
+       and its touch 0x5a50a0 (object, hit, damage; MW3's has no hit) are not ported. Both take OnWeaponHit's anim
+       and model; no code in the file reads OnCollide's or OnCrater's anim and model. Next: what draws them. The rest is not ported
        (0x5106b0..0x514b90, 65 functions, ~3,500 lines of pseudocode). Scattered props laid on the ground by its material. **It waits for the interpreter
        and the mission load**: its template names come from the script command `AddClutterTemplates`
        (0x512fd0, from 0x5b2e15, a list at [0x639c14]). The load (0x492f8c.., unless `-noclutter`,

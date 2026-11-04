@@ -2244,3 +2244,41 @@ int probe_pm_clutter_crater(float x, float y, float z, float radius, uint32_t* o
 }
 
 }  // extern "C"
+
+extern "C" {
+
+// A clutter hit on a made-up record (test_pm_clutter.py). Out: flags, the two healths, whether the
+// node became the model, the anim's calls, its id and point.
+int probe_pm_clutter_hit(int collide, uint32_t flags, float weapon, float touch, float damage, int settings, int model,
+                         uint32_t* out) {
+  static ::zcls::Node a, b;
+  static pm::zcls::ClutterTemplate t;
+  static int calls;
+  static uint32_t last[4];
+  calls = 0;
+  t = pm::zcls::ClutterTemplate{};
+  t.weapon_hit.anim = reinterpret_cast<void*>(uintptr_t{0x1111});
+  t.weapon_hit.model = model ? &b : nullptr;
+  t.collide.anim = reinterpret_cast<void*>(uintptr_t{0x2222});
+  pm::zcls::ClutterRecord r;
+  r.node = &a, r.flags = flags, r.weapon_health = weapon, r.collide_health = touch;
+  r.settings = settings ? &t : nullptr;
+  r.matrix.m[9] = 1.5f, r.matrix.m[10] = -2.5f, r.matrix.m[11] = 3.25f;
+  pm::zcls::clutter_hooks() = {};
+  pm::zcls::clutter_hooks().anim_start = [](void* anim, const float p[3]) {
+    ++calls;
+    last[0] = static_cast<uint32_t>(reinterpret_cast<uintptr_t>(anim));
+    std::memcpy(last + 1, p, 12);
+  };
+  if (collide) pm::zcls::clutter_on_collide(&r, damage);
+  else pm::zcls::clutter_on_weapon_hit(&r, damage);
+  out[0] = r.flags;
+  std::memcpy(out + 1, &r.weapon_health, 4), std::memcpy(out + 2, &r.collide_health, 4);
+  out[3] = r.node == &b;
+  out[4] = static_cast<uint32_t>(calls);
+  std::memcpy(out + 5, last, 16);
+  if (!calls) std::memset(out + 5, 0, 16);
+  return 9;
+}
+
+}  // extern "C"

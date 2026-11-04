@@ -4249,3 +4249,7 @@ The screen after the pilot for INSTANT ACTION, 0x00488bc0 (details:
   is behind it, chosen by a flag on the texture itself. MechWarrior 3's renderer
   cannot. None of the textures in the four worlds has the flag when they load, so
   what it was meant for is still open. (docs/pm-map.md, gmod_matl.c)
+- Pirate's Moon's scattered props (rocks, tents) read an effect and a replacement model for being shot, run
+  over and cratered, but being run over plays the being-shot ones instead, and a crater just removes the prop.
+  The code that handles props never reads the other two sets (other code might; not searched). (docs/pm-map.md,
+  cls_clutter)

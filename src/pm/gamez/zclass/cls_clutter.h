@@ -52,6 +52,8 @@ struct ClutterHooks {
   int (*ground_heights)(::zcls::Node* world, float x, float y, float z, float* heights, int max) = nullptr;
   // 0x005043d0, the cell's box, not ported yet.
   void (*cell_changed)(::zcls::Node* world, ::zcls::Partition* cell) = nullptr;
+  // 0x005216e0 (anim, 0, x, y, z, 0 ...): an animation at a point.
+  void (*anim_start)(void* anim, const float point[3]) = nullptr;
 };
 ClutterHooks& clutter_hooks();
 
@@ -89,6 +91,12 @@ std::vector<ClutterRecord>* cell_clutter(::zcls::Partition& cell);
 // 0x00513a30, 0x00512d90: over every polygon in the world's grid and tree, each of its textures'
 // pieces laid over each triangle where the triangle's u, v repeats reach them (0x00512000).
 void clutter_lay(::zcls::Node* world);
+
+// A shot (0x00513c60) or a mech walking in (0x00513cf0) on a piece: below its health it is gone (flags
+// 1) or swapped for the model, the anim runs. Both take OnWeaponHit's anim and model (a quirk of the exe).
+// The record is the hit's +0x28 in the exe; wired when PM's zWeapon lands.
+void clutter_on_weapon_hit(ClutterRecord* record, float damage);
+void clutter_on_collide(ClutterRecord* record, float damage);
 
 // 0x005116a0: the laying skips its ground test; a mission's load sets it first (0x00492f9a).
 void clutter_skip_ground_test(bool on);

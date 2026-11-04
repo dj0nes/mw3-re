@@ -432,6 +432,33 @@ void lay_node(::zcls::Node* node) {
 }
 }  // namespace
 
+namespace {
+void piece_destroyed(ClutterRecord* r, float* health) {
+  *health = 0.0f;
+  r->flags |= 1;
+  if (const ClutterTemplate* t = r->settings) {
+    if (g_hooks.anim_start) g_hooks.anim_start(t->weapon_hit.anim, r->matrix.m + 9);
+    if (t->weapon_hit.model) {
+      r->flags &= ~1u;
+      r->node = t->weapon_hit.model;
+    }
+  }
+  r->flags = (r->flags & ~2u) | 4;
+}
+}  // namespace
+
+void clutter_on_weapon_hit(ClutterRecord* r, float damage) {
+  if (!r || !(r->flags & 2)) return;
+  r->weapon_health = r->weapon_health - damage;
+  if (r->weapon_health <= 0.0f) piece_destroyed(r, &r->weapon_health);
+}
+
+void clutter_on_collide(ClutterRecord* r, float damage) {
+  if (!r || !(r->flags & 2)) return;
+  r->collide_health = r->collide_health - damage;
+  if (r->collide_health <= 0.0f) piece_destroyed(r, &r->collide_health);
+}
+
 void clutter_skip_ground_test(bool on) { g_lay.skip_ground = on; }
 
 void clutter_free(std::list<std::string>& names) {
