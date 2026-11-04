@@ -36,3 +36,8 @@ picture. Camera heights are chosen to be about a mech's eye, and the direction f
    jets stop at 130 and 145. If a couple of jumps show nothing, the answer is "not seen", and that settles it.
    `7-c2-gap.png`: `mw3pm --fly c2 --pos 1536 150 -1792 --look 0 8`;
    `8-c4-gap.png`: `mw3pm --fly c4 --pos 1536 150 -1792 --look 0 8`
+9. **Are the small props the same?** Mission 3 or 4 near the bridge, and mission 6 or 7 near Ruins: do the same
+   small rocks and props lie on the ground in the original, about this many? They are laid at random, so their
+   exact places will differ.
+   `clutter-cl2.png`: `mw3pm --fly c2 --pos 1536 40 -1792 --look 0 15`;
+   `clutter-cl3.png`: `mw3pm --fly c3 --pos 1792 25 -896 --look 180 5`

@@ -370,7 +370,8 @@ with LoD fields and a ranged light edited, since shipped data reaches neither):
   this cell" bit is 0x800 (0x200 is PM's static bit); its reach test takes off the
   wrapped camera offset ([0x8d43b0]); PM has no fades on a cell. Its +0x40 count
   is another list, entries 0x5c bytes: over 20 of them call 0x504450, which is
-  not ported, and the debug draw 0x50a1e0 needs [0x60d968], which nothing sets.
+  ported now (cls_clutter), and the draw 0x50a1e0 needs [0x60d968], which is 1 in the exe's data and
+  which nothing writes, so it is always on.
 
 Left for the world class:
 
@@ -1113,7 +1114,7 @@ functions PM changed, and PM's new ones.
        `test_pm_clutter.py` lays the worlds, craters them, then compares frames against the exe, some at the crater
        and some where a record's fade is nearly out: every draw in order, matrix and fade, and every tree built. Not
        observable there: the tree's own cull and fade skips only repeat what each record's checks decide, so breaking
-       them changes no draw. The gate [0x60d968] is not ported: nothing in the exe writes it by direct address.
+       them changes no draw. The gate [0x60d968] is not ported: 1 in the exe's data, and nothing writes it.
        `mw3pm --fly` loads it as a mission does (no ground test): rocks and small props on the ground in
        `--fly c2 --pos 1536 40 -1792 --look 0 15` and `--fly c3 --pos 1792 25 -896 --look 180 5`; no original compared.
        The world's update (0x504a40) rebuilds the
