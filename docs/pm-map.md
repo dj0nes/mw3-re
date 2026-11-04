@@ -721,16 +721,29 @@ functions PM changed, and PM's new ones.
        for a polygon its cull marked; a polygon that grew moves to arenas
        (`[0xa4cfac]`..), not fixed buffers; and **the point light is
        interpolated at a cut**, MW3's copied from the edge's first vertex.
-       Ours: past the 64-vertex scratch the polygon stops growing (the exe runs
-       on over the next buffers); PM's polygons allow 1,023 vertices. The near
+       FIX (bug): the exe's scratch and shadow sets hold 64 vertices, unchecked,
+       while PM's polygons allow 1,023 and shipped ones reach 313 (139 over 32 in
+       c1, c3 and c4; mechlib's reach 52). The scratch holds the most a cut can
+       make, 1.5n, and the shadow sets grow. The near
        value `[0x8d4b14]` comes from the view (`0x548990`, MW3's `0x526e10`, the
        shared `near_z`): it and the arenas' start (`0x543b10`) go with the draw.
        `test_pm_clip3d.py` on PM's exe at 24-bit x87: 9,000 polygons by default,
-       every buffer, the result, the count and what moved. NaNs may differ in
+       every buffer, the result, the count and what moved, up to 64 vertices;
+       past that the port alone (`pm_clip3d_keeps_the_largest_polygon_whole`).
+       NaNs may differ in
        sign, and cases with extreme inputs in value (the x87 keeps a 15-bit
        exponent in its registers), as MW3's test allows. Breaks, 19 of 20. Not
        caught: a set without xyz carrying xyz at a cut, which only reaches the
        scratch (write-back checks the kind), so nothing can see it.
+     - **The plane tests and vertex colours: ported** (2026-11-03,
+       `pm/gamez/zmodel/gmod_cull`): `0x54faa0` (each vertex's plane code),
+       `0x54fc60` (a polygon's), `0x5439e0` (each TL vertex's colour, with the
+       fade's alpha), `0x5403d0` (the fade). Plane 8 never rejects a polygon:
+       its count is not reset and runs on from before (kept). The colours use
+       the 1.5 * 2^52 trick: as a 53-bit FPU gives it with `fpu53` (play), and
+       the 24-bit result without, where the sum keeps multiples of 2^29, so it
+       is 0 unless a value is huge. `test_pm_cull.py` on PM's exe: 4,000 of each,
+       the colours at both precisions. Breaks, 16 of 16.
      - Order from here: the option's state; the other helpers in groups,
        each with the setters it first reads; then `0x543b10` by call trace, as
        `0x53f2e0` was. Emulator only until the world class and the mission can

@@ -19,7 +19,11 @@ enum : uint32_t {
   kRecLight = 0x80,  // the record's +0..+8
 };
 constexpr uint32_t kRecAny = kRec10 | kRecColour | kRecLight;
-constexpr int kVerts = 64;  // the scratch: 0x006884d0, 0x00688860, 0x00689048..
+// FIX (bug): the exe's scratch (0x006884d0, 0x00688860, 0x00689048..) holds 64
+// vertices and nothing checks it; polygons allow 1,023 and shipped ones reach
+// 313. One plane cuts a polygon to at most 1.5n vertices (a zigzag): every one
+// fits here (fixes.md).
+constexpr int kVerts = 1536;
 
 float g_pos[kVerts][3];      // 0x006884d0
 float g_rec[kVerts][8];      // 0x00689048
@@ -44,9 +48,9 @@ void carry_cut(const ClipPoly& p, uint32_t bits, int a, int b, float t, int n) {
     for (int i = 0; i < 2; ++i) g_uv[n][i] = lerp(p.tl[a * 8 + 6 + i], p.tl[b * 8 + 6 + i], t);
   if (bits & kShadows)
     for (int s = 0; s < p.shadows->count; ++s) {
-      for (int i = 0; i < 2; ++i) g_shadow_uv[s][n][i] = lerp(p.shadows->uv[s][a][i], p.shadows->uv[s][b][i], t);
+      for (int i = 0; i < 2; ++i) g_shadow_uv[s][n][i] = lerp(p.shadows->uv[s][a * 2 + i], p.shadows->uv[s][b * 2 + i], t);
       if (p.shadows->kind[s] == 2)
-        for (int i = 0; i < 3; ++i) g_shadow_xyz[s][n][i] = lerp(p.shadows->xyz[s][a][i], p.shadows->xyz[s][b][i], t);
+        for (int i = 0; i < 3; ++i) g_shadow_xyz[s][n][i] = lerp(p.shadows->xyz[s][a * 3 + i], p.shadows->xyz[s][b * 3 + i], t);
     }
 }
 
@@ -58,8 +62,8 @@ void carry_vertex(const ClipPoly& p, uint32_t bits, int v, int n) {
   if (bits & kUv) std::memcpy(g_uv[n], p.tl + v * 8 + 6, 8);
   if (bits & kShadows)
     for (int s = 0; s < p.shadows->count; ++s) {
-      std::memcpy(g_shadow_uv[s][n], p.shadows->uv[s][v], 8);
-      if (p.shadows->kind[s] == 2) std::memcpy(g_shadow_xyz[s][n], p.shadows->xyz[s][v], 12);
+      std::memcpy(g_shadow_uv[s][n], p.shadows->uv[s].data() + v * 2, 8);
+      if (p.shadows->kind[s] == 2) std::memcpy(g_shadow_xyz[s][n], p.shadows->xyz[s].data() + v * 3, 12);
     }
 }
 
@@ -73,8 +77,13 @@ void write_back(ClipPoly& p, uint32_t bits, int n) {
   }
   if (bits & kShadows)
     for (int s = 0; s < p.shadows->count; ++s) {
-      std::memcpy(p.shadows->uv[s], g_shadow_uv[s], static_cast<size_t>(n) * 8);
-      if (p.shadows->kind[s] == 2) std::memcpy(p.shadows->xyz[s], g_shadow_xyz[s], static_cast<size_t>(n) * 12);
+      auto& uv = p.shadows->uv[s];
+      if (uv.size() < static_cast<size_t>(n) * 2) uv.resize(static_cast<size_t>(n) * 2);
+      std::memcpy(uv.data(), g_shadow_uv[s], static_cast<size_t>(n) * 8);
+      if (p.shadows->kind[s] != 2) continue;
+      auto& xyz = p.shadows->xyz[s];
+      if (xyz.size() < static_cast<size_t>(n) * 3) xyz.resize(static_cast<size_t>(n) * 3);
+      std::memcpy(xyz.data(), g_shadow_xyz[s], static_cast<size_t>(n) * 12);
     }
 }
 
@@ -91,7 +100,6 @@ int clip(ClipPoly& p, uint32_t bits) {
     const float* b = p.pos + cur * 3;
     const bool inside = near_z <= b[2];
     if ((near_z <= a[2]) != inside) {
-      if (n >= kVerts) break;  // ours: the exe runs on past its scratch
       const float t = (near_z - a[2]) / (b[2] - a[2]);
       g_pos[n][2] = near_z;
       g_pos[n][0] = (b[0] - a[0]) * t + a[0];
@@ -100,7 +108,6 @@ int clip(ClipPoly& p, uint32_t bits) {
       ++n;
     }
     if (inside) {
-      if (n >= kVerts) break;
       std::memcpy(g_pos[n], b, 12);
       carry_vertex(p, bits, cur, n);
       ++n;

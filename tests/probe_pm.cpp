@@ -28,6 +28,7 @@
 #include "pm/gamez/zimage/zimg_texture.h"
 #include "pm/gamez/zmodel/gmod_clip3d.h"
 #include "pm/gamez/zmodel/gmod_const.h"
+#include "pm/gamez/zmodel/gmod_cull.h"
 #include "pm/gamez/zmodel/gmod_matl.h"
 #include "pm/gamez/zreader/zrdr_main.h"
 #include "pm/gamez/zutil/zutl_zar.h"
@@ -566,6 +567,28 @@ int probe_pm_mechlib(const char* world, const char* path, const char* names, uin
   return static_cast<int>(b.size());
 }
 
+// test_pm_cull.py: 0x54faa0, 0x54fc60 and 0x5439e0, on the state given.
+int probe_pm_plane_codes(uint32_t planes, float near_z, float far_z, float sx, float sy, const float* pos, int n,
+                         uint32_t* codes) {
+  pm::zmod::CullState& c = pm::zmod::cull_state();
+  c.planes = planes, c.far_z = far_z, c.slope_x = sx, c.slope_y = sy;
+  pm::zmod::clip3d_state().near_z = near_z;
+  return pm::zmod::plane_codes(pos, n, codes);
+}
+int probe_pm_polygon_codes(const uint32_t* table, int n, const int32_t* vertices, uint32_t* out) {
+  std::memcpy(pm::zmod::cull_state().codes, table, sizeof pm::zmod::cull_state().codes);
+  return pm::zmod::polygon_codes(n, vertices, out);
+}
+void probe_pm_tl_colours(int fpu53, float fade, int count, float* rec, float* tl) {
+  const bool keep = zfix::options().fpu53;
+  zfix::options().fpu53 = fpu53 != 0;
+  pm::zmod::set_fade(fade);
+  pm::zmod::ClipPoly p;
+  p.count = count, p.rec = rec, p.tl = tl;
+  pm::zmod::tl_colours(p);
+  zfix::options().fpu53 = keep;
+}
+
 // test_pm_clip3d.py: one polygon through clipper `which` (0..5, the exe's
 // order), the buffers rewritten in place. Out: the result, the count, whether
 // each of pos, rec, tl, extra moved to its arena, and how far each arena went.
@@ -573,13 +596,27 @@ int probe_pm_clip3d(int which, float near_z, int count, uint32_t flags, float* p
                     void* shadows, float* a_pos, float* a_rec, float* a_tl, uint8_t* a_extra, int32_t* out) {
   pm::zmod::ClipPoly p;
   p.pos = pos, p.rec = rec, p.tl = tl, p.extra = extra, p.flags = flags, p.count = count;
-  p.shadows = static_cast<pm::zmod::ClipShadows*>(shadows);
+  // The exe's record (0x2358 bytes) to the port's growing sets, and back after.
+  auto* raw = static_cast<uint8_t*>(shadows);
+  pm::zmod::ClipShadows sets;
+  std::memcpy(&sets.count, raw, 4);
+  std::memcpy(sets.kind, raw + 0x20, 0x1c);
+  for (int k = 0; k < 7; ++k) {
+    sets.xyz[k].resize(64 * 3), sets.uv[k].resize(64 * 2);
+    std::memcpy(sets.xyz[k].data(), raw + 0x3c + k * 0x300, 0x300);
+    std::memcpy(sets.uv[k].data(), raw + 0x1558 + k * 0x200, 0x200);
+  }
+  p.shadows = &sets;
   pm::zmod::Clip3dState& s = pm::zmod::clip3d_state();
   s.near_z = near_z, s.arena_pos = a_pos, s.arena_rec = a_rec, s.arena_tl = a_tl, s.arena_extra = a_extra;
   int (*const fn[6])(pm::zmod::ClipPoly&) = {pm::zmod::clip3d_plain,           pm::zmod::clip3d_lit,
                                              pm::zmod::clip3d_textured,        pm::zmod::clip3d_textured_lit,
                                              pm::zmod::clip3d_textured_shadow, pm::zmod::clip3d_textured_lit_shadow};
   out[0] = fn[which](p);
+  for (int k = 0; k < 7; ++k) {
+    std::memcpy(raw + 0x3c + k * 0x300, sets.xyz[k].data(), 0x300);
+    std::memcpy(raw + 0x1558 + k * 0x200, sets.uv[k].data(), 0x200);
+  }
   out[1] = p.count;
   out[2] = p.pos != pos, out[3] = p.rec != rec, out[4] = p.tl != tl, out[5] = p.extra != extra;
   out[6] = static_cast<int32_t>(s.arena_pos - a_pos), out[7] = static_cast<int32_t>(s.arena_rec - a_rec);

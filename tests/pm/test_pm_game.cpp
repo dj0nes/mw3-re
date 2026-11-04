@@ -26,6 +26,7 @@
 #include "pm/gamez/zutil/zutl_zar.h"
 #include "gamez/zinterp/zinterp.h"
 #include "pm/gamez/zimage/zimg_texture.h"
+#include "pm/gamez/zmodel/gmod_clip3d.h"
 #include "pm/pm_game.h"
 
 namespace {
@@ -441,4 +442,40 @@ TEST(pm_light_map_texture_is_pms_alone) {
   EXPECT(pm::zimg::light_map() == nullptr);
   ::zint::engine() = keep;
   zgame::set_game(zgame::mw3_table());
+}
+
+// FIX (bug), the port alone (the exe overruns its 64-vertex scratch here): the
+// worst polygon, 1,023 vertices zigzagging across the near plane, comes out
+// whole at 1,534 with every vertex in place, on the clipper carrying the most.
+TEST(pm_clip3d_keeps_the_largest_polygon_whole) {
+  constexpr int kIn = 1023, kOut = 1534;
+  std::vector<float> pos(kIn * 3), rec(kIn * 8), tl(kIn * 8), a_pos(kOut * 3), a_rec(kOut * 8), a_tl(kOut * 8);
+  std::vector<uint8_t> extra(kIn), a_extra(kOut);
+  pm::zmod::ClipShadows sets;
+  sets.count = 7;
+  for (int s = 0; s < 7; ++s) {
+    sets.kind[s] = 2;
+    sets.uv[s].assign(kIn * 2, 0.5f);
+    sets.xyz[s].assign(kIn * 3, 2.0f);
+  }
+  for (int i = 0; i < kIn; ++i) {
+    pos[i * 3] = static_cast<float>(i), pos[i * 3 + 2] = i % 2 ? -2.0f : 2.0f;  // odd: behind
+    for (int k = 0; k < 8; ++k) rec[i * 8 + k] = 7.0f;
+    tl[i * 8 + 6] = tl[i * 8 + 7] = 3.0f;
+  }
+  pm::zmod::ClipPoly p;
+  p.pos = pos.data(), p.rec = rec.data(), p.tl = tl.data(), p.extra = extra.data(), p.shadows = &sets, p.count = kIn;
+  pm::zmod::Clip3dState& s = pm::zmod::clip3d_state();
+  s.near_z = 0, s.arena_pos = a_pos.data(), s.arena_rec = a_rec.data(), s.arena_tl = a_tl.data(), s.arena_extra = a_extra.data();
+  EXPECT(pm::zmod::clip3d_textured_lit_shadow(p) == 1);
+  EXPECT(p.count == kOut && p.pos == a_pos.data() && s.arena_pos == a_pos.data() + kOut * 3);
+  int on_plane = 0, in_front = 0, wrong = 0;
+  for (int i = 0; i < kOut; ++i) {
+    on_plane += a_pos[i * 3 + 2] == 0.0f, in_front += a_pos[i * 3 + 2] == 2.0f;
+    wrong += a_rec[i * 8] != 7.0f || a_tl[i * 8 + 7] != 3.0f;
+    for (int k = 0; k < 7; ++k) wrong += sets.uv[k][i * 2 + 1] != 0.5f || sets.xyz[k][i * 3 + 2] != 2.0f;
+  }
+  EXPECT(on_plane == 1022 && in_front == 512 && wrong == 0);
+  EXPECT(sets.uv[6].size() == kOut * 2 && sets.xyz[6].size() == kOut * 3);
+  std::printf("  pm clip3d: %d in, %d out: %d cuts, %d in front\n", kIn, p.count, on_plane, in_front);
 }

@@ -1,22 +1,22 @@
 #pragma once
 #include <cstdint>
+#include <vector>
 
 // C:\zipper\branchep1\gamez\zModel\gmod_matl.c: PM's camera-space near clippers
 // for the Direct3D model draw 0x00543b10 (docs/pm-map.md, gmod_matl.c). Not
 // MW3's six (gamez/zmodel/gmod_clip3d): no far reject, the near plane only.
 namespace pm::zmod {
 
-// The projected-shadow sets of a polygon, 0x2358 bytes (one per polygon, from
-// the draw's arena [0x00a4cfa4]).
+// The projected-shadow sets of a polygon. FIX (bug): the exe's record is 0x2358
+// bytes from the draw's arena [0x00a4cfa4], 64 vertices a set (count +0x00, kind
+// +0x20, xyz +0x3c, uv +0x1558), which a shipped 313-vertex polygon overruns; 1,536
+// a set would be 220 MB of arena, so each set grows as it needs (fixes.md).
 struct ClipShadows {
-  int32_t count = 0;       // +0x00
-  int32_t x04[7] = {};
-  int32_t kind[7] = {};    // +0x20  2: the set has xyz as well
-  float xyz[7][64][3] = {};  // +0x3c
-  int32_t x153c[7] = {};
-  float uv[7][64][2] = {};   // +0x1558
+  int32_t count = 0;
+  int32_t kind[7] = {};  // 2: the set has xyz as well
+  std::vector<float> xyz[7];  // 3 a vertex
+  std::vector<float> uv[7];   // 2 a vertex
 };
-static_assert(sizeof(ClipShadows) == 0x2358);
 
 // What the clippers read of the draw's polygon record (0x38 bytes in the exe).
 struct ClipPoly {
