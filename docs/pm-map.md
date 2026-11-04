@@ -1271,6 +1271,18 @@ functions PM changed, and PM's new ones.
      the valves' animation hooks; PM's c1 does (m1, sa1, sa4: `launch_sl_dropship`, the dropship's take-off,
      defined in `reader.zbd`'s `dropship_launch.zrd`). Wired now as the mission's own start animation. c1m1
      launches it at 240 s with the player near the dropship, else at 500 s.
+     **Looked at (2026-11-04; c1m1 idle, the player's start view facing north, `--frame-ms 33`, frames
+     15,160..16,200, 8:18 to 8:52): the launch draws wrong.** Its smoke is solid white squares (a trail
+     climbing behind the dome at 8:51, puffs near the ground at 8:18); the dome in front is not the
+     dropship and does not move. Cause, from the code: **PM's puffers are not MW3's.** PM's PUFFER_STATE
+     handler (event 42, 0x51bbf0, in the table at 0x639d8c filled by 0x521e0c) reads one more field, flag
+     0x400000 at +0xc0 into the puffer's +0x70 (0x566150), so the number moves to +0xc4 and the textures
+     (timed +0xc8, names +0xd0), colours (+0x1a4) and growth (+0x220) four bytes on; it returns at once
+     when the def's +0xdc is clear, and a node ref of -200 adds the def's +0x80 offset to the translation.
+     The port runs MW3's handler, reads empty names, and every puff gets the default texture. PM's
+     puffer object differs too (its +0x70 is a float the tick 0x565320 reads; MW3's +0x70 is the node), so
+     the fix is PM's puffers as one item: the event, the object, the tick and the draw, with a
+     differential (the MW3 one is `test_puffers`). Every PM animation with smoke or fire is hit.
    - **PM's command table is renumbered** (0x411980's 110 commands against MW3's 105): new `CMD_EJECT`,
      `CMD_HEADLIGHT_TOGGLE` 0x3c, `CMD_SNAPSHOT`, `CMD_TARGET_*_L` (lancemates), no `CMD_LOOK_REAR`, and most ids
      moved (`CMD_MISSION_COMPLETE` 0x79 against 0x71). The port on `pm` still has MW3's table, so its ids agree
@@ -1302,7 +1314,9 @@ functions PM changed, and PM's new ones.
    shipped file has `lodrange` or `subdivide`, so these defaults are what runs, unless a `light%d` block overrides.
    The object: `0x479510` (hardware only, loads `headlight.flt`, the facade mode 2's beam) and `0x4795c0`, class
    vtable 0x5e5bd8: a node `spotlight`, the light `light%d` under it, mech +0x7c holds it (`0x465b9b`, in the mech's
-   load). The toggle: `CMD_HEADLIGHT_TOGGLE` to `0x465dc0`, which flips it by `0x479940` and `0x4799b0`; fading
+   load). In multiplayer (from dev 2, 2026-11-04): the state sync carries the headlight's on/off as bit 31
+   of a mech's synced flags (0x4705e0 compares 0x41f920, on through 0x465df0, and sets it by 0x41f8d0); PM's
+   HUD never reads it. The toggle: `CMD_HEADLIGHT_TOGGLE` to `0x465dc0`, which flips it by `0x479940` and `0x4799b0`; fading
    through `0x479a40`, whose +0x34 scales the light's ambient and diffuse. The AI's: `ai_headlights` of world.zrd
    is read into the mission's +0x30 (`mission_world`); its reader is still to trace. Then the HUD's lamp in step 7.
 7. **Sound and the HUD**: the sound syntax reader (rewritten smaller), the
