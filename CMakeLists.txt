@@ -573,7 +573,8 @@ endif()
 # Pirate's Moon's own code (src/pm/: what PM adds or changes) and its tests,
 # apart from MW3's so a PM change cannot break MW3's suite unseen.
 if(MW3_BUILD_PM)
-  add_library(pmcore STATIC
+  # PM's code and the game are one library on this branch; pmcore stays as a name for it.
+  target_sources(mw3core PRIVATE
     src/pm/pm_game.cpp
     src/pm/gamez/zutil/zutl_zar.cpp
     src/pm/gamez/zreader/zrdr_main.cpp
@@ -592,15 +593,9 @@ if(MW3_BUILD_PM)
     src/pm/gamez/zvideo/zvid_tl.cpp
     src/pm/mech3/mission_world.cpp
     src/pm/gamez/zmodel/gmod_const.cpp
-  )
-  # mechlib (pm-map step 1e)
-  target_sources(pmcore PRIVATE
     src/pm/gamez/zclass/cls_mechlib.cpp
   )
-  target_link_libraries(pmcore PUBLIC mw3core)
-  if(NOT MSVC)
-    target_compile_options(pmcore PRIVATE -ffp-contract=off)
-  endif()
+  add_library(pmcore ALIAS mw3core)
   add_executable(mw3pmtests
     tests/main.cpp
     tests/pm/test_pm_game.cpp
@@ -614,7 +609,6 @@ if(MW3_BUILD_PM)
   add_test(NAME mw3pmtests COMMAND mw3pmtests)
   # PM's ported functions behind a C interface, for the differential tests
   # run against PM's exe (tests/differential/test_pm_*.py).
-  set_target_properties(pmcore PROPERTIES POSITION_INDEPENDENT_CODE ON)
   add_library(pmprobe SHARED tests/probe_pm.cpp)
   target_link_libraries(pmprobe PRIVATE pmcore mw3core)
 endif()
