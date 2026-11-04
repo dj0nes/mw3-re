@@ -27,6 +27,7 @@ import zrd  # noqa: E402
 
 READ, ANIM, WATCH, WATCH2, ZERR, STRDUP_IAT = 0x513030, 0x524b50, 0x5a4d80, 0x5a4dc0, 0x406cb0, '_strdup'
 LISTS, LIST_DIRTY, BEGIN, END, CAP = 0x60db00, 0x60db84, 0x639bf4, 0x639bf8, 0x639bfc
+TEXTURE_NAME = 0xc  # in PM's 0x2c-byte entry
 LOAD_TEMPLATES, TEMPLATE_NAMES, MAP_HEAD, MAP_FIND, MAP_INSERT = 0x5139d0, 0x639c14, 0x639be4, 0x514120, 0x513ed0
 CIFMOD = bytes.fromhex('d9c9 d9f8 dfe0 9e 7afa ddd9 c3')  # _CIfmod: st(1) mod st(0)
 PM = ROOT / 'game' / 'pm'
@@ -181,6 +182,23 @@ CRAFTED = [
 ]
 
 
+class Differences:
+    """How far u and v are from the exe's: the worst and how many are bit-identical."""
+
+    def __init__(self):
+        self.worst, self.same, self.total, self.at = 0.0, 0, 0, None
+
+    def note(self, ra, rb, fa, fb):
+        for i in range(2):
+            self.total += 1
+            self.same += ra[i] == rb[i]
+            if abs(fa[i] - fb[i]) > self.worst:
+                self.worst, self.at = abs(fa[i] - fb[i]), (fa[i], fb[i], f'{ra[i]:08x}', f'{rb[i]:08x}')
+
+
+DIFF = Differences()
+
+
 class World(test_pm_walk.Emulated):
     """0x5139d0 on a world loaded by the exe's own reader. The map at 0x639be0 is the exe's std::map,
     stubbed by a dict: only what goes in it is compared."""
@@ -237,9 +255,9 @@ class World(test_pm_walk.Emulated):
         self.w32(TEMPLATE_NAMES, self.link(names))
         self.call(LOAD_TEMPLATES)
         groups = []
-        for value in self.groups.values():
+        for key, value in self.groups.items():
             head = self.r32(value + 4)
-            items, e = [], self.r32(head)
+            items, e = [self.cstr(key + TEXTURE_NAME).decode('latin1')], self.r32(head)
             while e != head:
                 p = self.r32(e + 8)
                 node = self.r32(p + 8)
@@ -349,7 +367,8 @@ def compare_scenes(probe):
         for i in range(at, len(want), 4):
             a, b = want[i:i + 4], got[i:i + 4]
             fa, fb = struct.unpack('<2f', struct.pack('<2I', *a[:2])), struct.unpack('<2f', struct.pack('<2I', *b[:2]))
-            if a[2:] != b[2:] or max(abs(fa[0] - fb[0]), abs(fa[1] - fb[1])) > 2e-6:
+            DIFF.note(a[:2], b[:2], fa, fb)
+            if a != b:
                 raise SystemExit(f'scene {label}: piece exe {fa} {a[2:]}, port {fb} {b[2:]}')
     print(f'{len(SCENES)} crafted scenes identical')
 
@@ -368,13 +387,15 @@ def compare_world(probe, world, settings, names):
     at += 1
     got = []
     for _ in range(count):
-        size = w[at]
-        at += 1
-        got.append([tuple(w[at + 4 * i:at + 4 * i + 4]) for i in range(size)])
+        size, chars = w[at], w[at + 1]
+        at += 2
+        name = bytes(w[at:at + chars]).decode('latin1')
+        at += chars
+        got.append([name] + [tuple(w[at + 4 * i:at + 4 * i + 4]) for i in range(size)])
         at += 4 * size
     if got_e != want_e:
         raise SystemExit(f'{world}: errors exe {want_e}, port {got_e}')
-    key = lambda items: items[0][2] if items else -1  # noqa: E731
+    key = lambda items: items[1][2] if len(items) > 1 else -1  # noqa: E731
     want, got = sorted(want, key=key), sorted(got, key=key)
     if len(want) != len(got):
         raise SystemExit(f'{world}: {len(want)} textures against {len(got)}')
@@ -382,11 +403,14 @@ def compare_world(probe, world, settings, names):
     for a, b in zip(want, got):
         if len(a) != len(b):
             raise SystemExit(f'{world}: {len(a)} pieces against {len(b)}')
-        for x, y in zip(a, b):
+        if a[0] != b[0]:
+            raise SystemExit(f'{world}: a group on texture {a[0]} in the exe, {b[0]} in the port')
+        for x, y in zip(a[1:], b[1:]):
             pieces += 1
             fx = struct.unpack('<2f', struct.pack('<2I', *x[:2]))
             fy = struct.unpack('<2f', struct.pack('<2I', *y[:2]))
-            if x[2:] != y[2:] or max(abs(fx[0] - fy[0]), abs(fx[1] - fy[1])) > 2e-6:
+            DIFF.note(x[:2], y[:2], fx, fy)
+            if x != y:
                 raise SystemExit(f'{world}: piece of node {x[2]}: exe {fx} {x[2:]}, port {fy} {y[2:]}')
     return len(want), pieces, len(want_e)
 
@@ -429,6 +453,7 @@ def main():
         textures, pieces, errors = compare_world(probe, world, settings, names)
         print(f'{world}: {textures} textures, {pieces} pieces, {errors} errors, from {names}')
     compare_scenes(probe)
+    print(f'u, v: {DIFF.same} of {DIFF.total} bit-identical, worst difference {DIFF.worst:g} {DIFF.at}')
 
 
 if __name__ == '__main__':

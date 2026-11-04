@@ -1930,6 +1930,9 @@ int probe_pm_clutter_nodes(const char* world, const char* settings, const char* 
   word(static_cast<uint32_t>(pm::zcls::clutter_pieces().size()));
   for (const auto& [texture, pieces] : pm::zcls::clutter_pieces()) {
     word(static_cast<uint32_t>(pieces.size()));
+    const std::string texture_name = texture ? texture->name : "";
+    word(static_cast<uint32_t>(texture_name.size()));
+    for (const char c : texture_name) word(static_cast<uint8_t>(c));
     for (const pm::zcls::ClutterPiece& p : pieces) {
       uint32_t v;
       std::memcpy(&v, &p.u, 4), word(v);
