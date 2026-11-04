@@ -35,13 +35,14 @@ keeps its log here, so it can pick up after a compaction by reading it.
     run the tests of the code you changed: its module's units and program
     tests by name, the differential tests of the functions changed, every
     test importing a changed harness, and the break tests. A PM change in
-    one area (say its controls) runs that area's tests only. The full
-    `mw3tests` / `mw3sdltests` run only when shared code changed (a
-    `src/gamez/` header or type both games use, zfix, the program's main
-    loop or input/render layers), and then once per lead batch, not per
-    branch. The campaign runs only for loading or play changes. The lead
-    does not rerun what the dev ran on the same tree; the lead runs the
-    combined batch once before a merge to main or a tag. While
+    one area (say its controls) runs that area's tests only, and PM work
+    never needs the full MW3 suite. A change to shared code runs the tests
+    of the code that uses it, not the whole suite: a change to the controls
+    runs no polygon tests. The full `mw3tests` / `mw3sdltests` (over an
+    hour) run only before tagging a release (Owen, 2026-11-03). The campaign
+    runs only for loading or play changes. The lead does not rerun what the
+    dev ran on the same tree; before a merge to main the lead runs the tests
+    the combined batch affects. While
     iterating, `MW3_SKIP=headless ./build/mw3tests` runs the units in under
     a second, and `MW3_TEST=name` runs one test by name.
   - Keep each test run short (Owen, 2026-10-22: runs of 10 to 20+ minutes
