@@ -63,6 +63,7 @@ struct World;
 // Called for each pending area entry by 0x004f1df0; the port of 0x004f18a0
 // (the cell's height range and sphere) unless a test sets another.
 using AreaUpdate = int (*)(World* world, uint32_t* entry);
-void set_area_update(AreaUpdate fn);  // null: the port
+void set_area_update(AreaUpdate fn);  // null: the running game's
+int mw3_area_update(World* world, uint32_t* entry);  // 0x004f18a0
 
 }  // namespace zcls

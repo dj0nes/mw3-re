@@ -10,7 +10,9 @@
 #include "gamez/zclass/cls_world.h"
 #include "gamez/zclass/list.h"
 #include "gamez/zerror/zerr.h"
+#include "gamez/zclass/cls_util.h"
 #include "gamez/zmath/zmth_matrix.h"
+#include "pm/gamez/zclass/cls_clutter.h"
 
 namespace pm::zcls {
 
@@ -216,6 +218,88 @@ int world_link_node(Node* world, Node* node, const float box[6], const int16_t r
   store_range(node, range);
   add_parent(node, world);
   return ::zcls::world_touch_cell(world, x, z);
+}
+
+int world_cell_update(World*, uint32_t* entry) {
+  auto* p = reinterpret_cast<Partition*>(entry);
+  const uint32_t before = p->get<uint32_t>(0);
+  p->put<uint32_t>(0, before & ~0x100u);
+  const int count = p->get<int16_t>(0x3a);
+  CellClutter* records = p->pm_clutter ? cell_clutter(*p) : nullptr;
+  const int nrec = p->get<int32_t>(0x40);
+  if (count == 0 && nrec == 0) {
+    if (p->get<uint32_t>(0) & 0x100) ::zcls::box_sphere(p->floats(0x10), p->floats(0x28), p->floats(0x34));
+    return 0;
+  }
+  int i = 0;
+  for (; i < count; ++i) {
+    if (p->nodes[i]->flags() & 0x100) {
+      p->put<uint32_t>(0, (before & ~0x100u) | 0x100);
+      p->put<float>(0x14, p->pm_y[i][0]), p->put<float>(0x20, p->pm_y[i][1]);
+      ++i;
+      break;
+    }
+  }
+  for (; i < count; ++i) {
+    if (p->nodes[i]->flags() & 0x100) {
+      if (p->pm_y[i][0] < p->get<float>(0x14)) p->put<float>(0x14, p->pm_y[i][0]);
+      if (p->get<float>(0x20) < p->pm_y[i][1]) p->put<float>(0x20, p->pm_y[i][1]);
+    }
+  }
+  if (nrec > 0 && records) {
+    for (ClutterRecord& r : *records) {
+      if (r.flags & 4) {
+        r.flags &= ~4u;
+        p->put<uint32_t>(0, p->get<uint32_t>(0) | 0x40000);
+      }
+    }
+  }
+  float* range = reinterpret_cast<float*>(p->pm_tail);  // PM +0x48, +0x4c: the records' y range
+  if ((p->get<uint32_t>(0) & 0x40000) && records) {
+    const auto y_of = [](const ClutterRecord& r, float* lo, float* hi) {
+      const float* m = r.matrix.m;
+      const float* b = r.node->pm_box;
+      float l, h, l2, h2, l3, h3;
+      if (m[1] < 0.0f) l = b[3] * m[1], h = m[1] * b[0];
+      else l = m[1] * b[0], h = b[3] * m[1];
+      if (m[4] < 0.0f) l2 = b[4] * m[4], h2 = b[1];
+      else l2 = b[1] * m[4], h2 = b[4];
+      if (m[7] < 0.0f) l3 = b[5] * m[7], h3 = b[2];
+      else l3 = b[2] * m[7], h3 = b[5];
+      *lo = l3 + l2 + l + m[10];
+      *hi = h3 * m[7] + h2 * m[4] + h + m[10];
+    };
+    const int total = static_cast<int>(records->size());
+    int first = 0;
+    for (; first < total; ++first) {
+      const ClutterRecord& r = (*records)[static_cast<size_t>(first)];
+      if (!(r.flags & 1) && (r.node->flags() & 0x100)) {
+        y_of(r, &range[0], &range[1]);
+        break;
+      }
+    }
+    // As the exe: the rest starts over at the first found but counts from past it, so the last
+    // record is not looked at.
+    if (first < total) {
+      const int steps = total - (first + 1);
+      for (int k = 0; k < steps; ++k) {
+        const ClutterRecord& r = (*records)[static_cast<size_t>(first + k)];
+        if ((r.flags & 1) || !(r.node->flags() & 0x100)) continue;
+        float lo, hi;
+        y_of(r, &lo, &hi);
+        if (lo < range[0]) range[0] = lo;
+        if (range[1] < hi) range[1] = hi;
+      }
+    }
+    records->tree.clear();
+    p->put<uint32_t>(0, p->get<uint32_t>(0) & ~0x40000u);
+  }
+  if (nrec > 0) {
+    if (range[0] < p->get<float>(0x14)) p->put<float>(0x14, range[0]);
+    if (p->get<float>(0x20) < range[1]) p->put<float>(0x20, range[1]);
+  }
+  if (p->get<uint32_t>(0) & 0x100) ::zcls::box_sphere(p->floats(0x10), p->floats(0x28), p->floats(0x34));
+  return 0;
 }
 
 int node_bound_box(Node* node) {

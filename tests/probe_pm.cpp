@@ -33,6 +33,7 @@
 #include "gamez/zutil/zutl_path.h"
 #include "gamez/zutil/zutl_zar.h"
 #include "gamez/zclass/cls_data.h"
+#include "gamez/zclass/cls_world.h"
 #include "gamez/zclass/cls_node.h"
 #include "gamez/zclass/list.h"
 #include "gamez/zclass/sound.h"
@@ -2057,11 +2058,8 @@ int probe_pm_clutter_lay(const char* world, const char* dir, const char* archive
   zrdr::close_archives(true);
   zrdr::init();
   if (!zrdr::open_archive(archive, true)) return -2;
-  static int s_changed;
-  s_changed = 0;
   pm::zcls::ClutterHooks& h = pm::zcls::clutter_hooks();
   h = {};
-  h.cell_changed = [](::zcls::Node*, ::zcls::Partition*) { ++s_changed; };
   h.ground_heights = [](::zcls::Node*, float x, float y, float z, float* heights, int) -> int {
     uint32_t bx, by, bz;
     std::memcpy(&bx, &x, 4), std::memcpy(&by, &y, 4), std::memcpy(&bz, &z, 4);
@@ -2110,7 +2108,7 @@ int probe_pm_clutter_lay(const char* world, const char* dir, const char* archive
       }
     }
   }
-  out[0] = static_cast<uint32_t>(crt::msvc_rand()), out[1] = static_cast<uint32_t>(s_changed), out[2] = static_cast<uint32_t>(count);
+  out[0] = static_cast<uint32_t>(crt::msvc_rand()), out[1] = 0, out[2] = static_cast<uint32_t>(count);
   return n;
 }
 
@@ -2379,6 +2377,42 @@ int probe_pm_world_lists(uint32_t* out, int cap) {
   for (int i = 0; i < wn->child_count(); ++i) word(static_cast<uint32_t>(walk_node_index(wn->children[i])));
   word(static_cast<uint32_t>(w->get<int32_t>(4)));
   word(wn->flags()), word(wn->get<uint32_t>(0x2c));
+  return n;
+}
+
+}  // extern "C"
+
+extern "C" {
+
+// The world's pending cells (0x005xxxxx, world_push_fog's end), for test_pm_world_box.py and test_pm_clutter.py.
+// A record's turn set, so its y range takes the negative branches the shipped records never do.
+void probe_pm_clutter_poke(int x, int z, int i, float m1, float m4, float m7, int gone) {
+  auto* w = static_cast<::zcls::World*>(::zcls::camera_world(walk_camera())->data);
+  pm::zcls::ClutterRecord& r = (*pm::zcls::cell_clutter(w->rows[z][x]))[static_cast<size_t>(i)];
+  r.matrix.m[1] = m1, r.matrix.m[4] = m4, r.matrix.m[7] = m7;
+  if (gone) r.flags |= 1, r.matrix.m[10] = 5000.0f;  // far above: the range shows if it is counted
+}
+void probe_pm_cell_touch(int x, int z) { ::zcls::world_touch_cell(::zcls::camera_world(walk_camera()), x, z); }
+void probe_pm_world_mark() {
+  static_cast<::zcls::World*>(::zcls::camera_world(walk_camera())->data)->put<uint32_t>(0, 0x40);
+}
+void probe_pm_world_update() { ::zcls::world_push_fog(::zcls::camera_world(walk_camera())); }
+
+// Each cell's flags, y range and sphere, z then x.
+int probe_pm_cell_state(uint32_t* out, int cap) {
+  auto* w = static_cast<::zcls::World*>(::zcls::camera_world(walk_camera())->data);
+  int n = 0;
+  const auto word = [&](uint32_t v) { if (n < cap) out[n] = v; ++n; };
+  for (int z = 0; z < w->get<int32_t>(0x8c); ++z) {
+    for (int x = 0; x < w->get<int32_t>(0x88); ++x) {
+      const ::zcls::Partition& p = w->rows[z][x];
+      word(p.get<uint32_t>(0));
+      for (int o : {0x14, 0x20, 0x28, 0x2c, 0x30, 0x34}) word(p.get<uint32_t>(o));
+      uint32_t tail[2];  // PM +0x48, +0x4c: the records' y range
+      std::memcpy(tail, p.pm_tail, 8);
+      word(tail[0]), word(tail[1]);
+    }
+  }
   return n;
 }
 

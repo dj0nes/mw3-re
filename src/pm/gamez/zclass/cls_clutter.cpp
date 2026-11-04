@@ -352,7 +352,7 @@ void place(const pm::zmod::Model* model, const pm::zmod::Polygon* poly, uint32_t
       cell.put<int32_t>(0x40, cell.get<int32_t>(0x40) + 1);
       const uint32_t flags = cell.get<uint32_t>(0);
       cell.put<uint32_t>(0, flags | 0x40000);
-      if (!(flags & 1) && g_hooks.cell_changed) g_hooks.cell_changed(g_lay.world_node, &cell);
+      if (!(flags & 1)) ::zcls::world_touch_cell(g_lay.world_node, cx, cz);  // 0x005043d0
     }
   }
 }

@@ -12,6 +12,10 @@ namespace pm::zcls {
 // (pm_box), +0x74 only for the union; each world parent refiles the node.
 int node_bound_box(::zcls::Node* node);
 
+// Pirate's Moon 1.0 @ 0x00504a40 (the pending cell): the cell's height range from its nodes' y ranges and,
+// when its records changed, theirs; the records' flag 4 cleared, the tree dropped to be built anew.
+int world_cell_update(::zcls::World* world, uint32_t* entry);
+
 void world_box_range(const ::zcls::World* w, const float box[6], int16_t range[4]);  // 0x00505300
 int world_touch_node(::zcls::Node* world, ::zcls::Node* node, const float box[6]);   // 0x00505550
 int world_remove_node(::zcls::Node* world, ::zcls::Node* node);                      // 0x00506000

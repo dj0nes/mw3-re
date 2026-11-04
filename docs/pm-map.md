@@ -378,9 +378,15 @@ Left for the world class:
 - The box writer is ported (`pm/gamez/zclass/cls_world`, 0x4fe740 with 0x505300, 0x505550, 0x506000, 0x505c80,
   0x4fd8d0, 0x4ff660; `test_pm_world_box.py`, through the table's `zcls_node_bound_box`): +0x70 points at the box it
   chose, +0x74 only for the union of two, and `node_box` follows it. A LoD's scale multiplies the chosen box in
-  place, so that box grows at every call past a scale of 1. A node fitting one cell is on its list with a y range; a
+  place, so that box would grow at every call past a scale of 1. It cannot happen on shipped data: all 743 LoDs of
+  the four worlds have 0, 0, 0 there, and mechlib has none (2026-11-04). Whether anything sets them at run time was not
+  searched for. A node fitting one cell is on its list with a y range; a
   node across more is among the world's children with the range kept. `node_box_xz` and two more reads of +0x74
-  in `class.cpp` have not met PM's nodes. The rest of the class (the update 0x504a40, the free, zones) is next.
+  in `class.cpp` have not met PM's nodes. The cell's update is ported (0x504a40, `world_cell_update`, through the table's `zcls_area_update`; 0x504fb0 runs it
+  on the pending cells): the height from the nodes' y ranges and, when its records changed, theirs, then the tree
+  dropped to be built anew. A quirk kept: the records' second loop starts over at the first found but counts from past
+  it, so the cell's last record is not looked at. Compared in `test_pm_world_box.py` and `test_pm_clutter.py`. The laying
+  queues its cells for real now (0x5043d0). The free and zones are next.
 - `shadow_model_morphed` reads `node->model` and so returns on a PM node, safely,
   without casting: to route in phase 4.
 
@@ -1118,8 +1124,7 @@ functions PM changed, and PM's new ones.
        them changes no draw. The gate [0x60d968] is not ported: 1 in the exe's data, and nothing writes it.
        `mw3pm --fly` loads it as a mission does (no ground test): rocks and small props on the ground in
        `--fly c2 --pos 1536 40 -1792 --look 0 15` and `--fly c3 --pos 1792 25 -896 --look 180 5`; no original compared.
-       The world's update (0x504a40) rebuilds the
-       tree and takes in records' flag 4; it comes with the world class. The rest is not ported
+       The world's update (0x504a40) drops the tree and takes in records' flag 4; below. The rest is not ported
        (0x5106b0..0x514b90, 65 functions, ~3,500 lines of pseudocode). Scattered props laid on the ground by its material. **It waits for the interpreter
        and the mission load**: its template names come from the script command `AddClutterTemplates`
        (0x512fd0, from 0x5b2e15, a list at [0x639c14]). The load (0x492f8c.., unless `-noclutter`,

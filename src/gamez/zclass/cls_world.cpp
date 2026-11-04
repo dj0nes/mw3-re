@@ -1,4 +1,5 @@
 #include "gamez/zclass/cls_world.h"
+#include "gamez/zgame/zgame_table.h"
 
 #include <cmath>
 #include <cstdio>
@@ -18,14 +19,14 @@
 namespace zcls {
 
 namespace {
-int area_update(World* w, uint32_t* entry);
-AreaUpdate g_area_update = area_update;
+int area_update_of_game(World* w, uint32_t* entry) { return zgame::game().zcls_area_update(w, entry); }
+AreaUpdate g_area_update = area_update_of_game;
 
 World* world_of(Node* n) { return static_cast<World*>(n->data); }
 void mark(World* w, uint32_t bit) { w->put<uint32_t>(0, w->get<uint32_t>(0) | bit); }
 }  // namespace
 
-void set_area_update(AreaUpdate fn) { g_area_update = fn ? fn : area_update; }
+void set_area_update(AreaUpdate fn) { g_area_update = fn ? fn : area_update_of_game; }
 
 // Mech3.exe 1.2 @ 0x004f23e0
 int world_set_fog_type(Node* world, uint32_t type) {
@@ -614,11 +615,13 @@ void node_y_range(Node* n, float& lo, float& hi) {
   }
 }
 
+}  // namespace
+
 // Mech3.exe 1.2 @ 0x004f18a0 (EDX the partition): the cell's height range
 // (+0x14 min y, +0x20 max y) from its nodes with boxes, else its fade
 // entries, then its sphere (+0x28 centre, +0x34 radius). Flag 0x100: the
 // range is set.
-int area_update(World*, uint32_t* entry) {
+int mw3_area_update(World*, uint32_t* entry) {
   auto* p = reinterpret_cast<Partition*>(entry);  // the pending list holds &raw, at +0
   uint32_t flags = p->get<uint32_t>(0) & ~0x100u;
   p->put<uint32_t>(0, flags);
@@ -682,6 +685,5 @@ int area_update(World*, uint32_t* entry) {
   }
   return 0;
 }
-}  // namespace
 
 }  // namespace zcls

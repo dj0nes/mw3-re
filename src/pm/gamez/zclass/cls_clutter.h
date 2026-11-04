@@ -50,8 +50,6 @@ struct ClutterHooks {
   void (*watch_hits)(::zcls::Node* node) = nullptr;
   // 0x004ff8d0 on PM's models, not ported yet: the ground's heights at a point, or -1 on failure.
   int (*ground_heights)(::zcls::Node* world, float x, float y, float z, float* heights, int max) = nullptr;
-  // 0x005043d0, the cell's box, not ported yet.
-  void (*cell_changed)(::zcls::Node* world, ::zcls::Partition* cell) = nullptr;
   // 0x005216e0 (anim, 0, x, y, z, 0 ...): an animation at a point.
   void (*anim_start)(void* anim, const float point[3]) = nullptr;
 };
