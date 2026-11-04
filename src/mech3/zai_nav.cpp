@@ -505,6 +505,18 @@ Find find_path(Grid& g, const float from[3], const float to[3], Way* out) {
   for (const int margin : kWindows) {
     const int x0 = std::min(fx, tx) - margin, x1 = std::max(fx, tx) + margin;
     const int z0 = std::min(fz, tz) - margin, z1 = std::max(fz, tz) + margin;
+    // No answer from part of a window: ground not built yet reads as a wall,
+    // and a path round that is a wrong one.
+    bool missing = false;
+    for (int tz2 = tile_of(z0); tz2 <= tile_of(z1) && !missing; ++tz2)
+      for (int tx2 = tile_of(x0); tx2 <= tile_of(x1) && !missing; ++tx2) {
+        auto it = g.all().find(Grid::key(tx2, tz2));
+        missing = it == g.all().end() || !it->second->done();
+      }
+    if (missing) {
+      ask_tiles(g, x0, z0, x1, z1);
+      return Find::kBuilding;
+    }
     const int w = x1 - x0 + 1, h = z1 - z0 + 1;
     auto idx = [&](int x, int z, int l) { return ((z - z0) * w + (x - x0)) * kLevels + l; };
     std::vector<float> cost(static_cast<size_t>(w) * h * kLevels, 1e30f);
@@ -555,17 +567,6 @@ Find find_path(Grid& g, const float from[3], const float to[3], Way* out) {
       std::reverse(cells.begin(), cells.end());
       break;
     }
-    // No way over what is built: this window's tiles asked for before a wider one.
-    bool missing = false;
-    for (int tz2 = tile_of(z0); tz2 <= tile_of(z1) && !missing; ++tz2)
-      for (int tx2 = tile_of(x0); tx2 <= tile_of(x1) && !missing; ++tx2) {
-        auto it = g.all().find(Grid::key(tx2, tz2));
-        missing = it == g.all().end() || !it->second->done();
-      }
-    if (missing) {
-      ask_tiles(g, x0, z0, x1, z1);
-      return Find::kBuilding;
-    }
   }
   if (!found) return Find::kNone;
   // String-pulled: from each point the farthest one in a clear line.
@@ -591,16 +592,25 @@ Find find_path(Grid& g, const float from[3], const float to[3], Way* out) {
 
 namespace {
 // What stands still and may change: the world's object3ds that are no mech's
-// or vehicle's, by their world matrix and whether they are there at all.
+// or vehicle's, by their world matrix and whether they are there at all. A
+// node's slot outlives it: `data` tells a freed one (a building brought down).
 struct Watched {
   zcls::Node* node;
+  void* data;
   float m[12];
   uint32_t on;
+  float box[4];  // where it was: x0, z0, x1, z1
 };
 constexpr uint32_t kThere = 0x4 | 0x10;  // node flags: active, intersect
 std::vector<Watched>& watched() {
   static std::vector<Watched> w;
   return w;
+}
+bool watch_box(zcls::Node* n, float box[4]) {
+  float x[6];
+  if (zcls::node_box_extent_xz(n, x) != 0) return false;
+  box[0] = x[0], box[1] = x[2], box[2] = x[3], box[3] = x[5];
+  return true;
 }
 void watch_begin() {
   std::vector<Watched>& w = watched();
@@ -612,36 +622,49 @@ void watch_begin() {
       if (!n.data || n.cls() != 5 || !(n.flags() & 0x80000) || !(n.flags() & 0x100)) continue;
       const void* owner = node_entity(&n);
       if (owner && (entity_is_mech(owner) || is_program_vehicle(owner))) continue;
-      Watched e{&n, {}, n.flags() & kThere};
+      Watched e{&n, n.data, {}, n.flags() & kThere, {}};
+      if (!watch_box(&n, e.box)) continue;
       std::memcpy(e.m, static_cast<zcls::Object3d*>(n.data)->floats(0x60), sizeof e.m);
       w.push_back(e);
     }
 }
 void watch_look(Grid& g, float now) {
-  for (Watched& e : watched()) {
+  std::vector<Watched>& w = watched();
+  for (size_t i = 0; i < w.size();) {
+    Watched& e = w[i];
+    if (e.node->data != e.data || e.node->cls() != 5) {  // gone: the way may be open
+      g.refresh(e.box[0], e.box[1], e.box[2], e.box[3], now);
+      e = w.back();
+      w.pop_back();
+      continue;
+    }
+    ++i;
     const float* m = static_cast<zcls::Object3d*>(e.node->data)->floats(0x60);
     const uint32_t on = e.node->flags() & kThere;
     if (on == e.on && std::memcmp(m, e.m, sizeof e.m) == 0) continue;
     std::memcpy(e.m, m, sizeof e.m);
     e.on = on;
-    float x[6];
-    if (zcls::node_box_extent_xz(e.node, x) == 0) g.refresh(x[0], x[2], x[3], x[5], now);
+    // Where it was and where it is now.
+    g.refresh(e.box[0], e.box[1], e.box[2], e.box[3], now);
+    if (watch_box(e.node, e.box)) g.refresh(e.box[0], e.box[1], e.box[2], e.box[3], now);
   }
 }
+float g_watch_t = -1e30f;
 }  // namespace
+
+void restart() {
+  Grid& g = grid();
+  g.reset(&zcls_world());
+  watched().clear();
+  dump_paths().clear();
+  if (world_hooks().world) watch_begin();
+  g_watch_t = -1e30f;
+}
 
 void service(float now, double budget_us) {
   Grid& g = grid();
-  if (g.world() != &zcls_world() || (world_hooks().world == nullptr && g.tiles())) g.reset(&zcls_world());
-  static const zcls::Node* world_seen = nullptr;
-  static float watch_t = -1e30f;
-  if (world_hooks().world != world_seen) {
-    world_seen = world_hooks().world, g.reset(&zcls_world());
-    watched().clear();
-    if (world_seen) watch_begin();
-    watch_t = now;
-  }
-  if (now - watch_t >= 1.0f || now < watch_t) watch_t = now, watch_look(g, now);
+  if (g.world() != &zcls_world()) restart();
+  if (now - g_watch_t >= 1.0f || now < g_watch_t) g_watch_t = now, watch_look(g, now);
   static int32_t shapes = 0;
   if (inout_changes() != shapes) shapes = inout_changes(), g.forget_avoid();
   g.release(now);
@@ -679,13 +702,26 @@ bool on_for(bool ally) {
   return ally ? o.nav_allies : o.nav_enemies;
 }
 
-bool Follower::step(const float pos[3], const float to[3], float now, float dt, float out[3], bool must_find) {
+bool Follower::step(const float pos[3], const float to[3], float now, float dt, float out[3], bool must_find, float reach) {
   Grid& g = grid();
   if (now < fallback_until) return false;
   const float flat = std::hypot(to[0] - pos[0], to[2] - pos[2]);
   if (flat < 8.0f && std::fabs(to[1] - pos[1]) < kHead) return path.clear(), false;
   // The straight way first: on open ground the exe's walk, untouched.
-  const bool straight = !must_find && line_clear_avoiding(g, pos, to);
+  // Watched while it walks (a corner, a slope), the grid's from then on.
+  const bool should_walk = !(reach > 1.0f && flat <= reach * 1.25f);  // not while he waits in his band
+  if (!should_walk || std::hypot(pos[0] - line_pos[0], pos[2] - line_pos[1]) > 2.0f || now - line_t > 6.0f) {
+    line_t = now, line_pos[0] = pos[0], line_pos[1] = pos[2];
+  } else if (now - line_t > 3.0f && path.empty()) {
+    grid_until = now + 10.0f, line_t = now;
+  }
+  const bool grids_turn = must_find || now < grid_until;
+  float near_it[3] = {to[0], to[1], to[2]};
+  if (reach > 1.0f && flat > reach && std::fabs(to[1] - pos[1]) < kHead) {
+    const float f = 1.0f - reach / flat;
+    for (int i = 0; i < 3; ++i) near_it[i] = pos[i] + (to[i] - pos[i]) * f;
+  }
+  const bool straight = !grids_turn && line_clear(g, pos, near_it);
   if (straight && path.empty()) return false;
   if (straight && g.built(cell_of(pos[0]), cell_of(pos[2]))) {
     path.clear();
@@ -700,7 +736,9 @@ bool Follower::step(const float pos[3], const float to[3], float now, float dt, 
   // A path, new or again: the goal moved 15 m, every 2 s, or none yet.
   const bool moved = std::hypot(to[0] - goal[0], to[2] - goal[1]) > 15.0f;
   if (none_version == g.version && now < none_until && std::hypot(to[0] - none_goal[0], to[2] - none_goal[1]) < 50.0f) return false;
-  const bool changed = found_version != g.version && now - found_t > 2.0f;
+  // The world changed under the path: a new one only if the way on is shut.
+  const bool changed = found_version != g.version && now - found_t > 2.0f && !path.empty() && !line_clear(g, pos, path[at].data());
+  if (found_version != g.version && !changed) found_version = g.version;
   if ((path.empty() || moved || changed || found_t < -1e8f) && now - last_ask >= 0.5f) {
     last_ask = now;
     Way p;

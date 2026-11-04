@@ -87,6 +87,7 @@
 #include "mech3/player_view.h"
 #include "mech3/mech3_interp.h"
 #include "mech3/mission.h"
+#include "gamez/zutil/zfix.h"
 #include "mech3/zai_attack.h"
 #include "mech3/zai_nav.h"
 #include "mech3/mech_config.h"
@@ -2803,6 +2804,7 @@ void hook_census_report(const char* key) {
 // Ours (W58, docs/lancemate-pathing.md): as play starts, the 3 x 3 tiles
 // round the player built when a pilot uses the grid (the lance starts by him).
 void GameEngine::nav_prebuild() {
+  if (zfix::options().bugs) ai::nav::restart();
   void* p = mech_mission_player();
   if (!p) return;
   int32_t made = 0;
@@ -2813,7 +2815,6 @@ void GameEngine::nav_prebuild() {
   float pos[3];
   mech_world_position(p, pos);
   const auto t0 = std::chrono::steady_clock::now();
-  ai::nav::service(0.0f, 0.0);  // the grid on this world
   ai::nav::Grid& g = ai::nav::grid();
   const int tx = ai::nav::tile_of(ai::nav::cell_of(pos[0])), tz = ai::nav::tile_of(ai::nav::cell_of(pos[2]));
   for (int dz = -1; dz <= 1; ++dz)

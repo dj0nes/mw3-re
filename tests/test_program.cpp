@@ -6,7 +6,6 @@
 #include "mech3/mech_skin.h"
 #include "mech3/veh_controls.h"
 #include <array>
-#include <set>
 // The program's pieces that run without a window (docs/program.md): the
 // message DLL, the mounts and write dir, the music lookup, and the start-up
 // through InitInstance and the original main loop to the main menu's state.
@@ -22,6 +21,7 @@
 #if defined(__APPLE__)
 #include <mach/mach.h>
 #endif
+#include <set>
 #include <string>
 #include <tuple>
 #include <vector>
@@ -23105,6 +23105,7 @@ FarRun lance_far_run(int32_t index, int32_t number, bool bugs, bool nav) {
     if (f % 120 == 0) {  // not 2 m in 2 s, past his range
       if (dd > out.range && std::hypot(a[0] - mark[0], a[2] - mark[1]) < 2.0f) out.stuck_s += 2;
       mark[0] = a[0], mark[1] = a[2];
+      if (std::getenv("W58_LOG")) std::fprintf(stderr, "  t %d: at %.0f %.0f %.0f, %.0f m, player %.0f %.0f %.0f\n", f / 60, a[0], a[1], a[2], dd, b[0], b[1], b[2]);
     }
     if (auto* fs = dynamic_cast<mech3::ai::FollowState*>(brain->current().state.get()))
       out.paths = std::max(out.paths, static_cast<int>(fs->nav.follow.paths));
@@ -23124,8 +23125,10 @@ TEST(mission_lance_far_way_before_and_after_headless) {
   if (!have_game()) return;
   const std::array<int32_t, 2> kMissions[] = {{0, 4}, {1, 1}, {1, 3}, {2, 2}, {2, 5}, {4, 4}, {4, 6}};
   int measured = 0;
+  const char* one = std::getenv("W58_ONE");  // "2 5": that mission, the grid only
   for (const auto& m : kMissions) {
-    const FarRun exe = lance_far_run(m[0], m[1], false, false), port = lance_far_run(m[0], m[1], true, false),
+    if (one && std::atoi(one) != m[0] * 10 + m[1]) continue;
+    const FarRun exe = one ? FarRun{} : lance_far_run(m[0], m[1], false, false), port = one ? FarRun{} : lance_far_run(m[0], m[1], true, false),
                    grid = lance_far_run(m[0], m[1], true, true);
     if (!grid.placed) {
       std::printf("  %sm%d: no Dominic, or no place with a long way round\n", mech3::mission_dir(m[0]), m[1]);
@@ -23150,7 +23153,7 @@ struct WorksRun {
   int reached = -1, stuck_s = 0, paths = 0, way_points = 0, way_at = 0, frames = 0;
   float way_len = 0, d0 = 0, d_min = 1e9f, y_end = 0, range = 0;
 };
-WorksRun c2m4_works_run(bool bugs, bool nav, const float spot[3]) {
+WorksRun c2m4_works_run(bool bugs, bool nav, const float spot[3], const float* mate_at = nullptr) {
   namespace nv = mech3::ai::nav;
   WorksRun out;
   const NavAllies nav_on(nav);
@@ -23180,8 +23183,20 @@ WorksRun c2m4_works_run(bool bugs, bool nav, const float spot[3]) {
       if (!mate || !player) return true;
       mech3::program_mech_set_invincible(player, true);
       mech3::program_mech_set_invincible(mate, true);
-      mech3::move_mech(player, spot, 0.0f);
-      out.range = brain->params.get<float>(0x28);
+      // On the floor there nearest the height asked.
+      const auto on_floor = [](const float* in, float* o) {
+        namespace nv = mech3::ai::nav;
+        nv::Floor fl[nv::kLevels];
+        const int n = nv::zcls_world().ground(in[0], in[2], fl, nv::kLevels);
+        o[0] = in[0], o[1] = in[1], o[2] = in[2];
+        float best = 1e30f;
+        for (int i = 0; i < n; ++i)
+          if (std::fabs(fl[i].y - in[1]) < best) best = std::fabs(fl[i].y - in[1]), o[1] = fl[i].y;
+      };
+      float there[3];
+      if (mate_at) on_floor(mate_at, there), mech3::move_mech(mate, there, 0.0f);
+      on_floor(spot, there), mech3::move_mech(player, there, 0.0f);
+          out.range = brain->params.get<float>(0x28);
       out.placed = true;
       return false;
     }
@@ -23236,3 +23251,28 @@ TEST(mission_c2m4_lancemate_reaches_the_works_headless) {
   EXPECT(grid.placed && grid.reached > 0 && grid.stuck_s < 10);
 }
 
+// W58, Owen's two: "you're on a conveyor" and "a river you keep bumping into".
+// The player on the works' slab line (c2m4's conveyor); then Dominic on one bank
+// of the river and the player on the other, 125 m up from its bridge.
+TEST(mission_c2m4_lancemate_to_the_conveyor_and_over_the_river_headless) {
+  if (!have_game()) return;
+  const char* only = std::getenv("W58_CASE");
+  const auto three = [&](const char* what, const float* spot, const float* from) {
+    const WorksRun exe = c2m4_works_run(false, false, spot, from), port = c2m4_works_run(true, false, spot, from), grid = c2m4_works_run(true, true, spot, from);
+    for (const auto& [r, who] : {std::pair{&exe, "the exe"}, {&port, "W17/W27"}, {&grid, "the grid"}})
+      std::printf("  %s, %s: %.0f m off, there at %d (%.0f s), nearest %.0f m, height at the end %.0f, stuck %d s, paths %d\n", what, who, r->d0, r->reached,
+                  r->reached / 60.0f, r->d_min, r->y_end, r->stuck_s, r->paths);
+    EXPECT(grid.placed && grid.reached > 0);
+    EXPECT(grid.stuck_s <= port.stuck_s + 4);
+  };
+  if (!only || only[0] == 'c') {
+    // The strip's top joins nothing until its pieces move in play: he comes
+    // under it, in range; his reaching the top is for the playtest.
+    const float under[3] = {-1100.0f, -102.3f, -1380.0f};
+    three("under the conveyor", under, nullptr);
+  }
+  if (!only || only[0] == 'r') {
+    const float east[3] = {-2050.0f, 0.0f, -180.0f}, west[3] = {-2260.0f, 0.0f, -180.0f};
+    three("river", east, west);
+  }
+}

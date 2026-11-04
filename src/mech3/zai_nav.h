@@ -141,6 +141,9 @@ Find find_path(Grid& g, const float from[3], const float to[3], Way* out);
 // The once-a-frame work: the queued tiles built within `budget_us`, the
 // holds past their time lifted. `now` the game's time (s).
 void service(float now, double budget_us);
+// A mission's start, replays too (the same world's address, its nodes new): the
+// grid and what it watches begun again.
+void restart();
 
 // The pilot's follower: the path it is on toward the brain's point.
 struct Follower {
@@ -160,12 +163,16 @@ struct Follower {
   int none_version = -1;
   float none_until = -1e9f, none_wait = 5.0f, none_goal[2] = {};
   int found_version = -1;      // the grid the path was found on
+  // The exe's own walk watched: no 2 m in 3 s and the grid takes over for 10 s.
+  float line_t = -1e9f, line_pos[2] = {}, grid_until = -1e9f;
   // Where to walk this frame toward `to` (the brain's point), the pilot at
   // `pos`: true with `out` a waypoint when the straight way is blocked and a
   // path is had; false to go as before (the exe's, or W17/W27).
-  // `must_find`: the straight way is not to be taken as it is (it crosses a
-  // shape the AI keeps out of).
-  bool step(const float pos[3], const float to[3], float now, float dt, float out[3], bool must_find = false);
+  // `must_find`: the straight way is not to be taken as it is (the exe's pull
+  // round a shape the AI keeps out of has brought him to its edge).
+  // `reach`: he need only come that near on the same storey, so the straight
+  // way is judged that far.
+  bool step(const float pos[3], const float to[3], float now, float dt, float out[3], bool must_find = false, float reach = 0.0f);
 };
 
 // Whether a pilot of that side walks by the grid: zfix bugs and the side's

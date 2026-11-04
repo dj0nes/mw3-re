@@ -33,6 +33,10 @@ struct FakeWorld : nav::World {
   std::vector<std::array<float, 5>> decks;  // x0, z0, x1, z1, y: a floor over the ground
   float mine[5] = {1e9f, 0, 0, 0, 0};       // x0, z0, x1, z1, y: a floor under the ground
   bool mine_ramp = false;                   // its way up: x 500..680, z 60..100, from its floor to the ground
+  std::vector<std::array<float, 5>> parked_now;
+  float keep_out[4] = {0, 0, 0, 0};
+  void parked(std::vector<std::array<float, 5>>* out) override { *out = parked_now; }
+  bool avoid(float x, float, float z) override { return in(keep_out, x, z); }
   int ground(float x, float z, nav::Floor* out, int max) override {
     ++grounds;
     if (in(hole, x, z)) return 0;
@@ -241,6 +245,12 @@ TEST(nav_floors_a_head_height_bridge_is_no_way_under_a_high_one_is) {
   bool round = false;
   for (const auto& q : p) round = round || q[2] < 64 || q[2] > 176;
   EXPECT(round);
+  // One cell, nothing round it to rise: only the room under it says no.
+  w.decks = {{120, 120, 124, 124, 8.0f}};
+  g.reset(&w);
+  build_all(g, -1, -1, 2, 2);
+  EXPECT(g.level_at(nav::cell_of(122), nav::cell_of(122), 0.0f) == 1);
+  EXPECT(!g.walkable(nav::cell_of(122), nav::cell_of(122), 1));
   // The same deck 30 m up: walked under, straight.
   w.decks = {{120, 60, 140, 180, 30.0f}};
   g.reset(&w);
@@ -342,4 +352,70 @@ TEST(nav_is_on_for_the_players_side_with_bugs_and_off_in_network_games) {
   EXPECT(!nav::on_for(true));
   o = keep;
   mech3::options().multiplayer = mp;
+}
+
+TEST(nav_a_door_opening_is_seen_behind_the_old_tiles) {
+  FakeWorld w;
+  w.boxes.push_back({120, 0, 124, 240, 20});  // a wall right across
+  nav::Grid g;
+  g.reset(&w);
+  build_all(g, -1, -1, 2, 2);
+  const float a[3] = {80, 0, 120}, b[3] = {170, 0, 120};
+  EXPECT(!nav::line_clear(g, a, b));
+  // The door in it opens.
+  w.boxes = {{120, 0, 124, 100, 20}, {120, 140, 124, 240, 20}};
+  EXPECT(!nav::line_clear(g, a, b));  // the grid has not looked yet
+  const int was = g.version;
+  g.refresh(120, 100, 124, 140, 50.0f);
+  EXPECT(g.built(nav::cell_of(122), nav::cell_of(120)));  // the old tile serves meanwhile
+  EXPECT(!g.queue.empty());
+  while (!g.queue.empty()) {
+    double budget = 1e12;
+    const auto [tx, tz] = g.queue.front();
+    g.build(tx, tz, &budget);
+    g.queue.erase(g.queue.begin());
+  }
+  EXPECT(g.version != was && nav::line_clear(g, a, b));
+  // Something moving all the time is not built again each look.
+  g.refresh(120, 100, 124, 140, 51.0f);
+  EXPECT(g.queue.empty());
+}
+
+TEST(nav_a_parked_vehicle_is_solid_and_costly_round_it_but_no_wall) {
+  FakeWorld w;
+  // A pass 60 m wide between two walls, a vehicle parked in its middle.
+  w.boxes = {{120, 0, 124, 90, 30}, {120, 150, 124, 256, 30}};
+  nav::Grid g;
+  g.reset(&w);
+  build_all(g, -1, -1, 2, 2);
+  for (float x = 118; x < 126; x += 4)
+    for (float z = 116; z < 124; z += 4) g.hold(nav::cell_of(x), nav::cell_of(z), 0.0f, 100.0f);
+  for (float x = 100; x <= 144; x += 4)
+    for (float z = 96; z <= 144; z += 4) g.hold(nav::cell_of(x), nav::cell_of(z), 0.0f, 100.0f, nav::kNear);
+  EXPECT(!g.walkable(nav::cell_of(120), nav::cell_of(120), 0));
+  const float a[3] = {80, 0, 120}, b[3] = {170, 0, 120};
+  nav::Way p;
+  // The only way is through the costly ring: taken, round the hull.
+  EXPECT(nav::find_path(g, a, b, &p) == nav::Find::kOk && !p.empty());
+  g.release(200.0f);
+  EXPECT(g.walkable(nav::cell_of(120), nav::cell_of(120), 0));  // it has driven off
+  EXPECT(nav::line_clear(g, a, b));
+}
+
+TEST(nav_a_keep_out_shape_is_walked_round_unless_the_goal_is_in_it) {
+  FakeWorld w;
+  const float shape[4] = {110, 140, 90, 150};  // x0, x1, z0, z1
+  std::copy(shape, shape + 4, w.keep_out);
+  nav::Grid g;
+  g.reset(&w);
+  build_all(g, -2, -2, 3, 3);
+  const float a[3] = {70, 0, 120}, b[3] = {180, 0, 120};
+  nav::Way p;
+  EXPECT(find_pumped(g, a, b, &p) == nav::Find::kOk);
+  bool round = false;
+  for (const auto& q : p) round = round || q[2] < 94 || q[2] > 146;
+  EXPECT(round);
+  const float inside[3] = {125, 0, 120};
+  EXPECT(find_pumped(g, a, inside, &p) == nav::Find::kOk);
+  EXPECT(p.back()[0] == inside[0] && p.back()[2] == inside[2]);
 }
