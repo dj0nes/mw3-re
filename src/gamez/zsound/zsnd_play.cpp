@@ -38,7 +38,7 @@ Voice* free_voice(Sound* s) {
     out()->get_status(v->buffer, &st);
     if (!(st & SO::kStatusPlaying)) return v;
   }
-  if (static_cast<int>(s->dups.size()) >= kMaxDuplicates) return nullptr;
+  if (static_cast<int>(s->dups.size()) >= state().max_duplicates) return nullptr;
   auto* v = new Voice;
   if (out()->duplicate_buffer(s->voice.buffer, &v->buffer) != 0) {
     delete v;
@@ -84,20 +84,29 @@ Voice* play_raw(Sound* s, const float* pos, float volume, const float* vel, uint
   return play_ds(s, volume_db(volume), pos, vel, start);
 }
 
-// 0x0056e750 (ECX sound, EDX position, volume, velocity, start): a QUEUE line
-// waits, newest first, until its QUEUE seconds run out.
+// Pirate's Moon 1.0 @ 0x0058fb60 (sound, position, volume, velocity, start): a
+// QUEUE line waits until its QUEUE seconds run out. MW3's (0x0056e750) played
+// the newest first; PM's plays the oldest, a line going before the first one
+// queued with a higher QPRIORITY number (0x0058fc20, 0x0058fc40). One that goes
+// before the very first is put last instead: the list insert (0x00577950)
+// leaves the head where it was. The shipped sounds.zrd sets no QPRIORITY.
 void queue_push(Sound* s, const float* pos, float volume, const float* vel, uint32_t start) {
   State& st = state();
-  auto* q = new Queued;
-  q->volume = volume;
+  auto* q = new Queued;  // malloc(0x30)
   q->sound = s;
+  q->volume = volume;
   q->has_pos = pos != nullptr;
   q->has_vel = vel != nullptr;
   if (pos) std::memcpy(q->pos, pos, 12);
   if (vel) std::memcpy(q->vel, vel, 12);
   q->start = start;
-  q->expires = s->queue_life + st.queue_clock;
-  st.queue->push_front(q);  // 0x00555ec0
+  q->expires = st.queue_clock + s->queue_life;
+  std::list<Queued*>& l = *st.queue;
+  const uint32_t mine = s->flags & kQPriority;
+  auto it = l.begin();
+  while (it != l.end() && !(mine < ((*it)->sound->flags & kQPriority))) ++it;
+  if (it == l.begin()) l.push_back(q);  // 0x00577900, or before the head: the same place
+  else l.insert(it, q);
 }
 
 // 0x0056ee20 (ECX the record, EDX voice): fills the record only for a sound's
@@ -131,16 +140,6 @@ void resume_voice(Sound* s, Voice* v, int32_t restart, int32_t delta) {
   if (hr != 0) ds_error(hr, kFile, 0x59d);
 }
 
-// 0x0056eea0 (ECX sound, EDX restart, the master volume's change): plays the
-// sound's own voice again and every duplicate not at 0 dB, whether they were
-// playing or not.
-void resume_sound(Sound* s, int32_t restart, float delta) {
-  const int32_t ddb = static_cast<int32_t>(delta * 10000.0f);
-  if (!s->voice.buffer) return;
-  resume_voice(s, &s->voice, restart, ddb);
-  for (Voice* d : s->dups)
-    if (d && d->volume != 0) resume_voice(s, d, restart, ddb);
-}
 }  // namespace
 
 // Mech3.exe 1.2 @ 0x0056dfb0 (ECX the A3D flush, EDX advance the queue). Once
@@ -324,23 +323,14 @@ int32_t stop_snapshot(Snapshot* l) {
   return 1;
 }
 
-// Mech3.exe 1.2 @ 0x0056f130: back from pause. Each kept voice's sound plays
-// all its voices again (docs/sound.md, pause), with the master volume's
-// change since added to each.
-// FIX (bug): only the voices that were playing resume, each once and from where
-// it stopped (the exe replays every voice of the sound, finished ones from the start).
+// Pirate's Moon 1.0 @ 0x00590530: back from pause, each record's voice again
+// (0x00590310) if it still has a buffer, with the master volume's change since.
+// MW3's (0x0056f130) replayed every voice of each sound recorded; the port's
+// MW3 fix did what PM does.
 int32_t resume_snapshot(Snapshot* l) {
   const float delta = state().master() - l->front().master;
-  if (zfix::options().bugs) {
-    std::vector<Voice*> done;
-    for (auto it = std::next(l->begin()); it != l->end(); ++it) {
-      if (!it->voice || std::find(done.begin(), done.end(), it->voice) != done.end()) continue;
-      done.push_back(it->voice);
-      resume_voice(it->sound, it->voice, 0, static_cast<int32_t>(delta * 10000.0f));
-    }
-    return 1;
-  }
-  for (auto it = std::next(l->begin()); it != l->end(); ++it) resume_sound(it->sound, 0, delta);
+  for (auto it = std::next(l->begin()); it != l->end(); ++it)
+    if (it->voice && it->voice->buffer) resume_voice(it->sound, it->voice, 0, static_cast<int32_t>(delta * 10000.0f));
   return 1;
 }
 

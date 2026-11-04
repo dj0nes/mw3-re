@@ -285,3 +285,66 @@ queue (0x00570410(1)) and, as Core's leave, snapshots every playing voice,
 stops them and frees the snapshot (0x0056eb10, 0x0056f0a0, 0x0056f190);
 wired 2026-10-21. The three-mission test plays a stray voice before each
 cleanup and finds none playing after.
+
+## Pirate's Moon (pm-map step 7; 2026-11-03, on `pm` 2026-11-04)
+
+PM's zSound (`C:\zipper\branchep1\gamez\zSound\`) is MW3's with the
+sounds.zrd reader rewritten and the sets moved into std::lists. On this branch
+`src/gamez/zsound` is PM's: the functions PM changed carry PM's addresses, the
+rest pair with MW3's. MW3's versions are on `main`:
+
+| | MW3 | PM |
+|---|---|---|
+| reader | 0x005705e0 + 0x00570af0: SYNTAX 2 only, DEMO_SETS / DEMO_GROUPS with the demo flag, HIGH/MEDIUM/LOW_DEFAULT | 0x00591840 + 0x00591900: no SYNTAX, no demo; COMPILE_FORMAT, DEFAULT_QUEUE_PRIORITY, INCLUDE_SETS |
+| a set | made per SETS entry; a SUB_SET naming a set read later stays null | made by name (0x00590ae0): a name twice is one set, a SUB_SET may name a set read later |
+| a set's items | a keyword steps over two items | over three (0x005920e0): a keyword before the sounds loses the first sound; every shipped SUB_SET is last |
+| a sound | the formats from the *_DEFAULT keys, RANGE's raw words | the formats from COMPILE_FORMAT (the image holds MW3's built-in three), RANGE through the vec2 getter, times the range scale, QPRIORITY 0..7 in flags bits 10-12, the volume clamped after the callbacks |
+| PLAYBACK_FORMAT | channels forced to 1 | the data's channels (PM's data says 1); "MED" still asked for, as MW3 |
+| find a set | exact (0x0056f680) | any case (0x00590a20, _stricmp) |
+| load / unload a set | a flag: a second load does nothing, one unload unloads | counted (0x00590d70, 0x00590f80); unload_all (0x00590950) counts each down once, with the device open; destroying a set (0x00590c10) counts down once more and frees its sounds |
+| the voice queue | newest first (0x0056e750) | oldest first, before the first line of a higher QPRIORITY number (0x0058fb60); one that beats the very first goes last (0x00577950 leaves the head); no shipped sound has QPRIORITY |
+| unpause | every voice of each sound recorded, again (MW3's FIX (bug) in the port) | each recorded voice once, from where it stopped (0x00590530) |
+| duplicates | 7 a sound ([0x005efba8]) | 4 ([0x00613188]) |
+| speed of sound | 343 m/s | 345 ([0x006135cc]); no sounds.zrd sets it, no sound has frequency control |
+| range scale | none | 0x00591830: 0.5 at the lowest object detail (0x00482ca0, 0x00408120), else 1 |
+| shutdown | frees the groups and sets, closes the device and the CD, then the CD and sets again | only through the device's close (0x00591700) |
+| CD notify | modes 5 and 6 replay the track | also mode 3: the disc again from track 1 (0x005938c0) |
+| Doppler factor | 1 - closing x (1 / distance) x (1 / speed of sound) (0x005722b9) | the two inverses the other way round (0x0059300c); the product with the frequency rounds to float in both (the port's double was a port error, fixed for MW3 too) |
+
+The rest pairs with MW3's (compiler only, other offsets, or calls PM's own
+code compiles another way): the play path, status, stop, pause records,
+fades, 3D, the groups, the WAV reader, the buffers. The error reports name
+PM's paths and lines; the port's keep MW3's. Gone in PM (16 of the port's
+MW3 functions): the set index (0x0056f630 set_at, 0x0056f660 set_count,
+0x0056fe70 set_sound; PM's sets are lists), the movie soundtrack stream
+(0x005758c0, 0x00575550, 0x00575600, 0x00575690, 0x00575980; PM has no
+movies), and ones PM has under new pairs: 0x0056f130 (PM 0x00590530,
+forked), 0x0056f3e0 (0x00590820), 0x0056f520 / 0x0056f530 (0x005908f0 /
+0x00590920, which check the device is open and pass no null on),
+0x0056f680 (0x00590a20, forked), 0x0056fe00 (0x00590f80, forked),
+0x00573420 (0x00594150, MW3's without DEMO_GROUPS) and 0x005742c0
+(0x00594f10). PM's static data are `State`'s defaults here (the speed of sound, the duplicates).
+
+`test_pm_sound.py` is `test_sound.py`'s harness on PM's exe at its own addresses
+(cdecl where MW3 passed ECX and EDX) and PM's sounds.zrd, soundsH.zbd and
+soundsL.zbd: loading every set, every group's picks, random play, loads
+counted and names in other cases, the range scale, seven changed
+sounds.zrd files (INCLUDE_SETS, SUB_SET forward and a set twice, a keyword
+first, QPRIORITY and DEFAULT_QUEUE_PRIORITY, COMPILE_FORMAT and
+PLAYBACK_FORMAT as names and in stereo, no SETS) and the CD notify in each
+mode. Breaks caught on the first layout (2026-11-03, each made in the port, the quick run fails): two
+items stepped over a keyword, sets not merged by name, set names matched
+exactly, loads or unloads not counted, free_sets without its second
+unload, the queue newest first, without priorities, or a line beating the
+head put first, unpause as MW3's, 7 duplicates, 343 m/s, INCLUDE_SETS,
+COMPILE_FORMAT, the range scale, QPRIORITY or DEFAULT_QUEUE_PRIORITY
+ignored, the playback in mono, a format list of two items taken, shutdown
+as MW3's, CD mode 3 not looped or without its reset. Not caught, not
+observable: unload_all's open check (it runs only from the device's close)
+and the volume clamped before the callbacks (no callback reads it).
+Rerun on `pm` with the code in place (2026-11-04): the full run, 28 runs and 419,433 calls identical, found the Doppler's two differences above. Breaks, each caught: the queue
+newest first, set names matched exactly, loads not counted, a keyword stepping
+two, 7 duplicates, CD mode 3 not looped, the range scale and INCLUDE_SETS
+ignored. Left: mw3pm does not open sound yet (its game start, with the
+mission); the game's callers of the range scale (0x00482ca0, 0x00408120,
+object detail) come with the options and the mission.

@@ -167,13 +167,19 @@ bool resume(int mode) {
   return true;
 }
 
-// Mech3.exe 1.2 @ 0x00572bf0. When a looping track's range finishes, play it again.
-// (The original also checks the notifying device is the CD.)
+// Pirate's Moon 1.0 @ 0x005938c0 (status, device). Modes 5 and 6: when a
+// looping track's range finishes, play it again (MW3's 0x00572bf0). Mode 3
+// (play to the disc's end) starts the disc again from track 1, whatever the
+// status; after a successful end the position is forgotten first. (The
+// original also checks the notifying device is the CD.)
 void notify(int status) {
   if (!is_open()) return;
-  if (g_state.mode != Loop && g_state.mode != Restart) return;
-  if (status != kNotifySuccessful) return;
-  play_track(g_state.track, Restart);
+  if (g_state.mode == Loop || g_state.mode == Restart) {
+    if (status == kNotifySuccessful) play_track(g_state.track, Restart);
+  } else if (g_state.mode == 3) {
+    if (status == kNotifySuccessful) clear_position();  // 0x005935b0
+    play_track(1, 3);
+  }
 }
 
 void on_output_finished() {

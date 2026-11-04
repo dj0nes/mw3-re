@@ -4,6 +4,7 @@
 // list, load and unload, find) have no string of their own and are kept here.
 #include <cstring>
 
+#include "crt/msvc_string.h"
 #include "gamez/zsound/zsnd.h"
 #include "gamez/zutil/zutl_path.h"
 #include "gamez/zutil/zutl_zar.h"
@@ -13,6 +14,8 @@ namespace zsnd {
 namespace {
 const char kFile[] = "C:\\zipper\\GameZMech3\\zSound\\zsnd_parm.cpp";
 platform::SoundOutput* out() { return hooks().output; }
+WaveAliasHook g_alias = nullptr;
+}  // namespace
 
 // 0x005762b0 on the SOUND_PATH list (0x00576100): the file part of `name` in
 // the first directory that has it. The list is LIFO, so the last directory of
@@ -42,8 +45,7 @@ std::string path_find(const char* name) {
   return "";
 }
 
-WaveAliasHook g_alias = nullptr;
-
+namespace {
 // The alias hook's sound for `name`, when the archive lacks it and no loose
 // file has it (ours; set_wave_alias_hook).
 void read_alias(Wave& w, zutl_zar::Archive& a, const char* name) {
@@ -59,6 +61,7 @@ void read_alias(Wave& w, zutl_zar::Archive& a, const char* name) {
   src.path = name;
   w = std::move(src);
 }
+}  // namespace
 
 // 0x0056ffc0: every sound of the set not loaded yet, from the open archive.
 int32_t load_from_archive(Set* set, zutl_zar::Archive& a) {
@@ -73,7 +76,6 @@ int32_t load_from_archive(Set* set, zutl_zar::Archive& a) {
   }
   return 1;
 }
-}  // namespace
 
 // Mech3.exe 1.2 @ 0x0056f280 (ECX voice): pitch between the sound's
 // frequency range, t from 0 to 1.
@@ -134,30 +136,37 @@ void* user_data(Object* obj) {
 // Mech3.exe 1.2 @ 0x0056f4b0: 0 skips the archives (loose files only).
 void set_archives(int32_t on) { state().archives_on = on; }
 
-// Mech3.exe 1.2 @ 0x0056f520
-void load_set(const char* name) { load_set(find_set(name)); }
+// Mech3.exe 1.2 @ 0x0056f520 (PM's 0x005908f0). A name no set has does nothing
+// (PM's load_set has no null check, and is not called then).
+void load_set(const char* name) {
+  if (Set* s = find_set(name)) load_set(s);
+}
 
-// Mech3.exe 1.2 @ 0x0056f530
-void unload_set(const char* name) { unload_set(find_set(name)); }
+// Mech3.exe 1.2 @ 0x0056f530 (PM's 0x00590920)
+void unload_set(const char* name) {
+  if (Set* s = find_set(name)) unload_set(s);
+}
 
-// Mech3.exe 1.2 @ 0x0056f540
+// Pirate's Moon 1.0 @ 0x00590950: one unload of each set (a set loaded twice
+// stays loaded), while the device is open.
 int32_t unload_all() {
-  for (Set* s : state().sets) unload_set(s);
+  State& st = state();
+  if (!st.open) return 0;
+  for (Set* s : st.sets) unload_set(s);
   return 1;
 }
 
-// Mech3.exe 1.2 @ 0x0056f5c0 (ECX function for each sound's user data),
-// with 0x005700a0 and 0x0056f990.
+// Pirate's Moon 1.0 @ 0x00590990 (the user-data free function): with the
+// device open, unload_all, then each set's user data freed (0x00591250) and
+// the set destroyed (0x00590c10: one more unload, then its sounds freed).
 void free_sets(FreeFn fn) {
   State& st = state();
-  unload_all();
+  if (!unload_all()) return;
   for (Set* set : st.sets) {
     if (!set) continue;
-    if (fn) {
-      for (Sound& s : set->sounds) {
+    if (fn)
+      for (Sound& s : set->sounds)
         if (s.user) fn(&s, s.user), s.user = nullptr;
-      }
-    }
     unload_set(set);
     delete set;
   }
@@ -174,11 +183,24 @@ Set* set_at(int32_t i) {
 // Mech3.exe 1.2 @ 0x0056f660
 int32_t set_count() { return static_cast<int32_t>(state().sets.size()); }
 
-// Mech3.exe 1.2 @ 0x0056f680
+// Pirate's Moon 1.0 @ 0x00590a20 (ECX the set list): _stricmp, where MW3's
+// 0x0056f680 compared exactly.
 Set* find_set(const char* name) {
+  if (!name) return nullptr;
   for (Set* s : state().sets)
-    if (s->name == name) return s;
+    if (crt::msvc_stricmp(s->name.c_str(), name) == 0) return s;
   return nullptr;
+}
+
+// Pirate's Moon 1.0 @ 0x00590ae0: a SETS entry or a SUB_SET name, so a set
+// named twice is one set, and a subset read before its own entry is the set
+// that entry fills (MW3 left such a subset null).
+Set* make_set(const char* name) {
+  if (Set* s = find_set(name)) return s;
+  auto* s = new Set;  // 0x00590b90
+  s->name = name;
+  state().sets.push_back(s);
+  return s;
 }
 
 // Mech3.exe 1.2 @ 0x0056f6f0: a loaded sound of any set, else a group.
@@ -200,38 +222,39 @@ const char* name_of(Object* obj) {
 
 void set_wave_alias_hook(WaveAliasHook hook) { g_alias = hook; }
 
-// Mech3.exe 1.2 @ 0x0056fbf0. The archive of the detail setting (SoundLOD),
-// or the next one that opens: soundsM.zbd is not shipped, so medium loads
-// soundsL.zbd. The primary buffer takes that archive's playback format. Sounds
-// still missing are looked for as loose files, then the subsets load.
+// Pirate's Moon 1.0 @ 0x00590d70 (ECX set): MW3's 0x0056fbf0, counted: a set
+// already loaded only counts one more (and returns 1). The archive of the detail
+// setting (SoundLOD), or the next one that opens; the primary buffer takes that
+// archive's playback format; sounds still missing are looked for as loose
+// files, then the subsets load. No null check.
 int32_t load_set(Set* set) {
   static const char* const kArchives[3] = {"soundsH.zbd", "soundsM.zbd", "soundsL.zbd"};
   State& st = state();
   zutl_zar::Archive a;
-  zutl_zar::init(a);
-  if (!set || set->loaded) {
+  zutl_zar::init(a);  // 0x00597300
+  if (++set->loaded != 1) {
     zutl_zar::destroy(a);
-    return 0;
+    return 1;
   }
   uint32_t idx = static_cast<uint32_t>(*st.lod);
-  bool opened = false;
   if (st.archives_on) {
     for (int tries = 0; tries < 3; ++tries) {
       const char* name = idx < 3 ? kArchives[idx] : nullptr;
+      bool opened = false;
       if (name) {
-        if (zutl::exists(name)) {  // 0x00576080, _access in the working directory
+        if (zutl::exists(name)) {  // 0x00596ea0
           opened = zutl_zar::open(a, name);
         } else {
           const std::string p = path_find(name);
           if (!p.empty()) opened = zutl_zar::open(a, p.c_str());
         }
       }
-      if (opened) break;
+      if (opened) {
+        load_from_archive(set, a);  // 0x00591220
+        zutl_zar::close(a);
+        break;
+      }
       if (++idx >= 3) idx = 0;
-    }
-    if (opened) {
-      load_from_archive(set, a);
-      zutl_zar::close(a);
     }
   }
   const int32_t q = quality(static_cast<int32_t>(idx));
@@ -246,22 +269,26 @@ int32_t load_set(Set* set) {
     if (w.valid) s.flags = (s.flags & ~kLoaded) | ((create_buffer(&s, w) & 1) << 3);
     else s.flags &= ~kLoaded;
   }
-  for (Set* sub : set->subsets) load_set(sub);
-  set->loaded = 1;
-  zutl_zar::destroy(a);
+  for (Set* sub : set->subsets) load_set(sub);  // 0x00590f60
+  zutl_zar::destroy(a);  // 0x00597320
   return 1;
 }
 
-// Mech3.exe 1.2 @ 0x0056fe00. Unloads the subsets too, even when another
-// loaded set shares them.
+// Pirate's Moon 1.0 @ 0x00590f80 (ECX set): the last of its loads frees its
+// sounds and unloads its subsets once each; an earlier one only counts down
+// (and returns 0).
 int32_t unload_set(Set* set) {
-  if (!set || !set->loaded) return 0;
-  for (Sound& s : set->sounds) {
+  if (set->loaded == 0) return 0;
+  if (set->loaded != 1) {
+    --set->loaded;
+    return 0;
+  }
+  set->loaded = 0;
+  for (Sound& s : set->sounds) {  // 0x00591120
     drop_queued(&s);
     release_sound(&s);
   }
-  for (Set* sub : set->subsets) unload_set(sub);
-  set->loaded = 0;
+  for (Set* sub : set->subsets) unload_set(sub);  // 0x00590f70
   return 1;
 }
 
