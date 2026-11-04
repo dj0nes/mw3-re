@@ -4251,5 +4251,6 @@ The screen after the pilot for INSTANT ACTION, 0x00488bc0 (details:
   what it was meant for is still open. (docs/pm-map.md, gmod_matl.c)
 - Pirate's Moon's scattered props (rocks, tents) read an effect and a replacement model for being shot, run
   over and cratered, but being run over plays the being-shot ones instead, and a crater just removes the prop.
-  The code that handles props never reads the other two sets (other code might; not searched). (docs/pm-map.md,
-  cls_clutter)
+  The code that handles props never reads the other two sets (other code might; not searched). No shipped prop
+  sets either one, only being shot, so a prop with no health for being run over goes at the first touch.
+  (docs/pm-map.md, cls_clutter)
