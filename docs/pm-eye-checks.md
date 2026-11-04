@@ -15,7 +15,7 @@ picture. Camera heights are chosen to be about a mech's eye, and the direction f
 2. **How dark is a night mission?** Mission 2, near Allied Camp: can you see the ground at all, and are there
    large stars? The port's ground is almost black.
    `2-c1-night-camp.png`: `mw3pm --fly c1 --variant m2 --pos 3840 17 -3200 --look 0 5`
-3. **Is the third world's light right?** Mission 6 or 7, near Ruins: red ground under a black sky with red clouds?
+3. **Is the third world's light right?** Mission 6 or 7, near Ruins: red ground under a black sky with red clouds, a ringed planet and a large one low down?
    `3-c3-ruins.png`: `mw3pm --fly c3 --pos 1792 25 -896 --look 180 5`
 4. **Is that green right?** Mission 9 or 10, walk to Drill Rig 2: are the grids and the plain beside them this
    bright a green, and is the plain flat? The sky is dark brown here too.
@@ -31,7 +31,7 @@ picture. Camera heights are chosen to be about a mech's eye, and the direction f
    (`MipBias -1`), and the port does not do that yet. Is the original's far ground crisper than these pictures?
 8. **A gap under the horizon? It may not be reachable.** Mission 3 or 4 (or 9 or 10), a mech with jump jets, on
    the highest ground you can find, at the top of a jump, looking level at the horizon: is there a band between
-   the far ground and the sky, and what is in it (black, old frames smearing, nothing)? The port's pictures are
+   the far ground and the sky, and what is in it (black, old frames smearing, nothing)? In the port it is black, with a ragged lower edge where whole cells of far ground stop. The port's pictures are
    from far higher than a jump may get, where it opens at about 96 units over the ground 600 units away;
    jets stop at 130 and 145. If a couple of jumps show nothing, the answer is "not seen", and that settles it.
    `7-c2-gap.png`: `mw3pm --fly c2 --pos 1536 150 -1792 --look 0 8`;
