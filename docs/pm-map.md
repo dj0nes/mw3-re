@@ -959,7 +959,26 @@ functions PM changed, and PM's new ones.
        near tie the exe's own split saw, and only if the picture agrees; it prints how
        many. **Eye check, phase 6:** a projected light over a light-mapped polygon, bugs
        on and off (the first set's colours), and any shimmer at a short light's pool.
-     - Order from here. Phase 5, clipping; phase 6, the submit, which deletes `draw_unlit`.
+     - **Phases 5 and 6, to the device calls** (`draw_model`, `clip_near`, `project_records`,
+       `clip_sides`, `fill_colours`, `finish_tl`, `submit`; `test_pm_submit.py`). The whole of
+       0x543b10 runs against its device stubs: every call in order, kind, count, cull, primitive,
+       shade and overlay, its TL vertices and its sets. Polygons drawn apart (a fade, an overlay,
+       a strip, an alpha texture, sets) call one at a time; the rest of a ref go together as one
+       indexed triangle list, always primitive 4 (0x5a0ea0, 0x5a0f30 push it themselves, and
+       ignore 0x8c4c40). The device kinds take different arguments: flat (colour, alpha, count,
+       overlay), lit (alpha, count, overlay), textured kinds (count, texture, fade, overlay).
+       A flat polygon's u, v are whatever its arena held, and no texture reads them: not compared.
+       Not in this test: projected lights (`test_pm_projected.py`), polygons over 48 corners (the
+       exe's clippers overrun past 64, on its stack; fixes.md).
+       Two allowances, both at 53 bits only, both counted in the test's last line. **A flat mesh
+       edge-on:** with the camera in its plane, facing is the rounding of a sum near 0 and the
+       polygons passing differ (the exe's sums are double, ours float); allowed only when every
+       triangle of both call lists covers under 0.05 square pixels. **A side cut:** a vertex a
+       screen side made, on an edge reaching far off screen; the exe interpolates in double and
+       we in float, under 1 pixel (largest seen 0.293). At 24 bits neither fires. Not chased:
+       play-accurate, and the port's float is the same step at 24 bits.
+     - Order from here. The device side: PM's device functions onto Render3D, which deletes
+       `draw_unlit`.
 3. **The mission**: load, setup and the world parameters (`mission.cpp`
    114 new, 14 of the port's changed), the standalone missions
    (`readersa1..4`), the objectives.

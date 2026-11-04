@@ -111,6 +111,35 @@ void split_strips(const ::zmod::Material& mat, const ModelPass& pass, RefPass& r
 void split_fans(const ModelPass& pass, RefPass& ref);
 void shadow_sets(const ::zmod::Material& mat, const ModelPass& pass, RefPass& ref);
 void light_map_sets(RefPass& ref);
+// What the draw hands the device, one call of the exe's table. The TL vertices are done
+// (colours, fog, rhw), unlike MW3's table, which finishes them itself.
+struct DeviceCall {
+  enum Kind {
+    kFlat,             // [0x008c4bdc] 0x0059d450
+    kLit,              // [0x008c4be4] 0x0059de30
+    kTextured,         // [0x008c4bec] 0x0059e500
+    kTexturedLit,      // [0x008c4bf0] 0x0059e830
+    kTexturedVertex,   // [0x008c4bf4] 0x0059eb60
+    kSets,             // [0x008c4bfc] 0x005a0390
+    kIndexedTextured,  // [0x008c4c00] 0x005a0f30
+    kIndexedFlat,      // [0x008c4c04] 0x005a0ea0
+    kProjected,        // [0x008c4bf8] 0x005a0060
+  } kind = kFlat;
+  const float* tl = nullptr;    // 8 floats a vertex; the indexed kinds' are expanded triangles
+  int32_t count = 0;
+  const ClipShadows* sets = nullptr;
+  const ::zmod::Material* material = nullptr;
+  uint32_t cull = 1;            // 0x0059b870's mode: 1 none, 2 the strips'
+  int32_t primitive = 6;        // [0x008c4c40]: 6 fan, 5 strip, 4 triangles
+  float fade = 1.0f;            // [0x00a4e078]
+  int32_t overlay = 0;          // [0x00a4e074]
+  int32_t shade = 1;            // local_90: an indexed draw's 1 flat, 2 Gouraud
+  uint32_t flags = 0;           // a projected triangle's polygon flags
+};
+
+// Pirate's Moon 1.0 @ 0x00543b10: a node's model. The device calls go to `device`.
+int32_t draw_model(::zcls::Node* node, uint32_t mask, void (*device)(const DeviceCall&));
+
 // 0x0055ebf0: which lights reach the sphere; their count.
 int32_t lights_reaching(const float centre[3], float radius);
 

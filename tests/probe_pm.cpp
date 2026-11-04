@@ -7,6 +7,7 @@
 #include <cstring>
 #include <string>
 
+#include "gamez/zimage/zimg_library.h"
 #include "gamez/zclass/class.h"
 #include "gamez/zclass/camera.h"
 #include "gamez/zmodel/gmod_init.h"
@@ -990,6 +991,51 @@ int probe_pm_projected(int node, int poly, uint32_t flags, int count, float* pos
 }
 void probe_pm_set_fpu53(int on) { zfix::options().fpu53 = on != 0; }
 void probe_pm_set_bugs(int on) { zfix::options().bugs = on != 0; }
+// test_pm_submit.py: the whole draw, every device call: kind, count, cull, primitive,
+// shade, fade, overlay, its TL vertices, then its sets' UVs and colours.
+// A material's texture says it has an alpha plane, or the material takes back what it had.
+void probe_pm_material_alpha(int node, int ref, int on) {
+  static zimg::Texture image;
+  static std::remove_pointer_t<decltype(::zmod::Material::texture)> record{};
+  static decltype(::zmod::Material::texture) saved = nullptr;
+  ::zmod::Material& m = *::zcls::node_at(node)->pm_model->refs[ref].polygon->materials[0];
+  image.flags = 2;
+  record.image = &image;
+  if (on) saved = m.texture, m.texture = &record;
+  else m.texture = saved;
+}
+
+int probe_pm_submit(int node, const float* world, uint32_t mask, int fpu53, const float* rect, int overlay, uint8_t* out, int cap) {
+  zfix::options().fpu53 = fpu53 != 0;
+  static std::string b;
+  b.clear();
+  std::memset(::zmod::bake_state().stale, 0, 12);
+  ::zmod::draw_state().overlay = overlay;
+  pm::zmod::Clip3dState& a = pm::zmod::clip3d_state();
+  a.left = rect[0], a.top = rect[1], a.right = rect[2], a.bottom = rect[3];
+  zmth::MatrixStack& st = zmth::matrix_stack();
+  const zmth::MatrixStack saved = st;
+  zmth::Mat34 base;
+  std::memcpy(base.m, world, 48);
+  st.top = 0, st.slot[0] = &base, st.identity[0] = 0;
+  pm::zmod::draw_model(::zcls::node_at(node), mask, [](const pm::zmod::DeviceCall& d) {
+    const int32_t head[7] = {d.kind, d.count, static_cast<int32_t>(d.cull), d.primitive, d.shade, d.overlay, d.sets ? d.sets->count : -1};
+    b.append(reinterpret_cast<const char*>(head), sizeof head);
+    b.append(reinterpret_cast<const char*>(&d.fade), 4);
+    b.append(reinterpret_cast<const char*>(d.tl), static_cast<size_t>(d.count) * 32);
+    if (d.sets) {
+      for (int32_t k = 0; k < d.sets->count; ++k) {
+        b.append(reinterpret_cast<const char*>(&d.sets->kind[k]), 4);
+        b.append(reinterpret_cast<const char*>(d.sets->uv[k].data()), static_cast<size_t>(d.count) * 8);
+        if (d.sets->kind[k] == 2) b.append(reinterpret_cast<const char*>(d.sets->xyz[k].data()), static_cast<size_t>(d.count) * 12);
+      }
+    }
+  });
+  st = saved;
+  if (static_cast<int>(b.size()) > cap) return -1;
+  std::memcpy(out, b.data(), b.size());
+  return static_cast<int>(b.size());
+}
 void probe_pm_set_node(int node, int off, uint32_t v) { ::zcls::node_at(node)->put<uint32_t>(off, v); }
 // The light map's gate: a texture or none, the option (0x0040b270's value).
 void probe_pm_records_light_map(int on, int option) {

@@ -1210,4 +1210,231 @@ void light_map_sets(RefPass& ref) {
   }
 }
 
+namespace {
+// 0x00546030..0x005460a2: at the camera, by what the record carries.
+void clip_near(const ::zmod::Material& mat, RefPass& ref) {
+  const bool textured = (mat.flags & 1) != 0;
+  for (Record& r : ref.records) {
+    if (r.count == 0 || !(r.codes & 0x10)) continue;
+    int ok;
+    if (!textured) ok = (r.flags & 0x18) ? clip3d_lit(r) : clip3d_plain(r);
+    else if ((r.flags & 0x18) && (r.flags & 0xe0)) ok = r.shadows ? clip3d_textured_lit_shadow(r) : clip3d_textured_lit(r);
+    else ok = r.shadows ? clip3d_textured_shadow(r) : clip3d_textured(r);
+    if (!ok) r.count = 0;
+  }
+}
+
+void project_records(RefPass& ref) {  // 0x005460a2..0x005460f0
+  const zmth::Projection& p = zmth::projection();
+  for (Record& r : ref.records) {
+    for (int32_t i = 0; i < r.count; ++i) {
+      const float* c = r.pos + i * 3;
+      float* t = r.tl + i * 8;
+      const float w = p.near_z / c[2];
+      t[2] = w;
+      const float x = w * c[0];
+      t[0] = x * p.fx_near + p.cx;
+      const float y = c[1] * t[2];
+      t[1] = y * p.fy_near + p.cy;
+    }
+  }
+}
+
+// 0x005460f8..0x005461ab: at the screen's sides.
+void clip_sides(const ::zmod::Material& mat, RefPass& ref) {
+  const bool textured = (mat.flags & 1) != 0;
+  for (Record& r : ref.records) {
+    if (r.count == 0 || !(r.codes & 0xf)) continue;
+    if ((r.polygon->flags & 0x2000) && !(r.flags & 0x100)) continue;
+    int ok;
+    if (!textured) ok = (r.flags & 0x18) ? clip2d_lit(r) : clip2d_plain(r);
+    else if (r.flags & 0xe0) ok = r.shadows ? clip2d_textured_lit_shadow(r) : clip2d_textured_lit(r);
+    else ok = r.shadows ? clip2d_textured_lit_shadow(r) : clip2d_textured(r);
+    if (!ok) r.count = 0;
+  }
+}
+
+// 0x005461b1..0x005462b8: the plain and the one-colour polygons' colours.
+void fill_colours(const ::zmod::Material& mat, RefPass& ref) {
+  const bool textured = (mat.flags & 1) != 0;
+  for (Record& r : ref.records) {
+    const bool lit = (r.flags & 0x18) != 0;
+    if (!lit) r.lit[0] = r.lit[1] = r.lit[2] = 1.0f;
+    else if (r.flags & 0xe0) continue;
+    for (int32_t i = 0; i < r.count; ++i) {
+      float* v = r.rec + i * 8;
+      for (int k = 0; k < 3; ++k) {
+        const float c = textured ? v[5 + k] : (&mat.r)[k];
+        v[k] = lit ? c * r.lit[k] : c;
+      }
+    }
+  }
+}
+
+// Pirate's Moon 1.0 @ 0x005984e0: a colour to the device's word, each channel rounded.
+uint32_t pack_material(const ::zmod::Material& mat) {
+  const uint32_t r = static_cast<uint32_t>(crt::msvc_ftol(mat.r + 0.5f)) & 0xff, g = static_cast<uint32_t>(crt::msvc_ftol(mat.g + 0.5f)) & 0xff,
+                 b = static_cast<uint32_t>(crt::msvc_ftol(mat.b + 0.5f)) & 0xff;
+  return b | (r << 16) | (g << 8);
+}
+
+// 0x005462c0..0x00546690: z's priority, rhw, fog in the specular, the diffuse.
+int32_t finish_tl(const ::zmod::Material& mat, RefPass& ref) {
+  const bool textured = (mat.flags & 1) != 0;
+  const float fade = ::zmod::draw_state().opacity;
+  cull_state().fade = fade;
+  const float scale = ::zmod::draw_state().priority_scale;
+  int32_t shade = 1;
+  for (Record& r : ref.records) {
+    if (r.count == 0) continue;
+    const int32_t priority = r.polygon->priority;
+    if (priority != 0) {
+      const float k = static_cast<float>(priority) * scale + 1.0f;
+      for (int32_t i = r.count - 1; i >= 0; --i) r.tl[i * 8 + 2] = k * r.tl[i * 8 + 2];
+    }
+    for (int32_t i = 0; i < r.count; ++i) {
+      float* t = r.tl + i * 8;
+      t[3] = t[2];
+      uint32_t spec = 0xff000000u;
+      if (r.flags & 8) {
+        const int32_t w = static_cast<int32_t>(rounded_sum(255.5f, r.rec[i * 8 + 4] * -255.0f));
+        spec = static_cast<uint32_t>(w >= 0x100 ? 0xff : w < 0 ? 0 : w) << 24;
+      }
+      std::memcpy(t + 5, &spec, 4);
+    }
+    if (r.flags & 0x10) {
+      shade = 2;
+      tl_colours(r);
+      continue;
+    }
+    if (!textured) {
+      const uint32_t c = pack_material(mat);
+      shade = 1;
+      for (int32_t i = 0; i < r.count; ++i) std::memcpy(r.tl + i * 8 + 4, &c, 4);
+      continue;
+    }
+    uint32_t alpha = 0xff000000u;
+    if (fade < 1.0f) {
+      const int32_t w = static_cast<int32_t>(rounded_product(fade, 255.0f));
+      alpha = static_cast<uint32_t>(w >= 0x100 ? 0xff : w < 0 ? 0 : w) << 24;
+    }
+    shade = 2;
+    for (int32_t i = 0; i < r.count; ++i) {
+      const float* v = r.rec + i * 8;
+      const auto channel = [](float x) {
+        const int32_t w = static_cast<int32_t>(rounded_sum(x, 0.5f));
+        return static_cast<uint32_t>(w >= 0x100 ? 0xff : w < 0 ? 0 : w);
+      };
+      const uint32_t c = (channel(v[0]) << 16) | (channel(v[1]) << 8) | channel(v[2]) | alpha;
+      std::memcpy(r.tl + i * 8 + 4, &c, 4);
+    }
+  }
+  return shade;
+}
+
+// 0x00546690..0x005469b9
+void submit(const ::zmod::Material& mat, RefPass& ref, int32_t shade, void (*device)(const DeviceCall&)) {
+  const bool textured = (mat.flags & 1) != 0;
+  const float fade = ::zmod::draw_state().opacity;
+  const int32_t overlay = ::zmod::draw_state().overlay;
+  const bool apart = overlay != 0 || fade < 1.0f || (textured && has_alpha(mat));
+  for (Record& r : ref.records) {
+    if (r.count == 0) continue;
+    if (!apart && !r.shadows && !((r.polygon->flags & 0x2000) && !(r.flags & 0x100))) continue;
+    DeviceCall d;
+    const bool strip = (r.polygon->flags & 0x2000) && !(r.flags & 0x100);
+    d.cull = strip ? 2 : 1;
+    d.primitive = strip ? 5 : 6;
+    d.tl = r.tl, d.count = r.count, d.material = &mat, d.fade = fade, d.overlay = overlay;
+    d.sets = r.shadows;
+    if (!textured) d.kind = (r.flags & 0x18) ? DeviceCall::kLit : DeviceCall::kFlat;
+    else if (r.shadows) d.kind = DeviceCall::kSets;
+    else if (r.flags & 0xe0) d.kind = DeviceCall::kTexturedVertex;
+    else d.kind = (r.flags & 0x18) ? DeviceCall::kTexturedLit : DeviceCall::kTextured;
+    if (device) device(d);
+    r.count = 0;
+  }
+  if (apart) return;
+  static std::vector<float> tris;
+  tris.clear();
+  for (const Record& r : ref.records) {
+    for (int32_t k = 2; k < r.count; ++k) {
+      tris.insert(tris.end(), r.tl, r.tl + 8);
+      tris.insert(tris.end(), r.tl + (k - 1) * 8, r.tl + k * 8);
+      tris.insert(tris.end(), r.tl + k * 8, r.tl + (k + 1) * 8);
+    }
+  }
+  if (tris.empty()) return;
+  DeviceCall d;
+  d.kind = textured ? DeviceCall::kIndexedTextured : DeviceCall::kIndexedFlat;
+  d.tl = tris.data(), d.count = static_cast<int32_t>(tris.size() / 8), d.material = &mat;
+  d.primitive = 4, d.shade = shade, d.fade = fade, d.overlay = overlay;
+  if (device) device(d);
+}
+}  // namespace
+
+namespace {
+void (*g_projected_device)(const DeviceCall&) = nullptr;
+float g_projected_tl[3 * 8];
+ClipShadows g_projected_sets;
+
+// 0x00562840's two calls, [0x008c4bf8] and [0x008c4bfc], as device calls.
+void projected_triangle(const ProjectedTriangle& t, const ::zmod::Material& mat) {
+  for (int j = 0; j < 3; ++j) {
+    float* o = g_projected_tl + j * 8;
+    o[0] = t.v[j].sx, o[1] = t.v[j].sy, o[2] = t.v[j].sz, o[3] = t.v[j].rhw;
+    std::memcpy(o + 4, &t.v[j].diffuse, 4), std::memcpy(o + 5, &t.v[j].specular, 4);
+    o[6] = t.v[j].tu, o[7] = t.v[j].tv;
+  }
+  DeviceCall d;
+  d.kind = t.sets ? DeviceCall::kSets : DeviceCall::kProjected;
+  d.tl = g_projected_tl, d.count = 3, d.sets = t.sets, d.material = &mat;
+  d.fade = ::zmod::draw_state().opacity, d.overlay = ::zmod::draw_state().overlay;
+  d.flags = t.flags;
+  if (g_projected_device) g_projected_device(d);
+}
+}  // namespace
+
+// Pirate's Moon 1.0 @ 0x00543b10
+int32_t draw_model(::zcls::Node* node, uint32_t mask, void (*device)(const DeviceCall&)) {
+  Model& m = *node->pm_model;
+  zmth::Mat34 local;
+  zmth::push(&local);
+  float centre[3] = {};
+  if (!prepare_model(m, centre)) return 0;  // it popped
+  draw_model_lights(m);
+  ModelPass pass;
+  if (begin_model(*node, m, mask, pass)) {
+    static RefPass ref;
+    for (int32_t i = 0; i < m.count(0x5c); ++i) {
+      const MaterialRef& mr = m.refs[i];
+      if (!build_records(m, mr, pass, ref)) continue;
+      ::zmod::Material& mat = *mr.polygon->materials[0];
+      light_records(m, pass, ref);
+      split_strips(mat, pass, ref);
+      split_fans(pass, ref);
+      shadow_sets(mat, pass, ref);
+      light_map_sets(ref);
+      // Where a polygon that grows goes, for the near clip and the sides alike.
+      Clip3dState& arena = clip3d_state();
+      arena.arena_pos = &ref.pos[ref.at * 3], arena.arena_rec = &ref.rec[ref.at * 8], arena.arena_tl = &ref.tl[ref.at * 8];
+      arena.arena_extra = &ref.extra[ref.at];
+      if (mask & 0x10) clip_near(mat, ref);
+      project_records(ref);
+      if (mask & 0xf) clip_sides(mat, ref);
+      fill_colours(mat, ref);
+      if (ref.projected) {
+        for (Record& r : ref.records) {
+          g_projected_device = device;
+          if (r.count && (r.flags & 0x200) && draw_projected(r, projected_triangle)) r.count = 0;
+        }
+      }
+      const int32_t shade = finish_tl(mat, ref);
+      submit(mat, ref, shade, device);
+    }
+  }
+  zmth::pop();
+  return 0;
+}
+
 }  // namespace pm::zmod
