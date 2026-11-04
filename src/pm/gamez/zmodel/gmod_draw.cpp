@@ -1,3 +1,4 @@
+#include "pm/gamez/zvideo/zvid_tl.h"
 #include "pm/gamez/zmodel/gmod_draw.h"
 
 #include <cmath>
@@ -1436,6 +1437,21 @@ int32_t draw_model(::zcls::Node* node, uint32_t mask, void (*device)(const Devic
   }
   zmth::pop();
   return 0;
+}
+
+// The view's clip and the cull's, from what the shared setter left: PM's 0x00548990 and
+// 0x0053b730 are MW3's 0x00526e10 and 0x00521c60 (camera +0xb0, +0xb4, +0x1d4, +0x1d8; the window's
+// origin and size; D3D's sides x, y, x + w + 0.001, y + h + 0.001).
+int32_t walk_draw(::zcls::Node* node, uint32_t mask) {
+  const zmth::Projection& v = zmth::projection();
+  const ::zmod::ClipPlanes& from = ::zmod::draw_state().clip;
+  Clip3dState& c = clip3d_state();
+  c.near_z = from.near_z;
+  std::memcpy(&c.left, &from.side_04, 4), std::memcpy(&c.top, &from.side_08, 4);
+  std::memcpy(&c.right, &from.side_1c, 4), std::memcpy(&c.bottom, &from.side_20, 4);
+  CullState& k = cull_state();
+  k.far_z = from.far_z, k.slope_x = v.cot_h, k.slope_y = v.cot_v;
+  return draw_model(node, mask, pm::zvid::device_call);
 }
 
 }  // namespace pm::zmod

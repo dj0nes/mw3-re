@@ -773,6 +773,18 @@ if(SDL3_FOUND)
     endif()
     # Pirate's Moon (games-layout.md): its own program over the same engine.
     if(MW3_BUILD_PM)
+      # The whole game on PM's table: mw3_main over the same code, while mw3pm's --fly stays the debug start.
+      add_executable(mw3pm_game
+        src/frontend/sdl/mw3_main.cpp
+        src/frontend/sdl/run_log.cpp
+        src/frontend/sdl/launcher.cpp
+        src/frontend/sdl/debug_states.cpp
+        src/frontend/sdl/campaign_chain.cpp
+        src/frontend/sdl/modes_chain.cpp
+        src/frontend/sdl/first_run_import.cpp
+      )
+      target_link_libraries(mw3pm_game PRIVATE mw3text mw3sdl pmcore mw3core SDL3::SDL3)
+      target_compile_definitions(mw3pm_game PRIVATE MW3_VERSION="${MW3_VERSION}" MW3_PM=1)
       add_executable(mw3pm src/frontend/sdl/mw3pm_main.cpp src/frontend/pm_debug_world.cpp)
       target_link_libraries(mw3pm PRIVATE pmcore mw3sdl mw3core SDL3::SDL3)
       target_compile_definitions(mw3pm PRIVATE MW3_VERSION="${MW3_VERSION}")

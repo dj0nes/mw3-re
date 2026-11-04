@@ -145,4 +145,8 @@ int32_t draw_model(::zcls::Node* node, uint32_t mask, void (*device)(const Devic
 // 0x0055ebf0: which lights reach the sphere; their count.
 int32_t lights_reaching(const float centre[3], float radius);
 
+// The walk's draw (zgame::Table::zmod_walk_draw): the view's clip and the cull's from what the shared
+// setter left, then the model on PM's device.
+int32_t walk_draw(::zcls::Node* node, uint32_t mask);
+
 }  // namespace pm::zmod

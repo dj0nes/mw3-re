@@ -1,6 +1,9 @@
+#include "gamez/zrender/zrndr_flare.h"
+#include "gamez/zvideo/zvid_ddd3d.h"
 #include "pm/pm_game.h"
 #include "pm/gamez/zclass/cls_clutter.h"
 #include "pm/gamez/zclass/cls_world.h"
+#include "pm/gamez/zmodel/gmod_draw.h"
 
 #include <cstdint>
 #include <cstdio>
@@ -18,12 +21,17 @@
 
 namespace pm {
 namespace {
+void render_setup() {
+  ::zvid::overlay_list().set_limit(::zvid::OverlayList::kMaxPm);
+  zmod::draw_state().flare = ::zrndr::flare_add;  // 0x00588910
+}
+
 const zgame::Table kPm = {"Pirate's Moon", "Pirate's Moon 1.0", zar::read_table, zar::write_table, zar::span,
-                         zrdr::parse_text, zcls::read_zbd, zcls::node_alloc, zcls::world_cell_update, zcls::world_add_child, zcls::world_remove_node, zcls::world_make_grid, zcls::node_bound_box, zcls::node_set_active,
+                         zrdr::parse_text, zcls::read_zbd, zcls::node_alloc, zmod::walk_draw, zcls::world_cell_update, zcls::world_add_child, zcls::world_remove_node, zcls::world_make_grid, zcls::node_bound_box, zcls::node_set_active,
                          zcls::node_model_box, zcls::node_model_header, zcls::light_create, zeff::anim_read_zbd,
                          // mechlib (pm-map step 1e)
                          zcls::mechlib_open, zcls::mechlib_load,
-                         zimg::set_light_map, zimg::set_additive, 0x800, true, false, zcls::clutter_draw_cell, zcls::clutter_free_cell};
+                         zimg::set_light_map, zimg::set_additive, 0x800, true, false, zcls::clutter_draw_cell, zcls::clutter_free_cell, render_setup};
 }  // namespace
 
 const zgame::Table& table() { return kPm; }

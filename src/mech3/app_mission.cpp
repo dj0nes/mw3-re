@@ -38,6 +38,7 @@
 #include "gamez/zinterp/zinterp.h"
 #include "gamez/zmath/zmth_matrix.h"
 #include "gamez/zmodel/gmod_cull.h"
+#include "gamez/zgame/zgame_table.h"
 #include "gamez/zmodel/gmod_draw.h"
 #include "gamez/zmodel/gmod_fog.h"
 #include "gamez/zmodel/gmod_hit.h"
@@ -1950,10 +1951,11 @@ struct WiredMissionHooks : MissionHooks {
     zmod::use_device_light_output();  // the lighting's point colour and fog mix to the device
     zcls::scene_walk() = zcls::SceneWalk{};
     zmod::walk_state() = zmod::WalkState{};
-    zmod::walk_state().draw = zmod::draw_model;
+    zmod::walk_state().draw = zgame::game().zmod_walk_draw;
     zmod::zones() = zmod::Zones{};
     zmod::shadow_casters() = zmod::ShadowCasters{};
     zmod::draw_state() = zmod::DrawState{};
+    if (zgame::game().render_setup) zgame::game().render_setup();
     zmod::cull_hooks() = zmod::CullHooks{};
     zcls::update_hooks() = zcls::UpdateHooks{};
     zcls::WorldRenderHooks& h = zcls::world_render_hooks();

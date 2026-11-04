@@ -99,6 +99,10 @@
 #include "gamez/zinput/zinput.h"
 #include "gamez/zweapon/zweapon.h"
 #include "mech3/mech_control.h"
+#include "gamez/zgame/zgame_table.h"
+#ifdef MW3_PM
+#include "pm/pm_game.h"
+#endif
 #include "mech3/data_version.h"
 #include "mech3/patch_import.h"
 #include "mech3/mission.h"
@@ -593,6 +597,9 @@ std::string codec_path(const std::string& install) {
 }  // namespace
 
 int main(int argc, char** argv) {
+#ifdef MW3_PM
+  zgame::set_game(pm::table());  // Pirate's Moon: the whole game on PM's table and data
+#endif
   // In order with the log on stderr. Windows' CRT has no line buffering (and takes size 0 as
   // an invalid argument): unbuffered there.
 #if defined(_WIN32)

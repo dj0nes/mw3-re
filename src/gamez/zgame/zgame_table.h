@@ -44,6 +44,7 @@ struct Table {
   // A new node, light and the active switch (zcls/cls_node.h, light.h):
   // PM's node points at its box, its light data is 0x100 bytes.
   zcls::Node* (*zcls_node_alloc)();                      // 0x004eacd0; PM 0x004fc550
+  int32_t (*zmod_walk_draw)(zcls::Node* node, uint32_t mask);  // the walk's model draw: 0x005xxxxx; PM's on its device
   int (*zcls_area_update)(zcls::World* world, uint32_t* entry);  // 0x004f18a0; PM 0x00504a40
   int (*zcls_world_add_child)(zcls::Node* world, zcls::Node* node);     // 0x004f2a40; PM 0x00505ea0
   int (*zcls_world_remove_child)(zcls::Node* world, zcls::Node* node);  // 0x004f2c30; PM 0x00506000
@@ -73,6 +74,7 @@ struct Table {
   // A cell's clutter records, after its nodes (PM 0x0050a1e0). Null in MW3.
   void (*cell_clutter)(const zcls::World* world, zcls::Partition& cell);
   void (*cell_clutter_free)(zcls::Partition& cell);
+  void (*render_setup)();  // a mission's render state beyond MW3's; null in MW3
 };
 
 const Table& mw3_table();
