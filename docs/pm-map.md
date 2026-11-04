@@ -566,7 +566,7 @@ functions PM changed, and PM's new ones.
        MW3's does, the prerequisite chain cleared, a block field from the
        wrong place, the anim refs' pointer kept, the parent ignored, a
        light unnamed, the lookup sharing from pointer 0).
-   - **mechlib 41: done** (2026-11-03, `pm/gamez/zclass/cls_mechlib`, the
+   - **mechlib 41: stopped, work in progress** (2026-11-03, `pm/gamez/zclass/cls_mechlib`, the
      table's `zcls_mechlib_open` and `zcls_mechlib_load`: MW3 0x4fc6d0 and
      0x4fc8f0, PM 0x510910 and 0x510b90). The library object, the
      materials' read (0x510c80), find, close, free and the material
@@ -607,7 +607,11 @@ functions PM changed, and PM's new ones.
        material tables, every model and node slot. With no world the exe
        adds a cycled library material by copying its cycle from null
        (0x5568f5; the library's have none), so that run's file clears the
-       flag. BREAKS
+       flag. Not finished: 4 of 15 breaks run and caught (MW3's version
+       accepted, the child count at MW3's +0x5c, the box pointer not set, the
+       LOD not read), the rest not run (a "colours always" break hung the
+       test, not investigated); `pm_mechlib_reads_the_shipped_trees_whole` and
+       `pm_mechlib_fuzz_never_crashes` written, never run; no full regression.
 2. **The world**: the light maps and lighting (`gmod_matl.c` 39 new; PM
    drops MW3's fog), `cls_clutter.cpp` (32 new), the world class
    (`cls_world.c` 20 new), the script interpreter's new commands (the
