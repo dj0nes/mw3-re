@@ -117,6 +117,7 @@ Grid& grid() {
 
 void Grid::reset(World* w) {
   world_ = w;
+  ++resets;
   tiles_.clear();
   fresh_.clear();
   refreshed_.clear();
@@ -489,7 +490,10 @@ float PathSearch::octile(int x, int z) const {
 
 Find PathSearch::run(Grid& g, int* budget, Way* out) {
   out->clear();
+  // The grid begun again under a search (a new mission): its cells are gone.
+  if (started_ && resets_ != g.resets) return active_ = false, open_window_ = false, Find::kBuilding;
   if (!started_) {
+    resets_ = g.resets;
     fx_ = cell_of(from_[0]), fz_ = cell_of(from_[2]), tx_ = cell_of(to_[0]), tz_ = cell_of(to_[2]);
     // Round both ends first: nothing can be said without them.
     auto ask_ends = [&] {
@@ -545,8 +549,8 @@ Find PathSearch::run(Grid& g, int* budget, Way* out) {
       const int x = x0_ + place % w_, z = z0_ + place / w_;
       if (f - octile(x, z) > cost_[i] + 1e-3f) continue;  // stale
       if (x == gx_ && z == gz_ && l == gl_) {
-        finish(g, out);
-        return Find::kOk;
+        if (finish(g, out)) return Find::kOk;
+        return Find::kBuilding;  // ask again
       }
       ++expanded_, --*budget;
       for (int dz = -1; dz <= 1; ++dz)
@@ -572,13 +576,19 @@ Find PathSearch::run(Grid& g, int* budget, Way* out) {
   }
 }
 
-void PathSearch::finish(Grid& g, Way* out) {
+bool PathSearch::finish(Grid& g, Way* out) {
   Way cells;
+  active_ = false, open_window_ = false;
   const int goal = ((gz_ - z0_) * w_ + (gx_ - x0_)) * kLevels + gl_;
   for (int i = goal; i >= 0; i = from_of_[i]) {
     const int place = i / kLevels;
     const int x = x0_ + place % w_, z = z0_ + place / w_;
-    cells.push_back({centre_of(x), g.cell(x, z, i % kLevels)->y, centre_of(z)});
+    // A tile built again while the search ran may hold other floors: the height
+    // only picks a floor for the line checks below, which then fail safe, and the
+    // walk asks again if the way on is shut.
+    const Cell* c = g.cell(x, z, i % kLevels);
+    if (!c) return false;
+    cells.push_back({centre_of(x), c->y, centre_of(z)});
   }
   std::reverse(cells.begin(), cells.end());
   // String-pulled: from each point the farthest one in a clear line, looked for
@@ -601,8 +611,8 @@ void PathSearch::finish(Grid& g, Way* out) {
   // The last waypoint the brain's point itself when it is walkable.
   const int tl = g.level_at(tx_, tz_, to_[1]);
   if (tl >= 0 && g.walkable(tx_, tz_, tl)) out->back() = {to_[0], to_[1], to_[2]};
-  active_ = false, open_window_ = false;
   cost_ = {}, from_of_ = {}, open_ = {};
+  return true;
 }
 
 Find find_path(Grid& g, const float from[3], const float to[3], Way* out) {

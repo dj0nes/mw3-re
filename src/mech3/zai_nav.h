@@ -90,6 +90,7 @@ class Grid {
   // stands there has changed (a door opened, a ramp fallen, a building down).
   void refresh(float x0, float z0, float x1, float z1, float now);
   int version = 0;  // counts the changes a path may depend on
+  int resets = 0;   // counts reset: a search begun before one is over
   size_t tiles() const { return tiles_.size(); }
   int tiles_done() const;
   std::vector<std::pair<int, int>> queue;              // tiles asked for, oldest first
@@ -157,12 +158,12 @@ class PathSearch {
   bool active_ = false, started_ = false, shapes_ = true, open_window_ = false;
   float from_[3] = {}, to_[3] = {};
   int fx_ = 0, fz_ = 0, tx_ = 0, tz_ = 0, sx_ = 0, sz_ = 0, sl_ = 0, gx_ = 0, gz_ = 0, gl_ = 0;
-  int window_ = 0, x0_ = 0, x1_ = 0, z0_ = 0, z1_ = 0, w_ = 0, expanded_ = 0;
+  int window_ = 0, x0_ = 0, x1_ = 0, z0_ = 0, z1_ = 0, w_ = 0, expanded_ = 0, resets_ = 0;
   std::vector<float> cost_;
   std::vector<int32_t> from_of_;
   std::vector<Item> open_;
   float octile(int x, int z) const;
-  void finish(Grid& g, Way* out);
+  bool finish(Grid& g, Way* out);
 };
 
 // The once-a-frame work: the queued tiles built for `steps` places, the holds

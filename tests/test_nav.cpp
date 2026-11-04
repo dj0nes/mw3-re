@@ -462,4 +462,12 @@ TEST(nav_a_search_spreads_over_frames_to_the_same_way) {
     ++frames;
   }
   EXPECT(f == nav::Find::kOk && frames > 3 && part == whole && !s.active());
+  // The grid begun again under a search (a replay): over at once, no cell read.
+  s.begin(a, b);
+  int some = 50;
+  EXPECT(s.run(g, &some, &part) == nav::Find::kWorking && s.active());
+  g.reset(&w);
+  some = 1 << 30;
+  EXPECT(s.run(g, &some, &part) == nav::Find::kBuilding && !s.active() && part.empty());
+  EXPECT(g.queue.empty());  // and asks nothing of the new grid for the old search
 }
