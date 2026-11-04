@@ -7,6 +7,7 @@ a polygon can take all seven sets. The fade runs at both ends of its range.
     .venv/bin/python -P tests/differential/test_pm_sets.py [draws per world]
 """
 import ctypes
+import os
 import random
 import struct
 import sys
@@ -261,10 +262,10 @@ def main():
                     extra = a[3] * 2 + (a[3] * 3 if ka == 2 else 0)
                     for j in range(extra):
                         x, y = struct.unpack_from('<f', want, at)[0], struct.unpack_from('<f', got, ag)[0]
-                        # At 53 bits these UVs came out mirrored once in 600 draws. Not traced;
-                        # suspected: a normal's x exactly 0 on one side only, which turns the
-                        # axes (0x5381c0). c1, at 24 bits as in play, checks them; c3 is for the fade.
-                        if fpu53 and ka == 2 and j < a[3] * 2:
+                        # At 53 bits a normal's x can be tiny on the exe's side and exactly 0 on
+                        # ours, which turns these axes by 180 degrees and changes their scale
+                        # (0x5381c0; traced, docs/pm-map.md). 53 bits is the shipped default.
+                        if fpu53 and ka == 2 and j < a[3] * 2 and not os.environ.get("PM_UV_STRICT"):
                             at += 4
                             ag += 4
                             continue

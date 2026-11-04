@@ -913,6 +913,17 @@ functions PM changed, and PM's new ones.
        light's range, colour the light's PM +0xd4 by the vertex colour, fade at
        +0x153c from (far - d) * 255. The fade is the 1.5 * 2^52 rounding, so at 24 bits
        it is only ever 0 or full; c3 runs at 53 bits to reach the values between.
+       `light_map_sets` goes through `fpu53`, so the shipped default has the real fade.
+       **Open, for Owen's PC:** what the original shows, at the runtime's precision, and
+       on the three-stage path, which reads as losing the fade.
+       **Traced, mirrored UVs at 53 bits:** a polygon whose camera-space normal has x
+       exactly 0 takes 0x5381c0's first branch, axis (1, 0, 0) at full length. With x
+       tiny, the other branch gives (y, -x, 0) / approx_sqrt(x^2 + y^2): for y < 0 that
+       is about (-1, 0, 0), and its approximate root scales it. In the case traced
+       the exe had x = -3.03e-9 and the port, in floats, 0: u and v negated, length
+       0.946. So the map turns 180 degrees and changes size by that factor. The shipped
+       map is a round soft spot: the turn alone moves it by at most 9/255 (mean 2), with
+       the size at most 33/255 (mean 11), in its soft ring.
        The test maps a zero page, for a strip's missing normal and the bench's null
        texture images. Every null read on the exe's side then succeeds, so a passing
        run does not show those two are the only null reads in this path.

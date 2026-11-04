@@ -4207,3 +4207,17 @@ The screen after the pilot for INSTANT ACTION, 0x00488bc0 (details:
   block that is being skipped is still read, and the rest of the block
   is no longer skipped. The rebuild reads included files only from
   inside the game and its mods. (docs/zreader.md, Pirate's Moon)
+
+### The light map's fade depends on the x87's precision
+
+- A light map's pool of light fades out over the last stretch of the light's
+  range, on the far side of its near distance. The game rounds that fade with
+  a trick that only works when the x87 runs at double precision. Under
+  Direct3D 6's single precision the sum keeps no low bits, so the fade comes out
+  as nothing at all: inside the near distance the pool is full, and past it the
+  pool is gone, with nothing between. It is the same family as the original's
+  black projected lights and frozen cloud shading. The rebuild gives the real
+  fade. Pirate's Moon has not been looked at for this; on Windows 11 the FPU is
+  not at single precision where it would show in MechWarrior 3, so the fade is
+  probably there too. The original's three-stage path reads as dropping the fade
+  anyway, so that wants a look at the original itself. (docs/pm-map.md, gmod_matl.c)

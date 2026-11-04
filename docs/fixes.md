@@ -509,6 +509,10 @@ Bugs whose intent is clear, fixed as the port reaches the code:
   gives the 53-bit result (x rounded to the nearest integer); off, the
   24-bit one, which the probes keep. Checked against the original run at
   64 bits: within one colour step (the original's arithmetic is wider).
+- Pirate's Moon's light map fade, 0x00543b10 (pm/gamez/zmodel/gmod_draw): the same
+  rounding, so at 24 bits a light map set's fade is 0 or full, nothing between
+  (emulator; docs/pm-map.md). As for the rows above: `fpu53`, on by default, gives the
+  53-bit result; off, the 24-bit one, which the probes keep. Not looked at in play.
 - Mech shadow images, 0x55d010 (from 0x542e70): every edge goes to 16.16
   fixed point with the same trick, so at 24-bit nothing is filled and the
   shadow texture is plain white: shadows invisible on hardware (emulator,
