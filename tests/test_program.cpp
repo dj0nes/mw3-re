@@ -55,6 +55,7 @@
 #include "gamez/zutil/zutl_path.h"
 #include "gamez/zutil/zutl_reg.h"
 #include "gamez/zmodel/gmod_clip2d.h"
+#include "gamez/zvideo/zvid_dd.h"
 #include "gamez/zvideo/zvid_ddd3d.h"
 #include "gamez/zvideo/zvid_format.h"
 #include "gamez/zeffect/zeff_anim_init.h"
@@ -1063,7 +1064,7 @@ TEST(program_starts_like_the_game_to_the_main_state) {
       EXPECT(!ctl->commands.strings.empty() && ctl->commands.first == 0);
       EXPECT(ctl->key_a.strings.size() == ctl->commands.strings.size());
       EXPECT(ctl->commands.dialog == ctl && ctl->assign_axis.dialog == ctl);
-      EXPECT(ctl->axis_popup.popup != nullptr && ctl->axis_popup.popup->sources.count() == 9);
+      EXPECT(ctl->axis_popup.popup != nullptr && ctl->axis_popup.popup->sources.count() == (zfix::options().bugs ? 11 : 9));  // W56: the sliders
       EXPECT(engine.popup_state_of(cs + 0x16760) == &ctl->axis_popup);
       EXPECT(engine.popup_state_of(cs + 0x1677c) == &ctl->load_save_popup);
       EXPECT(engine.state_screen(cs + 0x16760) == ctl->axis_popup.screen_);
@@ -21164,6 +21165,7 @@ struct WideMenus {
   int32_t ia_accept = -1, ia_ally = -1, ia_worlds = -1, ia_box_w = -1;  // Instant Action (made at the start)
   int32_t mb_title = -1, mb_ok = -1;  // a message box (the quit box's dlgMessage.zrd) made on the main menu
   int32_t cr_lines_w = -1, cr_lines_x = -1, cr_back = -1;  // the credits (first from the main menu)
+  int32_t cr_names = -1, cr_name_x = -1, cr_name_right = -1;  // their box (RECT), a line's x, the box's right (W60)
   int32_t sv_back_w = -1, sv_accept = -1;  // the briefing's salvage screen  // the briefing (a waypoint: from its projection)
   // The Multiplayer State's three screens (made with the main menu).
   int32_t cn_host = -1, cn_cancel = -1, cn_lines_w = -1, cn_lan = -1;  // the connection screen
@@ -21246,6 +21248,12 @@ WideMenus wide_menus_run(bool wide) {
         if (c->lines.image) out.cr_lines_w = c->lines.image->width;
         out.cr_lines_x = c->lines.get_x();
         out.cr_back = c->cancel.get_rect()->left;
+        // W60 (Owen, the campaign's ending): the scrolling names' box and a
+        // line placed in it, as each frame places them.
+        out.cr_names = c->names.left, out.cr_name_right = c->names.right;
+        c->names.scroll(0.5f);
+        if (c->names.sections.size() && c->names.sections.begin()->lines.size())
+          out.cr_name_x = c->names.sections.begin()->lines.begin()->text.get_x();
         c->cancel.on_left_up();
         stage = 41;
       } else if (stage == 41 && now == &st.main && mm && ++wait > 3) {
@@ -21546,6 +21554,10 @@ TEST(menus_wide_spread_by_their_groups_headless) {
               on.cr_lines_x, off.cr_back, on.cr_back);
   EXPECT(off.cr_lines_w > 0 && on.cr_lines_w == off.cr_lines_w + extra / 2 && on.cr_lines_x == off.cr_lines_x);
   EXPECT(off.cr_back > 0 && on.cr_back == off.cr_back + extra / 2);
+  std::printf("credits' names: box %d..%d, a line at %d / box %d..%d, the line at %d\n", off.cr_names, off.cr_name_right,
+              off.cr_name_x, on.cr_names, on.cr_name_right, on.cr_name_x);
+  EXPECT(off.cr_names > 0 && on.cr_names == off.cr_names + extra / 2 && on.cr_name_right == off.cr_name_right + extra / 2);
+  EXPECT(off.cr_name_x > 0 && on.cr_name_x == off.cr_name_x + extra / 2);  // W60: with their box
   // The salvage screen (one block): its board widened, ACCEPT with the block.
   std::printf("salvage: board %d / %d, ACCEPT %d / %d\n", off.sv_back_w, on.sv_back_w, off.sv_accept, on.sv_accept);
   EXPECT(off.sv_back_w == 640 && on.sv_back_w == 640 + extra && on.sv_accept == off.sv_accept + extra / 2);
@@ -22774,3 +22786,154 @@ TEST(mission_c1m2_triturret_aim_on_fast_frames_headless) {
   mech3::options() = mech3::Options{};
 }
 
+// Playtest W55 (Owen, PC; the Mac too): MECH LAB, VARIANTS, SAVE over a
+// variant of his own, Enter: "Overwrite?" over a purple screen. The lab's
+// frame goes through the GPU, the 16-bit buffer holding only its 2D layer;
+// the message box (0x004ac150) first locks and unlocks the 3D layer empty,
+// and that unlock counted as a layer drawn, so the box's first flip dropped
+// the lab's held frame (W25) and showed the buffer, the layer's key colour
+// (magenta), as the screen. Here a GPU frame with a layer, then the box's
+// empty lock, the hold and the box's flip: the kept frame back, the buffer
+// not shown as the screen.
+TEST(message_box_over_a_gpu_frame_keeps_it_after_an_empty_lock) {
+  struct HoldGpu : platform::Render3D {
+    int presents = 0, holds = 0, restores = 0;
+    int32_t create_texture(int, int, const uint8_t*, uint8_t) override { return 1; }
+    void release_texture(int32_t) override {}
+    void update_texture(int32_t, int, int, const uint8_t*) override {}
+    void set_viewport(int, int, int, int) override {}
+    void clear(bool, uint8_t, uint8_t, uint8_t) override {}
+    void begin_scene() override {}
+    void end_scene() override {}
+    void draw(platform::Primitive, const platform::TLVertex*, int, const platform::DrawState&) override {}
+    void set_fog_color(uint8_t, uint8_t, uint8_t) override {}
+    void present() override { ++presents; }
+    bool hold_frame() override { return ++holds, true; }
+    bool restore_frame() override { return ++restores, true; }
+  } gpu;
+  struct CountScreen : platform::Screen2D {
+    int as_screen = 0, overlays = 0;
+    void present_16(const uint16_t*, int, int, int, bool) override { ++as_screen; }
+    void overlay_16(const uint16_t*, int, int, int, bool, uint16_t, const uint8_t*, const uint16_t*) override { ++overlays; }
+  } screen;
+  FakeWindow window;
+  FakeAlert alert;
+  FakeClock clock;
+  platform::SilentSoundOutput sound;
+  mech3::MountFiles files;
+  mech3::Platform p;
+  p.window = &window, p.alert = &alert, p.clock = &clock, p.movie_clock = &fast_movie_clock(), p.screen = &screen, p.sound = &sound, p.files = &files;
+  p.render = &gpu;
+  mech3::GameEngine e(p, "mech3.exe -nofmv");
+  zvid::Surface s;
+  // The lab's frame: its 2D layer drawn over the key, through the GPU.
+  e.lock_back(&s);
+  s.pixels[0] = 0x1234;
+  e.unlock_back(&s);
+  e.video_flip(0, 0, 0, 0);
+  EXPECT(gpu.presents == 1 && screen.as_screen == 0);
+  // The box: its empty lock and unlock, the frame held (its backdrop), its frames.
+  e.lock_back(&s);
+  e.unlock_back(&s);
+  EXPECT(e.hold_shown_frame());
+  for (int k = 0; k < 3; ++k) e.video_flip(0, 0, 0, 0);
+  std::printf("  held %d, restores %d, presents %d, buffer shown as the screen %d\n", e.held(), gpu.restores, gpu.presents,
+              screen.as_screen);
+  EXPECT(e.held() && gpu.restores == 3 && gpu.presents == 4 && screen.as_screen == 0);
+  e.drop_held();
+}
+
+// W56 (ours, FIX (bug) behind bugs): the axis popup offers the stick's
+// sliders (0x00430180 never did: a T.16000M's lever could not be picked),
+// and OK on the throttle binds it stop-to-full as the defaults do, whatever
+// the lever's place at OK (the lever map then gives reverse); a slider scaled
+// from DirectInput's 0..65535.
+TEST(controls_axis_popup_binds_a_slider_to_the_throttle_headless) {
+  if (!have_game()) return;
+  for (const bool bugs : {true, false}) {
+    W40Setup w(bugs ? "popup_slider_write" : "popup_slider_off_write");
+    zfix::options().bugs = bugs;
+    int stage = 0, wait = 0;
+    bool listed = false;
+    mech3::AxisBinding bound;
+    w40_run(w.dir, nullptr, nullptr, [&](mech3::GameEngine& engine, mech3::Mech3App& app) {
+      auto* os = dynamic_cast<mech3::OptionsState*>(app.current());
+      auto* c = os ? dynamic_cast<mech3::ControlsScreen*>(engine.screen_of(os->screen_)) : nullptr;
+      if (stage == 0 && at_main_menu(app)) {
+        const_cast<mech3::MainMenu*>(mech3::main_menu())->buttons[mech3::MainMenuButton::kOptions].on_left_up();
+        stage = 1;
+      } else if (stage == 1 && os) {
+        auto* g = dynamic_cast<mech3::GameOptionsScreen*>(engine.screen_of(os->screen_));
+        if (!g) return false;
+        g->controls.on_left_up();
+        stage = 2;
+      } else if (stage == 2 && c) {
+        c->select_command(0);  // Forward throttle: the throttle's axis
+        c->assign_axis.on_left_up();
+        stage = 3;
+      } else if (stage == 3) {
+        auto* st = dynamic_cast<mech3::AxisPopupState*>(app.current());
+        if (!st || !st->popup) return ++wait > 60;
+        mech3::AxisCycle& src = st->popup->sources;
+        for (int32_t i = 0; i < 16; ++i) {
+          src.select(i);
+          if (src.selected_value() == 7) {
+            listed = true;
+            break;
+          }
+        }
+        if (listed) st->popup->ok.on_left_up();
+        bound = mech3::axis_table().axes[0];
+        stage = 4;
+      } else if (stage == 4) {
+        if (!listed) return true;
+        bound = mech3::axis_table().axes[0];
+        return ++wait > 5;
+      }
+      return false;
+    });
+    std::printf("  popup (bugs %d): slider 0 listed %d; the throttle %d x %g + %g\n", bugs, listed, bound.source,
+                bound.scale, bound.offset);
+    EXPECT(stage == 4);
+    EXPECT(listed == bugs);
+    if (bugs) {
+      // Invert shown checked for the defaults' negative scale: -0.5 / 32767.5
+      // and 0.5 + 0.5, the slider's low end full ahead.
+      EXPECT(bound.source == 7 && std::fabs(bound.scale * 32767.5f + 0.5f) < 1e-4f && std::fabs(bound.offset - 1.0f) < 1e-4f);
+    }
+  }
+}
+
+
+// W59 (Owen's v1.0 crash, zmth::load+0x1d late in c4b): 0x004ed530 takes a
+// node's world position on a matrix of its own (push, identity, 0x004ed280,
+// pop). The port's shortcut ran 0x004ed280 on whatever the stack's top was
+// for a changed node: outside a draw that is the empty base slot (a write
+// through null in v1.0). Between frames, a moved centroid read as the exe.
+TEST(node_world_cached_of_a_moved_node_keeps_the_matrix_stack_headless) {
+  if (!have_game()) return;
+  bool checked = false, same = false;
+  zmth::StackFaults faults;
+  cheat_mission("w59_cached_write", 0, 1, 400, [&](int f, mech3::GameEngine&, CheatKeys&) {
+    if (f < 5) return false;
+    auto* centroid = static_cast<zcls::Node*>(mech3::mech_centroid_of(mech3::mission_player_mech()));
+    EXPECT(centroid != nullptr && centroid->cls() == 5);
+    if (!centroid) return true;
+    float want[3];
+    zcls::node_world_position(centroid, want);
+    auto* d = static_cast<uint8_t*>(centroid->data);
+    d[0] |= 0x20;  // its cached world matrix out of date, as after a move
+    EXPECT(zmth::matrix_stack().top == 0);
+    zmth::stack_faults() = {};
+    float got[3] = {9, 9, 9};
+    mech3::node_world_cached(centroid, got);
+    faults = zmth::stack_faults();
+    same = std::fabs(got[0] - want[0]) < 1e-3f && std::fabs(got[1] - want[1]) < 1e-3f &&
+           std::fabs(got[2] - want[2]) < 1e-3f;
+    checked = true;
+    return true;
+  });
+  EXPECT(checked && same);
+  EXPECT(faults.empty == 0 && faults.under_pop == 0 && faults.over_push == 0);
+  EXPECT(zmth::matrix_stack().top == 0);
+}

@@ -20,13 +20,21 @@ static_assert(sizeof(Mat34) == 48 && sizeof(Vec3) == 12, "the exe's layouts");
 
 // The stack holds callers' buffers, not copies. Slot 0 starts empty (the base
 // is a null pointer in the exe): the first use must push a buffer.
-constexpr int kStackDepth = 32;  // no bound check in the original
+constexpr int kStackDepth = 32;  // 0x0063d760..0x0063d7e0; no bound check in the original
 struct MatrixStack {
   Mat34* slot[kStackDepth] = {};  // 0x0063d760
   int32_t identity[kStackDepth] = {};  // 0x0063d7e8  1: the slot holds the identity
   int top = 0;                    // 0x005eda90 -> slot[top], 0x005eda8c -> identity[top]
-  Mat34& matrix() { return *slot[top]; }
+  // FIX (bug), ours (W59): pushes refused past the last slot, counted so their
+  // pops are too; an empty slot gives a scratch matrix. docs/fixes.md.
+  int overflow = 0;
+  const void* pushed_by[kStackDepth] = {};  // each slot's push's return address, for the reports
+  Mat34& matrix() { return slot[top] ? *slot[top] : empty_slot(top); }
   int32_t& is_identity() { return identity[top]; }
+  // The slot under the top (the parent's matrix).
+  Mat34& below() { return top > 0 && slot[top - 1] ? *slot[top - 1] : empty_slot(top - 1); }
+  int32_t below_identity() const { return top > 0 ? identity[top - 1] : 1; }
+  static Mat34& empty_slot(int at);
 };
 MatrixStack& matrix_stack();
 
@@ -60,6 +68,12 @@ void reset_stack();                      // 0x0051e8b0 (unreferenced; the exe's 
 void push(Mat34* buffer);                // 0x0051e9d0  contents untouched, not identity
 void push_copy(Mat34* buffer);           // 0x0051e930  copies the top and its flag
 void pop();                              // 0x0051ea00
+// Ours (W59): the stack back to empty at a frame's world draw, logged once
+// when something left it unbalanced. FIX (bug), docs/fixes.md.
+void check_stack_at_frame();
+// Ours (W59, for the tests): the times each guard fired.
+struct StackFaults { int over_push = 0, under_pop = 0, empty = 0, frame = 0; };
+StackFaults& stack_faults();
 void load(const Mat34& m);               // 0x0051fd40
 void load_rotation(const Mat34& m);      // 0x0051fd70  3x3 only, translation kept
 void load_identity();                    // 0x0051fde0
@@ -96,6 +110,9 @@ float direction_pitch(const float a[3], const float b[3]);                // 0x0
 // e^-x from a 256-entry table in steps of 1/51 (x truncated to a step): 0 above
 // 5, 1 below 0 or NaN. Built on the first call (docs/puffers.md, drag).
 float exp_neg(float x);                                   // 0x00523f70
+// Ours: exp_neg(rate * dt) for the frame time dt, as a 30 fps frame's per
+// second (FIX (B) behind per_second; the table without it).
+float exp_neg_dt(float x, float dt);
 
 // --- Camera and projection ---
 void set_view(const Mat34& camera_world);  // 0x00520b00

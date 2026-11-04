@@ -64,6 +64,7 @@ class SdlInput : public platform::Input {
   const int* axis_slots() const { return slot_; }
   bool unplugged() const { return unplugged_; }
   int32_t joystick_caps(uint32_t* flags, uint32_t* axes) override;
+  bool joystick_gamepad() const override { return pad_ != nullptr || (unplugged_ && pad_was_); }
   SDL_Joystick* joystick() const { return joy_; }  // the force feedback's device (sdl_force.h)
   int32_t joystick_object_name(uint32_t ofs, char* name, uint32_t n) override;
   int32_t joystick_set_range(uint32_t ofs, int32_t min, int32_t max) override;

@@ -641,7 +641,7 @@ bool Turret::aim(Handle at) {
   h.dir_through_inverse(d);
   h.matrix_pop();
   const float old[3] = {facing[0], facing[1], facing[2]};
-  const float k = zmth::exp_neg(h.frame_dt() * (ams_on ? 8.0f : 3.0f));
+  const float k = zmth::exp_neg_dt(h.frame_dt() * (ams_on ? 8.0f : 3.0f), h.frame_dt());
   const float k1 = 1.0f - k;
   facing[0] = k * facing[0] + k1 * d[0];
   facing[1] = k * facing[1] + k1 * d[1];

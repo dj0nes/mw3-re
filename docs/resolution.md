@@ -603,7 +603,7 @@ TITLE and MESSAGE are primitives, whose POSITION (Object2D::read,
 the box. Now it does (fixes.md, the dialogs' row).
 The credits (0x4289a0) are one block, their lines (431 wide at 0,70) kept at
 the left edge and stretched at column 100 by half the extra width (the
-table's `to_middle`), so the line from the edge still reaches the box. The
+table's `to_middle`), so the line from the edge still reaches the box. CREDITS_SCREEN's RECT (read with the dialog, 0x429200) moves with the control, since each frame places the names in it (0x429120; playtest W60: they had stayed 106 left of the box). The
 salvage screen (0x47d3b0) is one block on the debriefing's board, shaded as
 it. Training and multiplayer open on the pilot screen in their modes.
 The multiplayer screens (piece 14, 2026-11-01): the connection screen

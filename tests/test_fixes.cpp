@@ -6,6 +6,9 @@
 #include <cstring>
 #include <string>
 #include <tuple>
+#if !defined(_WIN32)
+#include <unistd.h>
+#endif
 
 #include "check.h"
 #include "gamez/zimage/zimg_library.h"
@@ -24,7 +27,10 @@
 #include "mech3/mech_hud.h"
 #include "mech3/lance_orders.h"
 #include "mech3/mech.h"
+#include "gamez/zinput/zinput.h"
+#include "mech3/controls_cfg.h"
 #include "mech3/mech_control.h"
+#include "platform/platform.h"
 #include "mech3/mech_fieldbase.h"
 #include "mech3/mech_pocket.h"
 #include "mech3/pocket_panel.h"
@@ -1555,31 +1561,180 @@ TEST(fix_aim_cone_widens_with_the_view) {
 
 // W50 (Owen, c1m2 on the Mac): zMath's e^-x table (0x00523f70) steps by
 // 1/51, so a per-second easing reads 1 on short frames: a rate of 3 at
-// 6 ms (166 fps) never eased at all. With per_second the exact value at any
-// frame time; without it the table, as the exe. One caller: a vehicle's
-// turn damped to 0 (0x004a2a00).
+// 6 ms (166 fps) never eased at all. exp_neg_dt gives the 30 fps frame's
+// table value raised to the frame's share: at 1/30 s the table bit for bit
+// (play as v1.0 and the original at 30 fps), at any other frame time the
+// same rate per second; without per_second, the table. The vehicles keep
+// the table at any frame time (W53: off its values near 30 fps c1m2's APCs
+// hopped): a vehicle's turn damped to 0 (0x004a2a00) at 6 ms, undamped.
 TEST(fix_exp_neg_eases_on_fast_frames) {
   const bool was = zfix::options().per_second;
-  for (const bool per_second : {true, false}) {
-    zfix::options().per_second = per_second;
-    const float fast = zmth::exp_neg(3.0f * 0.006f), slow = zmth::exp_neg(3.0f * 0.033f);
-    mech3::VehicleControls c;
-    mech3::VehicleMotion m;
-    m.turn_damping = 3.0f;
-    c.turn = 0.0f;
-    c.x50.y = 1.0f;
-    c.turn_step(m, 0.006f);
-    std::printf("  per_second %d: e^-0.018 %.6f, e^-0.099 %.6f, the turn after a 6 ms frame %.6f\n", per_second, fast, slow,
-                c.x50.y);
-    if (per_second) {
-      EXPECT(std::fabs(fast - std::exp(-0.018f)) < 1e-6f);
-      EXPECT(std::fabs(slow - std::exp(-0.099f)) < 1e-6f);
-      EXPECT(c.x50.y < 0.99f);
-    } else {
-      EXPECT(fast == 1.0f);  // the exe's table[0]: no easing
-      EXPECT(c.x50.y == 1.0f);
-    }
-    EXPECT(zmth::exp_neg(6.0f) == 0.0f && zmth::exp_neg(-1.0f) == 1.0f);  // the bounds, both ways
+  zfix::options().per_second = true;
+  const float ref = 1.0f / zfix::kReferenceFps;
+  // The callers' rates: the turrets' 3 and 8, the arms' recoil 4 and 6 and
+  // aim (a few rates); the vehicles' 30, 8, 1 and 0.5 as well, for the function.
+  int same = 0, rates = 0;
+  for (const float c : {3.0f, 8.0f, 4.0f, 6.0f, 10.0f, 20.0f, 30.0f, 1.0f, 0.5f}) {
+    ++rates;
+    same += zmth::exp_neg_dt(c * ref, ref) == zmth::exp_neg(c * ref);
+    // 6 ms frames: the 30 fps frame's value per second, within float.
+    const float k6 = zmth::exp_neg_dt(c * 0.006f, 0.006f);
+    const double per_s6 = std::pow(double{k6}, 1.0 / 0.006), per_s30 = std::pow(double{zmth::exp_neg(c * ref)}, 30.0);
+    const float k50 = zmth::exp_neg_dt(c * 0.05f, 0.05f);
+    std::printf("  rate %4.1f: 30 fps %.6f, 6 ms %.6f (per s %.5f against %.5f), 50 ms %.6f\n", c, zmth::exp_neg(c * ref), k6,
+                per_s6, per_s30, k50);
+    EXPECT(std::fabs(per_s6 - per_s30) <= 2e-3 * per_s30 + 1e-9);
+    EXPECT(k50 >= 0.0f && k50 <= 1.0f && std::fabs(k50 - std::pow(zmth::exp_neg(c * ref), 1.5f)) < 1e-6f);
   }
+  EXPECT(same == rates);
+  EXPECT(zmth::exp_neg_dt(3.0f * 0.006f, 0.006f) < 1.0f);    // the turret turns at 166 fps (W50)
+  EXPECT(zmth::exp_neg_dt(0.5f * ref, ref) == 1.0f);          // the original's 30 fps: this one undamped
+  EXPECT(zmth::exp_neg_dt(200.0f * 0.05f, 0.05f) == 0.0f);    // past the table's 5: 0
+  EXPECT(zmth::exp_neg_dt(0.3f, 0.0f) == zmth::exp_neg(0.3f));  // no frame time: the table
+  mech3::VehicleControls c;
+  mech3::VehicleMotion m;
+  m.turn_damping = 3.0f;
+  c.turn = 0.0f, c.x50.y = 1.0f;
+  c.turn_step(m, 0.006f);
+  EXPECT(c.x50.y == 1.0f);  // the table, as the original: 3 * 0.006 reads 1
+  zfix::options().per_second = false;
+  EXPECT(zmth::exp_neg_dt(3.0f * 0.006f, 0.006f) == 1.0f);  // the exe's table[0]: no easing
+  c.x50.y = 1.0f;
+  c.turn_step(m, 0.006f);
+  EXPECT(c.x50.y == 1.0f);
   zfix::options().per_second = was;
+}
+
+// W56 (ours, FIX (bug) behind bugs and throttle_reverse; Reddit v1.0, a
+// T.16000M: "I can accelerate but can't go in reverse with the slider"): the
+// stick's throttle lever over the whole range, through PlayerControls' frame
+// with a fake stick: full reverse at the bottom, stop at 37.5% of the travel
+// with 5% either side, full ahead at the top; a slider bound the popup's way;
+// a gamepad's triggers and the switch off as before; a lever left at its end
+// does not back the mech off at the start.
+namespace {
+platform::JoyState g_lever;
+zin::JoyAxis g_lever_axes[6];
+bool g_lever_pad = false;
+// The throttle target after `frames` at 30 fps with the lever's Z (or the
+// slider) at `z`, after a first frame at `first`.
+float lever_target(const mech3::AxisBinding& b, int32_t first, int32_t z, bool slider = false) {
+  static mech3::Mech m;
+  static mech3::PlayerControls c;
+  m = mech3::Mech{};
+  c = mech3::PlayerControls{};
+  c.owner = &m;
+  m.controls = &c;
+  for (zin::JoyAxis& a : g_lever_axes) a = zin::JoyAxis{}, a.min = -1000, a.max = 1000, a.scale = 0.001f, a.centre = 0;
+  const mech3::AxisTable kept = mech3::axis_table();
+  mech3::axis_table().axes[0] = b;
+  mech3::ControlsCalls& k = mech3::controls_calls();
+  k.command = [](int) { return 0u; };
+  k.joy_present = [] { return true; };
+  k.joy_gamepad = [] { return g_lever_pad; };
+  k.joy_state = [] { return static_cast<const void*>(&g_lever); };
+  k.joy_config = [] { return static_cast<const void*>(g_lever_axes); };
+  auto set = [slider](int32_t v) {
+    g_lever = platform::JoyState{};
+    if (slider) g_lever.slider[0] = v;
+    else g_lever.z = v;
+  };
+  set(first);
+  c.update(1.0f / 30);
+  set(z);
+  for (int i = 0; i < 3; ++i) c.update(1.0f / 30);
+  k = mech3::ControlsCalls{};
+  mech3::axis_table() = kept;
+  return c.throttle_target;
+}
+}  // namespace
+
+TEST(fix_throttle_lever_reaches_reverse) {
+  const mech3::AxisBinding z{3, -0.5f, 0.5f, 0.05f};  // the defaults' throttle (0x00410950): Z, the top full
+  auto near = [](float a, float b) { return std::fabs(a - b) < 1e-3f; };
+  auto at = [](float u) { return static_cast<int32_t>(std::lround(1000.0f - 2000.0f * u)); };  // u up the travel
+  const float lo = mech3::kLeverStop - mech3::kLeverStopZone, hi = mech3::kLeverStop + mech3::kLeverStopZone;
+  const float top = lever_target(z, 0, -1000), bottom = lever_target(z, 0, 1000);
+  const float stop = lever_target(z, 0, at(mech3::kLeverStop));
+  const float in_lo = lever_target(z, 0, at(lo + 0.01f)), in_hi = lever_target(z, 0, at(hi - 0.01f));
+  const float past = lever_target(z, 0, at(hi + 0.1f)), under = lever_target(z, 0, at(lo - 0.1f));
+  std::printf("  lever: top %.3f bottom %.3f stop %.3f zone %.3f %.3f; past it %.3f, under %.3f\n", top, bottom, stop,
+              in_lo, in_hi, past, under);
+  EXPECT(near(top, 1.0f) && near(bottom, -1.0f));
+  EXPECT(stop == 0.0f && in_lo == 0.0f && in_hi == 0.0f);
+  EXPECT(near(past, 0.1f / (1.0f - hi)) && near(under, -0.1f / lo));
+  // A kph the same travel both ways: reverse runs at 0.6 (Gait 0x004181c0).
+  EXPECT(std::fabs(0.6f / lo - 1.0f / (1.0f - hi)) < 0.15f * (1.0f / (1.0f - hi)));
+  // A slider (DirectInput's 0..65535) bound as the popup binds the throttle:
+  // -0.5 / 32767.5 and 0.5 + 0.5; its low end full ahead, as Z's.
+  const mech3::AxisBinding s{7, -0.5f / 32767.5f, 1.0f, 0.0f};
+  EXPECT(near(lever_target(s, 40000, 0, true), 1.0f) && near(lever_target(s, 40000, 65535, true), -1.0f));
+  EXPECT(lever_target(s, 1000, static_cast<int32_t>(65535 * (1.0f - mech3::kLeverStop)), true) == 0.0f);
+  // Left at the bottom from the start: not counted until it moves; left
+  // ahead, it drives at once, as the original's (a centred stick walks).
+  EXPECT(lever_target(z, 1000, 1000) == 0.0f);
+  EXPECT(near(lever_target(z, -1000, -1000), 1.0f));
+  // A gamepad's triggers, the switch off, the bug fixes off: as before (the
+  // defaults' 0..1: the top full, the bottom stop).
+  g_lever_pad = true;
+  EXPECT(near(lever_target(z, 0, 1000), 0.0f) && near(lever_target(z, 0, 0), 0.5f));
+  g_lever_pad = false;
+  zfix::options().throttle_reverse = false;
+  EXPECT(near(lever_target(z, 0, 1000), 0.0f) && near(lever_target(z, 0, -1000), 1.0f));
+  zfix::options().throttle_reverse = true;
+  zfix::options().bugs = false;
+  EXPECT(near(lever_target(z, 0, 1000), 0.0f) && near(lever_target(z, 0, -1000), 1.0f));
+  zfix::options().bugs = true;
+}
+
+// W59 (Owen's v1.0 crash, zmth::load+0x1d in c4b's last fight): an unbalanced
+// matrix stack is refused and logged, never a write through a stray slot.
+TEST(fix_matrix_stack_imbalance_is_refused_and_logged) {
+  zmth::MatrixStack& st = zmth::matrix_stack();
+  zmth::reset_stack();
+  zmth::stack_faults() = {};
+#if !defined(_WIN32)
+  std::FILE* log = std::tmpfile();
+  std::fflush(stderr);
+  const int saved = dup(2);
+  dup2(fileno(log), 2);
+#endif
+  // Under: a load and a pop with nothing pushed.
+  const zmth::Mat34 m = {{1, 0, 0, 0, 1, 0, 0, 0, 1, 7, 8, 9}};
+  zmth::load(m);
+  zmth::pop();
+  zmth::pop();
+  EXPECT(st.top == 0 && st.slot[0] == nullptr);
+  // Over: 40 pushes into 31 free slots; the 9 refused ones' pops come off first.
+  static zmth::Mat34 bufs[40];
+  for (zmth::Mat34& b : bufs) zmth::push(&b);
+  EXPECT(st.top == zmth::kStackDepth - 1 && st.overflow == 9);
+  zmth::load(m);  // into the last slot taken
+  EXPECT(bufs[30].m[9] == 7.0f && bufs[31].m[9] == 0.0f);
+  for (int i = 0; i < 9; ++i) zmth::pop();
+  EXPECT(st.top == zmth::kStackDepth - 1 && st.overflow == 0);
+  zmth::push_copy(&bufs[39]);  // full again: refused, not past the array
+  EXPECT(st.overflow == 1 && bufs[39].m[9] == 0.0f);
+  // The frame's start puts it back to empty.
+  zmth::check_stack_at_frame();
+  EXPECT(st.top == 0 && st.overflow == 0);
+  zmth::check_stack_at_frame();  // balanced now: nothing
+  const zmth::StackFaults f = zmth::stack_faults();
+  EXPECT(f.empty == 1 && f.under_pop == 2 && f.over_push == 10 && f.frame == 1);
+#if !defined(_WIN32)
+  std::fflush(stderr);
+  dup2(saved, 2);
+  close(saved);
+  std::string text;
+  std::rewind(log);
+  for (int c; (c = std::fgetc(log)) != EOF;) text += static_cast<char>(c);
+  std::fclose(log);
+  int lines = 0;
+  for (size_t at = 0; (at = text.find("mw3: matrix stack: ", at)) != std::string::npos; ++at) ++lines;
+  EXPECT(lines == 4);  // once each: empty, under, over, frame
+  EXPECT(text.find("a push past the last slot, refused") != std::string::npos);
+  EXPECT(text.find("from: ") != std::string::npos && text.find("pushed by: ") != std::string::npos);
+#endif
+  zmth::reset_stack();
+  zmth::stack_faults() = {};
 }

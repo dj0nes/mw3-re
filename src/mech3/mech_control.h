@@ -47,6 +47,7 @@ struct MechControls {
   bool throttle_held = false;  // +0x3e  cleared by the throttle keys; set, the throttle does not return to zero
   bool throttle_returns = false;  // +0x3f  ThrottleConst off: with no throttle key the throttle eases to zero
   float joy_throttle = 0;      // +0x40  the joystick throttle's last reading
+  bool lever_seen = false;     // ours (W56): the lever's first reading taken as the last (init clears it)
   float throttle_target = 0;   // +0x44  -1..1
   float turn_target = 0;       // +0x48
   float jump_target = 0;       // +0x4c
@@ -202,6 +203,7 @@ struct ControlsCalls {
   const void* (*joy_config)() = nullptr;         // 0x0051da90 (six zin::JoyAxis); unset: zin::joy_config
   const void* (*mouse_info)() = nullptr;         // 0x0051b7b0 (a zin::MouseInfo); unset: zin::mouse_info
   bool (*joy_present)() = nullptr;               // 0x0051dc10; unset: zin::joy_present
+  bool (*joy_gamepad)() = nullptr;               // ours (W56); unset: zin::joy_gamepad
   void (*run_command)(int cmd) = nullptr;        // 0x0051c440; unset: zin::run_callback
   void (*mouse_set)(float x, float y) = nullptr; // 0x0051b440; unset: zin::mouse_set
   int (*camera_view)() = nullptr;                // [0x005f4c8c] +0x58 +0x40
@@ -218,5 +220,17 @@ struct ControlsCalls {
   void (*joy_use)() = nullptr;                   // 0x0051b2c0; unset: zin::joy_use
 };
 ControlsCalls& controls_calls();
+
+// Ours (W56, FIX (bug) behind `bugs` and zfix's throttle_reverse; fixes.md):
+// a stick's throttle lever over the mech's whole range, full reverse at one
+// end to full ahead at the other. Stop sits at kLeverStop of the travel, as
+// reverse runs at 0.6 of the speed (Gait 0x004181c0): a kph is the same
+// travel both ways; kLeverStopZone either side of it reads stop. The lever's
+// end that gave full ahead before still does (the binding's scale's sign);
+// its offset is not used. Stick sources only (1..8), not a gamepad's
+// triggers, which keep half at rest.
+constexpr float kLeverStop = 0.375f, kLeverStopZone = 0.05f;
+bool lever_reverse_on(const AxisBinding& b);
+float lever_throttle(const AxisBinding& b, const void* joy);
 
 }  // namespace mech3

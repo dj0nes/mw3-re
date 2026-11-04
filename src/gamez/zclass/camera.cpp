@@ -1229,6 +1229,7 @@ int camera_draw_flares(Camera* cam, int32_t from) {
 // The Direct3D frame's 3D part: LoD scale, lights, camera, horizon,
 // viewport, zones, then the scene walk between BeginScene and EndScene.
 int render_world(Node* camera_node, int32_t after) {
+  zmth::check_stack_at_frame();  // FIX (bug), ours (W59): one imbalance cannot carry
   zmth::Mat34 local;
   zmth::push(&local);
   Camera* cam = cam_of(camera_node);

@@ -22,6 +22,10 @@ struct Options {
   // (16:9), on by default (Owen, 2026-10-31); a display choice, not a bug
   // fix: mw3.cfg's widemenus=0, --no-wide-menus (resolution.md section 12).
   bool wide_menus = true;
+  // Ours (W56, Owen 2026-11-03), with `bugs`: a stick's throttle lever covers
+  // reverse too (mech3::lever_throttle); mw3.cfg's throttle_reverse=0 keeps
+  // the original's stop at the bottom.
+  bool throttle_reverse = true;
 };
 
 inline Options& options() {

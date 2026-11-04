@@ -247,6 +247,7 @@ uint32_t joy_setup(const JoyAxis* config);  // 0x0051d700
 JoyAxis* joy_config();                 // 0x0051da90
 uint32_t joy_close();                  // 0x0051dbe0
 bool joy_present();                    // 0x0051dc10
+bool joy_gamepad();                    // ours: the platform's joystick_gamepad (W56)
 platform::JoyState* joy_read(bool callbacks);  // 0x0051dc20: null when nothing was read
 platform::JoyState* joy_state();       // 0x0051dce0
 uint32_t joy_button(int32_t b);        // 0x0051dcf0 (1..10)

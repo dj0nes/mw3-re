@@ -5,6 +5,7 @@
 #include <cstring>
 #include <string>
 
+#include "gamez/zutil/zfix.h"
 #include "mech3/controls_cfg.h"
 
 #pragma STDC FP_CONTRACT OFF
@@ -50,8 +51,16 @@ int32_t axis_of_source(int32_t source) {
 // Mech3.exe 1.2 @ 0x00430180: a source the popup offers. The original tests
 // zInput's axis table (0x0051da90) entry by entry against null, a static
 // array: the stick's six axes are offered whatever the stick has, its two
-// sliders never.
-bool source_listed(int32_t source) { return (source >= 1 && source <= 6) || (source >= 9 && source <= 11); }
+// sliders never. FIX (bug), W56: the sliders too (a throttle lever is often
+// one: a T.16000M's could not be picked).
+bool source_listed(int32_t source) {
+  if (zfix::options().bugs && (source == 7 || source == 8)) return true;
+  return (source >= 1 && source <= 6) || (source >= 9 && source <= 11);
+}
+// Ours (W56): a slider's reading is DirectInput's default 0..65535 (zInput
+// sets a range on the six axes only); the popup shows and binds it as -1..1.
+constexpr float kSliderHalf = 32767.5f;
+bool slider(int32_t source) { return source == 7 || source == 8; }
 
 // 0x0042c7a0, 0x0042ca70, 0x0042cc10: taking a key or button from the command
 // that has it; asked only when one does and it is not the same command.
@@ -879,7 +888,9 @@ void AxisPopupScreen::update(float dt) {
     Window::update(dt);
     return;
   }
-  float v = (e.source_value(src, j) - -1.0f) * 0.5f;
+  float r = e.source_value(src, j);
+  if (zfix::options().bugs && slider(src)) r = r / kSliderHalf - 1.0f;
+  float v = (r - -1.0f) * 0.5f;
   if (invert.checked) v = 1.0f - v;
   if (v > 1.0f) v = 1.0f;
   else if (!(v >= 0.0f)) v = 0.0f;
@@ -898,8 +909,21 @@ void AxisPopupScreen::OkButton::on_left_up() {
   const Handle j = e_.joy_state();
   const float k = s->invert.checked ? -1.0f : 1.0f;
   const float v = e_.source_value(src, j);
-  const float offset = (v * k) * -1.0f;
-  if (s->owner) s->owner->apply(k, offset);
+  float scale = k, offset = (v * k) * -1.0f;
+  if (zfix::options().bugs) {
+    // Ours (W56): the throttle bound stop-to-full, wherever the lever sits at
+    // OK: the defaults' -0.5 and 0.5 with Invert (which the popup shows
+    // checked for them, the scale being negative), +0.5 without; with
+    // throttle_reverse the lever map takes it over (mech3::lever_throttle).
+    // A slider's reading scaled to -1..1.
+    const bool throttle = s->owner && s->owner->axis == 0 && src >= 1 && src <= 8;
+    if (throttle) scale = 0.5f * k, offset = 0.5f;
+    if (slider(src)) {  // in -1..1: n = r / kSliderHalf - 1
+      offset = throttle ? offset - scale : -k * v / kSliderHalf;  // (the reading at OK still reads 0)
+      scale /= kSliderHalf;
+    }
+  }
+  if (s->owner) s->owner->apply(scale, offset);
   s->state_escape();
 }
 

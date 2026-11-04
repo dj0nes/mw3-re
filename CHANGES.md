@@ -21,6 +21,7 @@ it is clear what the designers meant.
 
 ## Bug fixes that change play
 
+- **A joystick's throttle lever reaches reverse.** The original's lever ran from stop to full ahead; reverse took the Toggle throttle direction key (Backspace). Now the lever covers the whole range, full reverse at the bottom to full ahead at the top, with stop a little over a third of the way up (reverse is slower, so each step of the lever is the same change of speed both ways) and a small band around it that holds stop. A lever left at the bottom does not send the mech backwards at the start of a mission. Backspace still flips the direction; `throttle_reverse=0` in `mw3.cfg` gives the original's lever. Gamepad triggers are unchanged. The controls screen's Assign Axis also offers the stick's sliders, where many throttle levers are.
 - **A laser's beam leaves from the arm after a quick click.** A short laser keeps firing for a moment after you let go of the button, and the original left it at the point where the arm was when you let go, so on a walking mech the beam hung back a metre or more behind the arm (and fired from there). It now follows the arm until it ends, as it does while the button is held.
 - **Every nav point you pass on your objectives' list is ticked off.** The game marks a nav point an objective watches as reached (and says its line) when you come within 25 m, but once its check passed the currently selected nav point it skipped the rest of the list, so those were only ticked off once selected. Now all of them are checked.
 - **Turrets do not slow down mission after mission.** Each turret looks for a target, aims and fires on only one frame in so many, and the original counted that over every turret the game had made since it started: the more missions you had played in one sitting, the less often each mission's turrets acted. The count now starts again with each mission's turrets.
@@ -50,13 +51,14 @@ it is clear what the designers meant.
   smoke stopped slowing down and ignored the wind, and the wind's gusts
   changed faster the faster the game ran. Both now go by time, at the 30 fps
   pace.
-- **Turrets, mech arms and vehicles turn at any frame rate.** The original
-  eased them toward where they aim, and damped vehicles' turns and arms'
-  recoil, by a table that rounds a frame's step down to 1/51: above about
-  150 fps the turrets did not turn at all, and the missile platforms that
-  start facing straight up (Op 1 Mission 2) were drawn flat, invisible but
-  alive, and the objective looked impossible. Every such easing now goes by
-  time. A turret aimed straight up or down also keeps its shape.
+- **Turrets and mech arms turn at any frame rate.** The original eased
+  them toward where they aim, and eased the arms' recoil, by a table that
+  rounds a frame's step down to 1/51: above about 150 fps the turrets did
+  not turn at all, and the missile platforms that start facing straight up
+  (Op 1 Mission 2) were drawn flat, invisible but alive, and the objective
+  looked impossible. These now ease at the original's 30 fps pace at any
+  frame rate, and exactly as before at 30 fps. A turret aimed straight up
+  or down also keeps its shape. Vehicles keep the original's damping.
 - **Mech movement plays the same at any frame rate.** Falls, the shoves from
   slopes and ledges, the blend into a walk, jump-jet thrust and the damage
   done to buildings you push into all went by frames; they now play as they
@@ -450,6 +452,7 @@ These change how the game talks to the computer, not how it plays.
   picked in the menus takes effect for the menus at the next start. The
   multiplayer connection screen and lobby spread the same way, the lobby's
   middle column widening between the other two.
+- With the 16:9 menus, the credits (from the main menu and at the campaign's end) scroll inside their box, not to the left of it.
 
 - The craters a host sends to a player joining a multiplayer game name their ground and texture by material number instead of by the host's memory addresses, which meant nothing on the joining machine (and do not fit a 64-bit program).
 
@@ -514,6 +517,10 @@ These change how the game talks to the computer, not how it plays.
   menus' writing is drawn with the game's own fonts (Arial, Impact, Lucida
   Console, shipped with it) instead of Windows' text drawing.
 - Message boxes are the computer's own instead of Windows'.
+- A message box over the 3D picture (the mech lab's "Overwrite?", the
+  mission's quit) shows that picture behind it at full size, as the
+  original did; the rebuild's v1.0 showed the lab's box over a purple
+  screen.
 - The game's random numbers are generated exactly as on the original's
   Windows, so everything random behaves the same.
 - Some rendering depends on the processor's math precision. In the emulator,
@@ -641,3 +648,4 @@ Known quirks the rebuild deliberately keeps:
 - On a wide screen the arm weapons reach the reticle across the whole width: an arm weapon still fires straight ahead when aimed far off to the side, but the limit now widens with the screen, so it starts at the same place on screen as on a 4:3 one (bug fixes on).
 - Cheat codes in single player (ours): Shift+Enter, Keypad * or Keypad − in a mission opens a box for six codes, from a radar that shows everything to an instant win (README, Cheat codes).
 - Shooting off an arm with a weapon in its hand no longer reads memory the game has just freed (harmless on Windows 98, a possible crash today).
+- A crash late in a fight (seen in Operation 4's last fight): the graphics' matrix stack no longer writes through a bad entry when it is pushed or popped out of step; the slip is refused and logged instead, and the stack is cleared each frame. Its cause was the rebuild's own (a shortcut that took a moving mech's position on the shared stack instead of on its own), and that is fixed too.
