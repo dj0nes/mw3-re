@@ -7,7 +7,7 @@ a polygon can take all seven sets. The fade runs at both ends of its range.
     .venv/bin/python -P tests/differential/test_pm_sets.py [draws per world]
 """
 import ctypes
-import os
+import math
 import random
 import struct
 import sys
@@ -55,7 +55,7 @@ class Emulated(lit.Emulated):
         at = start
         while at < end:
             r = self.read(at, 0x38)
-            poly, pos, _, _, record, tl, sets, flags, count = struct.unpack_from('<9I', r)
+            poly, pos, normal, _, record, tl, sets, flags, count = struct.unpack_from('<9I', r)
             codes = struct.unpack_from('<I', r, 0x34)[0]
             self.dump += struct.pack('<iiIiI', (poly - polys) // 0x28, ref, flags, count, codes)
             at += 0x38
@@ -65,7 +65,7 @@ class Emulated(lit.Emulated):
             for v in range(count):
                 self.dump += self.read(record + v * 0x20, 0x20) + self.read(tl + v * 0x20 + 0x18, 8)
             n = self.i32(sets) if sets else 0
-            self.dump += struct.pack('<i', n)
+            self.dump += (self.read(normal, 12) if normal else bytes(12)) + struct.pack('<i', n)
             for k in range(n):
                 self.dump += self.read(sets + 4 + k * 4, 4) + self.read(sets + 0x20 + k * 4, 4)
                 self.dump += self.read(sets + 0x1558 + k * 0x200, count * 8)
@@ -73,6 +73,19 @@ class Emulated(lit.Emulated):
                     self.dump += self.read(sets + 0x3c + k * 0x300, count * 12) + self.read(sets + 0x153c + k * 4, 4)
         self.w32(0x8dcbb8, start)
         uc.reg_write(UC_X86_REG_EDI, start)
+
+
+def exact_zero_case(exe, ours):
+    return ours[0] == 0.0 and exe[0] != 0.0 and abs(exe[0]) < 1e-7
+
+
+def axis_factor(exe):
+    """What 0x5381c0 gives along x for a normal with x tiny: y / approx_sqrt(x^2 + y^2).
+    The approximate root by its float bits, in 32-bit float arithmetic, as the exe's."""
+    sq = struct.unpack('<f', struct.pack('<f', exe[0] * exe[0] + exe[1] * exe[1]))[0]
+    bits = struct.unpack('<i', struct.pack('<f', sq))[0]
+    root = struct.unpack('<f', struct.pack('<i', (bits >> 1) + 0x1fc00000))[0]
+    return exe[1] / root
 
 
 def make_caster(rng, around):
@@ -144,6 +157,11 @@ def main():
             i = rng.choice(nodes)
             world, cam, proj, *_ = scenario(rng, (0, 0, 0), 50.0)
             near = proj[6]
+            if rng.random() < 0.3:  # an unturned model, a camera turned about x alone: normals' x near 0
+                t = rng.uniform(-1.2, 1.2)
+                cs, sn = math.cos(t), math.sin(t)
+                world = [1, 0, 0, 0, 1, 0, 0, 0, 1, rng.uniform(-30, 30), rng.uniform(-30, 30), rng.uniform(-30, 30)]
+                cam = [1, 0, 0, 0, cs, sn, 0, -sn, cs, rng.uniform(-30, 30), rng.uniform(-30, 30), rng.uniform(20, 80)]
             rect = (proj[0], proj[1], proj[0] + proj[2] * 2 - 0.001, proj[1] + proj[3] * 2 - 0.001)
             emu.view(cam, proj, near, rect, 0.0)
             views = emu.read(md.VIEW, 48) + emu.read(md.CAMERA_M, 48)
@@ -245,6 +263,9 @@ def main():
                             raise SystemExit(f'{w} draw {d} node {i} poly {a[0]} vertex {v} word {k}: {y}, the exe {x}; flags {a[2]:#x}')
                         at += 4
                         ag += 4
+                na, ng3 = struct.unpack_from('<3f', want, at), struct.unpack_from('<3f', got, ag)
+                at += 12
+                ag += 12
                 ns, ng = struct.unpack_from('<i', want, at)[0], struct.unpack_from('<i', got, ag)[0]
                 if ns != ng:
                     raise SystemExit(f'{w} draw {d} node {i} poly {a[0]} mask {mask:#x}: {ng} sets, the exe {ns}; flags {a[2]:#x}')
@@ -262,15 +283,19 @@ def main():
                     extra = a[3] * 2 + (a[3] * 3 if ka == 2 else 0)
                     for j in range(extra):
                         x, y = struct.unpack_from('<f', want, at)[0], struct.unpack_from('<f', got, ag)[0]
-                        # At 53 bits a normal's x can be tiny on the exe's side and exactly 0 on
-                        # ours, which turns these axes by 180 degrees and changes their scale
-                        # (0x5381c0; traced, docs/pm-map.md). 53 bits is the shipped default.
-                        if fpu53 and ka == 2 and j < a[3] * 2 and not os.environ.get("PM_UV_STRICT"):
+                        # A normal's x exactly 0 here and tiny in the exe (53 bits): 0x5381c0's other
+                        # branch, these axes turned and scaled by the exe's own factor, and only that
+                        # (traced, docs/pm-map.md).
+                        if ka == 2 and j < a[3] * 2 and exact_zero_case(na, ng3):
+                            if not same_float(x - 0.5, (y - 0.5) * axis_factor(na), stats, TOL, 'turned', 0.002):
+                                raise SystemExit(f'{w} draw {d} node {i} poly {a[0]} set {k} float {j}: {y} turned and '
+                                                 f'scaled is not the exe {x}; normals {ng3}, {na}')
+                            seen['turned axes'] = seen.get('turned axes', 0) + 1
                             at += 4
                             ag += 4
                             continue
                         if not same_float(x, y, stats, TOL, 'set', ROUNDING):
-                            raise SystemExit(f'{w} draw {d} node {i} poly {a[0]} set {k} kind {ka} float {j}: {y}, the exe {x}')
+                            raise SystemExit(f'{w} draw {d} node {i} poly {a[0]} set {k} kind {ka} float {j}: {y}, the exe {x}; normals {ng3}, {na}')
                         at += 4
                         ag += 4
                     if ka == 2:
@@ -282,7 +307,8 @@ def main():
                         at += 4
                         ag += 4
     print(f'ok: {records} records; {stats.floats} floats, {stats.exact} exact, off by place {stats.where}; {dict(sorted(seen.items()))}')
-    for need in ('triangle', '7 sets', 'kind 1', 'kind 2', 'fade full', 'fade zero', 'fade between'):
+    print(f"turned axes allowed on {seen.get('turned axes', 0) // 2} UV pairs (53 bits)")
+    for need in ('triangle', '7 sets', 'kind 1', 'kind 2', 'fade full', 'fade zero', 'fade between', 'turned axes'):
         if not seen.get(need):
             raise SystemExit(f'never reached: {need}')
 

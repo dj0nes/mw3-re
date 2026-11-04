@@ -934,6 +934,8 @@ int probe_pm_sets(int node, const float* world, uint32_t mask, int fpu53, uint8_
           put(q.pos, static_cast<size_t>(q.count) * 12);
           for (int32_t k = 0; k < q.count; ++k) put(q.rec + k * 8, 32), put(q.tl + k * 8 + 6, 8);
           const int32_t sets = q.shadows ? q.shadows->count : 0;
+          static const float kNone[3] = {};
+          put(q.normal ? q.normal : kNone, 12);
           i32(sets);
           for (int32_t k = 0; k < sets; ++k) {
             const uint32_t tex = static_cast<uint32_t>(reinterpret_cast<uintptr_t>(q.shadows->texture[k]));

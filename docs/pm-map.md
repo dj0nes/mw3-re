@@ -924,6 +924,13 @@ functions PM changed, and PM's new ones.
        0.946. So the map turns 180 degrees and changes size by that factor. The shipped
        map is a round soft spot: the turn alone moves it by at most 9/255 (mean 2), with
        the size at most 33/255 (mean 11), in its soft ring.
+       **Decided (the lead, 2026-11-04):** the port stays; it matches the exe at 24 bits
+       and the scale is the original's own approximate root, which already leaves such
+       steps between polygons. `test_pm_sets.py` compares these UVs at 53 bits and allows
+       only this case, exe x under 1e-7 and ours exactly 0, with the exe's UVs ours turned
+       and scaled by its own factor; it prints how many. **Eye check, phase 6:** an
+       axis-aligned wall under a yaw-aligned camera with a light map on it, for a seam
+       between neighbouring polygons: random cameras say nothing about how often in play.
        The test maps a zero page, for a strip's missing normal and the bench's null
        texture images. Every null read on the exe's side then succeeds, so a passing
        run does not show those two are the only null reads in this path.
