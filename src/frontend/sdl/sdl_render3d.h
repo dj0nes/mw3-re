@@ -32,6 +32,8 @@ class SdlRender3D : public platform::Render3D {
   void end_scene() override;
   void draw(platform::Primitive type, const platform::TLVertex* vertices, int count,
             const platform::DrawState& state) override;
+  void draw_light_map(platform::Primitive type, const platform::LightMapVertex* vertices, int count, int32_t map,
+                      const platform::DrawState& state) override;
   void set_fog_color(uint8_t r, uint8_t g, uint8_t b) override;
   void present() override;
   bool read_back(std::vector<uint32_t>* argb, int* width, int* height) override;
@@ -56,8 +58,9 @@ class SdlRender3D : public platform::Render3D {
     // FIX (A): FOGCOLOR as it was at these draws, as Direct3D applies it per
     // draw (a saturated light's colour on its polygons only; W20).
     float fog[3];
+    int32_t map = -1;  // a light map's draw: its second texture; first, count in TLVertex slots
   };
-  SDL_GPUGraphicsPipeline* pipeline(const platform::DrawState& s, bool textured);
+  SDL_GPUGraphicsPipeline* pipeline(const platform::DrawState& s, bool textured, bool light_map = false);
   SDL_GPUSampler* sampler(uint8_t u, uint8_t v);
   void ensure_depth(uint32_t w, uint32_t h);
   void ensure_buffer(uint32_t bytes);
@@ -70,6 +73,8 @@ class SdlRender3D : public platform::Render3D {
   SDL_GPUShader* vs_ = nullptr;
   SDL_GPUShader* fs_tex_ = nullptr;
   SDL_GPUShader* fs_flat_ = nullptr;
+  SDL_GPUShader* vs_light_map_ = nullptr;
+  SDL_GPUShader* fs_light_map_ = nullptr;
   std::map<uint32_t, SDL_GPUGraphicsPipeline*> pipelines_;
   std::map<uint32_t, SDL_GPUSampler*> samplers_;
   std::vector<SDL_GPUTexture*> textures_;

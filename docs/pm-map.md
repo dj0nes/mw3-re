@@ -1058,7 +1058,29 @@ functions PM changed, and PM's new ones.
        `project_d3d` and `unproject_d3d`: not on PM's path. `src/pm` calls neither; it has `project_point`,
        `project_records` and `gmod_projected`'s local unprojection, each in PM's order. Their users are
        MW3's draws (`gamez/zmodel/gmod_draw`, `gmod_light`).
-     - Order from here. The light map's shader (`draw_light_map`).
+     - **The light map's shader** (`Render3D::draw_light_map`, `sdl_render3d`'s `vs_light_map`,
+       `fs_light_map` in MSL, HLSL and GLSL; `light_map` in `zvid_tl`). 0x5a03b0's two-stage path:
+       src = texture * map * colour, alpha = the texture's * the colour's (the fade), the map's alpha
+       unused, the map clamped; blended SRCALPHA, ONE; fog on, with FOGCOLOR black around the draw, so
+       fog dims what is added. A vertex is 0x28 bytes; in the buffer it takes two `TLVertex` slots, the
+       pitch doubled, so nothing else about the buffer or its upload changes. One more pipeline key
+       bit. `test_pm_device.py` compares the vertices, states and fog sends with the exe's two-stage
+       path (option 2), and half its steps run at 53 bits for the colours. `mw3sdltests`'
+       `sdl_render_draws_a_light_map` checks the pixels: added, faded, fogged, clamped.
+       **The polygon's u, v under a light map (quirk):** 0x5a04bb keeps them only when the last set is
+       a light map and the first is not; otherwise the sets before leave theirs in the vertices.
+       **All three "on" settings take this formula** (`fixes.md`). The three-stage path (option 1, or
+       auto when the device has 3 stages) is read from the code only: stage 2 modulates the colour
+       by the diffuse but its alpha takes no diffuse, so it loses the fade. **Open, for Owen's PC:**
+       what the original shows there.
+       No world shows a light map yet: `LightSetLightMap` waits for the interpreter's item. To see one,
+       `mw3pm --fly c1 --look 0 20 --map-light 2432 5 -2300 120` (debug only), with GfxFlags' lighting on,
+       which the debug start otherwise leaves off, so the rest of the world goes dark.
+     - **Eye check, still to do with the game around it:** points meeting blended polygons (batched,
+       0x59ee90, not ported); a short light's pool on a regular polygon; a projected light over a
+       light-mapped polygon, bugs on and off; an axis-aligned wall with a light map (seam); c1's stair-stepped
+       sand and red, c2's jagged orange edge; the black shape in c1, c3, c4, now with stars, so perhaps a piece of
+       sky waiting on the sky's port: confirm when sky lands; c4's flat green.
 3. **The mission**: load, setup and the world parameters (`mission.cpp`
    114 new, 14 of the port's changed), the standalone missions
    (`readersa1..4`), the objectives.

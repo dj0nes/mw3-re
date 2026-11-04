@@ -10,7 +10,9 @@
 #include "gamez/zmodel/gmod_matl.h"
 #include "gamez/zrender/zrndr_fog.h"
 #include "gamez/zvideo/zvid_ddd3d.h"
+#include "platform/render3d.h"
 #include "pm/gamez/zmodel/gmod_clip3d.h"
+#include "pm/gamez/zmodel/gmod_cull.h"
 
 namespace pm::zvid {
 
@@ -141,9 +143,48 @@ void indexed_flat(const pm::zmod::DeviceCall& d, const TLVertex* v) {
   ::zvid::draw_primitive(4, v, d.count);
 }
 
+// A light map over the polygon, added: texture * map * colour, the fade as alpha, and fog
+// going to black so that it dims what is added (0x005a0539..0x005a0d82). FIX (A): the exe's
+// two texture stages as one shader, on every setting: its three-stage path, where the device
+// offers it, reads as losing the fade (fixes.md).
+void light_map(const pm::zmod::DeviceCall& d, const pm::zmod::ClipShadows& c, int32_t k, const TLVertex* uv, const D3DTexture* base) {
+  const auto* map = static_cast<const D3DTexture*>(c.texture[k]);
+  if (!map) return;  // FIX (bug): the exe reads through it
+  static std::vector<platform::LightMapVertex> own;
+  own.resize(static_cast<size_t>(d.count));
+  const auto channel = [](float x) {
+    const int32_t w = static_cast<int32_t>(pm::zmod::rounded_sum(x, 0.5f));
+    return static_cast<uint32_t>(w >= 0x100 ? 0xff : w < 0 ? 0 : w);
+  };
+  const auto* v = reinterpret_cast<const TLVertex*>(d.tl);
+  for (int32_t i = 0; i < d.count; ++i) {
+    platform::LightMapVertex& o = own[static_cast<size_t>(i)];
+    const float* rgb = &c.xyz[k][static_cast<size_t>(i) * 3];
+    o.sx = v[i].sx, o.sy = v[i].sy, o.sz = v[i].sz, o.rhw = v[i].sz;
+    o.diffuse = (channel(rgb[0]) << 16) | (channel(rgb[1]) << 8) | channel(rgb[2]) | c.fade[k];
+    o.specular = v[i].specular;
+    o.u0 = uv[i].tu, o.v0 = uv[i].tv;
+    o.u1 = c.uv[k][static_cast<size_t>(i) * 2], o.v1 = c.uv[k][static_cast<size_t>(i) * 2 + 1];
+  }
+  ::zvid::set_render_state(19, 5);
+  ::zvid::set_render_state(20, 2);
+  ::zvid::set_render_state(28, 1);
+  ::zvid::set_texture(base);
+  ::zvid::set_address(base);
+  ::zvid::set_texture_stage_state(1, 4);
+  ::zvid::set_texture_stage_state(4, 4);
+  const float* fog = zrndr::device_fog().sent;
+  const bool black = fog[0] == 0.0f && fog[1] == 0.0f && fog[2] == 0.0f;
+  if (!black) ::zvid::set_render_state(34, 0);
+  if (platform::Render3D* r = ::zvid::render3d())
+    r->draw_light_map(static_cast<platform::Primitive>(d.primitive), own.data(), d.count, map->handle, ::zvid::draw_state());
+  if (!black) ::zvid::send_fog_color();
+  ::zvid::set_texture_stage_state(4, 2);
+}
+
 // 0x005a03b0: the polygon, then each set over it with its own u, v: a shadow multiplied
-// (kind 1, clamped, the texture's colour alone, no fog), other materials blended (kind 0).
-// Light maps (kind 2) come with their shader (pm-map.md).
+// (kind 1, clamped, the texture's colour alone, no fog), other materials blended (kind 0),
+// a light map added (kind 2).
 void sets(const pm::zmod::DeviceCall& d, const TLVertex* v) {
   const D3DTexture* base = surface_of(*d.material);
   if (!base) return;  // FIX (bug): the exe reads through it
@@ -158,8 +199,14 @@ void sets(const pm::zmod::DeviceCall& d, const TLVertex* v) {
     if (s.address_u != a) ::zvid::set_texture_stage_state(13, a), s.address_u = a;
     if (s.address_v != a) ::zvid::set_texture_stage_state(14, a), s.address_v = a;
   };
+  // The polygon's own u, v are kept for a light map only when the last set is one and the first
+  // is not (0x005a04bb); otherwise it takes what earlier sets left in the vertices.
+  const bool keep_uv = c.count > 0 && c.kind[0] != 2 && c.kind[c.count - 1] == 2;
   for (int32_t k = 0; k < c.count; ++k) {
-    if (c.kind[k] == 2) continue;
+    if (c.kind[k] == 2) {
+      light_map(d, c, k, keep_uv ? v : own.data(), base);
+      continue;
+    }
     const bool shadow = c.kind[k] == 1;
     ::zvid::set_render_state(19, shadow ? 1 : 5);
     ::zvid::set_render_state(20, shadow ? 3 : 6);

@@ -1026,6 +1026,12 @@ class Recorder : public platform::Render3D {
     const auto* w = reinterpret_cast<const int32_t*>(v);
     g_log.insert(g_log.end(), w, w + 8 * count);
   }
+  void draw_light_map(platform::Primitive type, const platform::LightMapVertex* v, int count, int32_t map, const platform::DrawState& s) override {
+    g_log.insert(g_log.end(), {2, static_cast<int32_t>(type), count, s.texture, s.address_u, s.address_v, s.blend, s.multiply,
+                               s.additive, s.depth_write, s.depth_always, s.alpha_modulate, s.fog, s.flat, s.color_select, map});
+    const auto* w = reinterpret_cast<const int32_t*>(v);
+    g_log.insert(g_log.end(), w, w + 10 * count);
+  }
   void set_fog_color(uint8_t r, uint8_t g, uint8_t b) override { g_log.insert(g_log.end(), {6, r, g, b}); }
   void present() override {}
 };
@@ -1065,7 +1071,7 @@ void probe_pm_device_fog(const float* colour) {
 }
 
 int probe_pm_device_call(int kind, int count, const float* tl, int cull, int primitive, int rgb, int alpha, int tex, float fade, int overlay,
-                         int shade, int nsets, const int32_t* set_kinds, const int32_t* set_tex, const float* uvs, int32_t* out, int cap) {
+                         int shade, int nsets, const int32_t* set_kinds, const int32_t* set_tex, const float* uvs, const float* xyz, const uint32_t* fades, int32_t* out, int cap) {
   using namespace device_probe;
   ::zmod::Material m{};
   m.alpha = static_cast<uint8_t>(alpha), m.rgb = static_cast<uint16_t>(rgb);
@@ -1075,6 +1081,7 @@ int probe_pm_device_call(int kind, int count, const float* tl, int cull, int pri
   for (int k = 0; k < nsets; ++k) {
     sets.kind[k] = set_kinds[k], sets.texture[k] = &g_surfaces[set_tex[k]];
     sets.uv[k].assign(uvs + k * count * 2, uvs + (k + 1) * count * 2);
+    if (set_kinds[k] == 2) sets.xyz[k].assign(xyz + k * count * 3, xyz + (k + 1) * count * 3), sets.fade[k] = fades[k];
   }
   pm::zmod::DeviceCall d;
   d.kind = static_cast<pm::zmod::DeviceCall::Kind>(kind);

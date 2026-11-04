@@ -17,6 +17,7 @@
 #include "gamez/zmodel/gmod_clip3d.h"
 #include "gamez/zmodel/gmod_draw.h"
 #include "gamez/zmodel/gmod_init.h"
+#include "gamez/zmodel/gmod_light.h"
 #include "gamez/zmodel/gmod_matl.h"
 #include "gamez/zrender/zrndr_flare.h"
 #include "gamez/zrender/zrndr_fog.h"
@@ -25,6 +26,7 @@
 #include "gamez/zvideo/zvid_ddd3d.h"
 #include "gamez/zvideo/zvid_format.h"
 #include "platform/render3d.h"
+#include "pm/gamez/zimage/zimg_texture.h"
 #include "pm/gamez/zmodel/gmod_clip3d.h"
 #include "pm/gamez/zmodel/gmod_const.h"
 #include "pm/gamez/zmodel/gmod_cull.h"
@@ -41,6 +43,27 @@ zcls::Node* camera_node() {
 
 zvid::D3DTexture g_fallback{};
 
+// --map-light: on the frame's light list, in camera space, once a frame.
+zcls::Light g_map_light;
+float g_map_light_at[3];
+bool g_map_light_on = false;
+
+void add_map_light() {
+  zmod::LightList& list = zmod::light_list();
+  if (list.count > 0 && list.list[list.count - 1].data == &g_map_light) return;
+  if (list.count >= zmod::LightList::kMax) return;
+  const float* t = zmth::view().view.m;
+  const float* p = g_map_light_at;
+  float* to = g_map_light.floats(0x78);
+  to[0] = p[0] * t[0] + p[1] * t[3] + p[2] * t[6] + t[9];
+  to[1] = p[0] * t[1] + p[1] * t[4] + p[2] * t[7] + t[10];
+  to[2] = p[0] * t[2] + p[1] * t[5] + p[2] * t[8] + t[11];
+  zmod::LightEntry& e = list.list[list.count++];
+  e = zmod::LightEntry{};
+  e.data = &g_map_light, e.reach = 1;
+  list.any = 1;
+}
+
 // The view's clip and the cull's, from what the shared setter left: PM's 0x00548990 and
 // 0x0053b730 are MW3's 0x00526e10 and 0x00521c60 (camera +0xb0, +0xb4, +0x1d4, +0x1d8; the window's
 // origin and size; D3D's sides x, y, x + w + 0.001, y + h + 0.001).
@@ -53,6 +76,7 @@ int32_t draw_pm_model(zcls::Node* node, uint32_t mask) {
   std::memcpy(&c.right, &from.side_1c, 4), std::memcpy(&c.bottom, &from.side_20, 4);
   pm::zmod::CullState& k = pm::zmod::cull_state();
   k.far_z = from.far_z, k.slope_x = v.cot_h, k.slope_y = v.cot_v;
+  if (g_map_light_on) add_map_light();
   return pm::zmod::draw_model(node, mask, pm::zvid::device_call);
 }
 
@@ -115,6 +139,27 @@ std::string pm_world_load(const std::string& mission, platform::Render3D* render
   for (int32_t i = 0; i < zcls::nodes().capacity; ++i) with += zcls::node_at(i)->pm_model != nullptr;
   std::printf("mw3pm: %s: %d nodes with models, view from %.1f %.1f %.1f\n", path.c_str(), with, eye[0], eye[1], eye[2]);
   return {};
+}
+
+void pm_world_map_light(const float pos[3], float range) {
+  zimg::TextureEntry* map = zimg::load_named("lightmap", zimg::textures().group, 0);
+  if (!map) {
+    std::printf("mw3pm: --map-light: no lightmap texture\n");
+    return;
+  }
+  pm::zimg::set_light_map(map);
+  std::memcpy(g_map_light_at, pos, 12);
+  // PM's light by its PM offsets: flags at +0xb0 here; +0xd4.. the colours; +0xe4.. off 0x30.
+  g_map_light.put<uint32_t>(0xb0, 0x10 | 0x80 | 2 | 0x800);
+  for (int k = 0; k < 3; ++k) g_map_light.pm_colors[(0xd4 - 0xb0) / 4 + k] = 1.0f;
+  const float near_range = range * 0.5f;
+  g_map_light.put<float>(0xe4 - 0x30, near_range), g_map_light.put<float>(0xe8 - 0x30, range);
+  g_map_light.put<float>(0xec - 0x30, near_range * near_range), g_map_light.put<float>(0xf0 - 0x30, range * range);
+  g_map_light.put<float>(0xf4 - 0x30, 1.0f / (range - near_range));
+  g_map_light_on = true;
+  // GfxFlags' lighting, off in --fly: the scripts that colour the world's lights are not ported, so
+  // with it on the world goes dark and polygons no light reaches stay bright.
+  zmod::lighting().mask_base |= 1;
 }
 
 void pm_world_frame(const float eye[3], float yaw, float pitch, platform::Render3D* render) {

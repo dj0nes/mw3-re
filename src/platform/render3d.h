@@ -22,6 +22,16 @@ struct TLVertex {                  // D3DTLVERTEX, 0x20 bytes
 };
 static_assert(sizeof(TLVertex) == 0x20, "TLVertex must match D3DTLVERTEX");
 
+// A vertex of a light map's draw (FVF 0x2c4, Pirate's Moon's 0x005a03b0): two UV sets.
+struct LightMapVertex {            // 0x28 bytes
+  float sx, sy, sz, rhw;
+  uint32_t diffuse;                // the light's colour by the vertex's; alpha = the fade
+  uint32_t specular;               // alpha = fog factor
+  float u0, v0;                    // the polygon's texture
+  float u1, v1;                    // the light map
+};
+static_assert(sizeof(LightMapVertex) == 0x28, "LightMapVertex must match FVF 0x2c4");
+
 enum class Primitive : uint8_t { kPoints = 1, kTriangles = 4, kStrip = 5, kFan = 6 };  // D3DPRIMITIVETYPE values used
 
 // The render and texture-stage states the draw functions set (section 4).
@@ -92,6 +102,10 @@ class Render3D {
     }
     draw(type, v.data(), count, state);
   }
+  // Pirate's Moon's light map: src = texture * map * diffuse, alpha = texture's * diffuse's,
+  // blended as `state` says (SRCALPHA, ONE) with fog as `state`, the map clamped. FIX (A):
+  // one shader for the exe's two and three texture stages (fixes.md). Without one, nothing.
+  virtual void draw_light_map(Primitive, const LightMapVertex*, int, int32_t /*map*/, const DrawState&) {}
   virtual void set_fog_color(uint8_t r, uint8_t g, uint8_t b) = 0;  // FOGCOLOR (0x0057bcf0)
   virtual void present() = 0;      // Flip, or the windowed Blt (0x0057a850 / 0x00577130)
   // FIX (A): the back buffer read back (DirectDraw's Lock read it in the exe;

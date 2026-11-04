@@ -7,9 +7,12 @@ The exe's 0x59d450, 0x59de30, 0x59e500, 0x59e830, 0x59eb60, 0x5a0060, 0x5a0390, 
 0x5a0ea0 and its flushes 0x59f550, 0x59f9e0 run in Unicorn against a Direct3D stub that keeps
 the state its calls leave. Every draw is compared in order: primitive, that state, the vertex
 bytes; every fog colour sent. A strip the exe draws with CULLMODE CW is compared as the
-triangles the cull keeps, as the port hands them over. Light map sets come with their shader.
+triangles the cull keeps, as the port hands them over. A light map's draw is the exe's two-stage
+path (option [0x8ccc64] = 2), which the port uses on every setting; half the steps run at 53 bits,
+for its colours (at 24 the rounding trick leaves them 0).
 """
 import ctypes
+import os
 import random
 import struct
 import sys
@@ -69,6 +72,7 @@ class Emu:
         self.state = dict(texture=-1, u=1, v=1, blend=0, multiply=0, additive=0, depth_write=1, depth_always=0,
                           alpha_modulate=0, fog=0, flat=0, select=0)
         self.src, self.dest, self.cull = 5, 6, 1
+        self.stage1, self.map = {}, 0
         vt = cpu.alloc(0x100)
         cpu.u32(THIS, 0xdeadbeef), cpu.u32(VTABLE, vt)
 
@@ -126,6 +130,9 @@ class Emu:
             raise SystemExit(f'unexpected SetRenderState({state}, {value})')
 
     def stage(self, stage, kind, value):
+        if stage == 1:
+            self.stage1[kind] = value
+            return
         if stage != 0:
             raise SystemExit(f'SetTextureStageState stage {stage}')
         if kind == 1:
@@ -138,6 +145,9 @@ class Emu:
             raise SystemExit(f'unexpected SetTextureStageState({kind}, {value})')
 
     def texture(self, stage, t):
+        if stage == 1:
+            self.map = t
+            return
         if stage != 0:
             raise SystemExit(f'SetTexture stage {stage}')
         self.state['texture'] = t if t else -1
@@ -158,6 +168,12 @@ class Emu:
 
     def draw(self, c):
         prim, fvf, verts, count = c.arg(1), c.arg(2), c.arg(3), c.arg(4)
+        if fvf == 0x2c4:  # the map at stage 1: its colour multiplied, alpha passed on, clamped, its own u, v
+            want = {1: 4, 4: 3, 13: 3, 14: 3, 11: 1}
+            if any(self.stage1.get(k) != v for k, v in want.items()):
+                raise SystemExit(f'light map stage 1 {self.stage1}')
+            self.log.append(('map', prim, count, tuple(self.state[f] for f in FIELDS), self.map, bytes(c.read(verts, 40 * count))))
+            return 0
         if fvf != 0x1c4:
             raise SystemExit(f'DrawPrimitive fvf {fvf:#x}')
         self.record(prim, bytes(c.read(verts, 32 * count)))
@@ -183,6 +199,11 @@ def parse(words):
             continue
         prim, count = words[at + 1], words[at + 2]
         state = tuple(words[at + 3:at + 15])
+        if words[at] == 2:
+            at += 16
+            out.append(('map', prim, count, state, words[at - 1], struct.pack(f'<{count * 10}i', *words[at:at + count * 10])))
+            at += count * 10
+            continue
         at += 15
         out.append(('draw', prim, count, state, struct.pack(f'<{count * 8}i', *words[at:at + count * 8])))
         at += count * 8
@@ -190,9 +211,15 @@ def parse(words):
 
 
 def compare(want, got, what):
-    if [x[:3] if x[0] == 'draw' else x for x in want] != [x[:3] if x[0] == 'draw' else x for x in got]:
+    if [x[:3] if x[0] != 'fog' else x for x in want] != [x[:3] if x[0] != 'fog' else x for x in got]:
         raise SystemExit(f'{what}: {[x[:3] for x in got][:6]}, the exe {[x[:3] for x in want][:6]}')
     for k, (a, b) in enumerate(zip(want, got)):
+        if a[0] == 'map':
+            if a[3] != b[3] or a[4] != b[4]:
+                raise SystemExit(f'{what} map {k}: {dict(zip(FIELDS, b[3]))} map {b[4]}, the exe {dict(zip(FIELDS, a[3]))} map {a[4]}')
+            if a[5] != b[5]:
+                at = next(i for i in range(0, len(a[5]), 4) if a[5][i:i + 4] != b[5][i:i + 4])
+                raise SystemExit(f'{what} map {k} vertex {at // 40} word {at % 40 // 4}: {b[5][at:at + 4].hex()}, the exe {a[5][at:at + 4].hex()}')
         if a[0] == 'draw':
             if a[3] != b[3]:
                 raise SystemExit(f'{what} draw {k}: {dict(zip(FIELDS, b[3]))}, the exe {dict(zip(FIELDS, a[3]))}')
@@ -228,7 +255,9 @@ def main():
     steps = int(sys.argv[1]) if len(sys.argv) > 1 else 4000
     p = test_pm_zar.load_pm_probe()
     F, V, I = ctypes.c_float, ctypes.c_void_p, ctypes.c_int
-    p.probe_pm_device_call.argtypes = [I, I, V, I, I, I, I, I, F, I, I, I, V, V, V, V, I]
+    p.probe_pm_device_call.argtypes = [I, I, V, I, I, I, I, I, F, I, I, I, V, V, V, V, V, V, I]
+    p.probe_pm_set_fpu53.argtypes = [I]
+    p.probe_pm_set_fpu53.restype = None
     p.probe_pm_device_flush.argtypes = [I, V, I]
     rng = random.Random(0x59e500)
     winding_agrees(rng)
@@ -250,7 +279,11 @@ def main():
         return list(out[:n])
 
     fog = (0.0, 0.0, 0.0)
+    emu.cpu.u32(0x8ccc64, 2)  # the two-stage path
     for step in range(steps):
+        if step == steps // 2:
+            emu.cpu.e.cpu.fpu_control(0x027f)
+            p.probe_pm_set_fpu53(1)
         if rng.random() < 0.1:
             fog = tuple(float(rng.randrange(256)) for _ in range(3))
             emu.cpu.write(FOG, fbits(*fog))
@@ -262,6 +295,9 @@ def main():
         fade = rng.choice((1.0, 1.0, 1.0, 0.5, 0.25))
         overlay = int(rng.random() < 0.15)
         strip = kind not in (K_IDX_T, K_IDX_F, K_PROJ) and rng.random() < 0.2
+        kinds = [rng.choice((0, 1, 1, 2, 2)) for _ in range(rng.randint(0, 4))] if kind == K_SETS else []
+        if 2 in kinds:  # a strip is split before it has a light map
+            strip = False
         count = 3 if kind in (K_PROJ,) else rng.randint(3, 9)
         if kind in (K_IDX_T, K_IDX_F):
             count = 3 * rng.randint(1, 6)
@@ -290,7 +326,7 @@ def main():
         cpu.call(CULL, stack_args=(cull,))
         whole = struct.unpack('<f', struct.pack('<f', alpha * fade))[0]
         nsets = -1
-        kinds, stex, uvs = [], [], []
+        stex, uvs, xyz, fades = [], [], [], []
         if kind == K_FLAT:
             cpu.call(FLAT, stack_args=(rgb, int(whole), count, overlay))
         elif kind == K_LIT:
@@ -300,11 +336,14 @@ def main():
         elif kind == K_PROJ:
             cpu.call(PROJECTED, stack_args=(0, count, emu.entries[tex], struct.unpack('<I', fbits(fade))[0], overlay))
         elif kind == K_SETS:
-            nsets = rng.randint(0, 4)
+            nsets = len(kinds)
             cpu.u32(emu.sets, nsets)
             for k in range(nsets):
-                kinds.append(rng.choice((0, 1, 1)))
                 stex.append(rng.randrange(8))
+                xyz += [rng.choice((0.0, 80.25, rng.uniform(0, 300), -3.0)) for _ in range(count * 3)]
+                fades.append(rng.choice((0xff, 0x80, 0x00, rng.randrange(256))) << 24)
+                cpu.write(emu.sets + 0x3c + k * 0x300, fbits(*xyz[k * count * 3:(k + 1) * count * 3]))
+                cpu.u32(emu.sets + 0x153c + k * 4, fades[k])
                 uvs += [rng.uniform(-1, 2) for _ in range(count * 2)]
                 cpu.u32(emu.sets + 0x20 + k * 4, kinds[k])
                 cpu.u32(emu.sets + 4 + k * 4, emu.surfaces[stex[k]])
@@ -322,11 +361,16 @@ def main():
         cpu.call(CULL, stack_args=(1,))
         want = emu.take()
         n = p.probe_pm_device_call(kind, count, ftl, cull, prim, rgb, alpha, tex if kind not in (K_FLAT, K_LIT, K_IDX_F) else -1, fade, overlay, shade, nsets,
-                                   (ctypes.c_int32 * 8)(*kinds), (ctypes.c_int32 * 8)(*stex), (F * max(len(uvs), 1))(*uvs) if uvs else None, out, cap)
+                                   (ctypes.c_int32 * 8)(*kinds), (ctypes.c_int32 * 8)(*stex), (F * max(len(uvs), 1))(*uvs) if uvs else None,
+                                   (F * max(len(xyz), 1))(*xyz) if xyz else None, (ctypes.c_uint32 * 8)(*fades), out, cap)
         got = parse(words(n))
         what = f'step {step} kind {kind} count {count} fade {fade} overlay {overlay} cull {cull} tex {tex} {surfaces[tex * 5:tex * 5 + 5]}'
-        compare([x for x in want if x[0] != 'fog'], [x for x in got if x[0] != 'fog'], what)
+        if os.environ.get('DBG'):
+            what += f' kinds {kinds} tu0 {tl[6]} uvs {uvs[:2]} {uvs[count*2:count*2+2]} {uvs[count*4:count*4+2]}'
+        compare(want, got, what)
         seen[kind] = seen.get(kind, 0) + 1
+        seen['light maps'] = seen.get('light maps', 0) + sum(x[0] == 'map' for x in want)
+        seen['black fog'] = seen.get('black fog', 0) + sum(x == ('fog', 0, 0, 0) for x in want)
         compared += len(want)
         if rng.random() < 0.1:
             for which, fn in ((0, FLUSH_T), (1, FLUSH_O)):

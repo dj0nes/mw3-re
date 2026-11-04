@@ -48,3 +48,38 @@ float4 fs_tex(Out i) : SV_Target0 {
   return finish(c, i);
 }
 float4 fs_flat(Out i) : SV_Target0 { return finish(i.diffuse, i); }
+// Pirate's Moon's light map: the polygon's texture by the map by the vertex colour.
+struct InMap {
+  float4 xyzrhw : TEXCOORD0;
+  float4 diffuse : TEXCOORD1;
+  float4 specular : TEXCOORD2;
+  float2 uv : TEXCOORD3;
+  float2 uv1 : TEXCOORD4;
+};
+struct OutMap {
+  float4 pos : SV_Position;
+  float4 diffuse : TEXCOORD0;
+  float4 specular : TEXCOORD1;
+  float2 uv : TEXCOORD2;
+  float2 uv1 : TEXCOORD3;
+};
+OutMap vs_light_map(InMap i) {
+  OutMap o;
+  float w = i.xyzrhw.w > 0.0 ? 1.0 / i.xyzrhw.w : 1.0;
+  float x = (i.xyzrhw.x - viewport.x) / viewport.z * 2.0 - 1.0;
+  float y = 1.0 - (i.xyzrhw.y - viewport.y) / viewport.w * 2.0;
+  o.pos = float4(x * w, y * w, i.xyzrhw.z * w, w);
+  o.diffuse = i.diffuse.zyxw;
+  o.specular = i.specular.zyxw;
+  o.uv = i.uv;
+  o.uv1 = i.uv1;
+  return o;
+}
+Texture2D<float4> map : register(t1, space2);
+SamplerState map_s : register(s1, space2);
+float4 fs_light_map(OutMap i) : SV_Target0 {
+  float4 tex = t.Sample(s, i.uv);
+  float4 c = float4(tex.rgb * map.Sample(map_s, i.uv1).rgb * i.diffuse.rgb, tex.a * i.diffuse.a);
+  if (opts.x > 0.5) c.rgb = lerp(fog.rgb, c.rgb, i.specular.a);
+  return c;
+}

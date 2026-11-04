@@ -60,6 +60,35 @@ fragment float4 fs_tex(Out in [[stage_in]], texture2d<float> t [[texture(0)]], s
 fragment float4 fs_flat(Out in [[stage_in]], constant F& f [[buffer(0)]]) {
   return finish(in.diffuse, in, f);
 }
+// Pirate's Moon's light map: the polygon's texture by the map by the vertex colour.
+struct InMap {
+  float4 xyzrhw [[attribute(0)]];
+  float4 diffuse [[attribute(1)]];
+  float4 specular [[attribute(2)]];
+  float2 uv [[attribute(3)]];
+  float2 uv1 [[attribute(4)]];
+};
+struct OutMap { float4 pos [[position]]; float4 diffuse; float4 specular; float2 uv; float2 uv1; };
+vertex OutMap vs_light_map(InMap in [[stage_in]], constant V& v [[buffer(0)]]) {
+  OutMap o;
+  float w = in.xyzrhw.w > 0.0 ? 1.0 / in.xyzrhw.w : 1.0;
+  float x = (in.xyzrhw.x - v.viewport.x) / v.viewport.z * 2.0 - 1.0;
+  float y = 1.0 - (in.xyzrhw.y - v.viewport.y) / v.viewport.w * 2.0;
+  o.pos = float4(x * w, y * w, in.xyzrhw.z * w, w);
+  o.diffuse = in.diffuse.zyxw;
+  o.specular = in.specular.zyxw;
+  o.uv = in.uv;
+  o.uv1 = in.uv1;
+  return o;
+}
+fragment float4 fs_light_map(OutMap in [[stage_in]], texture2d<float> t [[texture(0)]], sampler s [[sampler(0)]],
+                             texture2d<float> m [[texture(1)]], sampler sm [[sampler(1)]],
+                             constant F& f [[buffer(0)]]) {
+  float4 tex = t.sample(s, in.uv);
+  float4 c = float4(tex.rgb * m.sample(sm, in.uv1).rgb * in.diffuse.rgb, tex.a * in.diffuse.a);
+  if (f.opts.x > 0.5) c.rgb = mix(f.fog.rgb, c.rgb, in.specular.a);
+  return c;
+}
 )";
 
 uint32_t key_of(const platform::DrawState& s, bool textured) {
@@ -74,13 +103,17 @@ bool same(const platform::DrawState& a, const platform::DrawState& b) {
 
 #if defined(MW3_HAVE_DXIL)
 #include "fs_flat.h"  // sdl_render3d.hlsl, by dxc (CMakeLists.txt)
+#include "fs_light_map.h"
 #include "fs_tex.h"
 #include "vs.h"
+#include "vs_light_map.h"
 #endif
 #if defined(MW3_HAVE_SPIRV)
 #include "spv_fs_flat.h"  // sdl_render3d.glsl, by glslangValidator (CMakeLists.txt)
+#include "spv_fs_light_map.h"
 #include "spv_fs_tex.h"
 #include "spv_vs.h"
+#include "spv_vs_light_map.h"
 #endif
 
 SDL_GPUShader* make_shader(SDL_GPUDevice* dev, const char* entry, SDL_GPUShaderStage stage, int samplers) {
@@ -91,6 +124,8 @@ SDL_GPUShader* make_shader(SDL_GPUDevice* dev, const char* entry, SDL_GPUShaderS
     const auto set = [&](const unsigned char* code, size_t n) { info.code = code, info.code_size = n; };
     if (e == "vs") set(kDxil_vs, sizeof kDxil_vs);
     else if (e == "fs_tex") set(kDxil_fs_tex, sizeof kDxil_fs_tex);
+    else if (e == "vs_light_map") set(kDxil_vs_light_map, sizeof kDxil_vs_light_map);
+    else if (e == "fs_light_map") set(kDxil_fs_light_map, sizeof kDxil_fs_light_map);
     else set(kDxil_fs_flat, sizeof kDxil_fs_flat);
     info.entrypoint = entry;
     info.format = SDL_GPU_SHADERFORMAT_DXIL;
@@ -102,6 +137,8 @@ SDL_GPUShader* make_shader(SDL_GPUDevice* dev, const char* entry, SDL_GPUShaderS
     const auto set = [&](const uint32_t* code, size_t n) { info.code = reinterpret_cast<const Uint8*>(code), info.code_size = n; };
     if (e == "vs") set(kSpv_vs, sizeof kSpv_vs);
     else if (e == "fs_tex") set(kSpv_fs_tex, sizeof kSpv_fs_tex);
+    else if (e == "vs_light_map") set(kSpv_vs_light_map, sizeof kSpv_vs_light_map);
+    else if (e == "fs_light_map") set(kSpv_fs_light_map, sizeof kSpv_fs_light_map);
     else set(kSpv_fs_flat, sizeof kSpv_fs_flat);
     info.entrypoint = "main";
     info.format = SDL_GPU_SHADERFORMAT_SPIRV;
@@ -126,7 +163,9 @@ SdlRender3D::SdlRender3D(SDL_GPUDevice* device, SDL_Window* window) : dev_(devic
   vs_ = make_shader(dev_, "vs", SDL_GPU_SHADERSTAGE_VERTEX, 0);
   fs_tex_ = make_shader(dev_, "fs_tex", SDL_GPU_SHADERSTAGE_FRAGMENT, 1);
   fs_flat_ = make_shader(dev_, "fs_flat", SDL_GPU_SHADERSTAGE_FRAGMENT, 0);
-  ok_ = vs_ && fs_tex_ && fs_flat_;
+  vs_light_map_ = make_shader(dev_, "vs_light_map", SDL_GPU_SHADERSTAGE_VERTEX, 0);
+  fs_light_map_ = make_shader(dev_, "fs_light_map", SDL_GPU_SHADERSTAGE_FRAGMENT, 2);
+  ok_ = vs_ && fs_tex_ && fs_flat_ && vs_light_map_ && fs_light_map_;
   if (!ok_) std::fprintf(stderr, "SdlRender3D shaders: %s\n", SDL_GetError());
 }
 
@@ -141,21 +180,23 @@ SdlRender3D::~SdlRender3D() {
   for (Staging* s : {&tex_staging_, &vert_staging_})
     if (s->buf) SDL_ReleaseGPUTransferBuffer(dev_, s->buf);
   if (frame_) SDL_ReleaseGPUTexture(dev_, frame_);
-  for (SDL_GPUShader* s : {vs_, fs_tex_, fs_flat_})
+  for (SDL_GPUShader* s : {vs_, fs_tex_, fs_flat_, vs_light_map_, fs_light_map_})
     if (s) SDL_ReleaseGPUShader(dev_, s);
 }
 
-SDL_GPUGraphicsPipeline* SdlRender3D::pipeline(const platform::DrawState& s, bool textured) {
-  const uint32_t key = key_of(s, textured);
+SDL_GPUGraphicsPipeline* SdlRender3D::pipeline(const platform::DrawState& s, bool textured, bool light_map) {
+  const uint32_t key = key_of(s, textured) | static_cast<uint32_t>(light_map) << 7;
   auto it = pipelines_.find(key);
   if (it != pipelines_.end()) return it->second;
   SDL_GPUVertexBufferDescription vb{};
-  vb.slot = 0, vb.pitch = sizeof(platform::TLVertex), vb.input_rate = SDL_GPU_VERTEXINPUTRATE_VERTEX;
-  SDL_GPUVertexAttribute attrs[4] = {
+  // A light map's vertex has two TLVertex slots: the second's first two floats are its map's u, v.
+  vb.slot = 0, vb.pitch = sizeof(platform::TLVertex) * (light_map ? 2 : 1), vb.input_rate = SDL_GPU_VERTEXINPUTRATE_VERTEX;
+  SDL_GPUVertexAttribute attrs[5] = {
       {0, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT4, offsetof(platform::TLVertex, sx)},
       {1, 0, SDL_GPU_VERTEXELEMENTFORMAT_UBYTE4_NORM, offsetof(platform::TLVertex, diffuse)},
       {2, 0, SDL_GPU_VERTEXELEMENTFORMAT_UBYTE4_NORM, offsetof(platform::TLVertex, specular)},
-      {3, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT2, offsetof(platform::TLVertex, tu)}};
+      {3, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT2, offsetof(platform::TLVertex, tu)},
+      {4, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT2, sizeof(platform::TLVertex)}};
   SDL_GPUColorTargetDescription ct{};
   ct.format = color_format_;
   if (s.blend || s.multiply) {
@@ -172,11 +213,12 @@ SDL_GPUGraphicsPipeline* SdlRender3D::pipeline(const platform::DrawState& s, boo
     ct.blend_state.dst_alpha_blendfactor = SDL_GPU_BLENDFACTOR_ONE_MINUS_SRC_ALPHA;
   }
   SDL_GPUGraphicsPipelineCreateInfo info{};
-  info.vertex_shader = vs_, info.fragment_shader = textured ? fs_tex_ : fs_flat_;
+  info.vertex_shader = light_map ? vs_light_map_ : vs_;
+  info.fragment_shader = light_map ? fs_light_map_ : textured ? fs_tex_ : fs_flat_;
   info.vertex_input_state.vertex_buffer_descriptions = &vb;
   info.vertex_input_state.num_vertex_buffers = 1;
   info.vertex_input_state.vertex_attributes = attrs;
-  info.vertex_input_state.num_vertex_attributes = 4;
+  info.vertex_input_state.num_vertex_attributes = light_map ? 5 : 4;
   info.primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
   info.rasterizer_state.cull_mode = SDL_GPU_CULLMODE_NONE;  // CULLMODE NONE: the game culls (0x0057a900)
   info.rasterizer_state.fill_mode = s.wireframe ? SDL_GPU_FILLMODE_LINE : SDL_GPU_FILLMODE_FILL;
@@ -310,10 +352,29 @@ void SdlRender3D::draw(platform::Primitive type, const platform::TLVertex* v, in
   if (n == 0) return;
   const bool same_fog = !runs_.empty() && runs_.back().fog[0] == fog_rgb_[0] && runs_.back().fog[1] == fog_rgb_[1] &&
                         runs_.back().fog[2] == fog_rgb_[2];
-  if (same_fog && same(runs_.back().state, state) && runs_.back().first + runs_.back().count == first)
+  if (same_fog && runs_.back().map < 0 && same(runs_.back().state, state) && runs_.back().first + runs_.back().count == first)
     runs_.back().count += n;
   else
     runs_.push_back({state, first, n, {fog_rgb_[0], fog_rgb_[1], fog_rgb_[2]}});
+}
+
+void SdlRender3D::draw_light_map(platform::Primitive type, const platform::LightMapVertex* v, int count, int32_t map,
+                                 const platform::DrawState& state) {
+  if (count < 3) return;
+  const auto first = static_cast<uint32_t>(vertices_.size());
+  const auto add = [&](const platform::LightMapVertex& m) {
+    platform::TLVertex a{m.sx, m.sy, m.sz, m.rhw, m.diffuse, m.specular, m.u0, m.v0}, b{};
+    b.sx = m.u1, b.sy = m.v1;
+    vertices_.push_back(a), vertices_.push_back(b);
+  };
+  if (type == platform::Primitive::kFan) {
+    for (int i = 1; i + 1 < count; ++i) add(v[0]), add(v[i]), add(v[i + 1]);
+  } else {  // the model draw's strips are split before they have a light map
+    for (int i = 0; i < count; ++i) add(v[i]);
+  }
+  Run r{state, first, static_cast<uint32_t>(vertices_.size()) - first, {fog_rgb_[0], fog_rgb_[1], fog_rgb_[2]}};
+  r.map = map;
+  runs_.push_back(r);
 }
 
 void SdlRender3D::ensure_depth(uint32_t w, uint32_t h) {
@@ -399,7 +460,9 @@ void SdlRender3D::end_scene() {
   for (const Run& r : runs_) {
     const bool textured = r.state.texture >= 0 && r.state.texture < static_cast<int32_t>(textures_.size()) &&
                           textures_[r.state.texture];
-    SDL_GPUGraphicsPipeline* p = pipeline(r.state, textured);
+    const bool light_map = r.map >= 0;
+    if (light_map && (!textured || r.map >= static_cast<int32_t>(textures_.size()) || !textures_[r.map])) continue;
+    SDL_GPUGraphicsPipeline* p = pipeline(r.state, textured, light_map);
     if (!p) continue;
     SDL_BindGPUGraphicsPipeline(pass, p);
     SDL_PushGPUVertexUniformData(cmd, 0, vu, sizeof vu);
@@ -409,6 +472,15 @@ void SdlRender3D::end_scene() {
     const float fu[8] = {r.fog[0], r.fog[1], r.fog[2], 1, r.state.fog ? 1.0f : 0.0f,
                          r.state.alpha_modulate ? 1.0f : 0.0f, std::max(sx, 1.0f) * (sx > 0), std::max(sy, 1.0f) * (sy > 0)};
     SDL_PushGPUFragmentUniformData(cmd, 0, fu, sizeof fu);
+    if (light_map) {
+      SDL_GPUBufferBinding at{vbuf_, r.first * static_cast<Uint32>(sizeof(platform::TLVertex))};
+      SDL_BindGPUVertexBuffers(pass, 0, &at, 1);
+      const SDL_GPUTextureSamplerBinding two[2] = {{textures_[r.state.texture], sampler(r.state.address_u, r.state.address_v)},
+                                                   {textures_[r.map], sampler(3, 3)}};
+      SDL_BindGPUFragmentSamplers(pass, 0, two, 2);
+      SDL_DrawGPUPrimitives(pass, r.count / 2, 1, 0, 0);
+      continue;
+    }
     SDL_GPUBufferBinding vb{vbuf_, 0};
     SDL_BindGPUVertexBuffers(pass, 0, &vb, 1);
     if (textured) {

@@ -14,6 +14,7 @@
 //   --nosound        accepted, as mw3's; nothing plays yet
 //   --fly NAME       debug only: world NAME: W/S/A/D move, Q/E down/up,
 //                    arrows turn, Shift fast, P prints the view, Escape quits
+//   --map-light X Y Z RANGE  debug only, with --fly: one light map light there
 #include <SDL3/SDL.h>
 
 #include <cmath>
@@ -39,6 +40,8 @@ struct Args {
   bool pos_given = false;
   float pos[3] = {};
   float yaw_deg = 0, pitch_deg = 30;
+  float map_light[4] = {};  // x, y, z, range
+  bool map_light_on = false;
   int shot_frame = 10, frames = 0;
 };
 
@@ -55,6 +58,9 @@ bool parse(int argc, char** argv, Args& a) {
     else if (s == "--pos" && i + 3 < argc) {
       for (float& p : a.pos) p = static_cast<float>(std::atof(argv[++i]));
       a.pos_given = true;
+    } else if (s == "--map-light" && i + 4 < argc) {
+      for (float& p : a.map_light) p = static_cast<float>(std::atof(argv[++i]));
+      a.map_light_on = true;
     } else if (s == "--look" && i + 2 < argc) {
       a.yaw_deg = static_cast<float>(std::atof(argv[++i]));
       a.pitch_deg = static_cast<float>(std::atof(argv[++i]));
@@ -109,6 +115,7 @@ int fly(const Args& a) {
     return 1;
   }
   if (a.pos_given) std::memcpy(eye, a.pos, sizeof eye);
+  if (a.map_light_on) frontend::pm_world_map_light(a.map_light, a.map_light[3]);
   float yaw = a.yaw_deg * 0.0174533f, pitch = a.pitch_deg * 0.0174533f;
   for (int frame = 1;; ++frame) {
     SDL_Event e;

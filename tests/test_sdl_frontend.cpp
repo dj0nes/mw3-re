@@ -1020,6 +1020,55 @@ TEST(sdl_render_adds_and_takes_triangle_lists) {
   EXPECT((blended >> 16 & 255) >= 98 && (blended >> 16 & 255) <= 102 && (blended >> 8 & 255) >= 126 && (blended >> 8 & 255) <= 130);
 }
 
+// Pirate's Moon's light map: dst += texture * map * colour * alpha, the map clamped, its alpha unused,
+// the fog going to the fog colour (black in the draw's use). 0x005a03b0, fixes.md.
+TEST(sdl_render_draws_a_light_map) {
+  if (!SDL_InitSubSystem(SDL_INIT_VIDEO)) return;
+  sdlfe::SdlWindow w;
+  EXPECT(w.init(true));
+  w.create("mw3 light map test", 640, 480);
+  sdlfe::SdlRender3D* r = w.render();
+  const auto solid = [&](uint8_t cr, uint8_t cg, uint8_t cb, uint8_t ca) {
+    std::vector<uint8_t> rgba;
+    for (int i = 0; i < 16; ++i) rgba.insert(rgba.end(), {cr, cg, cb, ca});
+    return r->create_texture(4, 4, rgba.data(), 1);
+  };
+  const int32_t base = solid(200, 100, 50, 255), map = solid(128, 255, 255, 0);
+  r->set_viewport(0, 0, 640, 480);
+  r->clear(true, 10, 20, 30);
+  r->begin_scene();
+  platform::DrawState s;
+  s.texture = base, s.blend = true, s.additive = true, s.depth_write = true, s.depth_always = true;
+  s.alpha_modulate = true, s.fog = true;
+  const auto quad = [&](float x0, float x1, uint32_t diffuse, uint32_t specular) {
+    const auto v = [&](float x, float y) {
+      platform::LightMapVertex m{};
+      m.sx = x, m.sy = y, m.sz = 0.5f, m.rhw = 1.0f, m.diffuse = diffuse, m.specular = specular;
+      m.u0 = m.v0 = 0.5f, m.u1 = m.v1 = 3.0f;  // clamped: past the map's edge, its colour still
+      return m;
+    };
+    const platform::LightMapVertex q[4] = {v(x0, 0), v(x1, 0), v(x1, 480), v(x0, 480)};
+    r->draw_light_map(platform::Primitive::kFan, q, 4, map, s);
+  };
+  r->set_fog_color(0, 0, 0);
+  quad(0, 200, 0xffffffffu, 0xff000000u);    // all of it added
+  quad(200, 400, 0x80ffffffu, 0xff000000u);  // the fade: half
+  quad(400, 640, 0xffffffffu, 0x80000000u);  // half fog, to black: half
+  r->end_scene();
+  r->present();
+  std::vector<uint32_t> f;
+  int fw = 0, fh = 0;
+  if (!r->read_back(&f, &fw, &fh)) return;  // no GPU on this runner
+  const uint32_t a = f[240 * fw + fw * 100 / 640], b = f[240 * fw + fw * 300 / 640], c = f[240 * fw + fw * 520 / 640];
+  std::printf("light map full %08x, faded %08x, fogged %08x\n", a, b, c);
+  const auto near_rgb = [](uint32_t p, int cr, int cg, int cb) {
+    return std::abs(int(p >> 16 & 255) - cr) <= 2 && std::abs(int(p >> 8 & 255) - cg) <= 2 && std::abs(int(p & 255) - cb) <= 2;
+  };
+  EXPECT(near_rgb(a, 10 + 100, 20 + 100, 30 + 50));  // 200 * 128/255, 100, 50, added
+  EXPECT(near_rgb(b, 10 + 50, 20 + 50, 30 + 25));
+  EXPECT(near_rgb(c, 10 + 50, 20 + 50, 30 + 25));
+}
+
 // Playtest W25: a message box over the lab's (or a mission's) GPU frame at
 // 16:9 showed over the 16-bit buffer's 640x480 copy of it, low-res until
 // answered. The frame shown is kept at its own size (hold_frame) and put
