@@ -80,6 +80,7 @@ struct SceneWalk {
   int32_t morph = 0;               // 0x0060bc20  inside a morphing LoD
   float morph_factor = 0;          // 0x0060bac8
   int32_t opacity_top = -1;        // 0x005ea544
+  bool clutter_tree_built = false;  // PM: 0x00509dd0's local: at most one cell's tree a call
   float opacity[50] = {};          // 0x0060bad0
   int32_t color_top = -1;          // 0x005ea548
   WalkColor color[32] = {};        // 0x0060bc28

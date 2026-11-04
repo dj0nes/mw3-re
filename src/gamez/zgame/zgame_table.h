@@ -15,6 +15,8 @@ struct TextureEntry;
 namespace zcls {
 struct Node;
 struct MechLib;
+struct Partition;
+struct World;
 }
 
 // Ours, not the exe's: which game the shared engine runs (docs/games-layout.md).
@@ -63,6 +65,8 @@ struct Table {
   uint32_t light_on_bit;
   bool light_reach_wrapped;
   bool cell_fades;
+  // A cell's clutter records, after its nodes (PM 0x0050a1e0). Null in MW3.
+  void (*cell_clutter)(const zcls::World* world, zcls::Partition& cell);
 };
 
 const Table& mw3_table();

@@ -8,7 +8,7 @@
 
 #include "gamez/zmath/zmth_matrix.h"
 
-namespace zcls { struct Node; struct Partition; }
+namespace zcls { struct Node; struct Partition; struct World; }
 namespace zimg { struct TextureEntry; }
 
 // C:\zipper\branchep1\gamez\zClass\cls_clutter.cpp, new in Pirate's Moon: scattered props laid on
@@ -84,9 +84,23 @@ struct ClutterRecord {
   uint32_t flags = 0;                // +0x48  2 takes weapon hits
   float weapon_health = 0;           // +0x50
   float collide_health = 0;          // +0x54
+  uint32_t link = 0;                 // +0x44  held in the node's +0xc8 while it draws
   ClutterTemplate* settings = nullptr;  // +0x58
 };
-std::vector<ClutterRecord>* cell_clutter(::zcls::Partition& cell);
+// A cell's records, and the tree over them once it holds more than 20 (0x40 bytes a node, cell
+// +0x50, count +0x54): four children by x and z until a leaf holds at most 20.
+struct ClutterTreeNode {
+  float near_sq = 0, far_sq = 0, fade_scale = 0;  // +0x00  the nearest near, the farthest far
+  float box[6] = {};                  // +0x0c  x, y, z low; x, y, z high
+  float centre[3] = {};               // +0x24
+  float radius = 0;                   // +0x30
+  std::vector<int32_t> records;       // +0x34, +0x38
+  int32_t first_child = -1;           // +0x3c  then the next three
+};
+struct CellClutter : std::vector<ClutterRecord> {
+  std::vector<ClutterTreeNode> tree;
+};
+CellClutter* cell_clutter(::zcls::Partition& cell);
 
 // 0x00513a30, 0x00512d90: over every polygon in the world's grid and tree, each of its textures'
 // pieces laid over each triangle where the triangle's u, v repeats reach them (0x00512000).
@@ -97,6 +111,10 @@ void clutter_lay(::zcls::Node* world);
 // The record is the hit's +0x28 in the exe; wired when PM's zWeapon lands.
 void clutter_on_weapon_hit(ClutterRecord* record, float damage);
 void clutter_on_collide(ClutterRecord* record, float damage);
+
+// 0x0050a1e0: a cell's records, each faded by its distance (0x0050a230), through the tree (0x0050a3e0)
+// once it has one: a cell over 20 gets it when drawn, one cell a walk (0x00504450, 0x00509dd0).
+void clutter_draw_cell(const ::zcls::World* world, ::zcls::Partition& cell);
 
 // 0x005116a0: the laying skips its ground test; a mission's load sets it first (0x00492f9a).
 void clutter_skip_ground_test(bool on);

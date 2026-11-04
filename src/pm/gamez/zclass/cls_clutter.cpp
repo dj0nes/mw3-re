@@ -9,10 +9,14 @@
 #include "gamez/zclass/class.h"
 #include "gamez/zclass/cls_data.h"
 #include "gamez/zclass/cls_node.h"
+#include "gamez/zclass/camera.h"
+#include "gamez/zclass/cls_util.h"
 #include "gamez/zclass/cls_world.h"
+#include "gamez/zmodel/gmod_init.h"
 #include "gamez/zclass/list.h"
 #include "gamez/zerror/zerr.h"
 #include "gamez/zmath/zmth_vector.h"
+#include "gamez/zmodel/gmod_cull.h"
 #include "gamez/zmodel/gmod_hit.h"
 #include "gamez/zmodel/gmod_matl.h"
 #include "gamez/zreader/zreader.h"
@@ -395,17 +399,17 @@ void lay_children(::zcls::Node* node) {
 void lay_object(::zcls::Node* node) {
   auto* data = static_cast<::zcls::Object3d*>(node->data);
   if (!data) return;
-  zmth::Mat34 world;
+  auto* world = reinterpret_cast<zmth::Mat34*>(data->raw + 0x60);  // the walk fills the node's cache
   const uint32_t f = data->get<uint32_t>(0);
   const bool pushed = !(f & 8);
   if (pushed) {
     if (!(node->flags() & 0x80000)) {
-      zmth::push_copy(&world);
+      zmth::push_copy(world);
       zmth::multiply(*reinterpret_cast<const zmth::Mat34*>(data->raw + 0x30), 1);
     } else if (!(f & 0x20)) {
-      zmth::push(reinterpret_cast<zmth::Mat34*>(data->raw + 0x60));
+      zmth::push(world);
     } else {
-      zmth::push_copy(&world);
+      zmth::push_copy(world);
       zmth::multiply(*reinterpret_cast<const zmth::Mat34*>(data->raw + 0x30), 1);
       if (!(f & 1)) data->put<uint32_t>(0, f & ~0x20u);
     }
@@ -459,6 +463,214 @@ void clutter_on_collide(ClutterRecord* r, float damage) {
   if (r->collide_health <= 0.0f) piece_destroyed(r, &r->collide_health);
 }
 
+namespace {
+// Pirate's Moon 1.0 @ 0x0053c510: the eight corners of a box through a matrix, in the exe's order.
+void box_corners(const float* m, const float* b, float out[8][3]) {
+  const float* mm = m;
+  const float x0[3] = {mm[3] * b[4] + mm[0] * b[0], mm[4] * b[4] + mm[1] * b[0], mm[5] * b[4] + mm[2] * b[0]};
+  const float x1[3] = {mm[3] * b[4] + mm[0] * b[3], mm[4] * b[4] + mm[1] * b[3], mm[5] * b[4] + mm[2] * b[3]};
+  const float y0[3] = {mm[0] * b[0] + mm[3] * b[1], mm[4] * b[1] + mm[1] * b[0], mm[5] * b[1] + mm[2] * b[0]};
+  const float y1[3] = {mm[3] * b[1] + mm[0] * b[3], mm[4] * b[1] + mm[1] * b[3], mm[5] * b[1] + mm[2] * b[3]};
+  const float z2[3] = {b[2] * mm[6] + mm[9], b[2] * mm[7] + mm[10], b[2] * mm[8] + mm[11]};
+  const float z5[3] = {b[5] * mm[6] + mm[9], b[5] * mm[7] + mm[10], b[5] * mm[8] + mm[11]};
+  for (int k = 0; k < 3; ++k) {
+    out[0][k] = z5[k] + y0[k];
+    out[1][k] = z5[k] + y1[k];
+    out[2][k] = z2[k] + y1[k];
+    out[3][k] = z2[k] + y0[k];
+    out[4][k] = x0[k] + z5[k];
+    out[5][k] = x1[k] + z5[k];
+    out[6][k] = x1[k] + z2[k];
+    out[7][k] = x0[k] + z2[k];
+  }
+}
+
+// Pirate's Moon 1.0 @ 0x0050a230
+void draw_record(::zcls::Partition& cell, ClutterRecord& r) {
+  if (r.flags & 1) return;
+  ::zcls::SceneWalk& walk = ::zcls::scene_walk();
+  const float* eye = zmth::view().camera.m + 9;  // 0x008d4424
+  const float dx = eye[0] - r.matrix.m[9], dy = eye[1] - r.matrix.m[10], dz = eye[2] - r.matrix.m[11];
+  const float d2 = (dx * dx + dy * dy) + dz * dz;
+  float opacity = 1.0f;
+  if (r.near_sq < d2) {
+    if (r.far_sq <= d2) return;
+    opacity = (r.far_sq - d2) * r.fade_scale;
+    if (opacity < 0.004f) return;
+  }
+  const bool faded = opacity < 0.996f;
+  if (faded) {
+    walk.opacity[++walk.opacity_top] = opacity;
+    ::zmod::set_opacity(opacity);
+  }
+  ::zcls::Node* n = r.node;
+  std::memcpy(n->raw + 0x64, r.matrix.m + 9, 12);
+  if (n->cls() == 5) {
+    auto* od = static_cast<::zcls::Object3d*>(n->data);
+    od->put<uint32_t>(0, od->get<uint32_t>(0) & ~8u);
+    std::memcpy(od->floats(0x30), r.matrix.m, 48);
+    std::memcpy(od->floats(0x60), r.matrix.m, 48);
+    if (n->pm_box) {
+      float corners[8][3];
+      box_corners(r.matrix.m, n->pm_box, corners);
+      ::zcls::corners_sphere(corners, reinterpret_cast<float*>(n->raw + 0x64), reinterpret_cast<float*>(n->raw + 0x70));
+    }
+  }
+  n->raw[0x30] = r.zone;
+  const uint32_t held = n->get<uint32_t>(0xc8);
+  n->put<uint32_t>(0xc8, r.link);
+  ::zcls::render_node(n, cell.get<int32_t>(0x40));
+  r.link = n->get<uint32_t>(0xc8);
+  n->put<uint32_t>(0xc8, held);
+  if (faded) {
+    --walk.opacity_top;
+    ::zmod::set_opacity(walk.opacity_top < 0 ? 1.0f : walk.opacity[walk.opacity_top]);
+  }
+}
+}  // namespace
+
+namespace {
+// Pirate's Moon 1.0 @ 0x005045e0
+int32_t tree_add(CellClutter& c, float x0, float x1, float z0, float z1) {
+  ClutterTreeNode node;
+  node.box[0] = x0, node.box[3] = x1, node.box[2] = z0, node.box[5] = z1;
+  c.tree.push_back(node);
+  return static_cast<int32_t>(c.tree.size()) - 1;
+}
+
+// Pirate's Moon 1.0 @ 0x00504530
+void tree_insert(CellClutter& c, int32_t at, int32_t record) {
+  ClutterTreeNode& node = c.tree[static_cast<size_t>(at)];
+  const ClutterRecord& r = c[static_cast<size_t>(record)];
+  if (node.records.empty()) {
+    node.near_sq = r.near_sq, node.far_sq = r.far_sq;
+  } else {
+    if (r.near_sq < node.near_sq) node.near_sq = r.near_sq;
+    if (node.far_sq < r.far_sq) node.far_sq = r.far_sq;
+  }
+  node.records.push_back(record);
+}
+
+// Pirate's Moon 1.0 @ 0x005047e0: the box over the records' corners or the children's boxes, its
+// sphere. A node with neither is left as it is.
+void tree_finish(CellClutter& c, int32_t at) {
+  ClutterTreeNode& node = c.tree[static_cast<size_t>(at)];
+  bool first = true;
+  if (node.records.empty()) {
+    if (node.first_child < 0) return;
+    for (int32_t k = node.first_child; k < node.first_child + 4; ++k) {
+      const ClutterTreeNode& child = c.tree[static_cast<size_t>(k)];
+      if (child.records.empty() && child.first_child < 0) continue;
+      if (first) {
+        std::memcpy(node.box, child.box, sizeof node.box);
+        first = false;
+      } else {
+        for (int a = 0; a < 3; ++a) {
+          if (child.box[a] < node.box[a]) node.box[a] = child.box[a];
+          if (node.box[a + 3] < child.box[a + 3]) node.box[a + 3] = child.box[a + 3];
+        }
+      }
+    }
+  } else {
+    for (int32_t i : node.records) {
+      const ClutterRecord& r = c[static_cast<size_t>(i)];
+      if ((r.flags & 1) || !(r.node->flags() & 0x100) || !r.node->pm_box) continue;
+      float corners[8][3];
+      box_corners(r.matrix.m, r.node->pm_box, corners);
+      if (first) {
+        node.box[0] = node.box[3] = corners[0][0];
+        node.box[1] = node.box[4] = corners[0][1];
+        node.box[2] = node.box[5] = corners[0][2];
+        first = false;
+      }
+      for (const auto& q : corners) {
+        for (int a = 0; a < 3; ++a) {
+          if (q[a] < node.box[a]) node.box[a] = q[a];
+          else if (node.box[a + 3] < q[a]) node.box[a + 3] = q[a];
+        }
+      }
+    }
+  }
+  ::zcls::box_sphere(node.box, node.centre, &node.radius);  // 0x0050d8b0
+  node.fade_scale = 1.0f / (node.far_sq - node.near_sq);
+}
+
+// Pirate's Moon 1.0 @ 0x00504640
+void tree_split(CellClutter& c, int32_t at) {
+  if (c.tree[static_cast<size_t>(at)].records.size() < 0x15) {
+    tree_finish(c, at);
+    return;
+  }
+  const float x0 = c.tree[static_cast<size_t>(at)].box[0], x1 = c.tree[static_cast<size_t>(at)].box[3];
+  const float z0 = c.tree[static_cast<size_t>(at)].box[2], z1 = c.tree[static_cast<size_t>(at)].box[5];
+  const float mid_x = (x1 - x0) * 0.5f + x0, mid_z = (z1 - z0) * 0.5f + z0;
+  const int32_t first = tree_add(c, x0, mid_x, z0, mid_z);
+  tree_add(c, mid_x, x1, z0, mid_z);
+  tree_add(c, x0, mid_x, mid_z, z1);
+  tree_add(c, mid_x, x1, mid_z, z1);
+  const std::vector<int32_t> records = std::move(c.tree[static_cast<size_t>(at)].records);
+  c.tree[static_cast<size_t>(at)].records.clear();
+  c.tree[static_cast<size_t>(at)].first_child = first;
+  for (int32_t i : records) {
+    const ClutterRecord& r = c[static_cast<size_t>(i)];
+    int32_t to = first;
+    if (mid_x < r.matrix.m[9]) to = first + 1;
+    if (mid_z < r.matrix.m[11]) to = to + 2;
+    tree_insert(c, to, i);
+  }
+  for (int k = 0; k < 4; ++k) tree_split(c, first + k);
+  tree_finish(c, at);
+}
+
+// Pirate's Moon 1.0 @ 0x00504450
+void tree_build(const ::zcls::World* w, ::zcls::Partition& cell, CellClutter& c) {
+  c.tree.clear();
+  const float x = cell.get<float>(8), z = cell.get<float>(0xc);
+  tree_add(c, x, x + w->get<float>(0x64), w->get<float>(0x68) + z, z);
+  for (int32_t i = 0; i < static_cast<int32_t>(c.size()); ++i) tree_insert(c, 0, i);
+  tree_split(c, 0);
+}
+
+// Pirate's Moon 1.0 @ 0x0050a3e0
+void draw_tree(::zcls::Partition& cell, CellClutter& c, int32_t at) {
+  const ClutterTreeNode& node = c.tree[static_cast<size_t>(at)];
+  if (node.records.empty() && node.first_child < 0) return;
+  ::zmod::WalkState& walk = ::zmod::walk_state();
+  uint32_t mask = walk.mask[walk.top];
+  if (mask != 0 && ::zmod::cull_sphere(node.centre, &mask, node.radius) != 0) return;
+  walk.mask[++walk.top] = mask;
+  const float* eye = zmth::view().camera.m + 9;
+  float d = zmth::distance(zmth::Vec3{eye[0], eye[1], eye[2]}, zmth::Vec3{node.centre[0], node.centre[1], node.centre[2]}) - node.radius;  // 0x00537a50
+  if (d < 0.0f) d = 0.0f;
+  const float d2 = d * d;
+  if (!(node.near_sq < d2 && (node.far_sq <= d2 || (node.far_sq - d2) * node.fade_scale < 0.004f))) {
+    if (node.first_child >= 0) {
+      const int32_t first = node.first_child;
+      for (int k = 0; k < 4; ++k) draw_tree(cell, c, first + k);
+    } else {
+      for (int32_t i : node.records) draw_record(cell, c[static_cast<size_t>(i)]);
+    }
+  }
+  --walk.top;
+}
+}  // namespace
+
+void clutter_draw_cell(const ::zcls::World* world, ::zcls::Partition& cell) {
+  if (!cell.pm_clutter) return;
+  CellClutter& c = *cell_clutter(cell);
+  // One cell's tree a walk: the rest stay flat until a later frame reaches them first.
+  ::zcls::SceneWalk& walk = ::zcls::scene_walk();
+  if (c.tree.empty() && c.size() > 0x14 && !walk.clutter_tree_built) {
+    tree_build(world, cell, c);
+    walk.clutter_tree_built = true;
+  }
+  if (c.tree.empty()) {
+    for (ClutterRecord& r : c) draw_record(cell, r);
+  } else {
+    draw_tree(cell, c, 0);
+  }
+}
+
 void clutter_skip_ground_test(bool on) { g_lay.skip_ground = on; }
 
 void clutter_free(std::list<std::string>& names) {
@@ -485,9 +697,9 @@ void clutter_crater(::zcls::Node* world, const float point[3], float radius) {
   }
 }
 
-std::vector<ClutterRecord>* cell_clutter(::zcls::Partition& cell) {
-  if (!cell.pm_clutter) cell.pm_clutter = new std::vector<ClutterRecord>;
-  return static_cast<std::vector<ClutterRecord>*>(cell.pm_clutter);
+CellClutter* cell_clutter(::zcls::Partition& cell) {
+  if (!cell.pm_clutter) cell.pm_clutter = new CellClutter;
+  return static_cast<CellClutter*>(cell.pm_clutter);
 }
 
 void clutter_lay(::zcls::Node* world) {

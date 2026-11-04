@@ -1031,6 +1031,7 @@ int render_cells(Node* world, Node* camera_node, Camera* cam) {
   int32_t restored = 1;
   const int r = w->get<int32_t>(0x50) ? pick_cells_virtual(world, cam) : pick_cells(world, cam);
   if (r) return r;
+  g_walk.clutter_tree_built = false;
   const int32_t fog = zmod::fog_on();
   const float fog_near = fog ? zmod::fog_near() : 0.0f;
   for (int32_t ring = 0; ring < 50; ++ring) {
@@ -1084,6 +1085,7 @@ int render_cells(Node* world, Node* camera_node, Camera* cam) {
       if (e.wrapped) {
         for (int32_t i = 0; i < count; ++i)
           if (p.nodes[i]->flags() & 0x8000) render_node(p.nodes[i], count);
+        if (game.cell_clutter) game.cell_clutter(w, p);
         continue;
       }
       for (int32_t i = 0; i < count; ++i) render_node(p.nodes[i], count);
@@ -1091,6 +1093,7 @@ int render_cells(Node* world, Node* camera_node, Camera* cam) {
       // far on the squared distance (0x0051dfa0 returns it squared), factor.
       // PM's cell has no fades: its +0x40 count is another list (docs/pm-map.md).
       const int32_t fades = game.cell_fades ? p.get<int32_t>(0x40) : 0;
+      if (game.cell_clutter) game.cell_clutter(w, p);
       for (int32_t i = 0; i < fades; ++i) {
         uint8_t* f = p.fades + 0x44 * i;
         float fl[16];

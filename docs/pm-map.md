@@ -837,6 +837,12 @@ functions PM changed, and PM's new ones.
        MW3's `0x4c3930`, render.md 6a): never drawn. Outside `inout` the largest is 64, and all 19
        of 49 to 64 corners are strips (`g3860`, c1), which `split_strips` makes triangles before a
        clipper sees them when they need clipping, and which otherwise draw whole, unclipped.
+       Counted 2026-11-04 with concavity (turn signs about the summed normal): outside `inout`, the largest non-strip
+       polygon is 16 corners (`healthy`, c3 and c4, concave); c1 and c2 reach 15 (`veh_hulk`). Concave ones are few
+       (1 to 7 a world, sizes 8, 12, 16). Mechlib: 15 and, concave, 13. Random clips of the concave ones (a Python
+       copy of the clip's rule, five planes, 30,000 tries a polygon): 16 grew to 19. That is measured, not a proof: a
+       concave polygon can gain up to half its corners a plane, 121 for 16 over five planes in theory, past the
+       exe's 64-vertex set; the port's sets grow as needed (fixes.md), so it holds either way.
        The largest plain polygon that draws has at most 48. Corrected 2026-11-04: an earlier note
        here feared a 64-corner polygon near-cut to 65. On the exe's clippers in the emulator a
        65th vertex does fault (the two textured paths, a pointer overwritten at 0x6887d0; the other
@@ -1100,7 +1106,16 @@ functions PM changed, and PM's new ones.
        them when its class lands. The hits are ported (0x513c60, 0x513cf0; made-up records, 4,000 calls,
        `clutter_on_weapon_hit`, `clutter_on_collide`), not wired: the record is the hit's +0x28 and PM's zWeapon
        and its touch 0x5a50a0 (object, hit, damage; MW3's has no hit) are not ported. Both take OnWeaponHit's anim
-       and model; no code in the file reads OnCollide's or OnCrater's anim and model. Next: what draws them. The rest is not ported
+       and model; no code in the file reads OnCollide's or OnCrater's anim and model. The draw is ported (0x50a1e0,
+       0x50a230, 0x50a3e0, the tree 0x504450, 0x5045e0, 0x504530, 0x504640, 0x5047e0, the corners 0x53c510), called
+       from the walk's cell (`zgame::Table::cell_clutter`, wrapped cells too). A cell over 20 records gets its tree
+       when drawn, at most one cell a walk (0x509dd0's local), so a cell draws flat until a frame reaches it first.
+       `test_pm_clutter.py` lays the worlds, craters them, then compares frames against the exe, some at the crater
+       and some where a record's fade is nearly out: every draw in order, matrix and fade, and every tree built. Not
+       observable there: the tree's own cull and fade skips only repeat what each record's checks decide, so breaking
+       them changes no draw. The gate [0x60d968] is not ported: nothing in the exe writes it by direct address.
+       `mw3pm --fly` does not load clutter yet, so no picture shows it. The world's update (0x504a40) rebuilds the
+       tree and takes in records' flag 4; it comes with the world class. The rest is not ported
        (0x5106b0..0x514b90, 65 functions, ~3,500 lines of pseudocode). Scattered props laid on the ground by its material. **It waits for the interpreter
        and the mission load**: its template names come from the script command `AddClutterTemplates`
        (0x512fd0, from 0x5b2e15, a list at [0x639c14]). The load (0x492f8c.., unless `-noclutter`,

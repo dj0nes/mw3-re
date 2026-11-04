@@ -2282,3 +2282,44 @@ int probe_pm_clutter_hit(int collide, uint32_t flags, float weapon, float touch,
 }
 
 }  // extern "C"
+
+extern "C" {
+
+// After frames: every cell's tree as test_pm_clutter.py reads the exe's, cells z then x.
+int probe_pm_clutter_trees(uint32_t* out, int cap) {
+  auto* w = static_cast<::zcls::World*>(::zcls::camera_world(walk_camera())->data);
+  int n = 0;
+  const auto word = [&](uint32_t v) { if (n < cap) out[n] = v; ++n; };
+  const auto fl = [&](float f) { uint32_t v; std::memcpy(&v, &f, 4); word(v); };
+  for (int z = 0; z < w->get<int32_t>(0x8c); ++z) {
+    for (int x = 0; x < w->get<int32_t>(0x88); ++x) {
+      ::zcls::Partition& cell = w->rows[z][x];
+      if (!cell.pm_clutter || pm::zcls::cell_clutter(cell)->tree.empty()) continue;
+      const auto& tree = pm::zcls::cell_clutter(cell)->tree;
+      word(static_cast<uint32_t>(x)), word(static_cast<uint32_t>(z)), word(static_cast<uint32_t>(tree.size()));
+      for (const pm::zcls::ClutterTreeNode& t : tree) {
+        word(static_cast<uint32_t>(t.records.size())), word(static_cast<uint32_t>(t.first_child));
+        if (!t.records.empty() || t.first_child >= 0) {
+          fl(t.near_sq), fl(t.far_sq), fl(t.fade_scale);
+          for (float f : t.box) fl(f);
+          for (float f : t.centre) fl(f);
+          fl(t.radius);
+        }
+        for (int32_t r : t.records) word(static_cast<uint32_t>(r));
+      }
+    }
+  }
+  return n;
+}
+
+// Pairs of node index and the exe's zone: 0 when all match, else the first that does not + 1.
+int probe_pm_node_zones(const uint32_t* pairs, int count) {
+  for (int i = 0; i < count; ++i) {
+    const ::zcls::NodePool& pool = ::zcls::nodes();
+    const size_t at = pairs[i * 2];
+    if (pool.blocks[at / pool.block_size][at % pool.block_size].raw[0x30] != pairs[i * 2 + 1]) return i + 1;
+  }
+  return 0;
+}
+
+}  // extern "C"

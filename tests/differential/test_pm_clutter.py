@@ -9,6 +9,7 @@ Compared: the log's order, every field of every record, every node's flags. Rota
 slopes go through x87 fcos, within 1e-6.
 """
 import ctypes
+import math
 import random
 import re
 import struct
@@ -466,6 +467,19 @@ class Laying(World):
                 out += [self.r32(items + 0x5c * i + 0x48) for i in range(self.i32(cell + 0x40))]
         return out
 
+    def drawn_nodes(self):
+        """Every record's node."""
+        data = self.r32(self.world_node + 0x38)
+        cols, rows, table = self.i32(data + 0x98), self.i32(data + 0x9c), self.r32(data + 0xa0)
+        seen = set()
+        for z in range(rows):
+            for x in range(cols):
+                cell = self.r32(table + 4 * z) + 0x58 * x
+                items = self.r32(cell + 0x44)
+                for i in range(self.i32(cell + 0x40)):
+                    seen.add(self.index(self.r32(items + 0x5c * i)))
+        return sorted(seen)
+
     def lay(self, names, skip_ground=0):
         uc = self.cpu._uc
         uc.mem_write(SKIP_GROUND, bytes([skip_ground]))
@@ -594,6 +608,53 @@ def compare_scene_lay(probe, emu):
     print(f'crafted laying identical: {want[0]} records')
 
 
+def compare_trees(probe, emu, world):
+    """Every tree the frames built, and each drawn node's zone, as the exe left them."""
+    data = emu.r32(emu.world_node + 0x38)
+    cols, rows, table = emu.i32(data + 0x98), emu.i32(data + 0x9c), emu.r32(data + 0xa0)
+    want = []
+    for z in range(rows):
+        for x in range(cols):
+            cell = emu.r32(table + 4 * z) + 0x58 * x
+            tree, count = emu.r32(cell + 0x50), emu.i32(cell + 0x54)
+            if not tree:
+                continue
+            want += [x, z, count]
+            for i in range(count):
+                n = tree + 0x40 * i
+                nrec, child = emu.i32(n + 0x34), emu.i32(n + 0x3c)
+                want += [nrec, child & 0xffffffff]
+                if nrec or child >= 0:
+                    want += [emu.r32(n + o) for o in (0, 4, 8, 0xc, 0x10, 0x14, 0x18, 0x1c, 0x20, 0x24, 0x28, 0x2c, 0x30)]
+                items = emu.r32(n + 0x38)
+                want += [emu.r32(items + 4 * k) for k in range(nrec)]
+    buf = (ctypes.c_uint32 * (1 << 22))()
+    n = probe.probe_pm_clutter_trees(buf, len(buf))
+    got = list(buf[:n])
+    if len(want) != len(got):
+        raise SystemExit(f'{world}: trees {len(want)} words, the port {len(got)}')
+    worst = 0.0
+    for i, (a, b) in enumerate(zip(want, got)):
+        if a != b:
+            fa, fb = struct.unpack('<2f', struct.pack('<2I', a, b))
+            worst = max(worst, abs(fa - fb) / max(1.0, abs(fb)))
+            if abs(fa - fb) > 1e-6 * max(1.0, abs(fb)):
+                raise SystemExit(f'{world}: trees word {i}: exe {a:08x} {fa}, port {b:08x} {fb}')
+    TREES[0] += len(want)
+    TREES[1] = max(TREES[1], worst)
+    zones = {}
+    want_z = []
+    for r in emu.drawn_nodes():
+        want_z += [r, emu.cpu._uc.mem_read(emu.node(r) + 0x30, 1)[0]]
+    zbuf = (ctypes.c_uint32 * (len(want_z) + 2))(*want_z)
+    if probe.probe_pm_node_zones(zbuf, len(want_z) // 2) != 0:
+        raise SystemExit(f'{world}: a drawn node\'s zone differs: {list(zbuf)[:12]}')
+
+
+TREES = [0, 0.0]
+NEAR_FAR = 8
+
+
 def compare_laying(probe, world, names, skip_ground=0):
     emu = Laying(world)
     want, rands, changed, next_rand = emu.lay(names, skip_ground)
@@ -622,6 +683,51 @@ def compare_laying(probe, world, names, skip_ground=0):
                 raise SystemExit(f'{world}: record {i} field {k}: exe {x:08x}, port {y:08x}\n exe {a}\n port {b}')
     if next_rand != got_next or changed != got_changed:
         raise SystemExit(f'{world}: next rand {next_rand} and {got_next}, cell changes {changed} and {got_changed}')
+    # Frames over the laid records, before the craters clear them: the walk's whole log, as test_pm_walk's.
+    frame_buf = ctypes.create_string_buffer(1 << 24)
+    rng = random.Random(0x50a1e0)
+    # A crater first, so some records are gone from the trees and the draws.
+    if want:
+        x, _, z = struct.unpack('<3f', struct.pack('<3I', *want[len(want) // 4][12:15]))
+        emu.crater(emu.world_node, x, 0.0, z, 60.0)
+        probe.probe_pm_clutter_crater(x, 0.0, z, 60.0, (ctypes.c_uint32 * (len(want) + 16))(), len(want) + 16)
+    faded = [r for r in want if struct.unpack('<f', struct.pack('<I', r[16]))[0] < 1e30]
+    for k in range(FRAMES + NEAR_FAR if want else 0):
+        chosen = rng.choice(faded or want)
+        place = struct.unpack('<3f', struct.pack('<3I', *chosen[12:15]))
+        if k < 3:  # at the crater, looking down: its gone records in the draw and the tree
+            pos, rot = (x + rng.uniform(-40, 40), rng.uniform(40, 80), z + rng.uniform(-40, 40)), (-1.2, rng.uniform(-3.1, 3.1), 0.0)
+        elif k < FRAMES:
+            pos = (place[0] + rng.uniform(-30, 30), place[1] + rng.uniform(10, 40), place[2] + rng.uniform(-30, 30))
+            rot = (rng.uniform(-0.5, 0.2), rng.uniform(-3.1, 3.1), 0.0)
+        else:  # where this record's fade is all but out: under 0.004 and just over it
+            near_sq, far_sq, scale = struct.unpack('<3f', struct.pack('<3I', *chosen[15:18]))
+            d2 = far_sq - rng.choice((0.002, 0.003, 0.0045, 0.006)) / (scale or 1.0)
+            yaw = rng.uniform(-3.1, 3.1)
+            d = max(d2, 0.0) ** 0.5
+            pos = (place[0] + d * math.sin(yaw), place[1], place[2] + d * math.cos(yaw))
+            rot = (0.0, yaw, 0.0)
+        log, lights = emu.frame(pos, rot, k + 2, 0.03, 0)
+        n = probe.probe_pm_walk_frame(test_pm_walk.fbits(*pos), test_pm_walk.fbits(*rot), k + 2, 0.03, 0, frame_buf, len(frame_buf))
+        got_log = frame_buf.raw[:n]
+        rec = test_pm_walk.RECORD + 4 * len(lights)
+        ours = (n - 4 * len(lights)) // rec
+        if ours != len(log):
+            a = [struct.unpack_from('<i', got_log, i * rec)[0] for i in range(ours)]
+            b = [struct.unpack_from('<i', r)[0] for r in log]
+            first = next((i for i, (x, y) in enumerate(zip(a, b)) if x != y), min(len(a), len(b)))
+            raise SystemExit(f'{world} frame {k}: {ours} draws, the exe {len(log)}; first apart {first}: ours {a[first:first + 3]}, exe {b[first:first + 3]}')
+        for i, r in enumerate(log):
+            o = got_log[i * rec:(i + 1) * rec]
+            if o[:8] != r[:8]:
+                raise SystemExit(f'{world} frame {k} draw {i}: node, mask {struct.unpack("<iI", o[:8])}, exe {struct.unpack("<iI", r[:8])}')
+            for j in list(range(12)) + [12]:
+                a2, b2 = struct.unpack_from('<f', o, 8 + 4 * j)[0], struct.unpack_from('<f', r, 8 + 4 * j)[0]
+                FRAME_DIFF[0] = max(FRAME_DIFF[0], abs(a2 - b2) / max(1.0, abs(b2)))
+                if abs(a2 - b2) > 1e-6 * max(1.0, abs(b2)):
+                    raise SystemExit(f'{world} frame {k} draw {i} word {j}: {a2}, exe {b2}')
+        FRAME_DIFF[1] += len(log)
+    compare_trees(probe, emu, world)
     # Craters: a few records' own places, in the grid, small and large.
     if want and not skip_ground:
         cols = emu.i32(emu.r32(emu.world_node + 0x38) + 0x98)
@@ -641,6 +747,8 @@ def compare_laying(probe, world, names, skip_ground=0):
 
 
 CRATERS = []
+FRAMES = 12
+FRAME_DIFF = [0.0, 0]
 
 
 def compare_hits(probe, emu):
@@ -767,6 +875,9 @@ def main():
     probe.probe_pm_clutter_lay.argtypes = [ctypes.c_char_p] * 4 + [ctypes.c_int, ctypes.c_void_p, ctypes.c_int]
     probe.probe_pm_clutter_hit.argtypes = [ctypes.c_int, ctypes.c_uint32, ctypes.c_float, ctypes.c_float, ctypes.c_float,
                                            ctypes.c_int, ctypes.c_int, ctypes.c_void_p]
+    probe.probe_pm_walk_frame.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_uint32, ctypes.c_float, ctypes.c_int, ctypes.c_void_p, ctypes.c_int]
+    probe.probe_pm_clutter_trees.argtypes = [ctypes.c_void_p, ctypes.c_int]
+    probe.probe_pm_node_zones.argtypes = [ctypes.c_void_p, ctypes.c_int]
     probe.probe_pm_clutter_crater.argtypes = [ctypes.c_float] * 4 + [ctypes.c_void_p, ctypes.c_int]
     probe.probe_pm_clutter_scene_lay.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_void_p, ctypes.c_int]
     for world in ('c1', 'c2', 'c3', 'c4'):
@@ -774,6 +885,8 @@ def main():
         print(f'{world}: laid {records} records, {rands} rand calls; all bit for bit but the turn')
     records, _ = compare_laying(probe, 'c2', names, skip_ground=1)
     print(f'c2, as a mission loads it (no ground test): {records} records; records flagged by craters as they went: {CRATERS}')
+    print(f'frames over the records: {FRAME_DIFF[1]} draws in order, worst relative float difference {FRAME_DIFF[0]:g}')
+    print(f'trees: {TREES[0]} words, worst relative float difference {TREES[1]:g}')
     print(f'rotated records: {ULPS.same} of {ULPS.total} words bit-identical, worst {ULPS.worst:g}; '
           f'{ULPS.exact} words of aligned records, all exact')
     print(f'u, v: {DIFF.same} of {DIFF.total} bit-identical, worst difference {DIFF.worst:g} {DIFF.at}')
