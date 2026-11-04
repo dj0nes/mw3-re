@@ -616,17 +616,24 @@ functions PM changed, and PM's new ones.
        drove its UV arrays past 5 GB in 4 s, and a tree marked broken went on
        being read. Now the first break stops it and its model has no counts
        (ours, bounded only; the exe's path is unchanged and still identical).
-     - Breaks: 15 caught of 18. MW3's version, the child count at MW3's
+     - Breaks: 16 caught of 18. MW3's version, the child count at MW3's
        +0x5c, the box pointer, the LOD, colours always, UVs once, refs not
        skipped, normals without +0xc (it took a polygon with flag 0x1000 and
        +0xc 0), the second material, flag bits 0-1, the parent, no sort,
        cycled grouped as others; the fuzz catches the reader's stop before a
        broken count's UVs (over 2 GB) and after a broken polygon. Refs not
        skipped and the parent crash the probe's dump, which counts as caught.
-       Not caught, each with its reason: the one-ref shortcut (the regroup
-       gives the same order), the alloc's flags 3 (the only caller replaces
-       the header), allocating before the check (calloc is lazy on the Mac:
-       no memory seen; kept, as MW3's reader does).
+       The alloc's flags 3 by `pm_model_alloc_starts_with_flags_3`: the only
+       ported caller replaces the header, so the mechlib test cannot see them;
+       `0x558f50` has others (`0x4cefc0`, `0x528120`, `0x528920`, `0x558440`,
+       `0x559340`, `0x5b2d10`), to check as they are ported (`0x559340`
+       overwrites bits 0-4 from its argument). Not caught, each with its reason:
+       the one-ref shortcut (the regroup gives the same order), allocating
+       before the check (calloc is lazy on the Mac: no memory seen; kept, as
+       MW3's reader does).
+     - A model with no polygons and a vertex, normal or morph count past the end
+       is refused with no counts left (`pm_mechlib_refused_model_keeps_no_counts`;
+       found in review: the check came only inside the polygons' block).
 2. **The world**: the light maps and lighting (`gmod_matl.c`; PM drops MW3's
    fog; mapped below), `cls_clutter.cpp` (32 new), the world class
    (`cls_world.c` 20 new), the script interpreter's new commands (the
@@ -664,9 +671,11 @@ functions PM changed, and PM's new ones.
          graphics options' detail level (`0x40b120`, MW3's `0x40d310`) clears
          it at the lowest level, and the software draw then skips work. It
          hides; it adds nothing to bring over.
-       None is flagged. `0x541a40`'s own 622 lines were read only where these
-       globals are used. Two more new functions are reached from both draws,
-       so they stay in.
+       None is flagged. **Open until the draw `0x543b10` is ported:** `0x5502d0`
+       and `0x541a40` are good evidence, not proof. `0x541a40`'s own 622 lines
+       were read only where these globals are used. Compare both with what the
+       Direct3D draw does then, since what only software showed comes to the
+       GPU. Two more new functions are reached from both draws, so they stay in.
      - **The other 14.**
        - Setters and start-up, ported with the helpers that first read them:
          `0x5404f0` (`[0xa4e038]`, read by both draws), `0x540740`, `0x556420`
@@ -759,8 +768,8 @@ functions PM changed, and PM's new ones.
        largest in c1 (313 and 198 vertices, flag 0x4000, which the draw never
        reads) are the flat `inout` boundary areas, which PM deletes at mission
        load as MW3 does (`0x4cddb0`, MW3's `0x4c3930`, render.md 6a), so they are
-       never drawn. Outside `inout` the largest is 64 (`g3860`; c1, c3 and c4
-       counted, c2 not). A 64-vertex polygon losing exactly one corner to the
+       never drawn. Outside `inout` the largest is 64 (`g3860`, c1; none past it
+       in any of the four worlds). A 64-vertex polygon losing exactly one corner to the
        near plane makes 65: on the exe's clippers in the emulator the two
        textured paths then fault on a pointer the 65th vertex overwrote
        (0x6887d0), and the other four write past the scratch silently. So the

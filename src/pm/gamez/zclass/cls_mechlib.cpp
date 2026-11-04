@@ -194,6 +194,7 @@ void read_model(std::FILE* f, Node* node) {
   if (m->count(0x14) > 0) m->vertices = read_array<float>(f, m->count(0x14), 12);
   if (m->count(0x18) > 0) m->normals = read_array<float>(f, m->count(0x18), 12);
   if (m->count(0x1c) > 0) m->morphs = read_array<float>(f, m->count(0x1c), 12);
+  if (refused()) return;  // a count past the end, polygons or not
   const int32_t polys = m->count(0x10);
   if (polys > 0) {
     if (bounded() && !fits(f, static_cast<uint64_t>(polys) * 0x28)) {  // ours: none of them read

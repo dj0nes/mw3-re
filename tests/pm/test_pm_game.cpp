@@ -522,3 +522,62 @@ TEST(pm_clip2d_keeps_large_polygons_whole) {
   EXPECT(star >= 3);
   std::printf("  pm clip2d: %d in, zigzag %d out, star %d out\n", kIn, zigzag, star);
 }
+
+// A model with no polygons and a vertex count past the tree's end: refused, and
+// what stays in the pool has no counts (the arrays are a single element each).
+TEST(pm_mechlib_refused_model_keeps_no_counts) {
+  const std::string path = std::string(MW3PM_GAME_DIR) + "/zbd/mechlib.zbd";
+  if (!std::filesystem::exists(path)) {
+    std::printf("  skipped: no PM install\n");
+    return;
+  }
+  zgame::set_game(pm::table());
+  std::vector<ZarEntry> all = read_zar(path);
+  size_t tree = 0;
+  while (!is_mechlib_tree(all[tree].name)) ++tree;
+  auto try_count = [&](int off) {
+    std::vector<uint8_t> d = all[tree].data;
+    d.resize(0xd0 + 0x90 + 0x64);
+    std::memset(d.data() + 0xd0 + 0x90, 0, 0x64);
+    const int32_t cls = 5, has_model = 1;
+    const int16_t children = 0;
+    std::memcpy(d.data() + 0x34, &cls, 4);
+    std::memcpy(d.data() + 0x3c, &has_model, 4);
+    std::memcpy(d.data() + 0x56, &children, 2);
+    const int32_t huge = 0x1000000;
+    std::memcpy(d.data() + 0xd0 + 0x90 + off, &huge, 4);
+    std::vector<ZarEntry> m = all;
+    m[tree].data = d;
+    const std::string dir = std::string(MW3_TEST_TMP) + "/pm_mechlib_counts";
+    std::filesystem::create_directories(dir);
+    write_zar(dir + "/mechlib.zbd", m);
+    reset_pm_pools();
+    ::zcls::MechLib lib;
+    zutl_zar::init(lib.archive);
+    EXPECT(zgame::game().zcls_mechlib_open(lib, (dir + "/mechlib.zbd").c_str()));
+    EXPECT(zgame::game().zcls_mechlib_load(lib, m[tree].name.c_str()) == nullptr);
+    int models = 0, counted = 0;
+    pm::zmod::ModelPool& pool = pm::zmod::models();
+    // Fresh pool: the one allocated slot is the first.
+    models = pool.count;
+    if (pool.capacity > 0)
+      for (int c : {0x10, 0x14, 0x18, 0x1c, 0x5c}) counted += pool.at(0).count(c) != 0;
+    EXPECT(models == 1 && counted == 0);
+    ::zcls::mechlib_close(lib);
+    zutl_zar::destroy(lib.archive);
+  };
+  for (int off : {0x14, 0x18, 0x1c}) try_count(off);
+  zgame::set_game(zgame::mw3_table());
+}
+
+// 0x00558f50's fresh model: flags 3 (its other callers keep some of those bits,
+// 0x00559340 among them), the rest clear.
+TEST(pm_model_alloc_starts_with_flags_3) {
+  pm::zmod::models() = pm::zmod::ModelPool{};
+  const pm::zmod::Model* m = pm::zmod::model_alloc();
+  EXPECT(m != nullptr);
+  uint32_t flags = 0;
+  std::memcpy(&flags, m->header + 8, 4);
+  EXPECT(flags == 3 && m->count(0x10) == 0 && m->count(0x14) == 0);
+  pm::zmod::models() = pm::zmod::ModelPool{};
+}
