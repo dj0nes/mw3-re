@@ -6,6 +6,9 @@ sets' UVs and colours. At 24 bits and, for the colours' rounding, at 53.
     cmake --build build --target pmprobe
     .venv/bin/python -P tests/differential/test_pm_projected.py [polygons] [fixed]
 
+Ties between edges fall differently too rarely for the default run. To see them, about 5
+minutes: test_pm_projected.py 30000.
+
 With `fixed` the bug fix is on, and a first light map set's colours at a polygon's centre
 and splits must differ from the exe's: the test then ends on that difference.
 """
@@ -32,8 +35,9 @@ TOL, ROUNDING = 2e-4, 0.01
 SPLIT, TRIS, VERTS = 0x562120, 0x68aac8, 0x6a2d48
 TIE = 1e-5     # a triangle's two longest edges this close: rounding can choose either
 # When a tie fell differently: a few pixels may differ a lot where a light's pool is sharp
-# (26.7 of 255 seen on 1.7% of a polygon), the polygon as a whole hardly (mean 0.48 at most).
-PICTURE, TIE_MEAN, TIE_SHARE = 3.0, 1.0, 0.05
+# (38.9 of 255 seen, on 6.3% of a size-40 equilateral triangle under a light of range 9),
+# the polygon as a whole hardly (mean 0.95 at most).
+PICTURE, TIE_MEAN, TIE_SHARE = 3.0, 1.5, 0.10
 
 
 class Emulated(rec.Emulated):
@@ -291,7 +295,9 @@ def main():
                 ao += k * 4
                 ae += k * 4
     ties.sort(reverse=True)
-    print(f'ties that fell differently: {len(ties)}, the worst {ties[:3]} (worst, mean, share over 3, size, triangles, 53 bits, corners, flags)')
+    print(f'ties that fell differently: {len(ties)}, {sum(1 for t in ties if not t[5])} at 24 bits; the largest mean '
+          f'{max((t[1] for t in ties), default=0)}, share {max((t[2] for t in ties), default=0)}; the worst {ties[:3]} '
+          '(worst, mean, share over 3, size, triangles, 53 bits, corners, flags)')
     print(f'ok: {polygons} polygons; {stats.floats} floats, {stats.exact} exact, off by place {stats.where}; {seen}')
     if not seen.get('drawn') or not seen.get('triangles'):
         raise SystemExit('nothing drawn')

@@ -35,6 +35,10 @@ DrawState& draw_state();
 // 0x005416e0: a model's mean polygon vertex, shared ones counted each time.
 void facade_centre(const Model& m, float out[3]);
 
+// Pirate's Moon 1.0 @ 0x0053cef0: camera space to the screen; MW3's 0x00523530 with the
+// factors in another order, which matters at 24 bits.
+void project_point(const float cam[3], float screen[3]);
+
 // 0x00542a70: the top of the matrix stack by the model's type (0 default, 1 a
 // facade, 2 points, drawn here). The caller has pushed; on 0 (points) the push
 // is popped here and nothing more is to draw. `centre` is a facade's, with

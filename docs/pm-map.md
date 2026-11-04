@@ -952,8 +952,9 @@ functions PM changed, and PM's new ones.
        longer, not always the same one here and in the exe (968.056571 against 968.056552
        in the exe, 968.056335 against 968.056396 here, in the case traced at polygon 3021).
        The split falls on the other edge: another triangulation of the same polygon. On
-       8 in 30,000 random polygons, 24 and 53 bits both: mean difference at most 0.48 of 255,
-       worst 26.7 on 1.7% of one polygon where a light's pool is sharp. The original can
+       7 in 30,000 random polygons, all at 53 bits since the sums and factors follow
+       PM's order: mean difference at most 0.95 of 255, worst 38.9, on 6.3% of an equilateral
+       triangle (a three-way tie) under a short light whose pool is sharp. The original can
        flip the same way as the camera moves. `test_pm_projected.py` allows only a
        near tie the exe's own split saw, and only if the picture agrees; it prints how
        many. **Eye check, phase 6:** a projected light over a light-mapped polygon, bugs

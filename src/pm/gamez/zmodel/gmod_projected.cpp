@@ -53,7 +53,9 @@ uint32_t lflags(const ::zcls::Light* l) { return l->get<uint32_t>(0xb0); }
 const float* cam_pos(const ::zcls::Light* l) { return reinterpret_cast<const float*>(l->raw + 0x78); }
 float dist2(const float* a, const float* b) {  // 0x00537a00
   const float x = a[0] - b[0], y = a[1] - b[1], z = a[2] - b[2];
-  return z * z + y * y + x * x;
+  const float xx = x * x, yy = y * y, zz = z * z;
+  const float s = xx + yy;  // in this order: at 24 bits an edge's length then matches the exe's
+  return s + zz;
 }
 
 void list_lights(const Record& r) {
@@ -210,8 +212,13 @@ int draw_projected(const Record& r, void (*draw)(const ProjectedTriangle&, const
   if (g_light_count == 0) return 0;
   const int32_t n = r.count;
   for (int32_t i = 0; i < n; ++i) {
-    const zmth::Vec3 sc{r.tl[i * 8], r.tl[i * 8 + 1], r.tl[i * 8 + 2]};
-    zmth::unproject_d3d(&sc, reinterpret_cast<zmth::Vec3*>(g_vert[static_cast<size_t>(i)].pos), 1);
+    // Pirate's Moon 1.0 @ 0x0053cf40: MW3's 0x00523590 with z before the inverse scale.
+    const zmth::Projection& pr = zmth::projection();
+    float* v = g_vert[static_cast<size_t>(i)].pos;
+    const float z = pr.near_z / r.tl[i * 8 + 2];
+    v[2] = z;
+    v[0] = (r.tl[i * 8] - pr.cx) * z * pr.inv_fx;
+    v[1] = (r.tl[i * 8 + 1] - pr.cy) * v[2] * pr.inv_fy;
   }
   const float radius = std::sqrt(centre_of(n));
   Vert& c = g_vert[static_cast<size_t>(n)];
@@ -333,8 +340,7 @@ int draw_projected(const Record& r, void (*draw)(const ProjectedTriangle&, const
     }
   }
   for (int32_t k = n; k < g_verts; ++k)
-    zmth::project_d3d(reinterpret_cast<const zmth::Vec3*>(g_vert[static_cast<size_t>(k)].pos),
-                      reinterpret_cast<zmth::Vec3*>(g_vert[static_cast<size_t>(k)].screen), 1);
+    project_point(g_vert[static_cast<size_t>(k)].pos, g_vert[static_cast<size_t>(k)].screen);
   const float scale = static_cast<float>(r.polygon->priority) * ::zmod::draw_state().priority_scale + 1.0f;
   for (int32_t k = 0; k < g_verts; ++k) g_vert[static_cast<size_t>(k)].screen[2] = scale * g_vert[static_cast<size_t>(k)].screen[2];
   for (int32_t k = n + 1; k < g_verts; ++k) {

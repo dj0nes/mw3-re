@@ -28,6 +28,14 @@
 #pragma STDC FP_CONTRACT OFF
 
 namespace pm::zmod {
+void project_point(const float cam[3], float screen[3]) {
+  const zmth::Projection& p = zmth::projection();
+  const float w = p.near_z / cam[2];
+  screen[2] = w;
+  screen[0] = w * cam[0] * p.fx_near + p.cx;
+  screen[1] = p.fy_near * cam[1] * screen[2] + p.cy;
+}
+
 namespace {
 DrawState g_state;
 
@@ -95,13 +103,11 @@ void draw_points(Model& m) {
   const float near_z = clip3d_state().near_z;
   const auto below = [](float a, float b) { return !(a >= b); };
   for (int32_t i = 0; i < n; ++i) {
-    const zmth::Vec3& v = *reinterpret_cast<const zmth::Vec3*>(&cam[i * 3]);
-    if (!(v.z > near_z)) continue;
-    zmth::Vec3 sc;
-    zmth::project_d3d(&v, &sc, 1);
-    if (below(sc.x, s.point_rect[0]) || below(sc.y, s.point_rect[1])) continue;
-    if (sc.x > s.point_rect[2] || sc.y > s.point_rect[3]) continue;
-    const float screen[3] = {sc.x, sc.y, sc.z};
+    if (!(cam[i * 3 + 2] > near_z)) continue;
+    float screen[3];
+    project_point(&cam[i * 3], screen);
+    if (below(screen[0], s.point_rect[0]) || below(screen[1], s.point_rect[1])) continue;
+    if (screen[0] > s.point_rect[2] || screen[1] > s.point_rect[3]) continue;
     if (table.point) table.point(table.ctx, screen, color, 0xff);
   }
 }
@@ -760,18 +766,17 @@ void model_light(const float* vertex, uint32_t color, ::zmod::Light& l) {
   float c[3] = {vertex[0], vertex[1], vertex[2]};
   if (!st.is_identity()) transform_point(vertex, st.matrix().m, c);
   if (!(c[2] > clip3d_state().near_z)) return;
-  const zmth::Vec3 cam{c[0], c[1], c[2]};
-  zmth::Vec3 sc;
-  zmth::project_d3d(&cam, &sc, 1);
+  float sc[3];
+  project_point(c, sc);
   const ::zmod::DrawState& s = ::zmod::draw_state();
   const auto below = [](float a, float b) { return !(a >= b); };
-  if (below(sc.x, s.point_rect[0]) || below(sc.y, s.point_rect[1])) return;
-  if (sc.x > s.point_rect[2] || sc.y > s.point_rect[3]) return;
+  if (below(sc[0], s.point_rect[0]) || below(sc[1], s.point_rect[1])) return;
+  if (sc[0] > s.point_rect[2] || sc[1] > s.point_rect[3]) return;
   int16_t priority;
   std::memcpy(&priority, l.raw + 0x18, 2);
-  float z = sc.z;
+  float z = sc[2];
   if (priority != 0) z = (static_cast<float>(priority) * s.priority_scale - -1.0f) * z;
-  const float screen[3] = {sc.x, sc.y, z};
+  const float screen[3] = {sc[0], sc[1], z};
   int32_t alpha = 0xff;
   const float near_ = field(0x30), far_ = field(0x34);
   if (far_ != 0.0f) {
