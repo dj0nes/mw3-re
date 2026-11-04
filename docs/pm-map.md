@@ -1126,7 +1126,7 @@ functions PM changed, and PM's new ones.
      - **For Owen's PC, with the view:** a gap between terrain and sky in c2 and c4 from height (`mw3pm --fly c2
        --pos 1536 120 -1792 --look 0 8`, `c4 --pos 2048 130 -2048 --look 0 8`). PM's mission sets the clear
        colour to 0 (0x45129a) and the colour clear off (0x451282, 0x4838db; 0x488f27 turns it on elsewhere), so
-       the frame starts black and that gap keeps old contents; `--fly` does the same. Compare in the
+       the frame starts black and that gap keeps old contents (a new back buffer used to hold undefined memory there, magenta on this Mac, now black in `SdlRender3D`); `--fly` does the same. Compare in the
        original at those places, as far as a jump jet reaches: a black band, or old frames, or none.
      - **Eye check so far.** c1's and c2's edges read as authored transition tiles (`tertrans01`, `tertrans02`, c2's
        with alpha, `mw3pm --fly c2 --pos 1500 135 -1600 --look 0 35`); no original compared.

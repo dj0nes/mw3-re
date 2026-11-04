@@ -186,10 +186,8 @@ void pm_world_frame(const float eye[3], float yaw, float pitch, platform::Render
   ++zcls::frames().frame;
   zcls::world_push_fog(zcls::camera_world(cam));  // the world's update, not ported here
   // A mission's clear colour is 0 (0x0045129a) and its colour clear off (0x00451282, 0x004838db):
-  // black to start with, then depth only.
-  static bool first = true;
-  render->clear(first, 0, 0, 0);
-  first = false;
+  // depth only, over a back buffer that starts black.
+  render->clear(false, 0, 0, 0);
   zcls::render_world(cam, 0);
   render->present();
 }
