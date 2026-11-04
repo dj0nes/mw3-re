@@ -1065,6 +1065,12 @@ struct WiredValveHooks : ai::ValveHooks {
   void sound_play(Handle s) override {
     if (auto* o = static_cast<zsnd::Object*>(e->object_of(s))) zsnd::play_at(o, nullptr, 1.0f, nullptr);
   }
+  // animation(_once): the mission's animation by name, started as the mission's own (0x00508c10).
+  // MW3's valves never use it; Pirate's Moon's c1 launches its dropship with one.
+  Handle anim_find(const char* name) override { return e->handle_of(zeff::anim_find(name)); }
+  void anim_run(Handle a) override {
+    if (auto* d = static_cast<zeff::AnimDef*>(e->object_of(a))) zeff::anim_start(d, nullptr, 0, 0, 0);
+  }
   // 0x004d7330 (a turret or a target by name too: c1m1's kills reached it).
   Handle target_find(const char* name) override { return entity_by_name(*e, name); }
   Handle entity_find(const char* name) override {
@@ -1588,15 +1594,6 @@ struct WiredMissionHooks : MissionHooks {
     add_enemy_objectives(ob().objs.primary, ob().objs.secondary, ob());
     ob().sync();
   }
-  // Training's lessons (the training game's vt+0x40, 0x004794a0, 0x004373b0).
-  void game_objectives(const char* file, const char* block, Handle, Handle, Handle, Handle, Handle) override {
-    if (TrainingGame* t = launch_training()) {
-      training_load(*t->lessons, file, block, ob().objs, ob());
-      ob().sync();
-    } else {
-      MissionHooks::game_objectives(file, block, 0, 0, 0, 0, 0);
-    }
-  }
   Handle training(Handle, Handle, Handle, Handle, Handle) override { return launch_training() ? 1 : 0; }
   uint8_t training_next(Handle t) override {
     TrainingGame* g = t ? launch_training() : nullptr;
@@ -2109,10 +2106,20 @@ struct WiredMissionHooks : MissionHooks {
     const std::string path = std::string("zbd\\") + mission_dir(e->launch().index) + "\\reader" + key + ".zbd";
     reader_open(path.c_str(), 0);
   }
+  // The game object's vt+0x3c. Training's lessons (0x00437f20, MW3 0x00437140): the key's block, else
+  // `<key>_set`, else `<key>1`, `<key>2`.... The others through 0x00435140: the game's own block (vt+0x70;
+  // a standalone mission's is sainfo.zrd's `objectives`, 0x0040dac0), else objectives.zrd's by the key.
+  // PM's reader 0x0045d620 is MW3's 0x0045c340 in another calling convention.
   void game_objectives(Handle, Handle, Handle, Handle, Handle) override {
-    // 0x00435140: objectives.zrd's block by the key. Training's sets (0x00437f20), standalone's sainfo
-    // (0x0040dac0) and PM's reader 0x0045d620 are still to port.
-    mech3::objectives_load("objectives.zrd", game_key(), ob().objs, ob(), mission_dir(e->launch().index));
+    if (TrainingGame* t = launch_training()) {
+      training_load(*t->lessons, "objectives.zrd", game_key(), ob().objs, ob());
+    } else {
+      zrdr::Node* sainfo = e->launch().type == 5 ? ob().load("sainfo.zrd") : nullptr;  // 0x0040da00 keeps it with the game
+      if (zrdr::Node* own = sainfo ? zrdr::find(sainfo, "objectives") : nullptr) read_objectives(own, ob().objs, ob());
+      else mech3::objectives_load("objectives.zrd", game_key(), ob().objs, ob(), mission_dir(e->launch().index));
+      if (sainfo) ob().free_tree(sainfo);
+    }
+    ob().sync();
   }
   void pilot_game_ia() override {}
   void fn_4f9930() override {}  // 0x004f9a10 over the world's list: to port with zEffect's start

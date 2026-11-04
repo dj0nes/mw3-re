@@ -1005,6 +1005,11 @@ int run(const Args& a, platform::VideoForWindows* vfw) {
         multi_game->x70 = 1 << 30;  // the kills to win (+0x70)
         l.type = 3, l.multi = multi_game.get();
         mech3::program_net_debug_lobby();
+      } else if (const size_t sa = a.mission.rfind("sa");
+                 sa != std::string::npos && sa > 0 && sa + 2 < a.mission.size() &&
+                 a.mission.find_first_not_of("0123456789", sa + 2) == std::string::npos) {
+        // --mission <dir>sa<N>: Pirate's Moon's standalone mission N (readersa<N>, game type 5).
+        dir = a.mission.substr(0, sa), l.number = std::atoi(a.mission.c_str() + sa + 2), l.type = 5;
       } else {
         split_mission(a.mission, dir, variant, l.number);
       }
@@ -1018,7 +1023,8 @@ int run(const Args& a, platform::VideoForWindows* vfw) {
       // The mission's reader archive (mission.cpp's reader_open): c1 and c2
       // have m1..m4, c3 m1..m6, c4 m1..m3, c4b m4..m6. Without it the world
       // loads with no player and no mech.
-      const std::string reader = "zbd\\" + dir + (l.type == 3 ? "\\readermp" : "\\readerm") + std::to_string(l.number) + ".zbd";
+      const std::string reader = "zbd\\" + dir + (l.type == 3 ? "\\readermp" : l.type == 5 ? "\\readersa" : "\\readerm") +
+                                 std::to_string(l.number) + ".zbd";
       if (!ia_game && !zutl::exists(reader.c_str())) {
         std::fprintf(stderr, "mw3: --mission %s: no such mission (%s not found)\n", a.mission.c_str(), reader.c_str());
         return 2;

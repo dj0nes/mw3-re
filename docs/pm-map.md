@@ -1256,6 +1256,21 @@ functions PM changed, and PM's new ones.
      `0x4f9930` at the end (zEffect's list) is a no-op hook. The reader paths' string differs too (`aipath`
      in place of MW3's per-mission folder). Not checked: multiplayer's MCB stations (the pilot's +0xc4 is 0 in
      the test).
+   - **Objectives and standalone missions** (2026-11-04, from the code; the reader is shared). PM's objective
+     reader 0x45d620 is MW3's 0x45c340 in another calling convention (description, the four groups, the mobile
+     HQ for type 1, the fail goal count), so `read_objectives` serves both. What changed is the block, chosen by
+     the game object's vt+0x3c: training's lessons (0x437f20, MW3's 0x437140) under the key; every other type
+     through 0x435140, which takes the game's own block (vt+0x70) or else `objectives.zrd`'s by the key
+     (vt+0x58). Only the standalone game can have a block of its own: `sainfo.zrd`'s `objectives` (0x40dac0),
+     from the mission's `readersa<n>.zbd`, which 0x40da00 loads with the game; no shipped `sainfo.zrd` has
+     one, so every standalone mission reads its world's `objectives.zrd` block `sa<n>` (c1 sa1..sa4, c2 sa1,
+     sa2, c3 sa1..sa3, c4 sa1, sa2). Seen: c1sa1's box lists its primary and secondary. `mw3pm --mission c1sa1` starts one
+     (ours). The standalone game object itself (vtable 0x5df148: 0x40e1b0 its ctor, sainfo kept at +0x10) is
+     the front end's, not ported.
+   - **A valve's animation** (`animation_once`): MW3's shipped valves never use one, so the game never wired
+     the valves' animation hooks; PM's c1 does (m1, sa1, sa4: `launch_sl_dropship`, the dropship's take-off,
+     defined in `reader.zbd`'s `dropship_launch.zrd`). Wired now as the mission's own start animation. c1m1
+     launches it at 240 s with the player near the dropship, else at 500 s.
    - **PM's command table is renumbered** (0x411980's 110 commands against MW3's 105): new `CMD_EJECT`,
      `CMD_HEADLIGHT_TOGGLE` 0x3c, `CMD_SNAPSHOT`, `CMD_TARGET_*_L` (lancemates), no `CMD_LOOK_REAR`, and most ids
      moved (`CMD_MISSION_COMPLETE` 0x79 against 0x71). The port on `pm` still has MW3's table, so its ids agree

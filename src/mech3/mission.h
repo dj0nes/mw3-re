@@ -39,10 +39,6 @@ class MissionHooks : public zgame::Unported {
   virtual int32_t game_type() { return static_cast<int32_t>(unported("game.vt+0x2c", {})); }
   virtual int32_t game_mission_number() { return static_cast<int32_t>(unported("game.vt+0x4c", {})); }
   virtual uint8_t game_saved() { return static_cast<uint8_t>(unported("game.vt+0x28", {})); }
-  virtual void game_objectives(const char* file, const char* block, Handle a, Handle b, Handle c, Handle d,
-                               Handle e) {
-    unported("game.vt+0x40", {file, block, a, b, c, d, e});
-  }
   virtual uint8_t mp_flag() { return static_cast<uint8_t>(unported("[0x00479480]+0xa8", {})); }
   // App and engine globals.
   virtual uint8_t app_rgb() { return static_cast<uint8_t>(unported("[0x00608e41]", {})); }
