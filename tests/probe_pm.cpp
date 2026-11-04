@@ -32,6 +32,10 @@
 #include "pm/gamez/zmodel/gmod_matl.h"
 #include "pm/gamez/zreader/zrdr_main.h"
 #include "pm/gamez/zutil/zutl_zar.h"
+#include "gamez/zmath/zmth_matrix.h"
+#include "gamez/zmodel/gmod_draw.h"
+#include "gamez/zrender/zrndr_fog.h"
+#include "pm/gamez/zmodel/gmod_draw.h"
 #include "pm/pm_game.h"
 
 namespace {
@@ -562,6 +566,85 @@ int probe_pm_mechlib(const char* world, const char* path, const char* names, uin
   put_tables(b, 1 << 30);
   put_models(b, 1 << 30);
   put_world_nodes(b, 1 << 30, true);
+  if (static_cast<int>(b.size()) > cap) return -1;
+  std::memcpy(out, b.data(), b.size());
+  return static_cast<int>(b.size());
+}
+
+// test_pm_modeldraw.py: a world loaded (nodes and models, as the exe's), a view
+// set, then the draw's pieces on one node.
+int probe_pm_draw_load(const char* world) {
+  static std::vector<uint8_t> scratch(1 << 27);
+  return probe_pm_gamez_stack(world, 5, 6, 5, 2, scratch.data(), static_cast<int>(scratch.size())) < 0 ? -1 : 0;
+}
+void probe_pm_draw_view(const float* cam, const float* proj, float near_z, const float* rect, float yaw, const float* views) {
+  zrndr::device_fog().active = 1;
+  zmth::Mat34 w;
+  std::memcpy(w.m, cam, 48);
+  zmth::set_view(w);
+  zmth::set_projection(proj[0], proj[1], proj[2], proj[3], proj[4], proj[5], proj[6], proj[7]);
+  std::memcpy(zmth::view().view.m, views, 48);  // the exe's, so the view's own sums are not compared here
+  std::memcpy(zmth::view().camera.m, views + 12, 48);
+  pm::zmod::clip3d_state().near_z = near_z;
+  ::zmod::DrawState& s = ::zmod::draw_state();
+  std::memcpy(s.point_rect, rect, 16);
+  static float camera[0x1e8 / 4];
+  camera[0x3c / 4] = yaw;
+  s.camera_data = camera;
+}
+void probe_pm_model_view(const float* below, float* out) {
+  zmth::Mat34 b, t;
+  std::memcpy(b.m, below, 48);
+  zmth::MatrixStack& st = zmth::matrix_stack();
+  const zmth::MatrixStack saved = st;
+  st.top = 0, st.slot[0] = &b, st.identity[0] = 0;
+  zmth::push(&t);
+  zmth::load_model_view();
+  std::memcpy(out, t.m, 48);
+  st = saved;
+}
+void probe_pm_set_model(int node, int off, uint32_t v) {
+  pm::zmod::Model* m = ::zcls::node_at(node)->pm_model;
+  if (m) std::memcpy(m->header + off, &v, 4);
+}
+void probe_pm_set_morphs(int node, const float* deltas, int count) {
+  static std::vector<float> keep;
+  keep.assign(deltas, deltas + count * 3);
+  pm::zmod::Model* m = ::zcls::node_at(node)->pm_model;
+  if (m) m->morphs = keep.data();
+}
+// 0x00542a70 on the node's model. Out: result, default flag, the stack's top and
+// the one below, the centre, the camera-space vertices (points only), the points.
+int probe_pm_prepare(int node, const float* world, uint8_t* out, int cap) {
+  static std::string b;
+  b.clear();
+  auto put = [&](const void* p, size_t n) { b.append(static_cast<const char*>(p), n); };
+  static zmth::Mat34 w, local;
+  std::memcpy(w.m, world, 48);
+  zmth::MatrixStack& st = zmth::matrix_stack();
+  st.top = 0, st.slot[0] = &w, st.identity[0] = 0;
+  zmth::push(&local);
+  static std::string points;
+  points.clear();
+  ::zmod::DrawTable& table = ::zmod::draw_table();
+  const ::zmod::DrawTable keep = table;
+  table.point = [](void*, const float screen[3], uint32_t color, int32_t alpha) {
+    points.append(reinterpret_cast<const char*>(screen), 12);
+    const uint32_t c = color & 0xffff;
+    points.append(reinterpret_cast<const char*>(&c), 4);
+    points.append(reinterpret_cast<const char*>(&alpha), 4);
+  };
+  pm::zmod::Model& m = *::zcls::node_at(node)->pm_model;
+  float centre[3] = {};
+  const int32_t r = pm::zmod::prepare_model(m, centre);
+  const int32_t d = pm::zmod::draw_state().default_model;
+  put(&r, 4), put(&d, 4), put(st.matrix().m, 48), put(st.below().m, 48), put(centre, 12);
+  const int32_t np = static_cast<int32_t>(points.size() / 20);
+  put(&np, 4);
+  b += points;
+  if (m.count(0) == 2 && m.count(0x14) > 0) put(pm::zmod::draw_state().cam.data(), static_cast<size_t>(m.count(0x14)) * 12);
+  zmth::pop();
+  table = keep;
   if (static_cast<int>(b.size()) > cap) return -1;
   std::memcpy(out, b.data(), b.size());
   return static_cast<int>(b.size());
