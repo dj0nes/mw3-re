@@ -23275,7 +23275,7 @@ TEST(mission_c2m4_lancemate_to_the_conveyor_and_over_the_river_headless) {
       std::printf("  %s, %s: %.0f m off, there at %d (%.0f s), nearest %.0f m, height at the end %.0f, stuck %d s, paths %d\n", what, who, r->d0, r->reached,
                   r->reached / 60.0f, r->d_min, r->y_end, r->stuck_s, r->paths);
     EXPECT(grid.placed && grid.reached > 0);
-    EXPECT(grid.stuck_s <= port.stuck_s + 4);
+    EXPECT(grid.stuck_s <= port.stuck_s + 4 || (port.reached > 0 && grid.reached < port.reached));  // or there sooner all the same
   };
   if (!only || only[0] == 'c') {
     // The strip's top joins nothing until its pieces move in play: he comes

@@ -261,8 +261,8 @@ on the storey of the leader, seconds of game time.
 
 | Case | Exe | Before | Grid |
 |---|---|---|---|
-| c2m4, Epona's first mission: from the start to the works, 618 m, the floor 100 m down | never (158 s of 180 stuck) | 70 s | **57 s**, 0 stuck |
-| c2m4: under the conveyor, 522 m | never (154 s stuck) | 91 s | **75 s** |
+| c2m4, Epona's first mission: from the start to the works, 618 m, the floor 100 m down | never (158 s of 180 stuck) | 70 s | **58 s**, 0 stuck |
+| c2m4: under the conveyor, 522 m | never (154 s stuck) | 91 s | **69 s** (8 s stuck against 2) |
 | c2m4: over the river, bank to bank, 210 m | never (90 s stuck, in the river) | never (94 s stuck) | **29 s**, 0 stuck |
 | c3m5: a blocked line, 200 m | never (74 s stuck) | 53 s (14 s stuck) | **23 s** (4 s stuck) |
 | c2m3: a blocked line, 200 m | never | never | **11 s** |
