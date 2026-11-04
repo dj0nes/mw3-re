@@ -27,6 +27,7 @@ import zrd  # noqa: E402
 
 READ, ANIM, WATCH, WATCH2, ZERR, STRDUP_IAT = 0x513030, 0x524b50, 0x5a4d80, 0x5a4dc0, 0x406cb0, '_strdup'
 LISTS, LIST_DIRTY, BEGIN, END, CAP = 0x60db00, 0x60db84, 0x639bf4, 0x639bf8, 0x639bfc
+LAY, GROUND, BOX = 0x513a30, 0x4ff8d0, 0x5043d0
 TEXTURE_NAME = 0xc  # in PM's 0x2c-byte entry
 LOAD_TEMPLATES, TEMPLATE_NAMES, MAP_HEAD, MAP_FIND, MAP_INSERT = 0x5139d0, 0x639c14, 0x639be4, 0x514120, 0x513ed0
 CIFMOD = bytes.fromhex('d9c9 d9f8 dfe0 9e 7afa ddd9 c3')  # _CIfmod: st(1) mod st(0)
@@ -373,6 +374,237 @@ def compare_scenes(probe):
     print(f'{len(SCENES)} crafted scenes identical')
 
 
+def bits(f):
+    return struct.unpack('<I', struct.pack('<f', f))[0]
+
+
+def ground_hits(x, y, z):
+    """The same made-up ground on both sides: 0..3 hits, some above the point, by the point's bits."""
+    h = ((x * 31 + z * 17) & 0xffffffff) >> 3
+    n = h % 4
+    fy = struct.unpack('<f', struct.pack('<I', y))[0]
+    return [fy - 1.5 if h >> (8 + i) & 1 else fy - 4.0 for i in range(n)]
+
+
+class Ulps:
+    """The rotated records' nine words; the aligned ones (no trig) must match exactly."""
+
+    def __init__(self):
+        self.same = self.total = self.exact = 0
+        self.worst = self.last = 0.0
+
+    def note(self, a, b):
+        self.total += 1
+        self.same += a == b
+        self.last = abs(a - b)
+        self.worst = max(self.worst, self.last)
+
+
+ULPS = Ulps()
+
+
+class Laying(World):
+    """The whole load in the exe: 0x513030, 0x5139d0, 0x513a30."""
+
+    def __init__(self, world):
+        super().__init__(str(g.ZBD / world / 'gamez.zbd'))
+        rel = f'zbd/{world}/reader.zbd'
+        self.files[test_pm_zar.key(rel)] = bytearray((PM / rel).read_bytes())
+        cpu = self.cpu
+        cpu.stub_import(test_pm_zar.IAT['_stricmp'], self.stricmp)
+        cpu.stub_import(test_pm_zar.IAT['_splitpath'], lambda c: self.splitpath(c))
+        cpu.stub_import(test_pm_zar.IAT['_strdup'], self.strdup)
+        cpu.stub_import(test_pm_zar.IAT['rand'], self.rand)
+        self.native_stub(zr.OP_DELETE, lambda c: 0)
+        self.native_stub(zr.FIND_PATH, lambda c: 0)
+        self.call(zr.LIST_CTOR)
+        if not self.call(zr.OPEN_ARCHIVE, args=[self.string(rel.replace('/', '\\')), 1]):
+            raise SystemExit(f'{rel}: PM does not open it')
+        self.seed = 1
+        self.rands = 0
+        self.ground = []
+        self.native_stub(ANIM, lambda c: 0)
+        self.native_stub(WATCH, lambda c: 1)
+        self.native_stub(WATCH2, lambda c: 0)
+        self.native_stub(GROUND, self.ground_stub)
+        self.changed = 0
+        self.native_stub(BOX, self.box)
+
+    stricmp = zr.Emulated.stricmp
+    splitpath = zr.Emulated.splitpath
+
+    def rand(self, c):
+        self.seed = (self.seed * 214013 + 2531011) & 0xffffffff
+        self.rands += 1
+        return (self.seed >> 16) & 0x7fff
+
+    def box(self, c):
+        self.changed += 1
+        return 0
+
+    def ground_stub(self, c):
+        hits = ground_hits(c.arg(1), c.arg(2), c.arg(3))
+        out = c.arg(4)
+        self.cpu._uc.mem_write(out, bytes([len(hits)]))
+        for i, h in enumerate(hits):
+            self.cpu._uc.mem_write(out + 0x14 + 0x2c * i, struct.pack('<f', h))
+        return 0
+
+    def lay(self, names):
+        self.w32(BEGIN, 0), self.w32(END, 0), self.w32(CAP, 0)
+        self.w32(LIST_DIRTY, 0)
+        self.call(READ, args=[self.string('templates.zrd')])
+        self.w32(TEMPLATE_NAMES, self.link(names))
+        self.call(LOAD_TEMPLATES)
+        world = self.r32(self.r32(self.camera + 0x38))  # the camera's first node
+        self.call(LAY, args=[world])
+        begin, end = self.r32(BEGIN), self.r32(END)
+        records = [self.r32(p) for p in range(begin, end, 4)]
+        self.aligned = {i + 1 for i, r in enumerate(records) if self.r32(r + 0x3c) & 0xff}
+        out = []
+        data = self.r32(world + 0x38)
+        cols, rows, table = self.i32(data + 0x98), self.i32(data + 0x9c), self.r32(data + 0xa0)
+        for z in range(rows):
+            for x in range(cols):
+                cell = self.r32(table + 4 * z) + 0x58 * x
+                count = self.i32(cell + 0x40)
+                if not count:
+                    continue
+                items = self.r32(cell + 0x44)
+                for i in range(count):
+                    r = items + 0x5c * i
+                    w = [self.r32(r + o) for o in range(0, 0x5c, 4)]
+                    node = self.index(w[0])
+                    which = records.index(w[0x58 // 4]) + 1 if w[0x58 // 4] else 0
+                    out.append((x, z, node) + tuple(w[1:0x34 // 4 + 3]) + (w[0x40 // 4] & 0xff, w[0x48 // 4], w[0x50 // 4], w[0x54 // 4], which))
+        return out, self.rands, self.changed, self.rand(None)
+
+
+# Class, flags, +0x2c, +0x30, data flags, data +4, x, y, z, 0, each polygon's zone_set.
+A, C = 4, 0x80004
+LAY_ROWS = [
+    (5, A, 0, 255, 0, 0, 0, 0, 0, 0, 0, 0),                # moved by nothing
+    (5, A, 0, 255, 0, 0, 20, 3, 4, 0, 0x0701, 0),          # into the next cell, a zone on the polygon
+    (5, 0, 0, 255, 0, 0, 0, 0, 0, 0, 0, 0),                # inactive
+    (5, A, 0x4000000, 255, 0, 0, 0, 0, 0, 0, 0, 0),        # +0x2c's bit
+    (6, A, 0, 255, 0, 1.0, 0, 0, 0, 0, 0x0a01, 0),         # a LoD out of range
+    (6, A, 0, 255, 0, -1.0, 0, 0, 0, 0, 0x0901, 0),        # a LoD in range
+    (5, A, 0, 3, 0, 0, 1, 0, 1, 0, 0, 0),                  # the node's zone
+    (5, A, 0, 255, 0, 0, 1000, 0, 1000, 0, 0xff01, 0x0501),  # past the grid; the second polygon's zone
+    (5, A, 0, 255, 0, 0, -100, 0, -100, 0, 0xff01, 0xff01),  # before the grid; no zone set
+    (5, C, 0, 255, 0, 0, 0, 5, 8, 0, 0, 0),                # the cached matrix
+    (5, C, 0, 255, 0x20, 0, 3, 0, 3, 0, 0, 0),             # to be remade
+    (5, A, 0, 255, 8, 0, 9, 9, 9, 0, 0, 0),                # the parent's matrix
+]
+
+
+def scene_lay(emu):
+    uc, w = emu.cpu._uc, emu.w32
+
+    def f(*v):
+        return struct.pack(f'<{len(v)}f', *v)
+    verts, uvs = emu.alloc(48), emu.alloc(32)
+    uc.mem_write(verts, f(0, 0, 0, 8, 0, 0, 8, 0, 8, 0, 0, 8))
+    uc.mem_write(uvs, f(0, 0, 2, 0, 2, 2, 0, 2))
+    ulist = emu.alloc(8)
+    w(ulist, uvs), w(ulist + 4, uvs)
+    tri = [emu.alloc(12), emu.alloc(12)]
+    uc.mem_write(tri[0], struct.pack('<3I', 0, 1, 2))
+    uc.mem_write(tri[1], struct.pack('<3I', 0, 2, 3))
+    tex, other = emu.alloc(0x2c), emu.alloc(0x2c)
+    mat, oth = emu.alloc(0x2c), emu.alloc(0x2c)
+    w(mat + 0x10, tex), w(oth + 0x10, other)
+    mlists = [emu.alloc(8), emu.alloc(8)]
+    w(mlists[0], mat), w(mlists[0] + 4, oth), w(mlists[1], oth), w(mlists[1] + 4, mat)
+    children = emu.alloc(4 * len(LAY_ROWS))
+    for i, r in enumerate(LAY_ROWS):
+        n, data, model, polys = emu.alloc(0xd4), emu.alloc(0x100), emu.alloc(0x68), emu.alloc(0x50 + 0x28)
+        w(n + 0x34, int(r[0])), w(n + 0x24, r[1]), w(n + 0x2c, r[2]), uc.mem_write(n + 0x30, bytes([r[3]]))
+        if r[0] == 5:
+            w(data, r[4])
+        else:
+            uc.mem_write(data + 4, f(r[5]))
+        m = f(1, 0, 0, 0, 1, 0, 0, 0, 1, r[6], r[7], r[8])
+        uc.mem_write(data + 0x30, m), uc.mem_write(data + 0x60, m)
+        w(n + 0x38, data), w(n + 0x3c, model), w(model + 0x10, 2), w(model + 0x34, polys), w(model + 0x38, verts)
+        for p in range(2):
+            q = polys + 0x28 * p
+            w(q, 3), w(q + 8, tri[p]), w(q + 0x10, 2), w(q + 0x14, mlists[p]), w(q + 0x18, ulist), w(q + 0x24, r[10 + p])
+        w(children + 4 * i, n)
+    world, wd = emu.alloc(0xd4), emu.alloc(0x100)
+    w(world + 0x38, wd), w(world + 0x5c, children)
+    uc.mem_write(world + 0x56, struct.pack('<h', len(LAY_ROWS)))
+    uc.mem_write(wd + 0x84, f(0.0625, 0.0625))
+    w(wd + 0x98, 2), w(wd + 0x9c, 2)
+    rows = emu.alloc(8)
+    cells = [emu.alloc(0x58 * 2), emu.alloc(0x58 * 2)]
+    w(rows, cells[0]), w(rows + 4, cells[1]), w(wd + 0xa0, rows)
+    piece_node = emu.alloc(0xd4)
+    piece = emu.alloc(0x10)
+    uc.mem_write(piece, f(0.5, 0.25))
+    w(piece + 8, piece_node)
+    head, entry, group, found = emu.alloc(12), emu.alloc(12), emu.alloc(12), emu.alloc(0x20)
+    w(head, entry), w(head + 4, entry), w(entry, head), w(entry + 4, head), w(entry + 8, piece)
+    w(group + 4, head), w(found + 0x10, group)
+    emu.values = {tex: found}
+    emu.changed = 0
+    emu.call(LAY, args=[world])
+    out, records = [], 0
+    for z in range(2):
+        for x in range(2):
+            cell = cells[z] + 0x58 * x
+            count = emu.i32(cell + 0x40)
+            out += [emu.r32(cell), count]
+            items = emu.r32(cell + 0x44)
+            for i in range(count):
+                r = items + 0x5c * i
+                records += 1
+                out += [x, z, emu.r32(r + 0x40) & 0xff] + [emu.r32(r + 4 + 4 * k) for k in range(9, 12)]
+    return [records] + out
+
+
+def compare_scene_lay(probe, emu):
+    want = scene_lay(emu)
+    buf = (ctypes.c_uint32 * 8192)()
+    rows = (ctypes.c_double * (12 * len(LAY_ROWS)))(*[float(x) for r in LAY_ROWS for x in r])
+    n = probe.probe_pm_clutter_scene_lay(rows, len(LAY_ROWS), buf, len(buf))
+    got = list(buf[:n])
+    if want != got:
+        i = next((k for k, (a, b) in enumerate(zip(want, got)) if a != b), min(len(want), len(got)))
+        raise SystemExit(f'crafted laying: word {i} of {len(want)} and {len(got)}\n exe {want[:i + 7]}\n port {got[:i + 7]}')
+    print(f'crafted laying identical: {want[0]} records')
+
+
+def compare_laying(probe, world, names):
+    emu = Laying(world)
+    want, rands, changed, next_rand = emu.lay(names)
+    if world == 'c1':
+        compare_scene_lay(probe, emu)
+    buf = (ctypes.c_uint32 * (1 << 25))()
+    rel = f'zbd/{world}/reader.zbd'
+    n = probe.probe_pm_clutter_lay(str(g.ZBD / world / 'gamez.zbd').encode(), str(PM).encode(), rel.encode(), '\n'.join(names).encode(), buf, len(buf))
+    if n < 0:
+        raise SystemExit(f'{world}: the port cannot load it ({n})')
+    w = list(buf[:n])
+    got_next, got_changed, count = w[0], w[1], w[2]
+    size = len(want[0]) if want else 22
+    got = [tuple(w[3 + size * i:3 + size * (i + 1)]) for i in range(count)]
+    if len(want) != len(got):
+        raise SystemExit(f'{world}: {len(want)} records against {len(got)}')
+    for i, (a, b) in enumerate(zip(want, got)):
+        for k, (x, y) in enumerate(zip(a, b)):
+            turned = 3 <= k < 12 and a[-1] not in emu.aligned  # rotate_y, x, z: x87 fsin, fcos against the port's
+            if turned:
+                ULPS.note(*struct.unpack('<2f', struct.pack('<2I', x, y)))
+            elif 3 <= k < 12:
+                ULPS.exact += 1
+            if x != y and not (turned and ULPS.last <= 2e-7):
+                raise SystemExit(f'{world}: record {i} field {k}: exe {x:08x}, port {y:08x}\n exe {a}\n port {b}')
+    if next_rand != got_next or changed != got_changed:
+        raise SystemExit(f'{world}: next rand {next_rand} and {got_next}, cell changes {changed} and {got_changed}')
+    return len(want), rands
+
+
 def compare_world(probe, world, settings, names):
     emu = World(str(g.ZBD / world / 'gamez.zbd'))
     want_e, want = emu.run(settings, names)
@@ -453,6 +685,13 @@ def main():
         textures, pieces, errors = compare_world(probe, world, settings, names)
         print(f'{world}: {textures} textures, {pieces} pieces, {errors} errors, from {names}')
     compare_scenes(probe)
+    probe.probe_pm_clutter_lay.argtypes = [ctypes.c_char_p] * 4 + [ctypes.c_void_p, ctypes.c_int]
+    probe.probe_pm_clutter_scene_lay.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_void_p, ctypes.c_int]
+    for world in ('c1', 'c2', 'c3', 'c4'):
+        records, rands = compare_laying(probe, world, names)
+        print(f'{world}: laid {records} records, {rands} rand calls; all bit for bit but the turn')
+    print(f'rotated records: {ULPS.same} of {ULPS.total} words bit-identical, worst {ULPS.worst:g}; '
+          f'{ULPS.exact} words of aligned records, all exact')
     print(f'u, v: {DIFF.same} of {DIFF.total} bit-identical, worst difference {DIFF.worst:g} {DIFF.at}')
 
 

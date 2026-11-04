@@ -6,7 +6,9 @@
 #include <string>
 #include <vector>
 
-namespace zcls { struct Node; }
+#include "gamez/zmath/zmth_matrix.h"
+
+namespace zcls { struct Node; struct Partition; }
 namespace zimg { struct TextureEntry; }
 
 // C:\zipper\branchep1\gamez\zClass\cls_clutter.cpp, new in Pirate's Moon: scattered props laid on
@@ -46,6 +48,10 @@ struct ClutterHooks {
   // 0x005a4d80 (0, node, 1, 0x00513c60) and 0x005a4dc0 (0, node, 0x00513cf0): a substitute's hit
   // and collision callbacks, not ported yet.
   void (*watch_hits)(::zcls::Node* node) = nullptr;
+  // 0x004ff8d0 on PM's models, not ported yet: the ground's heights at a point, or -1 on failure.
+  int (*ground_heights)(::zcls::Node* world, float x, float y, float z, float* heights, int max) = nullptr;
+  // 0x005043d0, the cell's box, not ported yet.
+  void (*cell_changed)(::zcls::Node* world, ::zcls::Partition* cell) = nullptr;
 };
 ClutterHooks& clutter_hooks();
 
@@ -65,5 +71,23 @@ std::map<::zimg::TextureEntry*, std::vector<ClutterPiece>>& clutter_pieces();
 // 0x005139d0: each script-named template (AddClutterTemplates), its node's tree walked to
 // single-polygon textured models (0x00511ad0), their children projected on to it (0x00511b50).
 void clutter_load_templates(const std::list<std::string>& names);
+
+// One piece laid on the ground, 0x5c bytes in a cell's array (+0x44, count +0x40).
+struct ClutterRecord {
+  ::zcls::Node* node = nullptr;      // +0x00
+  zmth::Mat34 matrix{};              // +0x04  scale and turn, then the ground's point
+  float near_sq = 0, far_sq = 0;     // +0x34  the fade's squared distances
+  float fade_scale = 0;              // +0x3c  1 / (far_sq - near_sq)
+  uint8_t zone = 0;                  // +0x40
+  uint32_t flags = 0;                // +0x48  2 takes weapon hits
+  float weapon_health = 0;           // +0x50
+  float collide_health = 0;          // +0x54
+  ClutterTemplate* settings = nullptr;  // +0x58
+};
+std::vector<ClutterRecord>* cell_clutter(::zcls::Partition& cell);
+
+// 0x00513a30, 0x00512d90: over every polygon in the world's grid and tree, each of its textures'
+// pieces laid over each triangle where the triangle's u, v repeats reach them (0x00512000).
+void clutter_lay(::zcls::Node* world);
 
 }  // namespace pm::zcls

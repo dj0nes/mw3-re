@@ -1,10 +1,13 @@
 #include "pm/gamez/zclass/cls_clutter.h"
 
+#include <cfloat>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
 
+#include "crt/msvc_rand.h"
 #include "gamez/zclass/class.h"
+#include "gamez/zclass/cls_data.h"
 #include "gamez/zclass/cls_node.h"
 #include "gamez/zclass/list.h"
 #include "gamez/zerror/zerr.h"
@@ -169,7 +172,288 @@ void walk_template(::zcls::Node* node) {
   std::snprintf(msg, sizeof msg, "LoadTemplates(): ignoring %s; its model has other than one textured polygon.", node->name());
   zerr::report(0x200, kFile, 0x189, msg);
 }
+
+struct Laying {
+  ::zcls::Node* world_node = nullptr;  // 0x00639c04
+  ::zcls::World* world = nullptr;      // 0x00639c00
+  uint8_t zone = 0xff;                 // 0x00639c08
+} g_lay;
+constexpr float kRand = 3.0518509e-05f;  // [0x005dfcb4], 1 / 32767
+
+float picked(float low, float high) {
+  const float r = static_cast<float>(crt::msvc_rand()) * kRand;
+  return r * (high - low) + low;
+}
+
+// Pirate's Moon 1.0 @ 0x00512000
+void place(const pm::zmod::Model* model, const pm::zmod::Polygon* poly, uint32_t a, uint32_t b, uint32_t c,
+           const ClutterPiece& piece, int material) {
+  ClutterTemplate* t = piece.settings;
+  const float* uvs = poly->uvs[material];
+  const float u0 = uvs[a * 2], v0 = uvs[a * 2 + 1], u1 = uvs[b * 2], v1 = uvs[b * 2 + 1], u2 = uvs[c * 2], v2 = uvs[c * 2 + 1];
+  zmth::MatrixStack& stack = zmth::matrix_stack();
+  float p[3][3];
+  const uint32_t at[3] = {a, b, c};
+  for (int i = 0; i < 3; ++i) {
+    const float* s = &model->vertices[poly->vertex_indices[at[i]] * 3];
+    if (stack.is_identity() == 0) {
+      const float* m = stack.matrix().m;
+      p[i][0] = s[2] * m[6] + s[1] * m[3] + s[0] * m[0] + m[9];
+      p[i][1] = s[2] * m[7] + s[1] * m[4] + s[0] * m[1] + m[10];
+      p[i][2] = s[2] * m[8] + s[1] * m[5] + s[0] * m[2] + m[11];
+    } else {
+      std::memcpy(p[i], s, 12);
+    }
+  }
+  float normal[3];
+  zmth::poly_normal(p[1], p[2], p[0], normal);
+  if (t) {
+    float up = normal[1];
+    if (up > 1.0f) up = 1.0f;
+    else if (up < -1.0f) up = -1.0f;
+    if (up < t->max_slope || t->min_slope < up) return;
+  }
+  float low_u = FLT_MAX, high_u = -FLT_MAX, low_v = FLT_MAX, high_v = -FLT_MAX;
+  for (const float* q : {uvs + a * 2, uvs + b * 2, uvs + c * 2}) {
+    if (q[0] < low_u) low_u = q[0];
+    if (high_u < q[0]) high_u = q[0];
+    if (q[1] < low_v) low_v = q[1];
+    if (high_v < q[1]) high_v = q[1];
+  }
+  const int first_u = static_cast<int>(std::floor(static_cast<double>(low_u)));
+  const int first_v = static_cast<int>(std::floor(static_cast<double>(low_v)));
+  const int last_u = static_cast<int>(std::floor(static_cast<double>(high_u)));
+  const int last_v = static_cast<int>(std::floor(static_cast<double>(high_v)));
+  const float dv21 = v2 - v1, du10 = u1 - u0, dv10 = v1 - v0;
+  const float area = du10 * dv21 - (u2 - u1) * dv10;
+  const float edge_a = area * dv10, edge_b = (u0 - u1) * area;
+  for (int iu = first_u; iu <= last_u; ++iu) {
+    for (int iv = first_v; iv <= last_v; ++iv) {
+      float x = static_cast<float>(iu) + piece.u, y = static_cast<float>(iv) + piece.v;
+      if (t) {
+        x = picked(t->uv_low[0], t->uv_low[1]) + x;
+        y = picked(t->uv_high[0], t->uv_high[1]) + y;
+      }
+      const float du12 = u1 - u2;
+      if (!((x - u0) * edge_a + (y - v0) * edge_b < 0.0f)) continue;
+      if (!((x - u1) * area * dv21 + (y - v1) * area * du12 < 0.0f)) continue;
+      if (!((x - u2) * (v0 - v2) * area + (y - v2) * (u2 - u0) * area < 0.0f)) continue;
+      float det = du10 * dv21 - du12 * (v0 - v1);
+      if (det == 0.0f) continue;
+      det = 1.0f / det;
+      const float k_u = det * dv21, k_ov = det * (v0 - v1), k_du = det * du12, k_v = det * du10;
+      const float gx = k_ov * (p[2][0] - p[1][0]) + k_u * (p[1][0] - p[0][0]);
+      const float e_y = p[2][1] - p[1][1], f_y = p[1][1] - p[0][1];
+      const float gy = k_ov * e_y + f_y * k_u;
+      const float e_z = p[2][2] - p[1][2], f_z = p[1][2] - p[0][2];
+      const float gz = e_z * k_ov + f_z * k_u;
+      const float hx = k_v * (p[2][0] - p[1][0]) + k_du * (p[1][0] - p[0][0]);
+      const float hy = k_v * e_y + k_du * f_y;
+      const float hz = e_z * k_v + f_z * k_du;
+      float point[3];
+      point[0] = gx * x + hx * y + ((p[0][0] - gx * u0) - hx * v0);
+      point[1] = gy * x + hy * y + ((p[0][1] - gy * u0) - hy * v0);
+      point[2] = gz * x + hz * y + ((p[0][2] - gz * u0) - hz * v0);
+      if (g_hooks.ground_heights) {
+        float heights[32];
+        const int hits = g_hooks.ground_heights(g_lay.world_node, point[0], point[1] + 1.0f, point[2], heights, 32);
+        if (hits >= 0) {
+          int above = 0;
+          for (int i = 0; i < hits; ++i) above += point[1] - 1.0f <= heights[i];
+          if (above > 1) continue;
+        }
+      }
+      const ::zcls::World* w = g_lay.world;
+      int cx = static_cast<int>(std::floor(static_cast<double>((point[0] - w->get<float>(0x34)) * w->get<float>(0x74))));
+      int cz = static_cast<int>(std::floor(static_cast<double>((point[2] - w->get<float>(0x38)) * w->get<float>(0x78))));
+      const int cols = w->get<int32_t>(0x88), rows = w->get<int32_t>(0x8c);
+      if (cx < 0) cx = 0;
+      else if (cx >= cols) cx = cols - 1;
+      if (cz < 0) cz = 0;
+      else if (cz >= rows) cz = rows - 1;
+      ClutterRecord rec;
+      rec.node = piece.node;
+      if (t) {
+        float left = static_cast<float>(crt::msvc_rand()) * kRand;
+        for (const auto& s : t->substitutes) {
+          left = left - s.weight;
+          if (left < 0.0f) {
+            rec.node = s.node;
+            break;
+          }
+        }
+      }
+      if (!rec.node) continue;
+      // The zone: the first set one from this polygon on through the model's array.
+      rec.zone = g_lay.zone;
+      const pm::zmod::Polygon* end = model->polygons + model->count(0x10);
+      while (poly < end && (poly->zone_set & 0xff) != 0) {
+        if (((poly->zone_set >> 8) & 0xff) != 0xff) {
+          rec.zone = static_cast<uint8_t>(poly->zone_set >> 8);
+          break;
+        }
+        ++poly;
+      }
+      zmth::push(&rec.matrix);
+      zmth::load_identity();
+      if (t) {
+        if (t->align_normal) {
+          static const float kUp[3] = {0.0f, 1.0f, 0.0f};  // [0x00611200]
+          float q[4];
+          zmth::quat_between(kUp, normal, q);
+          zmth::Mat34 turn{};
+          zmth::quat_matrix(q, turn.m);
+          zmth::load(turn);
+        } else {
+          zmth::rotate_y(picked(t->rotation[2], t->rotation[3]));
+          zmth::rotate_x(picked(t->rotation[0], t->rotation[1]));
+          zmth::rotate_z(picked(t->rotation[4], t->rotation[5]));
+        }
+        const float s = picked(t->scale[0], t->scale[1]);
+        zmth::scale(s, s, s);
+      }
+      zmth::pop();
+      std::memcpy(rec.matrix.m + 9, point, 12);
+      if (!t || t->fade_high[1] == 0.0f) {
+        rec.near_sq = rec.far_sq = FLT_MAX;
+        rec.fade_scale = 0.0f;
+      } else {
+        const float r = static_cast<float>(crt::msvc_rand()) * kRand;
+        float far_at;
+        if (t->fade_low[1] == t->fade_low[0]) {
+          rec.near_sq = t->fade_low[0] * t->fade_low[0];
+          far_at = (t->fade_high[1] - t->fade_high[0]) * r + t->fade_high[0];
+        } else {
+          const float span = t->fade_low[1] - t->fade_low[0];
+          const float near_at = span * r + t->fade_low[0];
+          rec.near_sq = near_at * near_at;
+          const float slope_f = (t->fade_high[1] - t->fade_high[0]) / span;
+          far_at = slope_f * near_at + (t->fade_high[0] - slope_f * t->fade_low[0]);
+        }
+        rec.far_sq = far_at * far_at;
+        rec.fade_scale = rec.far_sq - rec.near_sq;
+        if (rec.fade_scale != 0.0f) rec.fade_scale = 1.0f / rec.fade_scale;
+      }
+      if (t) {
+        rec.weapon_health = t->weapon_hit.health;
+        rec.flags = t->on_weapon_hit ? 2 : 0;
+        rec.collide_health = t->collide.health;
+        rec.settings = t;
+      }
+      // Pirate's Moon 1.0 @ 0x00505e10
+      ::zcls::Partition& cell = g_lay.world->rows[cz][cx];
+      cell_clutter(cell)->push_back(rec);
+      cell.put<int32_t>(0x40, cell.get<int32_t>(0x40) + 1);
+      const uint32_t flags = cell.get<uint32_t>(0);
+      cell.put<uint32_t>(0, flags | 0x40000);
+      if (!(flags & 1) && g_hooks.cell_changed) g_hooks.cell_changed(g_lay.world_node, &cell);
+    }
+  }
+}
+
+// Pirate's Moon 1.0 @ 0x00512a80: a strip's triangles by the same rule as the draw's, a fan's from 0.
+void lay_polygon(const pm::zmod::Model* model, const pm::zmod::Polygon* poly) {
+  for (int m = 0; m < poly->material_count; ++m) {
+    const auto found = g_pieces.find(poly->materials[m]->texture);
+    if (found == g_pieces.end()) return;
+    for (const ClutterPiece& piece : found->second) {
+      const uint32_t n = poly->flags & 0x3ff;
+      if (poly->flags & 0x2000) {
+        if (n == 2) continue;
+        for (uint32_t i = 0; i < (poly->flags & 0x3ff) - 2; ++i) {
+          const uint32_t b = (i + 1) | 1, c = (i + 2) & ~1u;
+          const uint32_t* v = poly->vertex_indices;
+          if (v[i] != v[b] && v[i] != v[c] && v[b] != v[c]) place(model, poly, i, b, c, piece, m);
+        }
+      } else {
+        for (uint32_t i = 2; i < n; ++i) place(model, poly, 0, i - 1, i, piece, m);
+      }
+    }
+  }
+}
+
+// Pirate's Moon 1.0 @ 0x00512bb0: only type 0 models' textured polygons, not 0x800.
+void lay_model(const ::zcls::Node* node) {
+  const pm::zmod::Model* model = node->pm_model;
+  if (!model || model->count(0) != 0) return;
+  for (int i = 0; i < model->count(0x10); ++i) {
+    const pm::zmod::Polygon* poly = &model->polygons[i];
+    if (!(poly->flags & 0x800) && poly->file_uvs != 0) lay_polygon(model, poly);
+  }
+}
+
+void lay_node(::zcls::Node* node);
+
+void lay_children(::zcls::Node* node) {
+  lay_model(node);
+  for (int i = 0; i < node->child_count(); ++i) lay_node(node->children[i]);
+}
+
+// Pirate's Moon 1.0 @ 0x00512c60: the world matrix as the walk's, cached or made.
+void lay_object(::zcls::Node* node) {
+  auto* data = static_cast<::zcls::Object3d*>(node->data);
+  if (!data) return;
+  zmth::Mat34 world;
+  const uint32_t f = data->get<uint32_t>(0);
+  const bool pushed = !(f & 8);
+  if (pushed) {
+    if (!(node->flags() & 0x80000)) {
+      zmth::push_copy(&world);
+      zmth::multiply(*reinterpret_cast<const zmth::Mat34*>(data->raw + 0x30), 1);
+    } else if (!(f & 0x20)) {
+      zmth::push(reinterpret_cast<zmth::Mat34*>(data->raw + 0x60));
+    } else {
+      zmth::push_copy(&world);
+      zmth::multiply(*reinterpret_cast<const zmth::Mat34*>(data->raw + 0x30), 1);
+      if (!(f & 1)) data->put<uint32_t>(0, f & ~0x20u);
+    }
+  }
+  lay_children(node);
+  if (pushed) zmth::pop();
+}
+
+// Pirate's Moon 1.0 @ 0x00512d20: active, not 0x4000000.
+void lay_node(::zcls::Node* node) {
+  if (!node || !(node->flags() & 4) || (node->get<uint32_t>(0x2c) & 0x4000000)) return;
+  bool zone_set = false;
+  if (g_lay.zone == 0xff && node->raw[0x30] != 0xff) {
+    zone_set = true;
+    g_lay.zone = node->raw[0x30];
+  }
+  node->set_flags(node->flags() & ~0x2000000u);
+  if (node->cls() == 5) {
+    lay_object(node);
+  } else if (node->cls() == 6) {  // 0x00512c00: a LoD in range
+    if (static_cast<const ::zcls::Lod*>(node->data)->get<float>(4) <= 0.0f) lay_children(node);
+  }
+  if (zone_set) g_lay.zone = 0xff;
+}
 }  // namespace
+
+std::vector<ClutterRecord>* cell_clutter(::zcls::Partition& cell) {
+  if (!cell.pm_clutter) cell.pm_clutter = new std::vector<ClutterRecord>;
+  return static_cast<std::vector<ClutterRecord>*>(cell.pm_clutter);
+}
+
+void clutter_lay(::zcls::Node* world) {
+  if (::zcls::update_hooks().pending) ::zcls::update_hooks().pending(::zcls::update_hooks().ctx);
+  g_lay.world_node = world;
+  g_lay.world = static_cast<::zcls::World*>(world->data);
+  g_lay.zone = 0xff;
+  zmth::Mat34 base;
+  zmth::push(&base);
+  zmth::load_identity();
+  lay_model(world);
+  const ::zcls::World* w = g_lay.world;
+  for (int x = 0; x < w->get<int32_t>(0x88); ++x) {
+    for (int z = 0; z < w->get<int32_t>(0x8c); ++z) {
+      const ::zcls::Partition& cell = w->rows[z][x];
+      for (int i = 0; i < cell.get<int16_t>(0x3a); ++i) lay_node(cell.nodes[i]);
+    }
+  }
+  for (int i = 0; i < world->child_count(); ++i) lay_node(world->children[i]);
+  zmth::pop();
+}
 
 std::map<::zimg::TextureEntry*, std::vector<ClutterPiece>>& clutter_pieces() { return g_pieces; }
 

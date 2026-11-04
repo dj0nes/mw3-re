@@ -10,6 +10,7 @@
 #include <memory>
 #include <string>
 
+#include "crt/msvc_rand.h"
 #include "gamez/zimage/zimg_library.h"
 #include "gamez/zvideo/zvid_ddd3d.h"
 #include "platform/render3d.h"
@@ -2039,6 +2040,181 @@ int probe_pm_clutter_scene(const float* verts, const float* uvs, int n, const fl
     }
   }
   return w;
+}
+
+}  // extern "C"
+
+extern "C" {
+
+// The whole clutter load on a world, as the exe's (test_pm_clutter.py, class Laying): the settings,
+// the templates, the laying, with the same made-up ground. Out: rand calls, cell changes, the count,
+// then each record as the test reads it.
+int probe_pm_clutter_lay(const char* world, const char* dir, const char* archive, const char* names, uint32_t* out, int cap) {
+  if (probe_pm_walk_load(world) < 0) return -1;
+  mount_only(dir);
+  zrdr::close_archives(true);
+  zrdr::init();
+  if (!zrdr::open_archive(archive, true)) return -2;
+  static int s_changed;
+  s_changed = 0;
+  pm::zcls::ClutterHooks& h = pm::zcls::clutter_hooks();
+  h = {};
+  h.cell_changed = [](::zcls::Node*, ::zcls::Partition*) { ++s_changed; };
+  h.ground_heights = [](::zcls::Node*, float x, float y, float z, float* heights, int) -> int {
+    uint32_t bx, by, bz;
+    std::memcpy(&bx, &x, 4), std::memcpy(&by, &y, 4), std::memcpy(&bz, &z, 4);
+    const uint32_t v = (bx * 31u + bz * 17u) >> 3;
+    const int n = static_cast<int>(v % 4);
+    for (int i = 0; i < n; ++i) heights[i] = (v >> (8 + i) & 1) ? y - 1.5f : y - 4.0f;
+    return n;
+  };
+  crt::msvc_srand(1);
+  pm::zcls::clutter_templates().clear();
+  pm::zcls::clutter_pieces().clear();
+  pm::zcls::clutter_read_settings("templates.zrd");
+  std::list<std::string> list;
+  std::string all(names);
+  for (size_t at = 0; at < all.size();) {
+    size_t end = all.find('\n', at);
+    if (end == std::string::npos) end = all.size();
+    list.push_back(all.substr(at, end - at));
+    at = end + 1;
+  }
+  ::zerr::set_sink([](int, const char*, int, const char*) {});
+  pm::zcls::clutter_load_templates(list);
+  ::zcls::Node* wn = ::zcls::camera_world(walk_camera());
+  pm::zcls::clutter_lay(wn);
+  ::zerr::set_sink(nullptr);
+  auto* w = static_cast<::zcls::World*>(wn->data);
+  int n = 3, count = 0;
+  const auto word = [&](uint32_t v) { if (n < cap) out[n] = v; ++n; };
+  const auto fl = [&](float f) { uint32_t v; std::memcpy(&v, &f, 4); word(v); };
+  for (int z = 0; z < w->get<int32_t>(0x8c); ++z) {
+    for (int x = 0; x < w->get<int32_t>(0x88); ++x) {
+      ::zcls::Partition& cell = w->rows[z][x];
+      if (!cell.pm_clutter) continue;
+      for (const pm::zcls::ClutterRecord& r : *pm::zcls::cell_clutter(cell)) {
+        ++count;
+        word(static_cast<uint32_t>(x)), word(static_cast<uint32_t>(z));
+        word(static_cast<uint32_t>(walk_node_index(r.node)));
+        for (float f : r.matrix.m) fl(f);
+        fl(r.near_sq), fl(r.far_sq), fl(r.fade_scale);
+        word(r.zone), word(r.flags);
+        fl(r.weapon_health), fl(r.collide_health);
+        uint32_t which = 0;
+        for (size_t i = 0; i < pm::zcls::clutter_templates().size(); ++i)
+          if (pm::zcls::clutter_templates()[i].get() == r.settings) which = static_cast<uint32_t>(i + 1);
+        word(which);
+      }
+    }
+  }
+  out[0] = static_cast<uint32_t>(crt::msvc_rand()), out[1] = static_cast<uint32_t>(s_changed), out[2] = static_cast<uint32_t>(count);
+  return n;
+}
+
+}  // extern "C"
+
+extern "C" {
+
+// test_pm_clutter.py's crafted world (Laying.scene): a 2 x 2 grid of cells 16 wide, one child for each
+// row of `rows` (12 doubles: class, flags, +0x2c, +0x30, data flags, data +4, x, y, z, 0: from the
+// local matrix 1: from the cached one, the two polygons' zone_set). Out: each record's cell, zone
+// and point, cells in order; the count.
+int probe_pm_clutter_scene_lay(const double* rows, int count, uint32_t* out, int cap) {
+  ::zcls::reset_lists();
+  zmth::reset_stack();
+  zmth::Mat34 base;
+  zmth::push(&base);
+  zmth::load_identity();
+  static ::zcls::Node world, piece_node;
+  static ::zcls::World wd;
+  static std::array<::zcls::Partition, 2> row0, row1;
+  static ::zcls::Partition* row_list[2];
+  static std::vector<::zcls::Node> nodes;
+  static std::vector<::zcls::Node*> kids;
+  static std::vector<std::array<uint8_t, 0x100>> data;
+  static std::vector<pm::zmod::Model> models;
+  static std::vector<std::array<pm::zmod::Polygon, 2>> polys;
+  static float verts[12] = {0, 0, 0, 8, 0, 0, 8, 0, 8, 0, 0, 8};
+  static float uvs[8] = {0, 0, 2, 0, 2, 2, 0, 2};
+  static float* uv_list[2] = {uvs, uvs};
+  static uint32_t indices[3][3] = {{0, 1, 2}, {0, 2, 3}, {0, 1, 2}};
+  static ::zmod::Material tex_mat, other_mat;
+  static ::zmod::Material* first[2] = {&tex_mat, &other_mat};
+  static ::zmod::Material* second[2] = {&other_mat, &tex_mat};
+  static ::zimg::TextureEntry tex_entry, other_entry;
+  tex_mat.texture = &tex_entry, other_mat.texture = &other_entry;
+  world = ::zcls::Node{}, wd = ::zcls::World{}, piece_node = ::zcls::Node{};
+  row0 = {}, row1 = {};
+  row_list[0] = row0.data(), row_list[1] = row1.data();
+  wd.rows = row_list;
+  wd.put<float>(0x34, 0.0f), wd.put<float>(0x38, 0.0f), wd.put<float>(0x74, 0.0625f), wd.put<float>(0x78, 0.0625f);
+  wd.put<int32_t>(0x88, 2), wd.put<int32_t>(0x8c, 2);
+  world.data = &wd;
+  nodes.assign(static_cast<size_t>(count), ::zcls::Node{});
+  kids.clear();
+  data.assign(static_cast<size_t>(count), {});
+  models.assign(static_cast<size_t>(count), pm::zmod::Model{});
+  polys.assign(static_cast<size_t>(count), {});
+  const int two = 2;
+  for (int i = 0; i < count; ++i) {
+    const double* r = rows + i * 12;
+    const auto u = static_cast<size_t>(i);
+    ::zcls::Node& n = nodes[u];
+    n.put<int32_t>(0x34, static_cast<int32_t>(r[0]));
+    n.set_flags(static_cast<uint32_t>(r[1]));
+    n.put<uint32_t>(0x2c, static_cast<uint32_t>(r[2]));
+    n.raw[0x30] = static_cast<uint8_t>(r[3]);
+    auto* d = data[u].data();
+    const uint32_t f = static_cast<uint32_t>(r[4]);
+    if (r[0] == 5) std::memcpy(d, &f, 4);
+    const float f4 = static_cast<float>(r[5]);
+    if (r[0] == 6) std::memcpy(d + 4, &f4, 4);
+    const float m[12] = {1, 0, 0, 0, 1, 0, 0, 0, 1, static_cast<float>(r[6]), static_cast<float>(r[7]), static_cast<float>(r[8])};
+    std::memcpy(d + 0x30, m, 48), std::memcpy(d + 0x60, m, 48);
+    n.data = d;
+    pm::zmod::Model& model = models[u];
+    std::memcpy(model.header + 0x10, &two, 4);
+    model.polygons = polys[u].data(), model.vertices = verts;
+    for (int p = 0; p < 2; ++p) {
+      pm::zmod::Polygon& poly = polys[u][static_cast<size_t>(p)];
+      poly.flags = 3, poly.vertex_indices = indices[p], poly.material_count = 2;
+      poly.materials = p ? second : first, poly.uvs = uv_list, poly.file_uvs = 1;
+      poly.zone_set = static_cast<uint32_t>(r[10 + p]);
+    }
+    n.pm_model = &model;
+    kids.push_back(&n);
+  }
+  world.put<int32_t>(0x5c, count), world.children = kids.data();
+  pm::zcls::clutter_hooks() = {};
+  pm::zcls::clutter_templates().clear();
+  pm::zcls::clutter_pieces().clear();
+  pm::zcls::clutter_pieces()[&tex_entry].push_back({0.5f, 0.25f, &piece_node, nullptr});
+  pm::zcls::clutter_lay(&world);
+  int n = 1, records = 0;
+  const auto word = [&](uint32_t v) { if (n < cap) out[n] = v; ++n; };
+  for (int z = 0; z < 2; ++z) {
+    for (int x = 0; x < 2; ++x) {
+      ::zcls::Partition& cell = row_list[z][x];
+      word(cell.get<uint32_t>(0));
+      word(static_cast<uint32_t>(cell.get<int32_t>(0x40)));
+      if (!cell.pm_clutter) continue;
+      for (const pm::zcls::ClutterRecord& r : *pm::zcls::cell_clutter(cell)) {
+        ++records;
+        word(static_cast<uint32_t>(x)), word(static_cast<uint32_t>(z)), word(r.zone);
+        for (int k = 9; k < 12; ++k) {
+          uint32_t v;
+          std::memcpy(&v, &r.matrix.m[k], 4);
+          word(v);
+        }
+      }
+      delete pm::zcls::cell_clutter(cell);
+      cell.pm_clutter = nullptr;
+    }
+  }
+  out[0] = static_cast<uint32_t>(records);
+  zmth::pop();
+  return n;
 }
 
 }  // extern "C"

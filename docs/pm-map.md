@@ -1085,7 +1085,15 @@ functions PM changed, and PM's new ones.
        substitute's hit callbacks (0x5a4d80, 0x5a4dc0; 0x513c60, 0x513cf0) are hooks so far. The templates'
        nodes too (0x5139d0, 0x511ad0, 0x511b50): each world's script-named templates give 2 or 3 textures and
        20 to 23 pieces, and crafted scenes reach what shipped data does not (pieces off their plane, u and v
-       outside 0..1, models that are not one textured polygon, a child that does not project). Next: the laying. The rest is not ported
+       outside 0..1, models that are not one textured polygon, a child that does not project). The laying too
+       (0x513a30, 0x512d90, 0x512d20, 0x512c60, 0x512c00, 0x512bb0, 0x512a80, 0x512000, 0x505e10): on the four
+       worlds with their templates 13,090, 1,750, 6,485 and 4,263 records in the cells, the rand sequence in step,
+       every field bit for bit but the rotated turns (x87 `fsin`/`fcos`: 7,775 of 7,893 words identical, worst
+       1.2e-7; 222,399 words of aligned records, no trig, all exact). The ground test (0x4ff8d0, on a made-up
+       ground in the test) and the cell's box (0x5043d0) are hooks until the world class and PM's ground queries
+       land. Records live in `Partition::pm_clutter`; nothing frees them yet (0x513a40) and nothing draws them.
+       A crafted world reaches what shipped data does not: zones, moved objects, LoDs, inactive nodes, cells
+       past the grid, a second material. Next: the free, the crater 0x513d90, the hits, then what draws them. The rest is not ported
        (0x5106b0..0x514b90, 65 functions, ~3,500 lines of pseudocode). Scattered props laid on the ground by its material. **It waits for the interpreter
        and the mission load**: its template names come from the script command `AddClutterTemplates`
        (0x512fd0, from 0x5b2e15, a list at [0x639c14]). The load (0x492f8c.., unless `-noclutter`,

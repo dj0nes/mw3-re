@@ -29,6 +29,7 @@ struct Partition : Raw<0x48> {
   Node** nodes = nullptr;          // +0x3c  count i16 at +0x3a
   uint8_t pm_tail[0x10] = {};      // PM only, +0x48..+0x57
   float (*pm_y)[2] = nullptr;      // PM only: each entry's y range (its 12-byte entries, +4 and +8)
+  void* pm_clutter = nullptr;      // PM only: the cell's clutter records (pm/gamez/zclass/cls_clutter), count +0x40
   uint8_t* fades = nullptr;        // +0x44  0x44-byte entries, count +0x40 (run time only)
 };
 
