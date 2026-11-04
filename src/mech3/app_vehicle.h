@@ -18,6 +18,7 @@ void* program_vehicle_create(void* ctl, const char* type, const char* name);  //
 // The stealth object (veh_stealth.h): its controls (0x004ac860(0xa1c) and
 // 0x004a51b0), the object over them (0x004a4de0), the one made ([0x00609a2c]).
 void* program_stealth_controls();
+void program_vehicles_new_process();         // tests: as a new process, no stealth or vehicles
 void* program_stealth_create(void* ctl);
 void* program_stealth();
 void program_stealth_frame(float dt);  // its vt+0x34 (0x004a1040) from the player's tick

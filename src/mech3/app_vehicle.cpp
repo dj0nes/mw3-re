@@ -852,6 +852,10 @@ bool program_vehicle_free(void* v) {
   if (g_w.forget_object) g_w.forget_object(g_w.engine, v);
   return true;
 }
+void program_vehicles_new_process() {  // tests: stop_game freed the stealth's node with the rest
+  g_stealth = nullptr;
+  g_vehicles.clear(), g_order.clear();
+}
 void program_vehicles_forget() {
   g_vehicles.clear(), g_order.clear();
   if (g_stealth) {  // made by the world's load, before the mission's vehicles: it stays the world's

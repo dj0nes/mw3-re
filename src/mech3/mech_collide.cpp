@@ -9,6 +9,7 @@
 #include "crt/msvc_math.h"
 #include "gamez/zclass/cls_node.h"
 #include "gamez/zmath/zmth_vector.h"
+#include "gamez/zmodel/gmod_cull.h"
 #include "gamez/zutil/zfix.h"
 #include "mech3/mech.h"
 #include "mech3/mech_move.h"
@@ -140,8 +141,12 @@ int32_t Mech::collide_query(const float* list, int32_t points) {
     }
   };
   intersect(0);
+  // FIX (bug), W58: an AI mech out of the camera's zones has their walls too (Skis::update).
+  const int32_t zone_mode = zmod::zones().mode;
+  if (zfix::options().bugs && this != world().mission_player) zmod::zones().mode = 0;
   if (g_calls.segments) g_calls.segments(segs, points, recs);
   else if (zcls::Node* w = world_hooks().world) zcls::segment_query(w, segs, points, recs);
+  zmod::zones().mode = zone_mode;
   intersect(1);
   for (int32_t i = 0; i < points; i += 2) {
     int32_t probe;

@@ -1,6 +1,7 @@
 #pragma once
 #include <cstdint>
 
+#include "mech3/zai_attack.h"
 #include "mech3/zai_brain.h"
 #include "mech3/zai_steps.h"
 
@@ -34,6 +35,8 @@ bool repair_possible(Order* o);
 class RepairState : public BehaviourState {
  public:
   RepairState(Order* o, const RepairBehaviour& b, const float* dock);  // 0x004d0a10
+  NavWay nav;          // ours (W58): by the grid to the approach point
+  float nav_turn = 0;
   ~RepairState() override;                                            // 0x004d0ba0
   bool may_break_in() const override { return false; }  // 0x004d72a0
   bool may_fire() const override { return false; }      // 0x004d7290

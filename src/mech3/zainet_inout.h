@@ -140,6 +140,7 @@ bool inout_pull(const float pos[3], const float in[3], float out[3]);
 // 0x004d4a20): messages 0x39..0x3c test, of the current area's polygons named
 // as the animation's node, only the yellow, red, cyan or blue ones.
 void inout_set_state(const char* name, int32_t message);
+int32_t inout_changes();  // ours (W58): counts the messages that switch shapes, and new areas
 
 // 0x004c3e50 with 0x004c3600 -> 0x004c3380: a node's subtree walked through
 // the matrix stack (0x004c3ed0), each model's polygons into the area.

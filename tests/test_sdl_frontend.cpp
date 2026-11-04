@@ -280,7 +280,7 @@ TEST(sdl_input_picks_the_stick_over_an_odd_device) {
 
 TEST(sdl_input_stick_taken_out_reads_centred) {
   EXPECT(SDL_InitSubSystem(SDL_INIT_JOYSTICK | SDL_INIT_GAMEPAD));
-  SDL_JoystickID id = attach_stick("mw3 test unplugged stick", 6, 12, 1);
+  SDL_JoystickID id = attach_stick("mw3 test unplugged stick", 8, 12, 1);
   SDL_Joystick* v = SDL_OpenJoystick(id);
   sdlfe::SdlInput in;
   in.hid_usages = [](SDL_Joystick*) { return std::vector<uint16_t>{}; };
@@ -290,19 +290,21 @@ TEST(sdl_input_stick_taken_out_reads_centred) {
   pump(in);
   SDL_SetJoystickVirtualAxis(v, 0, 32767);   // turning hard
   SDL_SetJoystickVirtualAxis(v, 2, -16384);  // the throttle
+  SDL_SetJoystickVirtualAxis(v, 6, 16384);   // a throttle bound to the slider
   SDL_SetJoystickVirtualButton(v, 0, true);  // firing
   SDL_UpdateJoysticks();
   platform::JoyState st;
   EXPECT(in.joystick_state(&st) == 0 && st.x == 1000 && st.buttons[0] == 0x80);
-  const int32_t z = st.z;
+  const int32_t z = st.z, slider = st.slider[0];
   SDL_CloseJoystick(v);
   SDL_DetachVirtualJoystick(id);  // taken out mid-mission
   pump(in);
   EXPECT(in.unplugged() && !in.joystick());
   EXPECT(in.joystick_state(&st) == 0);
   std::printf("  taken out: x %d z %d (was %d) button %x\n", st.x, st.z, z, st.buttons[0]);
+  EXPECT(st.slider[0] == slider);  // a slider-bound throttle or the lever: no new reading, so no new speed
   EXPECT(st.x == 0 && st.z == z && st.buttons[0] == 0);  // no held turn or fire; the throttle where it was
-  id = attach_stick("mw3 test unplugged stick", 6, 12, 1);  // back
+  id = attach_stick("mw3 test unplugged stick", 8, 12, 1);  // back
   pump(in);
   EXPECT(!in.unplugged() && in.joystick());
   v = SDL_OpenJoystick(id);

@@ -2858,3 +2858,17 @@ Assigned after 8b2 merged (fd3f05f). The lead asked for a section stepped at bot
   So the vehicles keep the table at any frame rate (v1.0's and the
   original's); exp_neg_dt is the turrets' and arms' (aim, recoil); the
   puffers keep v1.0's exact drag.
+
+## W58: lancemates that find their way (2026-11-04, mac4/w58, for 1.0.2)
+
+- docs/lancemate-pathing.md, As built and Results, has it all. What I'd want
+  to know picking it up: the biggest fix is no part of the grid (an AI mech's
+  feet and collision read the camera's zones: `Skis::update`,
+  `Mech::collide_query`). The grid is `zai_nav`: floors, walk first, a path
+  only when the exe's walk fails.
+- Traps that cost time: `MW3_TEST` runs that share a log file; the watch's
+  node pointers across a replay (a crash only the chains found, run them under
+  exit_on_fault); tile budgets by wall clock (runs differ); a progress watch
+  that bouncing on the spot resets.
+- Open: the top of c2m4's conveyor needs a playtest, its pieces move in play
+  by triggers the tests do not fire. Two slower cases, in the Results table.

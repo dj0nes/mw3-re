@@ -59,7 +59,8 @@ every box here is ticked:
 - [ ] `main` is the commit to release, with nothing uncommitted.
 - [ ] The tests pass on that commit: `mw3tests` and `mw3sdltests` on the Mac
       and Windows, the differential tests on the Mac
-      (`tests/differential/run_all.sh`), and on Linux `mw3tests` and
+      (`tests/differential/run_all.sh`; under `run_capped.py` give it `--secs 2400`:
+      `test_anim_save` took 1729 s on a busy machine), and on Linux `mw3tests` and
       `mw3sdltests` one test at a time under `run_capped.py` (WSL: docs/linux.md,
       Checking).
 - [ ] `CHANGES.md` has a line for every change since the last release.

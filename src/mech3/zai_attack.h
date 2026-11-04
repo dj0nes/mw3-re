@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <deque>
 
+#include "mech3/zai_nav.h"
 #include "mech3/zai_brain.h"
 #include "mech3/zai_node.h"
 #include "mech3/zai_steps.h"
@@ -148,6 +149,25 @@ struct WallDetour {
   bool goal(const float pos[3], const float fwd[2], const float to[3], float reach, float dt, float out[3]);
 };
 
+// Ours (W58, behind bugs and the side's switch; docs/lancemate-pathing.md):
+// a pilot's grid path toward its point, and when it fights, a firing spot
+// with a line of sight to the enemy within its range.
+struct NavWay {
+  nav::Follower follow;
+  float spot[3] = {};
+  float spot_t = -1e9f;      // when picked
+  float spot_for[3] = {};    // the enemy's place then
+  bool has_spot = false;
+  int32_t spots = 0;         // spots picked (for the tests)
+  // The point to walk to this frame (a waypoint), or false as before. With
+  // `enemy`, toward a firing spot on it within `range` when the line of
+  // sight from here is blocked.
+  bool step(zgame::Handle v, const float pos[3], const float to[3], bool enemy, float range, float dt, float out[3], bool must_find = false);
+};
+// Whether this pilot walks by the grid (zfix bugs, its side's switch).
+bool nav_for(zgame::Handle v);
+void nav_drive(Brain& b, zgame::Handle v, const float pos[3], const float goal[3], float* turn);
+
 // The fight (0x004d1ca0 -> 0x004d1cc0, vtable 0x005ccb60, over the waiting
 // state 0x004c8a30): what the target vehicle net's attack behaviour (slot 1)
 // makes in the order the brain pushes on that net. Run (0x004d1d10): the
@@ -167,6 +187,7 @@ class FightState : public BehaviourState {
   uint8_t x10 = 0;           // +0x10
   Behaviour* made_by;        // +0x18
   WallDetour detour;         // ours (W27): round a wall to the enemy
+  NavWay nav;                // ours (W58): by the grid, to a firing spot
 };
 
 // The follow (0x004c89f0 -> 0x004d1870, vtable 0x005cca88, over the waiting
@@ -191,6 +212,7 @@ class FollowState : public BehaviourState {
   Behaviour* made_by;        // +0x18
 
   WallDetour detour;           // ours (W17): round a wall
+  NavWay nav;                  // ours (W58): by the grid
 
   // Ours (W27, FIX (bug) behind bugs; ai.md section 17.6): the leader's way
   // as breadcrumbs, a point each 8 m he walks (the last 60). Past his
