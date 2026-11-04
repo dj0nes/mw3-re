@@ -100,6 +100,7 @@ struct ZclsWorld : World {
   }
 };
 
+constexpr float kProgress = 6.0f;  // m in 3 s: under this he is not getting on
 constexpr float kWallLow = 2.5f, kWallHigh = 6.5f;  // the wall probes over the higher ground (a mech's legs and body)
 constexpr int kWindows[] = {64, 128, 256};  // the search's margins round from and to, in cells (256 m .. 1 km)
 constexpr int kMaxExpand = 250000;
@@ -709,10 +710,11 @@ bool Follower::step(const float pos[3], const float to[3], float now, float dt, 
   // The straight way first: on open ground the exe's walk, untouched.
   // Watched while it walks (a corner, a slope), the grid's from then on.
   const bool should_walk = !(reach > 1.0f && flat <= reach * 1.25f);  // not while he waits in his band
-  if (!should_walk || std::hypot(pos[0] - line_pos[0], pos[2] - line_pos[1]) > 2.0f || now - line_t > 6.0f) {
+  if (!should_walk || now - line_t > 6.0f) {
     line_t = now, line_pos[0] = pos[0], line_pos[1] = pos[2];
-  } else if (now - line_t > 3.0f && path.empty()) {
-    grid_until = now + 10.0f, line_t = now;
+  } else if (now - line_t >= 3.0f) {  // net progress: bouncing on the spot is none
+    if (path.empty() && std::hypot(pos[0] - line_pos[0], pos[2] - line_pos[1]) < kProgress) grid_until = now + 10.0f;
+    line_t = now, line_pos[0] = pos[0], line_pos[1] = pos[2];
   }
   const bool grids_turn = must_find || now < grid_until;
   float near_it[3] = {to[0], to[1], to[2]};
@@ -771,14 +773,15 @@ bool Follower::step(const float pos[3], const float to[3], float now, float dt, 
     ++at, ++waypoints;
   }
   const float d = std::hypot(path[at][0] - pos[0], path[at][2] - pos[2]);
-  // Unstuck: not 2 m from where it stood 3 s ago: the cells ahead held for
-  // 10 s, a new path; the third time in 20 s, a step back; then the fallback.
-  if (std::hypot(pos[0] - watch_pos[0], pos[2] - watch_pos[1]) > 2.0f) {
+  // Unstuck: not kProgress from where he stood 3 s ago (net: bouncing on the
+  // spot is no progress): the cells ahead held for 10 s, a new path; the third
+  // time in 20 s, a step back; then the fallback.
+  if (now - watch_t >= 3.0f) {
+    const bool moved_on = std::hypot(pos[0] - watch_pos[0], pos[2] - watch_pos[1]) >= kProgress;
     watch_t = now, watch_pos[0] = pos[0], watch_pos[1] = pos[2];
-  } else if (now - watch_t > 3.0f) {
+    if (moved_on) goto walk_on;
     if (now - stuck_t > 20.0f) stuck = 0;
     ++stuck, stuck_t = now;
-    watch_t = now;
     if (stuck >= 4) {
       path.clear(), stuck = 0;
       fallback_until = now + 10.0f;
@@ -789,6 +792,7 @@ bool Follower::step(const float pos[3], const float to[3], float now, float dt, 
     if (stuck == 3) back_until = now + 2.0f;
     found_t = -1e9f, last_ask = -1e9f;  // ask again
   }
+walk_on:
   if (now < back_until && at > 0) {
     out[0] = path[at - 1][0], out[2] = path[at - 1][2];
   } else {

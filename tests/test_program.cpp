@@ -14362,6 +14362,7 @@ TEST(mission_c1m4_dominic_stops_at_a_no_go_patch_headless) {
 // thresholds he aims at it and holds his fire (below).
 TEST(mission_c1m4_dominic_aims_at_a_near_enemy_unordered_headless) {
   if (!have_game()) return;
+  const NavAllies nav_off(false);  // the exe's aim and walk it pins
   SavedMounts keep;
   zutl::mounts() = zutl::Mounts{};
   zutl::mount(MW3_GAME_DIR);
