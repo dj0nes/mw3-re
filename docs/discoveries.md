@@ -2719,8 +2719,8 @@ file (docs/assets.md, Data versions):
 - **On a fast machine they fly.** The suspension takes how far the ground rose
   since the last frame and turns it into speed, so the shorter the frame, the
   harder a small bump throws the vehicle. Above about 120 fps a small bump can roll
-  an APC on its side. The game was built for slow frames; the rebuild now reacts as
-  it does at 30 fps. (From the
+  an APC on its side. The game was built for slow frames; the rebuild caps that
+  reaction at its 30 fps size, which calms most of it. (From the
   code, 0x004a2820, checked against the exe in an emulator.)
 
 ## The cameras
