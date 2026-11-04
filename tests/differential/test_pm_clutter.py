@@ -27,7 +27,7 @@ import zrd  # noqa: E402
 
 READ, ANIM, WATCH, WATCH2, ZERR, STRDUP_IAT = 0x513030, 0x524b50, 0x5a4d80, 0x5a4dc0, 0x406cb0, '_strdup'
 LISTS, LIST_DIRTY, BEGIN, END, CAP = 0x60db00, 0x60db84, 0x639bf4, 0x639bf8, 0x639bfc
-LAY, GROUND, BOX = 0x513a30, 0x4ff8d0, 0x5043d0
+LAY, GROUND, BOX, CRATER, SKIP_GROUND = 0x513a30, 0x4ff8d0, 0x5043d0, 0x513d90, 0x639c1c
 TEXTURE_NAME = 0xc  # in PM's 0x2c-byte entry
 LOAD_TEMPLATES, TEMPLATE_NAMES, MAP_HEAD, MAP_FIND, MAP_INSERT = 0x5139d0, 0x639c14, 0x639be4, 0x514120, 0x513ed0
 CIFMOD = bytes.fromhex('d9c9 d9f8 dfe0 9e 7afa ddd9 c3')  # _CIfmod: st(1) mod st(0)
@@ -450,7 +450,23 @@ class Laying(World):
             self.cpu._uc.mem_write(out + 0x14 + 0x2c * i, struct.pack('<f', h))
         return 0
 
-    def lay(self, names):
+    def crater(self, world, x, y, z, radius):
+        p = self.alloc(12)
+        self.cpu._uc.mem_write(p, struct.pack('<3f', x, y, z))
+        self.call(CRATER, args=[world, p, bits(radius)])
+        data = self.r32(world + 0x38)
+        cols, rows, table = self.i32(data + 0x98), self.i32(data + 0x9c), self.r32(data + 0xa0)
+        out = []
+        for zi in range(rows):
+            for xi in range(cols):
+                cell = self.r32(table + 4 * zi) + 0x58 * xi
+                items = self.r32(cell + 0x44)
+                out += [self.r32(items + 0x5c * i + 0x48) for i in range(self.i32(cell + 0x40))]
+        return out
+
+    def lay(self, names, skip_ground=0):
+        uc = self.cpu._uc
+        uc.mem_write(SKIP_GROUND, bytes([skip_ground]))
         self.w32(BEGIN, 0), self.w32(END, 0), self.w32(CAP, 0)
         self.w32(LIST_DIRTY, 0)
         self.call(READ, args=[self.string('templates.zrd')])
@@ -458,6 +474,7 @@ class Laying(World):
         self.call(LOAD_TEMPLATES)
         world = self.r32(self.r32(self.camera + 0x38))  # the camera's first node
         self.call(LAY, args=[world])
+        self.world_node = world
         begin, end = self.r32(BEGIN), self.r32(END)
         records = [self.r32(p) for p in range(begin, end, 4)]
         self.aligned = {i + 1 for i, r in enumerate(records) if self.r32(r + 0x3c) & 0xff}
@@ -575,14 +592,14 @@ def compare_scene_lay(probe, emu):
     print(f'crafted laying identical: {want[0]} records')
 
 
-def compare_laying(probe, world, names):
+def compare_laying(probe, world, names, skip_ground=0):
     emu = Laying(world)
-    want, rands, changed, next_rand = emu.lay(names)
+    want, rands, changed, next_rand = emu.lay(names, skip_ground)
     if world == 'c1':
         compare_scene_lay(probe, emu)
     buf = (ctypes.c_uint32 * (1 << 25))()
     rel = f'zbd/{world}/reader.zbd'
-    n = probe.probe_pm_clutter_lay(str(g.ZBD / world / 'gamez.zbd').encode(), str(PM).encode(), rel.encode(), '\n'.join(names).encode(), buf, len(buf))
+    n = probe.probe_pm_clutter_lay(str(g.ZBD / world / 'gamez.zbd').encode(), str(PM).encode(), rel.encode(), '\n'.join(names).encode(), skip_ground, buf, len(buf))
     if n < 0:
         raise SystemExit(f'{world}: the port cannot load it ({n})')
     w = list(buf[:n])
@@ -602,7 +619,25 @@ def compare_laying(probe, world, names):
                 raise SystemExit(f'{world}: record {i} field {k}: exe {x:08x}, port {y:08x}\n exe {a}\n port {b}')
     if next_rand != got_next or changed != got_changed:
         raise SystemExit(f'{world}: next rand {next_rand} and {got_next}, cell changes {changed} and {got_changed}')
+    # Craters: a few records' own places, in the grid, small and large.
+    if want and not skip_ground:
+        cols = emu.i32(emu.r32(emu.world_node + 0x38) + 0x98)
+        for i, radius in ((0, 5.0), (len(want) // 2, 40.0), (len(want) - 1, 100.0), (len(want) // 3, 0.5),
+                          (-1, 60.0), (-2, 60.0), (-3, 9000.0)):
+            # Past the world's corners too: the cell lookup keeps a point inside the area.
+            x, _, z = struct.unpack('<3f', struct.pack('<3I', *want[i][12:15])) if i >= 0 else \
+                {-1: (-5000.0, 0.0, 5000.0), -2: (9000.0, 0.0, -9000.0), -3: (0.0, 0.0, 0.0)}[i]
+            flags = emu.crater(emu.world_node, x, 0.0, z, radius)
+            out = (ctypes.c_uint32 * (len(want) + 16))()
+            m = probe.probe_pm_clutter_crater(x, 0.0, z, radius, out, len(out))
+            if m != len(flags) or list(out[:m]) != flags:
+                bad = next((k for k in range(min(m, len(flags))) if out[k] != flags[k]), -1)
+                raise SystemExit(f'{world}: crater at {x} {z} radius {radius}: record {bad} of {m}')
+            CRATERS.append(sum(1 for f in flags if f & 4))
     return len(want), rands
+
+
+CRATERS = []
 
 
 def compare_world(probe, world, settings, names):
@@ -685,11 +720,14 @@ def main():
         textures, pieces, errors = compare_world(probe, world, settings, names)
         print(f'{world}: {textures} textures, {pieces} pieces, {errors} errors, from {names}')
     compare_scenes(probe)
-    probe.probe_pm_clutter_lay.argtypes = [ctypes.c_char_p] * 4 + [ctypes.c_void_p, ctypes.c_int]
+    probe.probe_pm_clutter_lay.argtypes = [ctypes.c_char_p] * 4 + [ctypes.c_int, ctypes.c_void_p, ctypes.c_int]
+    probe.probe_pm_clutter_crater.argtypes = [ctypes.c_float] * 4 + [ctypes.c_void_p, ctypes.c_int]
     probe.probe_pm_clutter_scene_lay.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_void_p, ctypes.c_int]
     for world in ('c1', 'c2', 'c3', 'c4'):
         records, rands = compare_laying(probe, world, names)
         print(f'{world}: laid {records} records, {rands} rand calls; all bit for bit but the turn')
+    records, _ = compare_laying(probe, 'c2', names, skip_ground=1)
+    print(f'c2, as a mission loads it (no ground test): {records} records; records flagged by craters as they went: {CRATERS}')
     print(f'rotated records: {ULPS.same} of {ULPS.total} words bit-identical, worst {ULPS.worst:g}; '
           f'{ULPS.exact} words of aligned records, all exact')
     print(f'u, v: {DIFF.same} of {DIFF.total} bit-identical, worst difference {DIFF.worst:g} {DIFF.at}')

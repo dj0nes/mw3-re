@@ -9,6 +9,7 @@
 #include "gamez/zclass/class.h"
 #include "gamez/zclass/cls_data.h"
 #include "gamez/zclass/cls_node.h"
+#include "gamez/zclass/cls_world.h"
 #include "gamez/zclass/list.h"
 #include "gamez/zerror/zerr.h"
 #include "gamez/zmath/zmth_vector.h"
@@ -177,6 +178,7 @@ struct Laying {
   ::zcls::Node* world_node = nullptr;  // 0x00639c04
   ::zcls::World* world = nullptr;      // 0x00639c00
   uint8_t zone = 0xff;                 // 0x00639c08
+  bool skip_ground = false;            // 0x00639c1c
 } g_lay;
 constexpr float kRand = 3.0518509e-05f;  // [0x005dfcb4], 1 / 32767
 
@@ -254,7 +256,7 @@ void place(const pm::zmod::Model* model, const pm::zmod::Polygon* poly, uint32_t
       point[0] = gx * x + hx * y + ((p[0][0] - gx * u0) - hx * v0);
       point[1] = gy * x + hy * y + ((p[0][1] - gy * u0) - hy * v0);
       point[2] = gz * x + hz * y + ((p[0][2] - gz * u0) - hz * v0);
-      if (g_hooks.ground_heights) {
+      if (!g_lay.skip_ground && g_hooks.ground_heights) {
         float heights[32];
         const int hits = g_hooks.ground_heights(g_lay.world_node, point[0], point[1] + 1.0f, point[2], heights, 32);
         if (hits >= 0) {
@@ -429,6 +431,32 @@ void lay_node(::zcls::Node* node) {
   if (zone_set) g_lay.zone = 0xff;
 }
 }  // namespace
+
+void clutter_skip_ground_test(bool on) { g_lay.skip_ground = on; }
+
+void clutter_free(std::list<std::string>& names) {
+  g_templates.clear();
+  g_pieces.clear();
+  names.clear();
+}
+
+void clutter_crater(::zcls::Node* world, const float point[3], float radius) {
+  auto* w = static_cast<::zcls::World*>(world->data);
+  int32_t x0, z0, x1, z1;
+  ::zcls::world_cell_clamped(world, &x0, point[0] - radius, radius + point[2], &z0);  // 0x00505230
+  ::zcls::world_cell_clamped(world, &x1, radius + point[0], point[2] - radius, &z1);
+  const float limit = radius * radius;
+  for (int x = x0; x <= x1; ++x) {
+    for (int z = z0; z <= z1; ++z) {
+      ::zcls::Partition& cell = w->rows[z][x];
+      if (!cell.pm_clutter) continue;
+      for (ClutterRecord& r : *cell_clutter(cell)) {
+        const float dx = point[0] - r.matrix.m[9], dz = point[2] - r.matrix.m[11];
+        if (dz * dz + dx * dx < limit) r.flags |= 5;
+      }
+    }
+  }
+}
 
 std::vector<ClutterRecord>* cell_clutter(::zcls::Partition& cell) {
   if (!cell.pm_clutter) cell.pm_clutter = new std::vector<ClutterRecord>;

@@ -2049,8 +2049,10 @@ extern "C" {
 // The whole clutter load on a world, as the exe's (test_pm_clutter.py, class Laying): the settings,
 // the templates, the laying, with the same made-up ground. Out: rand calls, cell changes, the count,
 // then each record as the test reads it.
-int probe_pm_clutter_lay(const char* world, const char* dir, const char* archive, const char* names, uint32_t* out, int cap) {
+int probe_pm_clutter_lay(const char* world, const char* dir, const char* archive, const char* names, int skip_ground,
+                         uint32_t* out, int cap) {
   if (probe_pm_walk_load(world) < 0) return -1;
+  pm::zcls::clutter_skip_ground_test(skip_ground != 0);
   mount_only(dir);
   zrdr::close_archives(true);
   zrdr::init();
@@ -2214,6 +2216,30 @@ int probe_pm_clutter_scene_lay(const double* rows, int count, uint32_t* out, int
   }
   out[0] = static_cast<uint32_t>(records);
   zmth::pop();
+  return n;
+}
+
+}  // extern "C"
+
+extern "C" {
+
+// After probe_pm_clutter_lay: a crater, then every record's flags, cells in the test's order.
+int probe_pm_clutter_crater(float x, float y, float z, float radius, uint32_t* out, int cap) {
+  ::zcls::Node* wn = ::zcls::camera_world(walk_camera());
+  const float point[3] = {x, y, z};
+  pm::zcls::clutter_crater(wn, point, radius);
+  auto* w = static_cast<::zcls::World*>(wn->data);
+  int n = 0;
+  for (int zi = 0; zi < w->get<int32_t>(0x8c); ++zi) {
+    for (int xi = 0; xi < w->get<int32_t>(0x88); ++xi) {
+      ::zcls::Partition& cell = w->rows[zi][xi];
+      if (!cell.pm_clutter) continue;
+      for (const pm::zcls::ClutterRecord& r : *pm::zcls::cell_clutter(cell)) {
+        if (n < cap) out[n] = r.flags;
+        ++n;
+      }
+    }
+  }
   return n;
 }
 

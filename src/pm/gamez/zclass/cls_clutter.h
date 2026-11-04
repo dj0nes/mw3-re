@@ -90,4 +90,14 @@ std::vector<ClutterRecord>* cell_clutter(::zcls::Partition& cell);
 // pieces laid over each triangle where the triangle's u, v repeats reach them (0x00512000).
 void clutter_lay(::zcls::Node* world);
 
+// 0x005116a0: the laying skips its ground test; a mission's load sets it first (0x00492f9a).
+void clutter_skip_ground_test(bool on);
+
+// 0x00513d90: the records within `radius` of a point, across x and z, flagged 5 (gone).
+void clutter_crater(::zcls::Node* world, const float point[3], float radius);
+
+// 0x00513a40: the settings, the pieces and the template names, at a mission's end. The cells'
+// records go with the world.
+void clutter_free(std::list<std::string>& names);
+
 }  // namespace pm::zcls
