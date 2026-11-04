@@ -261,6 +261,9 @@ unusual happens.
 - In Pirate's Moon, a model bigger than the original's working space draws nothing or
   fewer layers instead of overwriting memory. No shipped model comes close (the
   largest has 500 vertices, against room for 1,024).
+- In Pirate's Moon, a polygon under a weapon's light and a light map gets the map's
+  right colour across it; the original used leftovers from the last polygon in the
+  middle of it (with bug fixes on).
 - In Pirate's Moon, a strip lit with vertex shading off no longer reads through a
   null pointer (a possible crash in the original).
 - In Pirate's Moon, a large polygon cut at the camera or the screen's sides keeps

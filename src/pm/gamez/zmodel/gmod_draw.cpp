@@ -23,6 +23,7 @@
 #include "pm/gamez/zimage/zimg_texture.h"
 #include "pm/gamez/zmodel/gmod_clip3d.h"
 #include "pm/gamez/zmodel/gmod_cull.h"
+#include "pm/gamez/zmodel/gmod_projected.h"
 
 #pragma STDC FP_CONTRACT OFF
 
@@ -710,6 +711,7 @@ void light_records(const Model& m, const ModelPass& pass, RefPass& ref) {
         }
       }
     }
+    if (ref.projected && projected_reach(r)) r.flags |= 0x200;
     if (shading) {
       if (shade_off) r.flags |= 0x80;
       const float* baked = pass.bake && !(r.polygon->flags & 0x400) ? reinterpret_cast<const float*>(r.polygon->scratch) : nullptr;

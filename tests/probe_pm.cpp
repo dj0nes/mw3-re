@@ -16,6 +16,7 @@
 #include "gamez/zmodel/gmod_fog.h"
 #include "gamez/zmodel/gmod_fogcalc.h"
 #include "gamez/zmodel/gmod_bake.h"
+#include "pm/gamez/zmodel/gmod_projected.h"
 #include "gamez/zgame/zgame_table.h"
 #include "gamez/zreader/zreader.h"
 #include "gamez/zutil/zutl_path.h"
@@ -954,6 +955,41 @@ int probe_pm_sets(int node, const float* world, uint32_t mask, int fpu53, uint8_
   std::memcpy(out, head, 12), std::memcpy(out + 12, b.data(), b.size());
   return static_cast<int>(b.size()) + 12;
 }
+// test_pm_projected.py: a record made up from the test's arrays: rec and tl (0x20 bytes
+// a vertex), positions, sets (kind, then UVs, then a map set's colours). 0x00562620's
+// answer; 0x00562840's, with each triangle: its TL, fog, set UVs and colours.
+int probe_pm_projected(int node, int poly, uint32_t flags, int count, float* pos, float* rec, float* tl, int sets,
+                       const int32_t* kinds, const float* uvs, const float* xyz, int* reach, uint8_t* out, int cap) {
+  static std::string b;
+  b.clear();
+  pm::zmod::Model& m = *::zcls::node_at(node)->pm_model;
+  pm::zmod::Record r;
+  r.polygon = &m.polygons[poly], r.flags = flags, r.count = count, r.pos = pos, r.rec = rec, r.tl = tl;
+  pm::zmod::ClipShadows s;
+  if (sets >= 0) {
+    s.count = sets;
+    for (int k = 0; k < sets; ++k) {
+      s.kind[k] = kinds[k];
+      s.uv[k].assign(uvs + k * count * 2, uvs + (k + 1) * count * 2);
+      s.xyz[k].assign(xyz + k * count * 3, xyz + (k + 1) * count * 3);
+    }
+    r.shadows = &s;
+  }
+  *reach = pm::zmod::projected_reach(r);
+  const int ret = pm::zmod::draw_projected(r, [](const pm::zmod::ProjectedTriangle& t, const ::zmod::Material&) {
+    b.append(reinterpret_cast<const char*>(t.v), sizeof t.v);
+    const int32_t n = t.sets ? t.sets->count : 0;
+    for (int k = 0; k < n; ++k) {
+      b.append(reinterpret_cast<const char*>(t.sets->uv[k].data()), 24);
+      if (t.sets->kind[k] == 2) b.append(reinterpret_cast<const char*>(t.sets->xyz[k].data()), 36);
+    }
+  });
+  if (static_cast<int>(b.size()) + 4 > cap) return -1;
+  std::memcpy(out, &ret, 4), std::memcpy(out + 4, b.data(), b.size());
+  return static_cast<int>(b.size()) + 4;
+}
+void probe_pm_set_fpu53(int on) { zfix::options().fpu53 = on != 0; }
+void probe_pm_set_bugs(int on) { zfix::options().bugs = on != 0; }
 void probe_pm_set_node(int node, int off, uint32_t v) { ::zcls::node_at(node)->put<uint32_t>(off, v); }
 // The light map's gate: a texture or none, the option (0x0040b270's value).
 void probe_pm_records_light_map(int on, int option) {

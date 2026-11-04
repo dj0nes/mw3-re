@@ -1,8 +1,7 @@
 """PM's Direct3D model draw 0x543b10, its lighting: which lights reach a model
 (0x55ebf0), their kinds (0x5602e0), each polygon's light (0x5603f0) and the colours
-after it, against the exe, which stops at the end of each ref's lighting (0x544ae9).
-The lights are made here, every kind and flag. Projected lights (0x562620) wait for
-their own test. The FPU at 24 bits, as in play.
+after it, against the exe, which stops at the end of each ref's lighting (0x544ae2).
+The lights are made here, every kind and flag. The FPU at 24 bits, as the probes keep it.
 
     cmake --build build --target pmprobe
     .venv/bin/python -P tests/differential/test_pm_lighting.py [draws per world]
@@ -37,7 +36,6 @@ class Emulated(rec.Emulated):
     def __init__(self, world):
         super().__init__(world)
         self.cpu._uc.hook_add(UC_HOOK_CODE, self.bake_entry, begin=0x55fb39, end=0x55fb39)
-        self.native_stub(0x562620, lambda c: 0)  # the projected lights' test: their own item
         self.mixes = []
         self.native_stub(0x5989b0, lambda c: self.mixes.append(self.read(c.arg(0), 12)) or 0)
         self.native_stub(0x598aa0, lambda c: 0)

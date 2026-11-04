@@ -24,6 +24,7 @@ void set_fade(float fade);
 // a * b by the 1.5 * 2^52 trick: the value rounded at 53 bits (zfix fpu53, as in play);
 // at 24 bits, 0 unless huge (CLAUDE.md, FPU precision).
 uint32_t rounded_product(float a, float b);
+uint32_t rounded_sum(float a, float b);  // a + b, the same way
 
 // 0x0054faa0: each of n positions' code, for the planes asked. 0 when every
 // vertex is out of one plane (the rest of the codes then unset). Plane 8 never

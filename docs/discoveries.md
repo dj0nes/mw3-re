@@ -4208,6 +4208,15 @@ The screen after the pilot for INSTANT ACTION, 0x00488bc0 (details:
   is no longer skipped. The rebuild reads included files only from
   inside the game and its mods. (docs/zreader.md, Pirate's Moon)
 
+### Leftover colours under a light map and a projected light
+
+- Where a weapon's light (a projected light) falls on a polygon that also takes a
+  light map, the game cuts the polygon into a fan and works out the map's colour at
+  each new point. A slip in the code skips the first layer: if that layer is the
+  light map, the middle of the polygon takes whatever colour the last polygon left
+  there. Read from the code and checked in the emulator, not seen in play. The
+  rebuild averages it with bug fixes on. (docs/pm-map.md, gmod_matl.c)
+
 ### The light map's fade depends on the x87's precision
 
 - A light map's pool of light fades out over the last stretch of the light's

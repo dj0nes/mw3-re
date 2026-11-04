@@ -936,11 +936,16 @@ functions PM changed, and PM's new ones.
        run does not show those two are the only null reads in this path.
        The draw's fade and shadow flag are the shared `DrawState`'s, as the walk
        sets them; `cull_state().fade` must follow it before `tl_colours` (phase 6).
-     - Order from here. Phase 4, the lighting: 0x5602e0 and 0x5603f0 (MW3 0x545720,
-       rewritten by polygon), the model's lights 0x547dd0, the bake 0x55fb30
-       (MW3 0x544ed0), the shadow sets, the light map's sets (`0x543b10` lines
-       1310-1490), and as its own item the projected lights 0x562620 and 0x562840.
-       Phase 5, clipping; phase 6, the submit, which deletes `draw_unlit`.
+     - **Phase 4f: the projected lights** (`gmod_projected`, 0x562620, 0x562840, 0x561fb0,
+       0x562120; `test_pm_projected.py`, on records made in the test). MW3's 0x547740
+       rewritten: the split's threshold is a fifth of the nearest light's far squared, at
+       least 30; PM's own colours (flag 0x400); light map colours carried. A slip: the
+       test on a set's kind starts one set late, so a first set that is a light map keeps
+       old colours at a polygon's centre and splits (FIX (bug), behind `zfix bugs`; the
+       probe keeps the original's path). Left, for the casters' port: `shadow_model` and
+       `shadow_model_morphed` read `node->model`, so a PM node casts no shadow image and
+       takes no morph there; safe, and to route with PM's caster (texture at +0x64).
+     - Order from here. Phase 5, clipping; phase 6, the submit, which deletes `draw_unlit`.
 3. **The mission**: load, setup and the world parameters (`mission.cpp`
    114 new, 14 of the port's changed), the standalone missions
    (`readersa1..4`), the objectives.
