@@ -4,7 +4,7 @@
 // unless --fly starts a world for checking the port.
 //
 //   mw3pm [install-dir] [--write-dir DIR] [--hidden] [--nosound] [--version]
-//         [--fly c1 [--pos X Y Z] [--look YAW PITCH] [--shot FILE.bmp [--shot-frame N]] [--frames N]]
+//         [--fly c1 [--variant BLOCK] [--pos X Y Z] [--look YAW PITCH] [--shot FILE.bmp [--shot-frame N]] [--frames N]]
 //
 //   install-dir      the Pirate's Moon folder (default: mw3pm.cfg's install=,
 //                    else the development copy, game/pm)
@@ -14,6 +14,7 @@
 //   --nosound        accepted, as mw3's; nothing plays yet
 //   --fly NAME       debug only: world NAME: W/S/A/D move, Q/E down/up,
 //                    arrows turn, Shift fast, P prints the view, Escape quits
+//   --variant BLOCK  debug only, with --fly: world.zrd's block over `defaults` (c1: m2, m5, sa4 are night)
 //   --map-light X Y Z RANGE  debug only, with --fly: one light map light there
 #include <SDL3/SDL.h>
 
@@ -36,7 +37,7 @@ namespace {
 struct Args {
   std::string install, write_dir;
   bool hidden = false;
-  std::string fly, shot;
+  std::string fly, variant, shot;
   bool pos_given = false;
   float pos[3] = {};
   float yaw_deg = 0, pitch_deg = 30;
@@ -55,6 +56,7 @@ bool parse(int argc, char** argv, Args& a) {
     else if (s == "--hidden") a.hidden = true;
     else if (s == "--nosound") {}
     else if (s == "--fly" && i + 1 < argc) a.fly = argv[++i];
+    else if (s == "--variant" && i + 1 < argc) a.variant = argv[++i];
     else if (s == "--pos" && i + 3 < argc) {
       for (float& p : a.pos) p = static_cast<float>(std::atof(argv[++i]));
       a.pos_given = true;
@@ -109,7 +111,7 @@ int fly(const Args& a) {
   window.frame_size(kW, kH);
   window.show();
   float eye[3];
-  const std::string err = frontend::pm_world_load(a.fly, window.render(), kW, kH, eye);
+  const std::string err = frontend::pm_world_load(a.fly, a.variant, window.render(), kW, kH, eye);
   if (!err.empty()) {
     std::fprintf(stderr, "mw3pm: --fly %s: %s\n", a.fly.c_str(), err.c_str());
     return 1;

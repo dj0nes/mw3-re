@@ -1127,7 +1127,7 @@ functions PM changed, and PM's new ones.
        **The black shape is sky:** `horizon` > `hormain` holds `horizon_top` (flat, colour 0, a wall of radius
        1750), `horscrollday` (`sky01`), `horscrollnight`, stars. The camera follows it (`camera_set_horizon`, as
        0x4087f0's call; before, it sat at the world's origin) and `world.zrd`'s `fog node` picks `hormain`. The
-       mission calls `day` or `night` on `horizon` (`night_day.zrd`, below): `--fly` applies `day`'s list by name.
+       mission calls `day` or `night` on `horizon` (`night_day.zrd`, below): `--fly` applies it only where the world has that file (c1), `night` for `--variant m2`, `m5`, `sa4`; c2, c3 and c4 have none of those nodes, and their shots are byte-identical with and without the old list.
        **Not reproduced:** `MipBias -1`: read, not applied; the port's textures have no bias (fixes.md).
        **Stubs left in `--fly`:** a mission's depth-only clear is copied, not reached through the state;
        `horscroll*` scroll words run but with no frame's tick.
@@ -1146,16 +1146,22 @@ functions PM changed, and PM's new ones.
        1536 150 -1792 --look 0 8` and `c4 --pos 1536 150 -1792 --look 0 8`: a black band, old frames, or none.
        **Also for Owen:** the brightness of c1 (day: single m1; night: m2) and c3 (`mw3pm --fly c3`, default
        view) against the original.
-     - **Eye check so far.** c1's and c2's edges read as authored transition tiles (`tertrans01`, `tertrans02`, c2's
-       with alpha, `mw3pm --fly c2 --pos 1500 135 -1600 --look 0 35`); no original compared.
-     - **Eye check, still to do with the game around it:** points meeting blended polygons (batched,
-       0x59ee90, not ported); a short light's pool on a regular polygon; a projected light over a
-       light-mapped polygon, bugs on and off; an axis-aligned wall with a light map (seam); c2's jagged
-       orange edge; c1's stair-stepped sand and red, which the data says is authored: within 800 units of
-       the centre the ground is `dirt01` (115 polygons) and `sand01` (98) with transition tiles `tertrans01` (73,
-       no alpha) and `tertrans02` (26, alpha), mostly strips, so the steps are the tiles' edges; no
-       original screenshot was compared; the black shape in c1, c3, c4, now with stars, so perhaps a piece of
-       sky waiting on the sky's port: confirm when sky lands; c4's flat green.
+     - **Eye check, settled here** (no original compared, only that the port draws what the data says):
+       the sky: day and night differ as `night_day.zrd` says (`--fly c1 --pos 2432 25 -2688 --look 0 -25`: clouds
+       and small stars; with `--variant m2`: large stars, dim clouds), c2 clouds over a fog-coloured horizon
+       (`--fly c2 --pos 1536 40 -1792 --look 0 -5`). c1 and c3 look nearly black from `--fly`'s default height
+       because their fog is black with altitude 80..100: at height 25 the ground shows. The light map pool:
+       `--map-light 1600 45 -1840 120` in that c2 view changes 116,466 pixels (range 80 at 1536 40 -1860: none).
+     - **Eye check, for Owen's PC:** `--fly c4` default view, the flat green next to the grids (it has
+       grain, so it is textured; whether it is that green in the original is the question). `--fly c1 --look 0
+       25`, single m1, the ground's stair-stepped sand and red (the data says transition tiles `tertrans01`,
+       `tertrans02`, 99 polygons within 800 units of the centre). `--fly c2 --pos 1500 135 -1600 --look 0 35`, the
+       jagged orange edge. Texture softness, as `MipBias -1` is read and not applied. The sky gap and the
+       brightness above.
+     - **Eye check, waiting:** a short light's pool on a regular polygon, on the mission's lights; a
+       projected light over a light-mapped polygon, bugs on and off, on the caster's port; an axis-aligned
+       wall's light map seam, on a mission's light on a wall (`--map-light` could stand in, not tried);
+       flares, on wiring 0x588910 to `flare_add`; points meeting blended polygons, on 0x59ee90.
 3. **The mission**: load, setup and the world parameters (`mission.cpp`
    114 new, 14 of the port's changed), the standalone missions
    (`readersa1..4`), the objectives.

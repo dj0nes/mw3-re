@@ -8,7 +8,7 @@ namespace platform { class Render3D; }
 namespace frontend {
 
 // Empty, or what went wrong. `eye` is set over the middle of the world.
-std::string pm_world_load(const std::string& mission, platform::Render3D* render, int width, int height, float eye[3]);
+std::string pm_world_load(const std::string& mission, const std::string& block, platform::Render3D* render, int width, int height, float eye[3]);
 // Debug only: one light map light at a world point, since the scripts that set them are not
 // ported: the shipped `lightmap` texture and a white light of that range.
 void pm_world_map_light(const float pos[3], float range);

@@ -86,7 +86,7 @@ int32_t draw_pm_model(zcls::Node* node, uint32_t mask) {
 
 }  // namespace
 
-std::string pm_world_load(const std::string& mission, platform::Render3D* render, int width, int height, float eye[3]) {
+std::string pm_world_load(const std::string& mission, const std::string& block, platform::Render3D* render, int width, int height, float eye[3]) {
   zvid::set_pixel_format(5, 6, 5);
   zvid::channel_masks() = {0xf800, 0x07e0, 0x001f};
   zrndr::device_fog().active = 1;
@@ -143,12 +143,17 @@ std::string pm_world_load(const std::string& mission, platform::Render3D* render
   if (zcls::Node* horizon = zcls::list_find_by_name(zcls::kAllNodes, "horizon")) zcls::camera_set_horizon(camera_node(), horizon);
   zrdr::init();
   zrdr::open_archive(("zbd\\" + mission + "\\reader.zbd").c_str(), false);  // 0x00490630's first
-  pm::mech3::world_read_params(zcls::camera_world(camera_node()), camera_node(), nullptr, true);
-  // The mission's `day` on `horizon` (night_day.zrd; the animation's call is not ported here).
-  for (const char* on : {"horscrollday", "horizon_planet", "horizon_day_stars"})
-    if (zcls::Node* n = zcls::list_find_by_name(zcls::kAllNodes, on)) zcls::node_set_active(n, 1);
-  for (const char* off : {"horscrollnight", "horizon_night_stars"})
-    if (zcls::Node* n = zcls::list_find_by_name(zcls::kAllNodes, off)) zcls::node_set_active(n, 0);
+  pm::mech3::world_read_params(zcls::camera_world(camera_node()), camera_node(), block.empty() ? nullptr : block.c_str(), true);
+  // A mission's `day` or `night` on `horizon` (night_day.zrd, c1's only; the animations' calls are
+  // not ported here). Night: m2, m5 and sa4 (start_single_c1.zrd, start_salone_c1.zrd).
+  if (zrdr::Node* calls = zrdr::load("night_day.zrd")) {
+    zrdr::free_node(calls);
+    const bool night = block == "m2" || block == "m5" || block == "sa4";
+    for (const char* name : {"horscrollday", "horizon_planet", "horizon_day_stars"})
+      if (zcls::Node* n = zcls::list_find_by_name(zcls::kAllNodes, name)) zcls::node_set_active(n, night ? 0 : 1);
+    for (const char* name : {"horscrollnight", "horizon_night_stars"})
+      if (zcls::Node* n = zcls::list_find_by_name(zcls::kAllNodes, name)) zcls::node_set_active(n, night ? 1 : 0);
+  }
   // Over the middle of the world's area (+0x34..+0x44, +0x38..+0x48).
   const auto* w = static_cast<const zcls::World*>(zcls::camera_world(camera_node())->data);
   eye[0] = (w->get<float>(0x34) + w->get<float>(0x44)) * 0.5f;
