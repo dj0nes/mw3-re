@@ -21,8 +21,9 @@ way and takes it.
 - **They can now come to you where the original wouldn't let them.** The
   original marked areas of each map for the AI to keep out of. A lancemate
   will now enter one to reach you, if there is a way.
-- **Doors and falling buildings.** They notice a door opening or a building
-  coming down, and use the new way.
+- **Doors and falling buildings.** The map they walk by updates when a door
+  opens or a building comes down, so they can use the new way. We tested this
+  on a made-up door, not on every real one.
 - **On open ground nothing changes.** They walk exactly as in the original.
 
 The honest limits:
@@ -57,6 +58,8 @@ did in the original.
   or a changed dead zone) and then played without the stick, the throttle opened
   on its own, and a slider on the torso's axes turned the torso. Now a missing
   stick does nothing, and your binding is kept for when it is back. This is part of bug fixes.
+  Checked by automated tests only: we have no joystick to try it on, so reports
+  with `mw3.log` are welcome.
 - **Undefined colour in a new picture.** A rebuild bug: when the picture
   changed size during a mission, the parts of the screen nothing draws on
   could show random memory until something covered them. They now start
