@@ -575,6 +575,7 @@ if(MW3_BUILD_PM)
     src/pm/gamez/zclass/light.cpp
     src/pm/gamez/zeffect/zeff_anim_init.cpp
     src/pm/gamez/zimage/zimg_texture.cpp
+    src/pm/gamez/zmodel/gmod_clip3d.cpp
     src/pm/gamez/zmodel/gmod_matl.cpp
     src/pm/gamez/zmodel/gmod_const.cpp
   )

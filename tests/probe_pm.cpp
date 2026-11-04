@@ -26,6 +26,7 @@
 #include "pm/gamez/zclass/cls_zbd.h"
 #include "pm/gamez/zeffect/zeff_anim_init.h"
 #include "pm/gamez/zimage/zimg_texture.h"
+#include "pm/gamez/zmodel/gmod_clip3d.h"
 #include "pm/gamez/zmodel/gmod_const.h"
 #include "pm/gamez/zmodel/gmod_matl.h"
 #include "pm/gamez/zreader/zrdr_main.h"
@@ -563,6 +564,27 @@ int probe_pm_mechlib(const char* world, const char* path, const char* names, uin
   if (static_cast<int>(b.size()) > cap) return -1;
   std::memcpy(out, b.data(), b.size());
   return static_cast<int>(b.size());
+}
+
+// test_pm_clip3d.py: one polygon through clipper `which` (0..5, the exe's
+// order), the buffers rewritten in place. Out: the result, the count, whether
+// each of pos, rec, tl, extra moved to its arena, and how far each arena went.
+int probe_pm_clip3d(int which, float near_z, int count, uint32_t flags, float* pos, float* rec, float* tl, uint8_t* extra,
+                    void* shadows, float* a_pos, float* a_rec, float* a_tl, uint8_t* a_extra, int32_t* out) {
+  pm::zmod::ClipPoly p;
+  p.pos = pos, p.rec = rec, p.tl = tl, p.extra = extra, p.flags = flags, p.count = count;
+  p.shadows = static_cast<pm::zmod::ClipShadows*>(shadows);
+  pm::zmod::Clip3dState& s = pm::zmod::clip3d_state();
+  s.near_z = near_z, s.arena_pos = a_pos, s.arena_rec = a_rec, s.arena_tl = a_tl, s.arena_extra = a_extra;
+  int (*const fn[6])(pm::zmod::ClipPoly&) = {pm::zmod::clip3d_plain,           pm::zmod::clip3d_lit,
+                                             pm::zmod::clip3d_textured,        pm::zmod::clip3d_textured_lit,
+                                             pm::zmod::clip3d_textured_shadow, pm::zmod::clip3d_textured_lit_shadow};
+  out[0] = fn[which](p);
+  out[1] = p.count;
+  out[2] = p.pos != pos, out[3] = p.rec != rec, out[4] = p.tl != tl, out[5] = p.extra != extra;
+  out[6] = static_cast<int32_t>(s.arena_pos - a_pos), out[7] = static_cast<int32_t>(s.arena_rec - a_rec);
+  out[8] = static_cast<int32_t>(s.arena_tl - a_tl), out[9] = static_cast<int32_t>(s.arena_extra - a_extra);
+  return 0;
 }
 
 // test_pm_light_map.py: script lines ('|'-separated, words by spaces) through

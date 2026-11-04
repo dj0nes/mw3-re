@@ -712,7 +712,26 @@ functions PM changed, and PM's new ones.
        the cursor, the misses, the names). Breaks, 5 of 5: prefix match, not
        stored, argument not taken (the differential); MW3 knowing the word,
        the free keeping it (`pm_light_map_texture_is_pms_alone`).
-     - Order from here: the option's state; the helpers in groups,
+     - **The near clippers: ported** (2026-11-03, `pm/gamez/zmodel/gmod_clip3d`):
+       `0x549440`, `0x549630`, `0x549ab0`, `0x54a450`, `0x54a6f0`, `0x54aa50`
+       with their carriers `0x54fea0` and `0x550100`, one loop and a mask of
+       what each carries. The carriers' bits 1, 2 and bare 8 are the software
+       clippers', not ported. Against MW3's six (render-clip3d.md): cdecl, not
+       fastcall; no far reject and no plane mask, as the draw only calls them
+       for a polygon its cull marked; a polygon that grew moves to arenas
+       (`[0xa4cfac]`..), not fixed buffers; and **the point light is
+       interpolated at a cut**, MW3's copied from the edge's first vertex.
+       Ours: past the 64-vertex scratch the polygon stops growing (the exe runs
+       on over the next buffers); PM's polygons allow 1,023 vertices. The near
+       value `[0x8d4b14]` comes from the view (`0x548990`, MW3's `0x526e10`, the
+       shared `near_z`): it and the arenas' start (`0x543b10`) go with the draw.
+       `test_pm_clip3d.py` on PM's exe at 24-bit x87: 9,000 polygons by default,
+       every buffer, the result, the count and what moved. NaNs may differ in
+       sign, and cases with extreme inputs in value (the x87 keeps a 15-bit
+       exponent in its registers), as MW3's test allows. Breaks, 19 of 20. Not
+       caught: a set without xyz carrying xyz at a cut, which only reaches the
+       scratch (write-back checks the kind), so nothing can see it.
+     - Order from here: the option's state; the other helpers in groups,
        each with the setters it first reads; then `0x543b10` by call trace, as
        `0x53f2e0` was. Emulator only until the world class and the mission can
        draw in `mw3pm`.

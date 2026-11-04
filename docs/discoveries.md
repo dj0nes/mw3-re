@@ -4181,6 +4181,11 @@ The screen after the pilot for INSTANT ACTION, 0x00488bc0 (details:
   are found by name. Every shipped world is still a single file, so this
   looks like groundwork for the expansion's tools or for add-ons.
   (docs/pm-map.md, gamez.zbd 41)
+- **Pirate's Moon quietly fixed a lighting slip at the screen's edge.** When
+  a polygon is cut where it passes the camera, MechWarrior 3 works out the new
+  corner's colour and fog but copies its point-light value from one neighbour,
+  so the light on the cut edge can jump. Pirate's Moon blends it like the rest.
+  Very rarely visible. (docs/pm-map.md, gmod_matl.c)
 - **Pirate's Moon's text data files can include other files.** Its reader
   takes `#include name.zrd` (MechWarrior 3's knows only `#ifdef`, `#else`
   and `#endif`): the named file is read right there, as if pasted in, up
