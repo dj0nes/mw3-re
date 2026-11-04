@@ -10,7 +10,9 @@
 #include "gamez/zimage/zimg_library.h"
 #include "crt/msvc_math.h"
 #include "gamez/zmath/zmth_matrix.h"
+#include "gamez/zmath/zmth_vector.h"
 #include "gamez/zutil/ztimer.h"
+#include "gamez/zmodel/gmod_bake.h"
 #include "gamez/zmodel/gmod_draw.h"
 #include "gamez/zmodel/gmod_fog.h"
 #include "gamez/zmodel/gmod_fogcalc.h"
@@ -302,7 +304,7 @@ int begin_model(::zcls::Node& node, Model& m, uint32_t mask, ModelPass& pass) {
     if (node.get<uint32_t>(0xc0) >= ::zcls::frames().update_frame) {
       pass.bake = true;
     } else if (node.get<uint32_t>(0xc4) <= ::zcls::frames().frame) {
-      if (g_state.bake) g_state.bake(m, node);
+      bake_static_light(m);
       node.put<uint32_t>(0xc0, ::zcls::frames().update_frame);  // 0x004ff770
       pass.bake = true;
     }
@@ -827,6 +829,111 @@ void draw_model_lights(Model& m) {
       const uint32_t at = k & 0xffff;
       model_light(l.vertices + 3 * at, l.color, l);
       if (at != 0) model_light(l.vertices + 3 * (at - 1), k >> 16, l);
+    }
+  }
+}
+
+// Pirate's Moon 1.0 @ 0x0055fb30. Below near^2 the range is tested with the squared
+// distance, not the distance, as the exe: `dist` stays d2 there (MW3 has the same).
+void bake_static_light(Model& m) {
+  float* to = ::zmod::bake_state().stale;
+  const bool no_sun = (hdr<uint32_t>(m, 8) >> 5) & 1;
+  const ::zmod::LightList& list = ::zmod::light_list();
+  const auto dotted = [](const float* v, const ::zcls::Light* l) {
+    const float z = v[2] * lp(l, 0x98), y = v[1] * lp(l, 0x94), x = v[0] * lp(l, 0x90);
+    return x + y + z;
+  };
+  const auto term = [](float k, const ::zcls::Light* l) {
+    return k > 0.0f ? k * lp(l, 0x9c) + lp(l, 0xa0) : lp(l, 0xa0);
+  };
+  static std::vector<float> pos, normals;
+  if (g_state.normals.size() < static_cast<size_t>(m.count(0x18)) * 3) g_state.normals.resize(static_cast<size_t>(m.count(0x18)) * 3);
+  for (int32_t pi = 0; pi < m.count(0x10); ++pi) {
+    Polygon& p = m.polygons[pi];
+    if (p.flags & 0x400) continue;
+    const int32_t n = static_cast<int32_t>(p.flags & 0x3ff);
+    pos.resize(static_cast<size_t>(n) * 3);
+    for (int32_t i = 0; i < n; ++i) std::memcpy(&pos[static_cast<size_t>(i) * 3], &g_state.cam[static_cast<size_t>(p.vertex_indices[i]) * 3], 12);
+    const bool vn = !no_sun && (p.flags & 0x1000);
+    if (vn) {
+      normals.resize(static_cast<size_t>(n) * 3);
+      for (int32_t i = 0; i < n; ++i) std::memcpy(&normals[static_cast<size_t>(i) * 3], &g_state.normals[static_cast<size_t>(p.normal_indices[i]) * 3], 12);
+    }
+    float* out = reinterpret_cast<float*>(p.scratch);
+    for (int32_t i = n - 1; i >= 0; --i) out[i] = 1.0f;
+    bool have_normal = false, directed = false;
+    float normal[3] = {};
+    float lit = 0.0f;  // [ebp-8]: left from the last light where it is not set
+    float dist = 0.0f;
+    for (int32_t li = 0; li < list.count; ++li) {
+      const ::zmod::LightEntry& e = list.list[li];
+      const ::zcls::Light* l = e.data;
+      const uint32_t f = lflags(l);
+      if (!(f & 0x200)) continue;
+      if (f & 8) {
+        if (no_sun) {
+          lit = lp(l, 0xa0);
+        } else if (!vn) {
+          if (!have_normal) zmth::poly_normal(&pos[3], &pos[6], &pos[0], normal), have_normal = true;
+          lit = term(dotted(normal, l), l);
+        }
+        directed = true;
+        for (int32_t i = n - 1; i >= 0; --i) {
+          if (vn) lit = term(dotted(&normals[static_cast<size_t>(i) * 3], l), l);
+          out[i] = lit + out[i];
+        }
+        continue;
+      }
+      if (!e.reach) continue;
+      const bool spot = (f & 4) != 0;
+      float facing = 1.0f, factor = 1.0f;
+      if (spot) {
+        if (!have_normal) zmth::poly_normal(&pos[3], &pos[6], &pos[0], normal), have_normal = true;
+        facing = dotted(normal, l);
+        if (!(double{facing} > kVisible)) {
+          facing = 0.0f, factor = 0.0f;
+        } else {
+          const float s = dotted(to, l);  // the previous light's or polygon's vector
+          factor = double{s} < kVisible ? 0.0f : s;
+        }
+      }
+      if (!(facing > 0.0f) && !(lp(l, 0xa0) > 0.0f)) continue;
+      lit = term(factor, l);
+      const auto measure = [&](const float* v) {
+        to[0] = lp(l, 0x78) - v[0], to[1] = lp(l, 0x7c) - v[1], to[2] = lp(l, 0x80) - v[2];
+        const float d2 = to[2] * to[2] + to[1] * to[1] + to[0] * to[0];
+        dist = d2;
+        if (!(d2 < lp(l, 0xf0))) return false;
+        if (spot) {
+          dist = std::sqrt(d2);
+          const float inv = 1.0f / dist;
+          to[0] = inv * to[0], to[1] = inv * to[1], to[2] = inv * to[2];
+        } else if (lp(l, 0xec) <= d2) {
+          dist = std::sqrt(d2);
+        }
+        return true;
+      };
+      if (e.full || measure(&pos[0])) {
+        const float k = e.full ? lit : range(l, dist) * lit;
+        out[0] = k + out[0];
+      }
+      for (int32_t i = n - 1; i >= 1; --i) {
+        const float* v = &pos[static_cast<size_t>(i) * 3];
+        if (!e.full && !measure(v)) continue;
+        float g = facing > 0.0f ? facing : 0.0f;
+        if (facing > 0.0f && spot) {
+          if (e.full) to[0] = lp(l, 0x78) - v[0], to[1] = lp(l, 0x7c) - v[1], to[2] = lp(l, 0x80) - v[2];
+          const float s = dotted(to, l);
+          g = double{s} < kVisible ? 0.0f : s;
+        }
+        if (!(double{g} > kVisible) && !(lp(l, 0xa0) > 0.0f)) continue;
+        if (spot) lit = term(g, l);
+        const float k = e.full ? lit : range(l, dist) * lit;
+        out[i] = k + out[i];
+      }
+    }
+    if (directed) {
+      for (int32_t i = n - 1; i >= 0; --i) out[i] = out[i] - 1.0f;
     }
   }
 }

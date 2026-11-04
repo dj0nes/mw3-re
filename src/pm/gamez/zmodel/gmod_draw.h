@@ -23,7 +23,6 @@ struct DrawState {
   // what a one-shader draw always has (docs/fixes.md); the option stays: 0 auto, 1 and
   // 2 the exe's three and two stages, -1 off, from LIGHT MAPS (0x0040b270).
   int32_t light_map_option = 0;  // 0x008ccc64
-  void (*bake)(Model& m, ::zcls::Node& node) = nullptr;  // 0x0055fb30, phase 4
   // 0x005989b0 and 0x00598aa0: a fogged polygon's fog colour mixes with the light's.
   void (*mix_fog)(const float rgb[3]) = nullptr;
   // 0x00588910: a model light on the lens flares' list: world point, screen point.
@@ -96,6 +95,10 @@ int shade_polygon(Record& r, const float* baked, uint32_t needs);
 // The rest of the ref loop's lighting (0x00544797..0x00544ad6), projected lights aside:
 // each record shaded, then multiplied by its colour or the material's.
 void light_records(const Model& m, const ModelPass& pass, RefPass& ref);
+// Pirate's Moon 1.0 @ 0x0055fb30: each polygon's static light, from the lights with
+// flag 0x200, into its scratch (not two-sided ones). The light-to-vertex vector carries
+// over, as MW3's (zmod::bake_state): a spot's first vertex reads it unset.
+void bake_static_light(Model& m);
 // 0x0055ebf0: which lights reach the sphere; their count.
 int32_t lights_reaching(const float centre[3], float radius);
 

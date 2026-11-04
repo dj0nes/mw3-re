@@ -28,12 +28,15 @@ LIT_END = 0x544ae2
 MASK_P, ANY, COUNT, LIST = 0xa4e0d8, 0xa4d014, 0xa4d01c, 0xa4d024
 CLOUDS, SCALE, U, V, AMP, BASE, TINT_W = 0x612e18, 0x612e20, 0x612e34, 0x612e38, 0x612e28, 0x612e24, 0xa4e08c
 TOL, ROUNDING = 2e-4, 0.002
-FOG_MIX = []
+seen_bakes = [0]
 
 
 class Emulated(rec.Emulated):
+    STUB_BAKE = False  # the real bake feeds the lighting when the node's stamp is old
+
     def __init__(self, world):
         super().__init__(world)
+        self.cpu._uc.hook_add(UC_HOOK_CODE, self.bake_entry, begin=0x55fb39, end=0x55fb39)
         self.native_stub(0x562620, lambda c: 0)  # the projected lights' test: their own item
         self.mixes = []
         self.native_stub(0x5989b0, lambda c: self.mixes.append(self.read(c.arg(0), 12)) or 0)
@@ -41,6 +44,10 @@ class Emulated(rec.Emulated):
         self.cpu._uc.hook_add(UC_HOOK_CODE, self.after_lighting, begin=LIT_END, end=LIT_END)
         self.gates = None
         self.mask_cell = self.i32(MASK_P) & 0xffffffff
+
+    def bake_entry(self, uc, address, size, user):  # its vector on the stack: zero, as the port's here
+        uc.mem_write(uc.reg_read(UC_X86_REG_EBP) - 0x6c, bytes(12))
+        seen_bakes[0] += 1
 
     def at_end(self, uc, address, size, user):  # the build stays: lighting comes next
         pass
@@ -127,6 +134,8 @@ def main():
     p.probe_pm_set_fog_color.restype = None
     p.probe_pm_set_node.argtypes = [I, I, U_]
     p.probe_pm_set_node.restype = None
+    p.probe_pm_set_frames.argtypes = [U_, U_]
+    p.probe_pm_set_frames.restype = None
     p.probe_pm_lighting.argtypes = [I, V_, U_, V_, I]
     buf = ctypes.create_string_buffer(1 << 24)
     md.Emulated.probe = p
@@ -175,8 +184,11 @@ def main():
             p.probe_pm_set_fog_color((F * 3)(*colour))
             # The bake's results, with the node's stamp saying they are good, half the time.
             node_at = emu.node(i)
-            stamp = rng.choice((0, 0xffffff))
+            # (Old with vertex shading off: the exe would read last draw's normals.)
+            stamp = rng.choice((0, 0xffffff)) if state[5] else 0xffffff
             emu.w32(node_at + 0xc0, stamp), p.probe_pm_set_node(i, 0xc0, stamp)
+            emu.w32(node_at + 0xc4, 0), p.probe_pm_set_node(i, 0xc4, 0)
+            emu.w32(0x8c4b60, 6), emu.w32(0x60d254, 5), p.probe_pm_set_frames(6, 5)
             polys_at = emu.i32(model + 0x34) & 0xffffffff
             bake = []
             for q in range(emu.i32(model + 0x10)):
@@ -252,9 +264,10 @@ def main():
                             raise SystemExit(f'{w} draw {d} node {i} poly {a[0]} vertex {v}.{k}: {y}, the exe {x}; flags {a[2]:#x}, '
                                              f'lights {[hex(struct.unpack_from("<I", q, 0xe0)[0]) for q in blobs]}, needs {head[0]:#x}, clouds {cl[0]}, fog {fog}')
                         at += 4
+    seen['real bakes'] = seen_bakes[0]
     print(f'ok: {drawn} draws reached a ref, {records} records; {stats.floats} floats, {stats.exact} exact, off by place {stats.where}; {seen}')
-    if not seen.get('needs lights') or not seen.get('projected gate'):
-        raise SystemExit('the lights bit or the projected gate was never true')
+    if not seen.get('needs lights') or not seen.get('projected gate') or not seen_bakes[0]:
+        raise SystemExit('the lights bit, the projected gate or the bake was never reached')
 
 
 if __name__ == '__main__':

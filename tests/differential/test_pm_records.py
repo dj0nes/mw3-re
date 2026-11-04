@@ -31,6 +31,8 @@ ROUNDING = 0.02  # a position that nearly cancels against a translation of hundr
 
 
 class Emulated(md.Emulated):
+    STUB_BAKE = True
+
     def __init__(self, world):
         flags_holder = {}
         self._before = flags_holder
@@ -42,8 +44,9 @@ class Emulated(md.Emulated):
         self.cpu._uc.mem_map(0, 0x1000)
         self.dump, self.model = b'', 0
         self.head = None
-        for a in (0x55fb30, 0x59b870):
-            self.native_stub(a, lambda c: 0)
+        self.native_stub(0x59b870, lambda c: 0)
+        if self.STUB_BAKE:  # this test stops short of the light; test_pm_bake has it
+            self.native_stub(0x55fb30, lambda c: 0)
         s = self.cpu.code(b'\xc3')
         self.native_stub(s, lambda c: 0)
         self.w32(0x8c4c18, s)

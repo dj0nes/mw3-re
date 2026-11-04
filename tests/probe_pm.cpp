@@ -15,6 +15,7 @@
 #include "gamez/zutil/ztimer.h"
 #include "gamez/zmodel/gmod_fog.h"
 #include "gamez/zmodel/gmod_fogcalc.h"
+#include "gamez/zmodel/gmod_bake.h"
 #include "gamez/zgame/zgame_table.h"
 #include "gamez/zreader/zreader.h"
 #include "gamez/zutil/zutl_path.h"
@@ -730,6 +731,7 @@ int probe_pm_lighting(int node, const float* world, uint32_t mask, uint8_t* out,
   pm::zmod::draw_state().mix_fog = [](const float rgb[3]) { mixes.append(reinterpret_cast<const char*>(rgb), 12); };
   const auto put = [&](const void* p, size_t n) { b.append(static_cast<const char*>(p), n); };
   const auto i32 = [&](int32_t v) { put(&v, 4); };
+  std::memset(::zmod::bake_state().stale, 0, 12);  // the test zeroes the exe's stack alike
   ::zcls::Node* n = ::zcls::node_at(node);
   pm::zmod::Model& m = *n->pm_model;
   zmth::MatrixStack& st = zmth::matrix_stack();
@@ -840,6 +842,32 @@ int probe_pm_model_lights(int node, const float* world, float dt, uint8_t* out, 
   std::memcpy(out, b.data(), b.size());
   return static_cast<int>(b.size());
 }
+// test_pm_bake.py: the model's camera-space vertices and normals, the vector the exe's
+// stack holds; the bake; each polygon's scratch, then the vector.
+int probe_pm_bake(int node, const float* cam, const float* normals, float* stale, uint8_t* out, int cap) {
+  pm::zmod::Model& m = *::zcls::node_at(node)->pm_model;
+  pm::zmod::DrawState& d = pm::zmod::draw_state();
+  const size_t nv = static_cast<size_t>(m.count(0x14)), nn = static_cast<size_t>(m.count(0x18));
+  d.cam.assign(cam, cam + nv * 3), d.normals.assign(normals, normals + nn * 3);
+  std::memcpy(::zmod::bake_state().stale, stale, 12);
+  pm::zmod::bake_static_light(m);
+  std::memcpy(stale, ::zmod::bake_state().stale, 12);
+  int at = 0;
+  for (int32_t i = 0; i < m.count(0x10); ++i) {
+    const pm::zmod::Polygon& p = m.polygons[i];
+    const int k = static_cast<int>(p.flags & 0x3ff);
+    if (p.flags & 0x400) continue;
+    if (at + k * 4 > cap) return -1;
+    std::memcpy(out + at, p.scratch, static_cast<size_t>(k) * 4);
+    at += k * 4;
+  }
+  return at;
+}
+// The light list's full and reach, as 0x0055ebf0 would leave them.
+void probe_pm_light_reach(int i, int full, int reach) {
+  ::zmod::light_list().list[i].full = full, ::zmod::light_list().list[i].reach = reach;
+}
+void probe_pm_set_frames(uint32_t frame, uint32_t update) { ::zcls::frames().frame = frame, ::zcls::frames().update_frame = update; }
 void probe_pm_set_node(int node, int off, uint32_t v) { ::zcls::node_at(node)->put<uint32_t>(off, v); }
 // The light map's gate: a texture or none, the option (0x0040b270's value).
 void probe_pm_records_light_map(int on, int option) {

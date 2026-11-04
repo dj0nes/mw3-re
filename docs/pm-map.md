@@ -892,7 +892,14 @@ functions PM changed, and PM's new ones.
        Lights are made in the test, every kind and flag, with clouds and the bake's
        results. PM's lights have their own colours (flag 0x400, PM +0xb0..+0xdf), 0x200
        means already in the bake, 0x20 means the light is fog rather than colour.
-       Left: the bake 0x55fb30 itself, the projected lights' test 0x562620.
+       Left: the projected lights' test 0x562620.
+     - **Phase 4b: the model's lights** (`draw_model_lights`, 0x547dd0;
+       `test_pm_model_lights.py`). No shipped world model has any, so they are made in
+       the test. The exe batches its opaque points; the port draws each as it comes.
+     - **Phase 4c: the bake** (`bake_static_light`, 0x55fb30; `test_pm_bake.py`, and
+       `test_pm_lighting.py` with the real bake feeding it). As MW3's: a spot's first
+       vertex reads the light-to-vertex vector left from the last one, which the exe
+       has on its stack, and below near^2 the range is tested with the squared distance.
        The test maps a zero page, for a strip's missing normal and the bench's null
        texture images. Every null read on the exe's side then succeeds, so a passing
        run does not show those two are the only null reads in this path.
