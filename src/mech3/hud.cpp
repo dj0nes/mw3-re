@@ -1,4 +1,5 @@
 #include "mech3/hud.h"
+#include "mech3/controls_cfg.h"
 
 #include <cmath>
 #include <cstdarg>
@@ -411,7 +412,9 @@ void HudObjectives::fill() {
     for (const std::unique_ptr<Objective>& it : fail->items)
       if (it->done) lines += add_item(*it, nullptr);
   }
-  const std::string exit_key = k.command_key(0x79);  // Exit Mission (PM's numbering; MW3 0x71)
+  // The commands by name, so the numbers follow the table in use: PM's are 0x79
+  // and 0x44 (pushed at 0x00448b25, 0x00448bdc), MW3's 0x71 and 0x43.
+  const std::string exit_key = k.command_key(controls_command("CMD_MISSION_COMPLETE"));
   if (k.multiplayer_game()) {
     set_font(font_scores);
     for (const std::string& s : k.multiplayer_scores()) {
@@ -429,7 +432,7 @@ void HudObjectives::fill() {
     put(zutl::format_message(0x23a, exit_key.c_str()));
     lines += 3;
   }
-  put(zutl::format_message(0x23c, k.command_key(0x44).c_str()));  // "Press %1 To Close Objectives Display" (MW3 0x43)
+  put(zutl::format_message(0x23c, k.command_key(controls_command("CMD_OBJECTIVES")).c_str()));  // "Press %1 To Close Objectives Display"
   ++lines;
   panel.set_size(0x140, lines * height);
 }

@@ -12,6 +12,7 @@
 #include "gamez/ztwod/twod_host.h"
 #include "gamez/zutil/zfix.h"
 #include "gamez/zutil/zutl_msg.h"
+#include "mech3/controls_cfg.h"
 #include "mech3/hud.h"
 #include "mech3/mech_objective.h"
 
@@ -96,6 +97,9 @@ void probe_pm_obj_msg(int id, const char* text) { g_msgs[id] = text; }
 const char* probe_pm_obj_fill(const char* spec) {
   zfix::options().bugs = true;  // the 0x236 line (FIX (bug)): the test's stub passes the mission as %2 too
   zutl::messages().get_text = get_text;
+  // PM's command numbers, as the exe pushes them (its table is not ported yet).
+  mech3::controls_setup().names["CMD_MISSION_COMPLETE"] = 0x79;
+  mech3::controls_setup().names["CMD_OBJECTIVES"] = 0x44;
   static Host host;
   ztwod::set_host(&host);
   static Hooks hooks;

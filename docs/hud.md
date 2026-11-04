@@ -1506,10 +1506,13 @@ N-th frame, for a screenshot.
   status);
 - an objective's further lines go through the box's own set_text, so the
   scores column gets a blank line beside each (MW3 left it);
-- the keys named are PM's commands 0x79 (exit) and 0x44 (close);
+- the keys named are PM's commands 0x79 (exit) and 0x44 (close); the port
+  asks for them by name (`CMD_MISSION_COMPLETE`, `CMD_OBJECTIVES`), so they follow
+  the command table in use (MW3's on `pm` until PM's is ported);
 - PM's 0x236 reads "Mission %2!d! P R I M A R Y  O B J E C T I V E S" but is
   passed the mission alone: %2 reads what follows on the stack. FIX (bug):
-  the mission there.
+  the mission there. MW3's 0x236 ("Operation %1!d! Mission %2!d!") is passed both
+  (0x00446d6e, 0x00446d76): PM's alone.
 Checked by `test_pm_hud_objectives.py`. Its line height comes from the box's
 own text (0x005a1380 in MW3, as the port's), which nothing here sets: whether
 the panel is sized right in play is not checked.
