@@ -75,8 +75,9 @@ did in the original.
   reproduced. In our tests jump jets don't light the water, with this
   release's light fix or without it, so we can't say the fix changes that
   report; a screenshot and `mw3.log` help.
-- **APCs leaving the ground** near the town in Op 1, Mission 2, on very
-  fast machines: not fixed yet.
+- **APCs leaving the ground** (Op 1, Mission 2 and elsewhere): an APC at top
+  speed can hit a steep bank and jump. It happens at ordinary frame rates too,
+  and we are still finding out whether the original does the same. Not fixed yet.
 - Mech speed in shallow water and on hills is the original's: speed has no
   slope term, and water only slows a mech deeper than a tenth of its height.
 - Pirate's Moon is not supported yet.
