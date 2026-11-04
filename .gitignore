@@ -30,3 +30,8 @@ docs/drafts/
 # Windows: the SDL3 development zips and the build (tools/windows/build.cmd)
 /deps/
 /build-win/
+
+# Project notes for the coding sessions: kept on disk, not published (Owen, 2026-11-04)
+CLAUDE.md
+docs/worklogs/
+docs/for-owen.md
