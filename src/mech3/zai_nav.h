@@ -29,22 +29,30 @@ struct World {
   // The grounds under (x, z), highest first, water left out; how many (at most max).
   virtual int ground(float x, float z, Floor* out, int max) = 0;
   virtual bool wall(const float a[3], const float b[3]) = 0;
-  // What stands in the way for now and may leave: x0, z0, x1, z1 and its height.
+  // What stands in the way for now and may leave: its hull's x0, z0, x1, z1 and its height.
   virtual void parked(std::vector<std::array<float, 5>>* out) { (void)out; }
+  // Whether the designers told the AI to keep out of here (the mission's
+  // boundary shapes, docs/ai.md section 11).
+  virtual bool avoid(float x, float y, float z) { (void)x, (void)y, (void)z; return false; }
 };
 World& zcls_world();  // the mission's world through zClass's queries
 
-enum : uint8_t {
+enum : uint16_t {
   kNoGround = 1,   // no such floor here
   kWallE = 2,      // a wall on the step east (+x)
   kWallS = 4,      // a wall on the step south (+z)
   kHeld = 8,       // blocked for a while (a parked vehicle; the unstuck rule)
   kLow = 16,       // too little room under the floor above (a bridge at head height)
+  kNear = 32,      // round a parked vehicle, for a while: walked only if there is no other way
+  kAvoidKnown = 64,  // World::avoid asked here
+  kAvoid = 128,      // a shape the AI keeps out of: as kNear
+  kRoomKnown = 256,  // tight asked here
+  kTight = 512,      // a wall or a rise two cells off: a mech's corners and probes reach it
 };
 struct Cell {
   float y = 0;       // ground height
   float depth = 0;   // water over it, 0 none
-  uint8_t flags = kNoGround;
+  uint16_t flags = kNoGround;
   int8_t east = -1;  // the floor a step east (+x) reaches, -1 none (too steep, walled, no ground)
   int8_t south = -1; // the same south (+z)
 };
@@ -72,7 +80,10 @@ class Grid {
   bool walkable(int cx, int cz, int level) const;
   // The floor the move to the neighbouring place reaches, -1 none.
   int step(int cx, int cz, int level, int dx, int dz) const;
-  void hold(int cx, int cz, float y, float until);     // blocked for a while
+  bool avoided(int cx, int cz, int level);             // World::avoid here, asked once
+  bool tight(int cx, int cz, int level);               // kTight here, worked out once
+  void forget_avoid();                                 // the shapes changed
+  void hold(int cx, int cz, float y, float until, uint16_t what = kHeld);  // blocked (or kNear) for a while
   void release(float now);                             // holds past their time lifted
   // The tiles under that rectangle built again behind the old ones, as what
   // stands there has changed (a door opened, a ramp fallen, a building down).
@@ -92,6 +103,7 @@ class Grid {
   struct Held {
     int cx, cz, level;
     float until;
+    uint16_t what;
   };
   Tile* tile(int tx, int tz, bool make);
   void build_ground(Tile& t, int tx, int tz, int i);
@@ -113,6 +125,9 @@ inline int tile_of(int c) { return c >= 0 ? c / kTile : -((-c + kTile - 1) / kTi
 // walkable and each step allowed, ending on b's floor; false when blocked or
 // any cell is unbuilt.
 bool line_clear(const Grid& g, const float a[3], const float b[3]);
+// The same, not crossing into a shape the AI keeps out of or a tight cell
+// (from inside to inside it may): a way a mech's whole body takes.
+bool line_clear_avoiding(Grid& g, const float a[3], const float b[3]);
 
 enum class Find { kOk, kBuilding, kNone };
 using Way = std::vector<std::array<float, 3>>;
@@ -144,10 +159,13 @@ struct Follower {
   // after a wait that doubles.
   int none_version = -1;
   float none_until = -1e9f, none_wait = 5.0f, none_goal[2] = {};
+  int found_version = -1;      // the grid the path was found on
   // Where to walk this frame toward `to` (the brain's point), the pilot at
   // `pos`: true with `out` a waypoint when the straight way is blocked and a
   // path is had; false to go as before (the exe's, or W17/W27).
-  bool step(const float pos[3], const float to[3], float now, float dt, float out[3]);
+  // `must_find`: the straight way is not to be taken as it is (it crosses a
+  // shape the AI keeps out of).
+  bool step(const float pos[3], const float to[3], float now, float dt, float out[3], bool must_find = false);
 };
 
 // Whether a pilot of that side walks by the grid: zfix bugs and the side's

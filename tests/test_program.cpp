@@ -23108,7 +23108,7 @@ FarRun lance_far_run(int32_t index, int32_t number, bool bugs, bool nav) {
     }
     if (auto* fs = dynamic_cast<mech3::ai::FollowState*>(brain->current().state.get()))
       out.paths = std::max(out.paths, static_cast<int>(fs->nav.follow.paths));
-    if (dd <= out.range) {
+    if (dd <= out.range && std::fabs(a[1] - b[1]) < 12.0f) {
       const float e[3] = {a[0], a[1] + 6, a[2]}, t[3] = {b[0], b[1] + 5, b[2]};
       if (!wall_between_seg(e, t)) return out.reached = f, true;
     }
@@ -23194,7 +23194,9 @@ WorksRun c2m4_works_run(bool bugs, bool nav, const float spot[3]) {
     if (f % 120 == 0) {
       if (dd > out.range && std::hypot(a[0] - mark[0], a[2] - mark[1]) < 2.0f) out.stuck_s += 2;
       mark[0] = a[0], mark[1] = a[2];
-      if (std::getenv("W58_LOG")) std::fprintf(stderr, "  t %d: at %.0f %.0f %.0f, %.0f m\n", f / 60, a[0], a[1], a[2], dd);
+      if (std::getenv("W58_LOG")) {
+        std::fprintf(stderr, "  t %d: at %.0f %.0f %.0f, %.0f m\n", f / 60, a[0], a[1], a[2], dd);
+      }
     }
     if (f == 60)  // the player has shot the factory door down (its target's destroy_anim)
       if (zeff::AnimDef* door = zeff::anim_find("open_fdoors")) zeff::anim_start(door, nullptr, 0, 0, 0), out.door = true;
@@ -23221,109 +23223,16 @@ WorksRun c2m4_works_run(bool bugs, bool nav, const float spot[3]) {
 
 TEST(mission_c2m4_lancemate_reaches_the_works_headless) {
   if (!have_game()) return;
-  const float spot[3] = {-640.0f, -90.0f, -1000.0f};
-  const WorksRun exe = c2m4_works_run(false, false, spot), port = c2m4_works_run(true, false, spot), grid = c2m4_works_run(true, true, spot);
+  // The hub past the thin conveyor, on its floor (the land 40 m over it).
+  const float spot[3] = {-1024.0f, std::getenv("W58_Y") ? static_cast<float>(std::atof(std::getenv("W58_Y"))) : -98.8f, -1500.0f};
+  const bool only = std::getenv("W58_ONLY") != nullptr;
+  const WorksRun exe = only ? WorksRun{} : c2m4_works_run(false, false, spot), port = only ? WorksRun{} : c2m4_works_run(true, false, spot),
+                 grid = c2m4_works_run(true, true, spot);
   for (const auto& [r, who] : {std::pair{&exe, "the exe"}, {&port, "W17/W27"}, {&grid, "the grid"}})
     std::printf("  %s: door %d, %.0f m off, there at %d (%.0f s) of %d frames, nearest %.0f m, his height at the end %.0f, stuck %d s, paths %d (the first at %d: %d points, %.0f m)\n", who, r->door, r->d0,
                 r->reached, r->reached / 60.0f, r->frames, r->d_min, r->y_end, r->stuck_s, r->paths, r->way_at, r->way_points, r->way_len);
-  EXPECT(grid.placed && grid.way_points > 0);
-  EXPECT(grid.reached > 0);
+  EXPECT(exe.placed && exe.reached < 0);  // the exe's: his feet read the land over the tunnel as a wall
+  EXPECT(port.reached > 0 && port.stuck_s < 10);
+  EXPECT(grid.placed && grid.reached > 0 && grid.stuck_s < 10);
 }
 
-TEST(w58tmp_flood_headless) {
-  if (!have_game()) return;
-  namespace nv = mech3::ai::nav;
-  g_cheat_mission_op = 2;
-  cheat_mission("w58_flood_write", 1, 4, 200, [&](int f, mech3::GameEngine&, CheatKeys&) {
-    if (f != 3) return false;
-    void* pl = mech3::mech_mission_player();
-    mech3::LaunchedMech x;
-    mech3::describe_mech(pl, &x);
-    const float start[3] = {x.pos[0], x.pos[1], x.pos[2]};
-    const float spot[3] = {-640.0f, -90.0f, -1000.0f};
-    nv::service(0.0f, 0.0);
-    nv::Grid& g = nv::grid();
-    const int ct = nv::tile_of(nv::cell_of(start[0])), rt = nv::tile_of(nv::cell_of(start[2]));
-    const int t0x = ct - 2, t1x = ct + 8, t0z = rt - 4, t1z = rt + 5;
-    for (int tz = t0z; tz <= t1z; ++tz)
-      for (int tx = t0x; tx <= t1x; ++tx) {
-        double budget = 1e12;
-        g.build(tx, tz, &budget);
-      }
-    const int x0 = t0x * nv::kTile, z0 = t0z * nv::kTile, w = (t1x - t0x + 1) * nv::kTile, h = (t1z - t0z + 1) * nv::kTile;
-    std::vector<uint8_t> mark(static_cast<size_t>(w) * h * nv::kLevels, 0);
-    auto flood = [&](const float at[3], uint8_t bit) {
-      std::vector<int> stack;
-      int cx = nv::cell_of(at[0]), cz = nv::cell_of(at[2]);
-      int l = g.level_at(cx, cz, at[1]);
-      for (int r = 0; r < 12 && (l < 0 || !g.walkable(cx, cz, l)); ++r) cx += 1, l = g.level_at(cx, cz, at[1]);
-      std::fprintf(stderr, "FLOOD %d start cell %d %d level %d y %.1f walkable %d\n", bit, cx, cz, l, l >= 0 ? g.cell(cx, cz, l)->y : 0.f, l >= 0 && g.walkable(cx, cz, l));
-      if (l < 0) return 0;
-      auto idx = [&](int a, int b, int c) { return ((b - z0) * w + (a - x0)) * nv::kLevels + c; };
-      stack.push_back(idx(cx, cz, l));
-      mark[stack.back()] |= bit;
-      int n = 0;
-      while (!stack.empty()) {
-        const int i = stack.back();
-        stack.pop_back();
-        ++n;
-        const int place = i / nv::kLevels, lv = i % nv::kLevels, a = x0 + place % w, b = z0 + place / w;
-        for (int dz = -1; dz <= 1; ++dz)
-          for (int dx = -1; dx <= 1; ++dx) {
-            if (!dx && !dz) continue;
-            const int na = a + dx, nb = b + dz;
-            if (na < x0 || na >= x0 + w || nb < z0 || nb >= z0 + h) continue;
-            const int nl = g.step(a, b, lv, dx, dz);
-            if (nl < 0) continue;
-            const int j = idx(na, nb, nl);
-            if (mark[j] & bit) continue;
-            mark[j] |= bit;
-            stack.push_back(j);
-          }
-      }
-      return n;
-    };
-    const int a = flood(start, 1), b = flood(spot, 2);
-    std::fprintf(stderr, "FLOOD reached from the start %d, from the spot %d\n", a, b);
-    if (const char* pr = std::getenv("W58_PROFILE")) {  // x0 z0 x1 z1 in cells: every place's floors and links
-      int px0, pz0, px1, pz1;
-      if (std::sscanf(pr, "%d %d %d %d", &px0, &pz0, &px1, &pz1) == 4)
-        for (int cz = pz0; cz <= pz1; ++cz)
-          for (int cx = px0; cx <= px1; ++cx) {
-            std::fprintf(stderr, "CELL %d %d (%.0f %.0f):", cx, cz, nv::centre_of(cx), nv::centre_of(cz));
-            for (int l = 0; l < nv::kLevels; ++l) {
-              const nv::Cell* c = g.cell(cx, cz, l);
-              if (!c || (c->flags & nv::kNoGround)) continue;
-              std::fprintf(stderr, " [%d y %.1f f%#x e%d s%d w%d m%d]", l, c->y, c->flags, c->east, c->south, g.walkable(cx, cz, l), mark[((cz - z0) * w + (cx - x0)) * nv::kLevels + l]);
-            }
-            std::fprintf(stderr, "\n");
-          }
-    }
-    if (std::FILE* fp = std::fopen(std::getenv("W58_MAP"), "wb")) {
-      std::fprintf(fp, "P6\n# origin %d %d cell 4\n%d %d\n255\n", x0, z0, w, h);
-      for (int cz = z0; cz < z0 + h; ++cz)
-        for (int cx = x0; cx < x0 + w; ++cx) {
-          uint8_t m = 0;
-          float low = 1e30f, top = -1e30f;
-          for (int l = 0; l < nv::kLevels; ++l) {
-            const nv::Cell* c = g.cell(cx, cz, l);
-            if (c && !(c->flags & nv::kNoGround)) {
-              if (c->y < low) m = mark[((cz - z0) * w + (cx - x0)) * nv::kLevels + l];
-              low = std::min(low, c->y), top = std::max(top, c->y);
-            }
-          }
-          // Green from the start, magenta from the spot; grey by the lowest floor; floors stacked lighter.
-          uint8_t rgb[3];
-          const uint8_t v = low < 1e29f ? static_cast<uint8_t>(std::clamp(90.0f + (low + 100.0f) * 0.9f, 30.0f, 200.0f)) : 0;
-          rgb[0] = rgb[1] = rgb[2] = v;
-          if (m & 1) rgb[0] = v / 2, rgb[1] = static_cast<uint8_t>(std::min(255, v + 60)), rgb[2] = v / 2;
-          if (m & 2) rgb[0] = static_cast<uint8_t>(std::min(255, v + 80)), rgb[1] = v / 3, rgb[2] = static_cast<uint8_t>(std::min(255, v + 80));
-          if ((m & 3) == 3) rgb[0] = 255, rgb[1] = 255, rgb[2] = 0;
-          std::fwrite(rgb, 1, 3, fp);
-        }
-      std::fclose(fp);
-    }
-    return true;
-  });
-  g_cheat_mission_op = 0;
-}

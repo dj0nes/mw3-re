@@ -196,10 +196,29 @@ most every 10 s. A building brought down opens up the same way.
 **Mechs and vehicles.** Left out of the walls by their owner (0x0040e920), or
 the leader's own body reads as a wall and a mech standing on a tile as it is
 built is baked in. But the mobile HQs stand still at speed 0 and pilots bump
-along them: **a vehicle at rest** holds the cells round it for 1.5 s at a
-time, looked at once a second, at least 22 m from its centre, as the exe's own
-giving way (0x4cc3e0, too close inside +0x78 x 0.9, shipped mostly 25) pushes
-a pilot back from inside that: a path through there never gets through.
+along them: **a vehicle at rest** holds its hull's cells solid and, for 1.5 s
+at a time, looked at once a second, costs 8x within 26 m of its centre, as the
+exe's own giving way (0x4cc3e0, too close inside +0x78 x 0.9, shipped mostly
+25) pushes a pilot back from inside that. A cost, not a wall: the HQs park in
+a pass in c2m4, and a wall there cuts the lance off from the whole map.
+
+**A mech is wider than its centre line.** Its probes reach about 7 m ahead and
+3 m aside. The first ring of cells is a hard margin; the second costs 3x and
+string pulling keeps out of it, so a path takes a corridor's middle and a
+corner wide when it can (`Grid::tight`).
+
+**The boundary's shapes.** The red patches the AI keeps out of (ai.md section
+11) are the designers' path hints, and their way-round pull does real work:
+a lancemate walks c2m4's hill by them. For a lancemate the grid speaks first
+when the way crosses one, and a cell in one costs 20x: round it when there is
+a way, through only when there is none (the player standing in one).
+
+**A mech's own feet** (the biggest find, and no part of the grid): the skis'
+and the collision's queries honour the zones in the camera's view. A lancemate
+in a zone the player is not in loses the floor under him; the skis fall back
+on the land overhead, read a 45 m wall ahead and kick him back every frame.
+FIX (bug) behind `bugs`, for AI mechs (`Skis::update`, `Mech::collide_query`);
+c2m4: from never arriving, 158 s of 180 stuck, to there in 70 s.
 
 **When it steers.** Only when the buffered straight line is blocked: on open
 ground the exe's walk to the centimetre (`..follows_round_walls_headless`).

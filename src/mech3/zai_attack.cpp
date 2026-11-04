@@ -297,7 +297,7 @@ bool firing_spot(const float pos[3], const float tgt[3], float range, float out[
 }
 }  // namespace
 
-bool NavWay::step(zgame::Handle v, const float pos[3], const float to[3], bool enemy, float range, float dt, float out[3]) {
+bool NavWay::step(zgame::Handle v, const float pos[3], const float to[3], bool enemy, float range, float dt, float out[3], bool must_find) {
   BrainHooks& h = brain_hooks();
   const float now = h.now();
   nav_frame(now);
@@ -334,10 +334,10 @@ bool NavWay::step(zgame::Handle v, const float pos[3], const float to[3], bool e
     std::fprintf(stderr, "navway %.1f: at %.0f %.0f %.0f enemy %d to %.0f %.0f, spot %d %.0f %.0f %.0f, open %d, fallback %.1f\n", now,
                  pos[0], pos[1], pos[2], enemy, to[0], to[2], has_spot, spot[0], spot[1], spot[2],
                  nav::line_clear(nav::grid(), pos, goal), follow.fallback_until);
-  if (follow.step(pos, goal, now, dt, out)) return true;
+  if (follow.step(pos, goal, now, dt, out, must_find)) return true;
   // The spot in a straight line: walked to as it is (the fallbacks head for the enemy).
   if (has_spot && now >= follow.fallback_until && std::hypot(spot[0] - pos[0], spot[2] - pos[2]) > 6.0f &&
-      nav::line_clear(nav::grid(), pos, spot)) {
+      nav::line_clear_avoiding(nav::grid(), pos, spot)) {
     out[0] = spot[0], out[1] = pos[1], out[2] = spot[2];
     return true;
   }
@@ -824,19 +824,22 @@ void FollowState::run(float dt) {
   float at[3] = {to[0], to[1], to[2]};
   float goal[3], ahead[2] = {0, 0};
   if (zfix::options().bugs) h.forward(v, &ahead[0], &ahead[1]), trail_record(to);  // ours, for the detour and the trail
-  if (h.inout_clamp(v, to, at)) {  // 0x004c3000: the boundary pulls the target's place
-    const Steer& s = b.steer;
-    if (!(pulled && same_or_nan(at[0], s.start[0]) && same_or_nan(at[2], s.start[2]))) aim(b, v, pos, at, 0.0f);
-    pulled = 1;
-    detour.on = false;
-  } else if (zfix::options().bugs && nav_for(v) &&
-             nav.step(v, pos, to, !h.targetable(target) || !h.targetable(target)->is_ally(v), b.params.get<float>(0x28), dt,
-                      goal)) {
-    aim(b, v, pos, goal, 0.0f);  // FIX (bug), ours (W58): by the grid round what is in the way
+  const bool clamped = h.inout_clamp(v, to, at);  // 0x004c3000: the boundary pulls the target's place
+  // FIX (bug), ours (W58): a lancemate by the grid round what is in the way,
+  // and past the shapes the AI keeps out of when there is no way round them
+  // (the leader stands in one: c2m4's works past the conveyor).
+  if (zfix::options().bugs && nav_for(v) &&
+      nav.step(v, pos, to, !h.targetable(target) || !h.targetable(target)->is_ally(v), b.params.get<float>(0x28), dt, goal, clamped)) {
+    aim(b, v, pos, goal, 0.0f);
     slack_side = 2.0f;
     pulled = 0;
     detour.on = false, detour.watch_t = 0;
     on_crumb = true;
+  } else if (clamped) {
+    const Steer& s = b.steer;
+    if (!(pulled && same_or_nan(at[0], s.start[0]) && same_or_nan(at[2], s.start[2]))) aim(b, v, pos, at, 0.0f);
+    pulled = 1;
+    detour.on = false;
   } else if (zfix::options().bugs && trail_goal(pos, to, b.params.get<float>(0x28), dt, goal)) {
     aim(b, v, pos, goal, 0.0f);  // FIX (bug), ours (W27): along the leader's way
     slack_side = 2.0f;

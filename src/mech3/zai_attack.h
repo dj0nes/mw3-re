@@ -162,7 +162,7 @@ struct NavWay {
   // The point to walk to this frame (a waypoint), or false as before. With
   // `enemy`, toward a firing spot on it within `range` when the line of
   // sight from here is blocked.
-  bool step(zgame::Handle v, const float pos[3], const float to[3], bool enemy, float range, float dt, float out[3]);
+  bool step(zgame::Handle v, const float pos[3], const float to[3], bool enemy, float range, float dt, float out[3], bool must_find = false);
 };
 // Whether this pilot walks by the grid (zfix bugs, its side's switch).
 bool nav_for(zgame::Handle v);

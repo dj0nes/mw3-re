@@ -234,12 +234,18 @@ bool Skis::update(float dt) {
 
   static GroundHits hits[7];  // 0x006061d0
   for (GroundHits& h : hits) h = GroundHits{};
+  // FIX (bug), W58: the query honours the zones in the camera's view, so an AI
+  // mech in another zone (a lancemate in c2m4's tunnel) lost its own floor and
+  // read the land over it as a wall ahead (fixes.md). Its own feet read them all.
+  const int32_t zone_mode = zmod::zones().mode;
+  if (zfix::options().bugs && &m != mech3::world().mission_player) zmod::zones().mode = 0;
   if (g_calls.query) {
     g_calls.query(&world[start], count, matrix[10] - kQueryTop, &hits[start]);
   } else if (Node* w = world_hooks().world) {
     zcls::ground_query(w, &world[start].x, count, matrix[10] - kQueryTop,
                        reinterpret_cast<zcls::GroundHits*>(&hits[start]));
   }
+  zmod::zones().mode = zone_mode;
 
   float g = environment().gravity;
   const bool both = down[0] && down[1];

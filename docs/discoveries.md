@@ -4153,3 +4153,22 @@ The screen after the pilot for INSTANT ACTION, 0x00488bc0 (details:
   a slider (many throttles are) is not offered there at all. (Found from the
   code: 0x004274d0, 0x0042e5b0, 0x00430180. The rebuild's lever covers
   reverse by itself. docs/controls.md)
+- **Why your lancemate gets stuck in the mission where you meet Epona Rhi.**
+  That mission has two floors in one place: the land on top, and a tunnel and
+  works 45 to 90 m under it. The game tests only the "zones" the camera can
+  see, and it uses the same list for a mech's feet. So once you are in a
+  different zone from your lancemate, the floor under him stops existing as
+  far as his legs can tell. The only ground left is the land far over his
+  head, which his legs read as a 45 m wall right in front of him, and the game
+  kicks him backwards every frame, at full throttle, for as long as you stay
+  away. He looks like he is walking into nothing. In the rebuild with bug
+  fixes off (the original's logic) he stood there for all 3 minutes of the
+  test. The game knew the trick: several other checks turn the zones off
+  first, just not this one. (Found from the code: 0x00476a30, 0x00477820,
+  0x0049e82b. The rebuild's AI mechs read every zone. docs/lancemate-pathing.md)
+- **The AI's only route planning is a set of "keep out" patches.** Every map
+  has shapes painted for the AI to stay out of, and a lancemate's straight
+  line that crosses one is pulled round its edge. That pull is the closest
+  thing the original has to pathfinding: it is why a lancemate walks a neat L
+  round a hill, and why he will not follow you into a patch at all. (Found
+  from the code: 0x004c3000. docs/ai.md section 11)

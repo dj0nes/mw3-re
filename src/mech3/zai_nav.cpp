@@ -16,11 +16,12 @@
 #include "mech3/app_vehicle.h"
 #include "mech3/mission_world.h"
 #include "mech3/options.h"
+#include "mech3/zainet_inout.h"
 
 namespace mech3::ai::nav {
 
 namespace {
-constexpr float kGiveWay = 22.0f;  // m round a parked vehicle
+constexpr float kGiveWay = 26.0f;  // m round a parked vehicle
 
 // The world's own queries, every zone's (the walks skip those not in view).
 struct ZclsWorld : World {
@@ -76,6 +77,11 @@ struct ZclsWorld : World {
     }
     return false;
   }
+  bool avoid(float x, float y, float z) override {
+    const float p[3] = {x, y, z};
+    float out[3];
+    return inout_pull(p, p, out);  // from inside a shape, the point out of it
+  }
   // The vehicles at rest (a parked mobile HQ, a tank waiting): the grid's
   // edges leave them out, for they may drive off.
   void parked(std::vector<std::array<float, 5>>* out) override {
@@ -89,12 +95,7 @@ struct ZclsWorld : World {
       if (!node || zcls::node_box_extent_xz(node, e) != 0) continue;
       float at[3] = {};
       zcls::node_world_position(node, at);
-      // Its hull, and at least the giving way's distance round its centre
-      // (0x004cc3e0: too close inside +0x78 x 0.9, shipped mostly 25; the
-      // walkable buffer adds a cell): a path through there is pushed back.
-      const float cx = (e[0] + e[3]) * 0.5f, cz = (e[2] + e[5]) * 0.5f;
-      const float hx = std::max((e[3] - e[0]) * 0.5f, kGiveWay), hz = std::max((e[5] - e[2]) * 0.5f, kGiveWay);
-      out->push_back({cx - hx, cz - hz, cx + hx, cz + hz, at[1]});
+      out->push_back({e[0], e[2], e[3], e[5], at[1]});
     }
   }
 };
@@ -327,7 +328,7 @@ int Grid::step(int cx, int cz, int level, int dx, int dz) const {
         if ((c->flags & kHeld) && std::fabs(up) < kHead) return -1;
       }
     // The walls on the four edges round it, at this height.
-    const auto walled = [&](int x, int z, uint8_t bit) {
+    const auto walled = [&](int x, int z, uint16_t bit) {
       for (int l = 0; l < kLevels; ++l) {
         const Cell* c = cell(x, z, l);
         if (c && !(c->flags & kNoGround) && (c->flags & bit) && std::fabs(c->y - top) < kHead) return true;
@@ -347,12 +348,12 @@ Cell* Grid::held_cell(const Held& h) {
   return &t->cells[((h.cz - tile_of(h.cz) * kTile) * kTile + (h.cx - tile_of(h.cx) * kTile)) * kLevels + h.level];
 }
 
-void Grid::hold(int cx, int cz, float y, float until) {
+void Grid::hold(int cx, int cz, float y, float until, uint16_t what) {
   const int level = level_at(cx, cz, y);
   if (level < 0) return;
-  const Held h{cx, cz, level, until};
+  const Held h{cx, cz, level, until, what};
   if (Cell* c = held_cell(h)) {
-    c->flags |= kHeld;
+    c->flags |= what;
     held_.push_back(h);
   }
 }
@@ -363,12 +364,51 @@ void Grid::release(float now) {
       ++it;
       continue;
     }
-    if (Cell* c = held_cell(*it)) c->flags &= static_cast<uint8_t>(~kHeld);
+    if (Cell* c = held_cell(*it)) c->flags &= static_cast<uint16_t>(~it->what);
     it = held_.erase(it);
   }
   // A cell lifted above may be under a later hold too.
   for (const Held& h : held_)
-    if (Cell* c = held_cell(h)) c->flags |= kHeld;
+    if (Cell* c = held_cell(h)) c->flags |= h.what;
+}
+
+bool Grid::avoided(int cx, int cz, int level) {
+  auto* c = const_cast<Cell*>(cell(cx, cz, level));
+  if (!c) return false;
+  if (!(c->flags & kAvoidKnown)) {
+    c->flags |= kAvoidKnown;
+    if (world_ && world_->avoid(centre_of(cx), c->y, centre_of(cz))) c->flags |= kAvoid;
+  }
+  return (c->flags & kAvoid) != 0;
+}
+
+bool Grid::tight(int cx, int cz, int level) {
+  auto* me = const_cast<Cell*>(cell(cx, cz, level));
+  if (!me) return false;
+  if (me->flags & kRoomKnown) return (me->flags & kTight) != 0;
+  me->flags |= kRoomKnown;
+  const float y = me->y;
+  for (int dz = -2; dz <= 2; ++dz)
+    for (int dx = -2; dx <= 2; ++dx) {
+      if (std::max(std::abs(dx), std::abs(dz)) != 2) continue;
+      const float run = kCell * std::hypot(static_cast<float>(dx), static_cast<float>(dz));
+      for (int l = 0; l < kLevels; ++l) {
+        const Cell* c = cell(cx + dx, cz + dz, l);
+        if (!c || (c->flags & kNoGround)) continue;
+        const float up = c->y - y;
+        if ((up > kClimb * run && up < kHead) || (std::fabs(up) < kHead && (c->flags & (kWallE | kWallS)))) {
+          me->flags |= kTight;
+          return true;
+        }
+      }
+    }
+  return false;
+}
+
+void Grid::forget_avoid() {
+  for (auto& kv : tiles_)
+    for (Cell& c : kv.second->cells) c.flags &= static_cast<uint16_t>(~(kAvoidKnown | kAvoid));
+  ++version;
 }
 
 bool line_clear(const Grid& g, const float a[3], const float b[3]) {
@@ -392,6 +432,21 @@ bool line_clear(const Grid& g, const float a[3], const float b[3]) {
   }
   // On b's floor, not one over or under it.
   return level == g.level_at(cx, cz, b[1]);
+}
+
+bool line_clear_avoiding(Grid& g, const float a[3], const float b[3]) {
+  if (!line_clear(g, a, b)) return false;
+  const float len = std::hypot(b[0] - a[0], b[2] - a[2]);
+  const int steps = static_cast<int>(len / kCell) + 1;
+  const auto in_it = [&](float t) {
+    const float x = a[0] + (b[0] - a[0]) * t, y = a[1] + (b[1] - a[1]) * t, z = a[2] + (b[2] - a[2]) * t;
+    const int cx = cell_of(x), cz = cell_of(z), l = g.level_at(cx, cz, y);
+    return l >= 0 && (g.avoided(cx, cz, l) || g.tight(cx, cz, l));
+  };
+  if (in_it(0.0f) && in_it(1.0f)) return true;
+  for (int i = 0; i <= steps; ++i)
+    if (in_it(static_cast<float>(i) / static_cast<float>(steps)) && i > 0) return false;
+  return true;
 }
 
 namespace {
@@ -481,7 +536,9 @@ Find find_path(Grid& g, const float from[3], const float to[3], Way* out) {
           if (nx < x0 || nx > x1 || nz < z0 || nz > z1) continue;
           const int nl = g.step(x, z, l, dx, dz);
           if (nl < 0) continue;
-          const float step = (dx && dz ? 1.41421356f : 1.0f) * kCell * water_cost(g.cell(nx, nz, nl)->depth);
+          const Cell* there = g.cell(nx, nz, nl);
+          const float step = (dx && dz ? 1.41421356f : 1.0f) * kCell * water_cost(there->depth) * (there->flags & kNear ? 8.0f : 1.0f) *
+                             (g.avoided(nx, nz, nl) ? 20.0f : 1.0f) * (g.tight(nx, nz, nl) ? 3.0f : 1.0f);
           const int j = idx(nx, nz, nl);
           if (cost[i] + step < cost[j]) {
             cost[j] = cost[i] + step, from_of[j] = i;
@@ -517,7 +574,7 @@ Find find_path(Grid& g, const float from[3], const float to[3], Way* out) {
   while (k + 1 < cells.size()) {
     size_t far = k + 1;
     for (size_t j = cells.size() - 1; j > k + 1; --j)
-      if (line_clear(g, here.data(), cells[j].data())) {
+      if (line_clear_avoiding(g, here.data(), cells[j].data())) {
         far = j;
         break;
       }
@@ -585,14 +642,24 @@ void service(float now, double budget_us) {
     watch_t = now;
   }
   if (now - watch_t >= 1.0f || now < watch_t) watch_t = now, watch_look(g, now);
+  static int32_t shapes = 0;
+  if (inout_changes() != shapes) shapes = inout_changes(), g.forget_avoid();
   g.release(now);
   if (g.world() && now - g.parked_t >= 1.0f) {  // held a little past the next look
     g.parked_t = now;
     std::vector<std::array<float, 5>> rects;
     g.world()->parked(&rects);
-    for (const auto& r : rects)
+    for (const auto& r : rects) {
       for (int cz = cell_of(r[1]); cz <= cell_of(r[3]); ++cz)
         for (int cx = cell_of(r[0]); cx <= cell_of(r[2]); ++cx) g.hold(cx, cz, r[4], now + 1.5f);
+      // Round it, as far as the giving way reaches (0x004cc3e0: too close
+      // inside +0x78 x 0.9, shipped mostly 25): a path through there is pushed
+      // back, so one is taken only with no other way (the HQs park in a pass).
+      const float mx = (r[0] + r[2]) * 0.5f, mz = (r[1] + r[3]) * 0.5f;
+      for (int cz = cell_of(mz - kGiveWay); cz <= cell_of(mz + kGiveWay); ++cz)
+        for (int cx = cell_of(mx - kGiveWay); cx <= cell_of(mx + kGiveWay); ++cx)
+          if (std::hypot(centre_of(cx) - mx, centre_of(cz) - mz) <= kGiveWay) g.hold(cx, cz, r[4], now + 1.5f, kNear);
+    }
   }
   static float dumped = -1e30f;
   if (const char* file = std::getenv("MW3_NAV_DUMP"); file && now - dumped >= 10.0f && g.tiles()) {
@@ -612,13 +679,13 @@ bool on_for(bool ally) {
   return ally ? o.nav_allies : o.nav_enemies;
 }
 
-bool Follower::step(const float pos[3], const float to[3], float now, float dt, float out[3]) {
+bool Follower::step(const float pos[3], const float to[3], float now, float dt, float out[3], bool must_find) {
   Grid& g = grid();
   if (now < fallback_until) return false;
   const float flat = std::hypot(to[0] - pos[0], to[2] - pos[2]);
   if (flat < 8.0f && std::fabs(to[1] - pos[1]) < kHead) return path.clear(), false;
   // The straight way first: on open ground the exe's walk, untouched.
-  const bool straight = line_clear(g, pos, to);
+  const bool straight = !must_find && line_clear_avoiding(g, pos, to);
   if (straight && path.empty()) return false;
   if (straight && g.built(cell_of(pos[0]), cell_of(pos[2]))) {
     path.clear();
@@ -633,7 +700,8 @@ bool Follower::step(const float pos[3], const float to[3], float now, float dt, 
   // A path, new or again: the goal moved 15 m, every 2 s, or none yet.
   const bool moved = std::hypot(to[0] - goal[0], to[2] - goal[1]) > 15.0f;
   if (none_version == g.version && now < none_until && std::hypot(to[0] - none_goal[0], to[2] - none_goal[1]) < 50.0f) return false;
-  if ((path.empty() || moved || now - found_t > 2.0f) && now - last_ask >= 0.5f) {
+  const bool changed = found_version != g.version && now - found_t > 2.0f;
+  if ((path.empty() || moved || changed || found_t < -1e8f) && now - last_ask >= 0.5f) {
     last_ask = now;
     Way p;
     const Find f = find_path(g, pos, to, &p);
@@ -641,22 +709,23 @@ bool Follower::step(const float pos[3], const float to[3], float now, float dt, 
       if (!path.empty()) ++repaths;
       ++paths;
       if (path.empty()) watch_t = now, watch_pos[0] = pos[0], watch_pos[1] = pos[2];
-      path = std::move(p), at = 0, goal[0] = to[0], goal[1] = to[2], found_t = now;
+      path = std::move(p), at = 0, goal[0] = to[0], goal[1] = to[2], found_t = now, found_version = g.version;
     } else if (f == Find::kNone) {
       path.clear();
       // W17/W27 and the exe's walk, until the world or the goal changes.
       none_wait = none_version == g.version ? std::min(none_wait * 2.0f, 60.0f) : 5.0f;
       none_version = g.version, none_until = now + none_wait, none_goal[0] = to[0], none_goal[1] = to[2];
       return false;
-    } else if (path.empty()) {
-      return false;
+    } else {  // tiles building: not again for a while, the search is the dear part
+      last_ask = now + 1.5f;
+      if (path.empty()) return false;
     }
   }
   if (path.empty()) return false;
   // The waypoint: reached within 4 m (a walkway is narrow), or passed by when
   // the next is in a clear line.
   while (at + 1 < static_cast<int>(path.size()) &&
-         (std::hypot(path[at][0] - pos[0], path[at][2] - pos[2]) < 4.0f || line_clear(g, pos, path[at + 1].data()))) {
+         (std::hypot(path[at][0] - pos[0], path[at][2] - pos[2]) < 4.0f || line_clear_avoiding(g, pos, path[at + 1].data()))) {
     ++at, ++waypoints;
   }
   const float d = std::hypot(path[at][0] - pos[0], path[at][2] - pos[2]);
