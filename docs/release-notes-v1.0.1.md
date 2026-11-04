@@ -66,8 +66,10 @@ settings are kept.
   MechWarrior 3 in it.
 - **Jump jets lighting up water (Op 3, Mission 5):** one report, not
   reproduced; a screenshot and `mw3.log` help.
-- Being looked at: APCs leaving the ground near the town in Op 1,
-  Mission 2, and how mech speed reacts to water and hills.
+- **APCs leaving the ground** near the town in Op 1, Mission 2, on very
+  fast machines: being worked on.
+- Mech speed in shallow water and on hills is the original's: speed has no
+  slope term, and water only slows a mech deeper than a tenth of its height.
 - Pirate's Moon is not supported yet.
 
 ## Downloads
@@ -89,10 +91,10 @@ settings folder (the README says where it is).
 ## Checksums
 
 ```
-<sha256>  MW3-Rebuild-Setup-v1.0.1.exe
-<sha256>  mw3-v1.0.1-win64.zip
-<sha256>  MW3-Rebuild-v1.0.1-mac.dmg
-<sha256>  MW3-Rebuild-v1.0.1-x86_64.AppImage
+71cc59238c48a85f671b6ca34a8728fc62d06eecb2ba77aa13935324c76d7624  MW3-Rebuild-Setup-v1.0.1.exe
+db272bb4aad3a41f34f25a8ca6c84f9db4172d8080192a5f8013a0c876f3b8da  mw3-v1.0.1-win64.zip
+b6dd7c89a53f6b415c039d7ea9d378351342954e9b7645ce07783d7fb8042b32  MW3-Rebuild-v1.0.1-mac.dmg
+e942f30de575fb3de0e05e2c3f976cfbe4c7020d395450b9037ad61a4c7607d5  MW3-Rebuild-v1.0.1-x86_64.AppImage
 ```
 
 ---
