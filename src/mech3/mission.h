@@ -108,6 +108,15 @@ class MissionHooks : public zgame::Unported {
   virtual void clutter_load_templates() { unported("0x005139d0", {}); }
   virtual void clutter_lay(Handle world) { unported("0x00513a30", {world}); }
   virtual void clutter_free() { unported("0x00513a40", {}); }
+  // The game object's (PM's vtable, MW3's slots 4 lower for type and saved).
+  virtual const char* game_dir() { return "c1"; }                                // vt+0x54
+  virtual const char* game_key() { return "m1"; }                                // vt+0x58: "m<n>", "ia<n>", ...
+  virtual void game_objectives(Handle a, Handle b, Handle c, Handle d, Handle e) {  // vt+0x3c
+    unported("game.vt+0x3c", {a, b, c, d, e});
+  }
+  virtual void game_open_reader() { unported("game.vt+0x64", {}); }              // reader<key>.zbd
+  virtual void pilot_game_ia() { unported("0x0047b6e0", {0}); }                  // result not used
+  virtual void fn_4f9930() { unported("0x004f9930", {}); }
   // Modules started for the mission.
   virtual void fn_518f50(int32_t v) { unported("0x00518f50", {v}); }
   virtual void fn_484270(int32_t v) { unported("0x00484270", {v}); }
@@ -170,7 +179,7 @@ class MissionHooks : public zgame::Unported {
   virtual void world_params(const char* file, const char* block) { unported("0x00491de0", {file, block}); }
   virtual void fn_4e7b40() { unported("0x004e7b40", {}); }
   virtual void entity_named(Handle h, const char* name) { unported("0x005a84c0", {h, name}); }
-  virtual void inout_load() { unported("0x004c3b80", {}); }
+  virtual void inout_load() { unported("0x004c3240", {}); }  // an empty function in PM; the port selects here
   virtual void landmines_load(Handle h, const char* file, const char* block) { unported("0x004135c0", {h, file, block}); }
   virtual void fn_4b4ab0(Handle h) { unported("0x004b4ab0", {h}); }
   virtual void player_setup(uint8_t turrets) { unported("0x0049e810", {turrets}); }

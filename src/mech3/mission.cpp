@@ -87,26 +87,27 @@ bool Missions::texture_budget(uint32_t* mb) {
   return true;
 }
 
-// Mech3.exe 1.2 @ 0x00490600: the reader block of the game: "ia%d" for
-// type 2, "mp%d" for 3, else "m%d", by mission number.
 void Missions::block_name(char* out) { block_name(g_hooks->game_mission_number(), out); }
 
-// Mech3.exe 1.2 @ 0x00490590
+// Pirate's Moon: the game classes' vt+0x58 (0x004355d0 m%d, 0x0040c9c0 ia%d, 0x00436580 mp%d, 0x0040e5f0
+// sa%d, 0x0040c6c0 "default" for the rest).
 void Missions::block_name(int32_t n, char* out) {
   const int32_t type = g_hooks->game_type();
-  std::snprintf(out, 0x20, type == 2 ? "ia%d" : type == 3 ? "mp%d" : "m%d", n);
+  if (type == 1) std::snprintf(out, 0x20, "m%d", n);
+  else if (type == 2) std::snprintf(out, 0x20, "ia%d", n);
+  else if (type == 3) std::snprintf(out, 0x20, "mp%d", n);
+  else if (type == 5) std::snprintf(out, 0x20, "sa%d", n);
+  else std::snprintf(out, 0x20, "default");
 }
 
-// Mech3.exe 1.2 @ 0x00490630: the mission's reader archives and loose paths.
+// Pirate's Moon 1.0 @ 0x00493820: the mission's reader paths. Its own archive reader<key>.zbd is
+// the game object's vt+0x64, called before the load (0x00407f38).
 void Missions::open_readers(const char* name) {
   MissionHooks& h = *g_hooks;
   h.reader_open(format("zbd\\%s\\reader.zbd", name).c_str(), 0);
-  h.reader_set_path(format("..\\data\\common\\zrdr;..\\data\\common\\zrdr\\mechs;..\\data\\%s\\zrdr;..\\data\\%s\\zrdr\\aipath",
-                           name, name).c_str());
-  char block[0x20];
-  block_name(block);
-  h.reader_add_path(format("..\\data\\%s\\zrdr\\aipath\\%s", name, block).c_str());
-  h.reader_open(format("zbd\\%s\\reader%s.zbd", name, block).c_str(), 0);
+  h.reader_set_path(format("..\\data\\common\\zrdr;..\\data\\common\\zrdr\\mechs;..\\data\\%s\\zrdr;..\\data\\%s\\zrdr\\%s",
+                           name, name, name).c_str());
+  h.reader_add_path(format("..\\data\\%s\\zrdr\\aipath\\%s", name, h.game_key()).c_str());
 }
 
 // Pirate's Moon 1.0 @ 0x00492830: the world. A mission already up is kept, another
@@ -276,78 +277,79 @@ bool Missions::load_world(int32_t index) {
   return true;
 }
 
-// Mech3.exe 1.2 @ 0x00490ab0: the mission behind the world. The game type
-// picks the objectives and the start animation (`start_single_player_m<n>`,
-// `switch_ia_m<n>`, `start_multiplayer_m<n>`, `start_training_m<n>`, each
-// falling back to the name without the number).
+// Pirate's Moon 1.0 @ 0x00493ca0: the mission behind the world. The game type picks the start
+// animation (`start_single_player_m<n>`, `switch_ia_m<n>`, `start_multiplayer_m<n>`,
+// `start_training_m<n>`, `start_standalone_<key>`, each falling back to the name without the
+// number); the objectives are the game object's own (vt+0x3c), by type.
 bool Missions::setup() {
   MissionHooks& h = *g_hooks;
+  const int32_t type = h.game_type();
   const int32_t index = h.game_mission_index();
-  const std::string name = mission_dir(index);
+  const int32_t number = h.game_mission_number();
+  const std::string name = h.game_dir();
   h.fn_576270(0);
   begin();
   h.progress(0.0f);
-  const int32_t type = h.game_type();
-  const int32_t number = h.game_mission_number();
   open_readers(name.c_str());
   if (!load_world(index)) return false;
   open_readers(name.c_str());
   h.mechs_init();
   h.fn_4319a0();
   h.fn_459e80(0x605ae0);
-  std::string block = format("m%d", number);
-  char reader_block[0x20];
-  block_name(reader_block);
-  h.world_params("world.zrd", reader_block);
+  h.progress_text("Loading Environment");
+  h.world_params("world.zrd", h.game_key());
+  h.progress_text("CZUnload::LoadMission()");
   h.fn_4e7b40();
+  h.progress_text("Creating Stealth");
   h.entity_named(h.stealth(), "stealth");
   h.progress(0.8f);
   h.fn_459e80(0x605ae0);
-  h.progress_text("Loading InOut data");
+  h.progress_text("Creating Enemies");
   h.inout_load();
-  h.landmines_load(0x604e48, "landmines.zrd", block.c_str());
+  h.landmines_load(0x604e48, "landmines.zrd", h.game_key());
   h.fn_4b4ab0(0x60b228);
   h.player_setup(h.app_turrets());
   if (h.game_saved()) h.progress_text("Saved Game Loaded");
   if (abort) return false;
-  for (int i = 1; i < 5; ++i) objectives[i] = 0;  // +0x7c..+0x88; +0x78 is left
+  for (int i = 1; i < 5; ++i) objectives[i] = 0;  // +0xb4..+0xc0; +0xb0 is left
   const Handle out[5] = {0x6098d0 + 0x78, 0x6098d0 + 0x7c, 0x6098d0 + 0x80, 0x6098d0 + 0x84, 0x6098d0 + 0x88};
   auto turrets = [&] {
     if (h.app_turrets()) h.turrets_load("aiTurrets.zrd", h.field32(h.field32(h.view(), 0x4), 0x38) + 0x1e4);
   };
+  auto load_objectives = [&] {
+    h.progress_text("Creating Objectives");
+    h.game_objectives(out[0], out[1], out[2], out[3], out[4]);
+  };
   Handle anim = 0;
-  auto start_anim = [&](const char* fmt, const char* fallback) {
-    anim = h.anim_start(format(fmt, number).c_str());
+  auto start_anim = [&](const std::string& first, const char* fallback) {
+    anim = h.anim_start(first.c_str());
     if (!anim) anim = h.anim_start(fallback);
   };
   switch (type + 1) {
     case 0: case 1: case 2:  // -1, 0, 1: single player
       turrets();
-      block = format("m%d", number);
-      h.progress_text("Creating Objectives");
-      h.objectives_load("objectives.zrd", block.c_str(), out[0], out[1], out[2], out[3], out[4]);
-      start_anim("start_single_player_m%d", "start_single_player");
+      load_objectives();
+      start_anim(format("start_single_player_m%d", number), "start_single_player");
       break;
     case 3:  // 2: instant action
-      block = format("ia%d", number);
-      h.progress_text("Creating Objectives");
-      h.objectives_load("objectives.zrd", block.c_str(), out[0], out[1], out[2], out[3], out[4]);
-      start_anim("switch_ia_m%d", "switch_ia");
+      h.pilot_game_ia();
+      load_objectives();
+      start_anim(format("switch_ia_m%d", number), "switch_ia");
       break;
     case 4:  // 3: multiplayer
-      block = format("mp%d", number);
-      h.progress_text("Creating Objectives");
-      h.objectives_load(number > 2 ? "mpinfo.zrd" : "objectives.zrd", number > 2 ? "objectives" : block.c_str(),
-                        out[0], out[1], out[2], out[3], out[4]);
-      start_anim("start_multiplayer_m%d", "start_multiplayer");
-      if (h.mp_flag()) h.mp_stations(stations);
+      load_objectives();
+      start_anim(format("start_multiplayer_m%d", number), "start_multiplayer");
+      if (h.mp_flag()) h.mp_stations(stations);  // not checked; PM's way goes with step 8
       break;
     case 5:  // 4: training
       turrets();
-      block = format("m%d", number);
-      h.progress_text("Creating Objectives");
-      h.game_objectives("objectives.zrd", block.c_str(), out[0], out[1], out[2], out[3], out[4]);
-      start_anim("start_training_m%d", "start_training");
+      load_objectives();
+      start_anim(format("start_training_m%d", number), "start_training");
+      break;
+    case 6:  // 5: a standalone mission
+      turrets();
+      load_objectives();
+      start_anim(format("start_standalone_%s", h.game_key()), "start_standalone");
       break;
     default:
       break;
@@ -378,6 +380,7 @@ bool Missions::setup() {
   h.progress_text("Ready To Launch");
   if (anim) h.anim_run(anim);
   h.interp_5964c0(0);
+  h.fn_4f9930();
   h.progress(1.0f);
   return true;
 }
@@ -388,6 +391,7 @@ bool Missions::setup() {
 // sees it finished at once (0x00490930).
 void Missions::start() {
   g_hooks->game_mission_index();
+  g_hooks->game_open_reader();  // Pirate's Moon: vt+0x64 at 0x00407f38
   done = 0;
   abort = 0;
   failed = setup() ? 0 : 1;

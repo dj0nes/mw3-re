@@ -2094,6 +2094,25 @@ struct WiredMissionHooks : MissionHooks {
   }
   void anim_load(const char*) override { zeff::anim_load(); }
   int32_t object_lod() override { return mech3::object_lod(); }
+  const char* game_dir() override { return mission_dir(e->launch().index); }
+  const char* game_key() override {
+    static char key[0x20];
+    missions().block_name(key);
+    return key;
+  }
+  void game_open_reader() override {
+    char key[0x20];
+    missions().block_name(key);
+    const std::string path = std::string("zbd\\") + mission_dir(e->launch().index) + "\\reader" + key + ".zbd";
+    reader_open(path.c_str(), 0);
+  }
+  void game_objectives(Handle, Handle, Handle, Handle, Handle) override {
+    // 0x00435140: objectives.zrd's block by the key. Training's sets (0x00437f20), standalone's sainfo
+    // (0x0040dac0) and PM's reader 0x0045d620 are still to port.
+    mech3::objectives_load("objectives.zrd", game_key(), ob().objs, ob(), mission_dir(e->launch().index));
+  }
+  void pilot_game_ia() override {}
+  void fn_4f9930() override {}  // 0x004f9a10 over the world's list: to port with zEffect's start
   void puffer_tick_reset() override { zmod::puff_tick_reset(); }
   void weapon_detail_a(int32_t) override {}  // read by PM's zWeapon, not ported yet
   void weapon_detail_b(int32_t) override {}
