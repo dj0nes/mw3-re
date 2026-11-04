@@ -1633,7 +1633,7 @@ TEST(fix_matrix_stack_imbalance_is_refused_and_logged) {
   for (size_t at = 0; (at = text.find("mw3: matrix stack: ", at)) != std::string::npos; ++at) ++lines;
   EXPECT(lines == 4);  // once each: empty, under, over, frame
   EXPECT(text.find("a push past the last slot, refused") != std::string::npos);
-  EXPECT(text.find("from: ") != std::string::npos);
+  EXPECT(text.find("from: ") != std::string::npos && text.find("pushed by: ") != std::string::npos);
 #endif
   zmth::reset_stack();
   zmth::stack_faults() = {};
