@@ -298,6 +298,11 @@ mech3ax reads PM (`GameType::PM`). Checked against the PM install's files:
 
 ## Shared types, forked logic
 
+**Replaced (Owen, 2026-11-04): this branch, `pm`, is PM's own copy and never merges to `main`** (`games-layout.md`).
+New work edits `src/gamez` and `src/mech3` in place, or forks where plainly easier; `src/pm/` and `zgame::Table`
+stay as they are and fold in only when that code is being worked on. A bug or port error MW3 also has goes to the lead
+as its own small commit. The section below is how the branch got here.
+
 Shared types by field, fork only logic (the lead, 2026-11-02). The same
 1999 source means shared code in ours. A struct that grew between the games
 is a binary artefact, not a reason to fork: pmdiff's "compiler only, other
@@ -386,7 +391,11 @@ Left for the world class:
   on the pending cells): the height from the nodes' y ranges and, when its records changed, theirs, then the tree
   dropped to be built anew. A quirk kept: the records' second loop starts over at the first found but counts from past
   it, so the cell's last record is not looked at. Compared in `test_pm_world_box.py` and `test_pm_clutter.py`. The laying
-  queues its cells for real now (0x5043d0). The free and zones are next.
+  queues its cells for real now (0x5043d0). The grid maker (0x505820: MW3's plus the second area, a margin past the first, and a limit of 0x7fff cells each
+  way) and adding a child (0x505ea0: a node with no box goes by the point its matrix puts it at, not MW3's whole world)
+  are ported, through the table, and compared there too, with nodes taken off and put back and three grids. Removing
+  a light or a sound is MW3's with PM's offsets, shared and not compared here. `world_set_origin`, `world_set_size` and
+  `world_set_margins` (0x505760, 0x5057c0, 0x505bf0) keep the second area, compared too. Zones wait on W58's merge.
 - `shadow_model_morphed` reads `node->model` and so returns on a PM node, safely,
   without casting: to route in phase 4.
 

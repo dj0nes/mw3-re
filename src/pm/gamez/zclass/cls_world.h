@@ -20,6 +20,8 @@ void world_box_range(const ::zcls::World* w, const float box[6], int16_t range[4
 int world_touch_node(::zcls::Node* world, ::zcls::Node* node, const float box[6]);   // 0x00505550
 int world_remove_node(::zcls::Node* world, ::zcls::Node* node);                      // 0x00506000
 int world_link_node(::zcls::Node* world, ::zcls::Node* node, const float box[6], const int16_t range[4]);  // 0x00505c80
+int world_add_child(::zcls::Node* world, ::zcls::Node* node);                        // 0x00505ea0
+int world_make_grid(::zcls::Node* world, float x, float z);                          // 0x00505820
 int node_remove_child(::zcls::Node* parent, ::zcls::Node* child);                    // 0x004fd8d0
 void node_set_tree_valid(::zcls::Node* node, int on);                                // 0x004ff660
 

@@ -220,6 +220,46 @@ int world_link_node(Node* world, Node* node, const float box[6], const int16_t r
   return ::zcls::world_touch_cell(world, x, z);
 }
 
+int world_add_child(Node* world, Node* node) {
+  World* w = world_of(world);
+  float box[6] = {};
+  int16_t range[4];
+  const uint32_t flags = node->flags();
+  if (flags & 0x80) {
+    range[0] = -1, range[1] = -1;
+    range[2] = static_cast<int16_t>(w->get<int32_t>(0x88)), range[3] = static_cast<int16_t>(w->get<int32_t>(0x8c));
+  } else {
+    if (node->data) {
+      const float* m = local_matrix(node);
+      if (!(flags & 0x100)) {  // a point: where its matrix puts it, else the origin
+        if (m) box[0] = box[3] = m[9], box[1] = box[4] = m[10], box[2] = box[5] = m[11];
+      } else if (m) {
+        zmth::transform_box(m, node->pm_box, box);
+      } else {
+        std::memcpy(box, node->pm_box, 24);
+      }
+    }
+    world_box_range(w, box, range);
+  }
+  return world_link_node(world, node, box, range);
+}
+
+int world_make_grid(Node* world, float x, float z) {
+  World* w = world_of(world);
+  const auto too_many = [&](float area, float size, bool down) {
+    int32_t n = static_cast<int32_t>(area / size);
+    if (down ? area < static_cast<float>(n) * size : static_cast<float>(n) * size < area) ++n;
+    return n >= 0x8000;
+  };
+  if (too_many(w->get<float>(0x3c), x, false) || too_many(w->get<float>(0x40), z, true)) {
+    if (w->rows) ::zcls::world_free_partitions(world);
+    return zerr::report(0x400, kWorldFile, 0xd00, "Error: too many world area partitions"), 1;
+  }
+  const int r = ::zcls::mw3_world_make_grid(world, x, z);
+  ::zcls::world_set_margins(world, w->get<float>(0x80), w->get<float>(0x84));  // the second area
+  return r;
+}
+
 int world_cell_update(World*, uint32_t* entry) {
   auto* p = reinterpret_cast<Partition*>(entry);
   const uint32_t before = p->get<uint32_t>(0);

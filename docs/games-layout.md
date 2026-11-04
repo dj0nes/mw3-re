@@ -3,6 +3,15 @@
 Decided with Owen, 2026-10-31. (The original exe's own structure is
 `architecture.md`; this page is about the rebuild.)
 
+**Replaced for Pirate's Moon (Owen, 2026-11-04): PM lives on the branch `pm`, which never merges to `main`.** It is
+a complete copy of the game with PM's changes in place, as the original's `branchep1`. `src/mech3` and `src/gamez`
+on `pm` are PM's copies, changed directly; MW3 on `main` stays as shipped plus bug fixes. Fixes cross by git: MW3's merge
+from `main` into `pm`; a bug found on `pm` that MW3 also has goes on `main` as its own small commit, cherry-picked or
+redone. Packages build `mw3` and the launcher from a tag on `main`, `mw3pm` from a tag on `pm`. On `pm`, MW3's target and
+tests no longer matter. What follows about `src/pm/` and the game table describes how `pm` got here: what exists keeps
+working, new PM work edits the base files in place or forks where that is plainly easier, and old forks fold in
+only when that code is being worked on anyway.
+
 ## Three programs, one package
 
 - **The launcher** (ours, not original code): the main icon. It finds the

@@ -48,6 +48,7 @@ int world_free_partitions(Node* world);           // 0x004f2770
 int world_delete(Node* world);                    // 0x004f1c60: its grid and lists, then released
 Node* world_create();                             // 0x004f1bd0: class 2, on list 13
 int world_set_origin(Node* world, float x, float z);  // 0x004f2500
+int world_set_margins(Node* world, float x, float z);  // PM 0x00505bf0
 int world_set_size(Node* world, float x, float z);    // 0x004f2530
 int world_make_grid(Node* world, float x, float z);   // 0x004f2560: cells of x by z over the area
 
@@ -65,5 +66,8 @@ struct World;
 using AreaUpdate = int (*)(World* world, uint32_t* entry);
 void set_area_update(AreaUpdate fn);  // null: the running game's
 int mw3_area_update(World* world, uint32_t* entry);  // 0x004f18a0
+int mw3_world_add_child(Node* world, Node* node);
+int mw3_world_remove_child(Node* world, Node* node);
+int mw3_world_make_grid(Node* world, float x, float z);
 
 }  // namespace zcls

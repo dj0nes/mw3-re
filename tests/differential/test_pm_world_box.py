@@ -20,7 +20,7 @@ import test_pm_gamez as g  # noqa: E402
 import test_pm_walk  # noqa: E402
 import test_pm_zar  # noqa: E402
 
-WRITER, WORLD_UPDATE = 0x4fe740, 0x504fb0
+WRITER, WORLD_UPDATE, ADD_CHILD, REMOVE_CHILD, MAKE_GRID = 0x4fe740, 0x504fb0, 0x505ea0, 0x506000, 0x505820
 
 
 class Emu(test_pm_walk.Emulated):
@@ -72,6 +72,10 @@ class Emu(test_pm_walk.Emulated):
 WORST = [0.0]
 
 
+def fbits(f):
+    return struct.unpack('<I', struct.pack('<f', f))[0]
+
+
 def compare_cells(p, emu, label, tolerance=0.0):
     """The pending cells updated on both sides (0x504fb0, 0x504a40): flags, y range, sphere."""
     world = emu.r32(emu.r32(emu.camera + 0x38))
@@ -110,12 +114,20 @@ def main():
     p.probe_pm_box_op.argtypes = [ctypes.c_int, ctypes.c_uint32, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p]
     p.probe_pm_world_area2.argtypes = [ctypes.c_void_p]
     p.probe_pm_world_area2.restype = None
+    p.probe_pm_world_requeue.argtypes = [ctypes.c_int, ctypes.c_int]
+    p.probe_pm_node_cells.argtypes = [ctypes.c_int, ctypes.c_void_p]
+    p.probe_pm_node_cells.restype = None
+    p.probe_pm_world_grid.argtypes = [ctypes.c_float, ctypes.c_float]
+    p.probe_pm_world_fields.argtypes = [ctypes.c_void_p]
+    p.probe_pm_world_fields.restype = None
+    p.probe_pm_world_set.argtypes = [ctypes.c_int, ctypes.c_float, ctypes.c_float]
+    p.probe_pm_world_set.restype = None
     p.probe_pm_world_update.restype = None
     p.probe_pm_world_mark.restype = None
     p.probe_pm_cell_state.argtypes = [ctypes.c_void_p, ctypes.c_int]
     p.probe_pm_world_lists.argtypes = [ctypes.c_void_p, ctypes.c_int]
     rng = random.Random(0x4fe740)
-    moved = spans = gaps = updated = 0
+    moved = spans = gaps = updated = adds = 0
     for w in ('c1', 'c2', 'c3', 'c4'):
         path = g.ZBD / w / 'gamez.zbd'
         emu = Emu(path)
@@ -126,6 +138,7 @@ def main():
         x1, z1 = struct.unpack('<2f', emu.read(d + 0x44, 8))
         cand = [i for i in range(emu.i32(g.N_CAPACITY)) if emu.i32(emu.node(i) + 0xd0) & 0x1000000
                 and emu.i32(emu.node(i) + 0x34) in (5, 6) and struct.unpack('<h', emu.read(emu.node(i) + 0x54, 2))[0] > 0]
+        world_node = emu.r32(emu.r32(emu.camera + 0x38))
         lods = [i for i in cand if emu.i32(emu.node(i) + 0x34) == 6]
         for k in range(calls):
             if k == calls * 3 // 4:  # a second area wider than the grid: the clamps
@@ -146,6 +159,22 @@ def main():
             want = emu.op(n, flags, model, kids, scale)
             out = (ctypes.c_uint32 * 16)()
             p.probe_pm_box_op(i, flags, (ctypes.c_float * 6)(*model), (ctypes.c_float * 6)(*kids), (ctypes.c_float * 3)(*scale), out)
+            if k % 4 == 0 and struct.unpack('<h', emu.read(n + 0x54, 2))[0] > 0 and emu.r32(emu.r32(n + 0x58)) == world_node:
+                # Off the world and on again, sometimes with no box, as a piece spawned and removed.
+                r1 = emu.call(REMOVE_CHILD, args=[world_node, n]) & 0xff
+                bare = rng.random() < 0.3
+                if bare:
+                    emu.w32(n + 0x24, emu.r32(n + 0x24) & ~0x100)
+                r2 = emu.call(ADD_CHILD, args=[world_node, n]) & 0xff
+                got2 = p.probe_pm_world_requeue(i, int(bare))
+                if got2 != (r1 | r2 << 8):
+                    raise SystemExit(f'{w} call {k}: remove and add return {r1} {r2}, port {got2:#x}')
+                h = struct.unpack('<4h', emu.read(n + 0x4c, 8))
+                pc = (ctypes.c_int32 * 5)()
+                p.probe_pm_node_cells(i, pc)
+                if list(h) + [struct.unpack('<h', emu.read(n + 0x54, 2))[0]] != list(pc):
+                    raise SystemExit(f'{w} call {k} node {i}: cells {h}, port {list(pc)}')
+                adds += 1
             got = list(out)
             if emu.errors or got != want:
                 raise SystemExit(f'{w} call {k} node {i} flags {flags:x} errors {emu.errors}\n exe  {want}\n port {got}')
@@ -162,7 +191,33 @@ def main():
         if want != got:
             at = next(i for i, (a, b) in enumerate(zip(want, got)) if a != b)
             raise SystemExit(f'{w}: lists differ at word {at}: exe {want[at - 3:at + 4]}, port {got[at - 3:at + 4]}')
-    print(f'ok: {calls} calls on 4 worlds; {moved} in a cell, {spans} across cells, {gaps} unions, {updated} cells updated; every list identical')
+        # The area's setters, which keep the second area.
+        words = (0x34, 0x38, 0x3c, 0x40, 0x44, 0x48, 0x4c, 0x50, 0x54, 0x58, 0x74, 0x78, 0x7c, 0x80, 0x84, 0x88, 0x8c, 0x90, 0x94, 0x98, 0x9c)
+        for which, addr, a, b in ((0, 0x505760, 16.0, -32.0), (1, 0x5057c0, 2048.0, -2048.0), (2, 0x505bf0, 12.5, -9.25), (0, 0x505760, -8.0, 4.0)):
+            emu.call(addr, args=[world_node, fbits(a), fbits(b)])
+            p.probe_pm_world_set(which, a, b)
+            out_f = (ctypes.c_uint32 * len(words))()
+            p.probe_pm_world_fields(out_f)
+            want_f = [emu.r32(d + o) for o in words]
+            if want_f != list(out_f):
+                raise SystemExit(f'{w} setter {addr:#x}: fields exe {want_f}, port {list(out_f)}')
+        # A new grid over the world: its fields and every cell. (Its nodes' links go with it.)
+        emu.errors = []
+        r_exe, r_port = [(emu.call(MAKE_GRID, args=[world_node, fbits(g), fbits(-g)]) & 0xff, p.probe_pm_world_grid(g, -g)) for g in (0.01,)][0]
+        if r_exe != 1 or r_port != 1 or emu.errors != [0xd00]:
+            raise SystemExit(f'{w}: too many cells: exe {r_exe} {emu.errors}, port {r_port}')
+        emu.errors = []
+        for gx, gz in ((256.0, -256.0), (128.0, -128.0), (300.0, -77.0)):
+            emu.call(MAKE_GRID, args=[world_node, fbits(gx), fbits(gz)])
+            p.probe_pm_world_grid(gx, gz)
+            words = (0x34, 0x38, 0x3c, 0x40, 0x44, 0x48, 0x4c, 0x50, 0x54, 0x58, 0x74, 0x78, 0x7c, 0x80, 0x84, 0x88, 0x8c, 0x90, 0x94, 0x98, 0x9c)
+            want_f = [emu.r32(d + o) for o in words]
+            out_f = (ctypes.c_uint32 * len(words))()
+            p.probe_pm_world_fields(out_f)
+            if want_f != list(out_f):
+                raise SystemExit(f'{w} grid {gx} {gz}: fields exe {want_f}, port {list(out_f)}')
+            compare_cells(p, emu, f'{w} grid {gx} {gz}')
+    print(f'ok: {calls} calls on 4 worlds; {moved} in a cell, {spans} across cells, {gaps} unions, {updated} cells updated, {adds} off and on again; every list identical; grids identical')
 
 
 if __name__ == '__main__':

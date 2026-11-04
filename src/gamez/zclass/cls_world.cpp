@@ -299,7 +299,11 @@ int world_link(Node* world, Node* node, int32_t x, int32_t z) {
 // cell); flag 0x80 keeps it out of the cells. The box is the node's own
 // through its matrix: an object3d's unless it is still the identity (data
 // flag 8), a camera's (+0x80), a display's (class 8) when active and set.
-int world_add_child(Node* world, Node* node) {
+int world_add_child(Node* world, Node* node) { return zgame::game().zcls_world_add_child(world, node); }
+int world_remove_child(Node* world, Node* node) { return zgame::game().zcls_world_remove_child(world, node); }
+int world_make_grid(Node* world, float x, float z) { return zgame::game().zcls_world_make_grid(world, x, z); }
+
+int mw3_world_add_child(Node* world, Node* node) {
   const World* w = world_of(world);
   const uint32_t flags = node->flags();
   int32_t cx = -1, cz = -1;
@@ -334,7 +338,7 @@ int world_add_child(Node* world, Node* node) {
 // Mech3.exe 1.2 @ 0x004f2c30. A node in no cell is unlinked as a child; in a
 // cell it leaves the cell's list and its parents (the cell is flagged for
 // the area update).
-int world_remove_child(Node* world, Node* node) {
+int mw3_world_remove_child(Node* world, Node* node) {
   const int32_t x = node->get<int32_t>(0x4c), z = node->get<int32_t>(0x50);
   if (x == -1 && z == -1) return node_unlink(world, node);
   World* w = world_of(world);
@@ -409,12 +413,32 @@ Node* world_create() {
   return node;
 }
 
+namespace {
+// PM's second area: the first, a margin wider each way.
+void set_area2(World* w) {
+  const float mx = w->get<float>(0x80), mz = w->get<float>(0x84);
+  w->pm_area2[0] = w->get<float>(0x34) - mx;
+  w->pm_area2[2] = mx + w->get<float>(0x44);
+  w->pm_area2[1] = mz + w->get<float>(0x38);
+  w->pm_area2[3] = w->get<float>(0x48) - mz;
+}
+}  // namespace
+
+// Pirate's Moon 1.0 @ 0x00505bf0
+int world_set_margins(Node* world, float x, float z) {
+  World* w = world_of(world);
+  w->put(0x80, x), w->put(0x84, z);
+  set_area2(w);
+  return 0;
+}
+
 // Mech3.exe 1.2 @ 0x004f2500: the area's corner (+0x34, +0x38); its far
 // corner (+0x44, +0x48) follows the size.
 int world_set_origin(Node* world, float x, float z) {
   World* w = world_of(world);
   const float fx = w->get<float>(0x3c) + x, fz = w->get<float>(0x40) + z;
   w->put(0x34, x), w->put(0x38, z), w->put(0x44, fx), w->put(0x48, fz);
+  set_area2(w);  // Pirate's Moon 1.0 @ 0x00505760
   return 0;
 }
 
@@ -424,6 +448,7 @@ int world_set_size(Node* world, float x, float z) {
   World* w = world_of(world);
   const float fx = w->get<float>(0x34) + x, fz = w->get<float>(0x38) + z;
   w->put(0x3c, x), w->put(0x40, z), w->put(0x44, fx), w->put(0x48, fz);
+  set_area2(w);  // Pirate's Moon 1.0 @ 0x005057c0
   return 0;
 }
 
@@ -431,7 +456,7 @@ int world_set_size(Node* world, float x, float z) {
 // (x, z): the cell sizes and their factors, enough cells to cover the area
 // (one more when the truncated count falls short), each cell's box from its
 // corner, its sphere (0x004f9bc0), no node list yet (+0x04 -1, flag 0x100).
-int world_make_grid(Node* world, float x, float z) {
+int mw3_world_make_grid(Node* world, float x, float z) {
   World* w = world_of(world);
   if (w->rows) world_free_partitions(world);
   w->put(0x64, x), w->put(0x68, z);

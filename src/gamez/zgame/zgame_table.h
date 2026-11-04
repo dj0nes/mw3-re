@@ -45,6 +45,9 @@ struct Table {
   // PM's node points at its box, its light data is 0x100 bytes.
   zcls::Node* (*zcls_node_alloc)();                      // 0x004eacd0; PM 0x004fc550
   int (*zcls_area_update)(zcls::World* world, uint32_t* entry);  // 0x004f18a0; PM 0x00504a40
+  int (*zcls_world_add_child)(zcls::Node* world, zcls::Node* node);     // 0x004f2a40; PM 0x00505ea0
+  int (*zcls_world_remove_child)(zcls::Node* world, zcls::Node* node);  // 0x004f2c30; PM 0x00506000
+  int (*zcls_world_make_grid)(zcls::Node* world, float x, float z);     // 0x004f2560; PM 0x00505820
   int (*zcls_node_bound_box)(zcls::Node* node);           // 0x004ecc00; PM 0x004fe740
   int (*zcls_node_set_active)(zcls::Node* node, int on);  // 0x004eb170; PM 0x004fca50
   int (*zcls_node_model_box)(zcls::Node* node);          // 0x004ed220; PM 0x004fef40 (its model type)

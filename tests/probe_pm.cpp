@@ -2436,3 +2436,46 @@ int probe_pm_cell_state(uint32_t* out, int cap) {
 }
 
 }  // extern "C"
+
+extern "C" {
+
+namespace {
+::zcls::Node* node_by_index(int index) {
+  const ::zcls::NodePool& pool = ::zcls::nodes();
+  return &pool.blocks[static_cast<size_t>(index) / pool.block_size][static_cast<size_t>(index) % pool.block_size];
+}
+}  // namespace
+
+int probe_pm_world_requeue(int index, int bare) {
+  ::zcls::Node* n = node_by_index(index);
+  ::zcls::Node* wn = ::zcls::camera_world(walk_camera());
+  const int r1 = ::zcls::world_remove_child(wn, n);
+  if (bare) n->set_flags(n->flags() & ~0x100u);
+  const int r2 = ::zcls::world_add_child(wn, n);
+  return r1 | r2 << 8;
+}
+
+void probe_pm_node_cells(int index, int32_t* out) {
+  ::zcls::Node* n = node_by_index(index);
+  out[0] = n->get<int32_t>(0x4c), out[1] = n->get<int32_t>(0x50), out[2] = n->pm_virtual[0], out[3] = n->pm_virtual[1];
+  out[4] = n->parent_count();
+}
+
+int probe_pm_world_grid(float x, float z) { return ::zcls::world_make_grid(::zcls::camera_world(walk_camera()), x, z); }
+
+void probe_pm_world_set(int which, float a, float b) {
+  ::zcls::Node* wn = ::zcls::camera_world(walk_camera());
+  if (which == 0) ::zcls::world_set_origin(wn, a, b);
+  else if (which == 1) ::zcls::world_set_size(wn, a, b);
+  else ::zcls::world_set_margins(wn, a, b);
+}
+
+void probe_pm_world_fields(uint32_t* out) {
+  auto* w = static_cast<::zcls::World*>(::zcls::camera_world(walk_camera())->data);
+  int n = 0;
+  for (int o : {0x34, 0x38, 0x3c, 0x40, 0x44, 0x48}) out[n++] = w->get<uint32_t>(o);
+  std::memcpy(out + n, w->pm_area2, 16), n += 4;
+  for (int o : {0x64, 0x68, 0x6c, 0x70, 0x74, 0x78, 0x7c, 0x80, 0x84, 0x88, 0x8c}) out[n++] = w->get<uint32_t>(o);
+}
+
+}  // extern "C"
