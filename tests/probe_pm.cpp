@@ -792,6 +792,54 @@ void probe_pm_max_counts(int32_t* out) {
     for (int32_t k = 0; k < m->count(0x10); ++k) out[4] = std::max(out[4], m->polygons[k].material_count - 1);
   }
 }
+// test_pm_model_lights.py: a model's lights, from PM's record bytes with their
+// vertices, drawn: each point (x, y, z, colour, alpha), each flare (world, screen, colour).
+void probe_pm_set_model_lights(int node, int count, const uint8_t* records, const float* vertices, int per_light) {
+  pm::zmod::Model& m = *::zcls::node_at(node)->pm_model;
+  auto* ls = new ::zmod::Light[static_cast<size_t>(count)]{};
+  for (int i = 0; i < count; ++i) {
+    std::memcpy(ls[i].raw, records + i * 0x4c, 0x4c);
+    std::memcpy(&ls[i].color, records + i * 0x4c + 0x28, 2);
+    ls[i].vertices = new float[static_cast<size_t>(per_light) * 3];
+    std::memcpy(ls[i].vertices, vertices + i * per_light * 3, static_cast<size_t>(per_light) * 12);
+  }
+  m.lights = ls;
+}
+int probe_pm_model_lights(int node, const float* world, float dt, uint8_t* out, int cap) {
+  static std::string b;
+  b.clear();
+  ::zcls::Node* n = ::zcls::node_at(node);
+  pm::zmod::Model& m = *n->pm_model;
+  ::zmod::DrawTable& t = ::zmod::draw_table();
+  const ::zmod::DrawTable keep = t;
+  t.point = [](void*, const float screen[3], uint32_t color, int32_t alpha) {
+    const int32_t kind = 1;
+    b.append(reinterpret_cast<const char*>(&kind), 4), b.append(reinterpret_cast<const char*>(screen), 12);
+    b.append(reinterpret_cast<const char*>(&color), 4), b.append(reinterpret_cast<const char*>(&alpha), 4);
+  };
+  pm::zmod::draw_state().flare = [](const float w[3], const float s[3], uint32_t color, const uint8_t*) {
+    const int32_t kind = 2;
+    b.append(reinterpret_cast<const char*>(&kind), 4), b.append(reinterpret_cast<const char*>(w), 12);
+    b.append(reinterpret_cast<const char*>(s), 12), b.append(reinterpret_cast<const char*>(&color), 4);
+  };
+  ztimer::state().dt = dt;
+  zmth::MatrixStack& st = zmth::matrix_stack();
+  const zmth::MatrixStack saved = st;
+  zmth::Mat34 base, local;
+  std::memcpy(base.m, world, 48);
+  st.top = 0, st.slot[0] = &base, st.identity[0] = 0;
+  zmth::push(&local);
+  float centre[3] = {};
+  if (pm::zmod::prepare_model(m, centre)) {
+    pm::zmod::draw_model_lights(m);
+    zmth::pop();
+  }
+  st = saved;
+  t = keep;
+  if (static_cast<int>(b.size()) > cap) return -1;
+  std::memcpy(out, b.data(), b.size());
+  return static_cast<int>(b.size());
+}
 void probe_pm_set_node(int node, int off, uint32_t v) { ::zcls::node_at(node)->put<uint32_t>(off, v); }
 // The light map's gate: a texture or none, the option (0x0040b270's value).
 void probe_pm_records_light_map(int on, int option) {

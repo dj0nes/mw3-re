@@ -893,6 +893,9 @@ functions PM changed, and PM's new ones.
        results. PM's lights have their own colours (flag 0x400, PM +0xb0..+0xdf), 0x200
        means already in the bake, 0x20 means the light is fog rather than colour.
        Left: the bake 0x55fb30 itself, the projected lights' test 0x562620.
+       The test maps a zero page, for a strip's missing normal and the bench's null
+       texture images. Every null read on the exe's side then succeeds, so a passing
+       run does not show those two are the only null reads in this path.
        The draw's fade and shadow flag are the shared `DrawState`'s, as the walk
        sets them; `cull_state().fade` must follow it before `tl_colours` (phase 6).
      - Order from here. Phase 4, the lighting: 0x5602e0 and 0x5603f0 (MW3 0x545720,

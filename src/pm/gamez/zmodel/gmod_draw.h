@@ -26,6 +26,8 @@ struct DrawState {
   void (*bake)(Model& m, ::zcls::Node& node) = nullptr;  // 0x0055fb30, phase 4
   // 0x005989b0 and 0x00598aa0: a fogged polygon's fog colour mixes with the light's.
   void (*mix_fog)(const float rgb[3]) = nullptr;
+  // 0x00588910: a model light on the lens flares' list: world point, screen point.
+  void (*flare)(const float world[3], const float screen[3], uint32_t color, const uint8_t* light) = nullptr;
   // The lights by kind, null-ended (0x00a4da24, 0x00a4dc28, 0x00a4de2c).
   std::vector<::zmod::LightEntry*> directed, point, spot;
 };
@@ -79,6 +81,10 @@ int begin_model(::zcls::Node& node, Model& m, uint32_t mask, ModelPass& pass);
 // The ref loop's first half: back faces, plane codes, the records and what they
 // point at. 0 when the ref's material or the fade rules it out.
 int build_records(Model& m, const MaterialRef& ref, const ModelPass& pass, RefPass& out);
+// 0x00543b10's start and Pirate's Moon 1.0 @ 0x00547dd0: the model's lights (+0x20,
+// 0x4c each) animated and drawn as points; those with +0x3c go on the lens flares'
+// list. MW3's animation; the exe batches the opaque points (the same picture).
+void draw_model_lights(Model& m);
 // Pirate's Moon 1.0 @ 0x005602e0: the lights that reach the model into their kinds
 // (directed, point, spot), every record's light set to white, fog 0 unless fogged.
 void sort_lights(RefPass& ref);

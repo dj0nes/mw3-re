@@ -8,7 +8,9 @@
 #include "gamez/zclass/camera.h"
 #include "gamez/zimage/zimg_texture.h"
 #include "gamez/zimage/zimg_library.h"
+#include "crt/msvc_math.h"
 #include "gamez/zmath/zmth_matrix.h"
+#include "gamez/zutil/ztimer.h"
 #include "gamez/zmodel/gmod_draw.h"
 #include "gamez/zmodel/gmod_fog.h"
 #include "gamez/zmodel/gmod_fogcalc.h"
@@ -486,7 +488,7 @@ int shade_polygon(Record& r, const float* baked, uint32_t needs) {
       if (double{sum} > kVisible) bright = 1;
     }
     if (!g_state.directed.empty() || !g_state.spot.empty()) {
-      if (r.normal) ::zmod::normalize(const_cast<float*>(r.normal));
+      if (r.normal) ::zmod::normalize(r.normal);
     }
     for (const ::zmod::LightEntry* e : g_state.directed) {
       const ::zcls::Light* l = e->data;
@@ -507,7 +509,7 @@ int shade_polygon(Record& r, const float* baked, uint32_t needs) {
         if (f & 0x400) {  // PM's own colours
           const float c = no_shading ? 1.0f : ::zmod::clouds_at_camera(pos + i * 3);
           const float s = no_shading ? shade : c * shade;
-          const float a0 = c * lp(l, 200), a1 = c * lp(l, 0xcc), a2 = c * lp(l, 0xd0);
+          const float a0 = c * lp(l, 0xc8), a1 = c * lp(l, 0xcc), a2 = c * lp(l, 0xd0);
           const float d0 = s * lp(l, 0xbc), d1 = s * lp(l, 0xc0), d2 = s * lp(l, 0xc4);
           const float t0 = a0 + d0, t1 = a1 + d1, t2 = a2 + d2;
           v[0] = (t0 - 1.0f) + v[0], v[1] = (t1 - 1.0f) + v[1], v[2] = (t2 - 1.0f) + v[2];
@@ -530,13 +532,7 @@ int shade_polygon(Record& r, const float* baked, uint32_t needs) {
       if ((r.flags & 0x400) && (f & 0x80)) continue;
       if ((r.flags & 0x200) && (f & 0x40)) continue;
       if (e->full != 0 || e->reach != 0) {
-        const float* colour;
-        float base;
-        if (f & 0x400) {
-          colour = nullptr, base = 1.0f;
-        } else {
-          colour = nullptr, base = lp(l, 0xa0) + lp(l, 0x9c);
-        }
+        const float base = (f & 0x400) ? 1.0f : lp(l, 0xa0) + lp(l, 0x9c);
         for (int32_t i = n - 1; i >= 0; --i) {
           float k = base;
           if (e->full == 0) {
@@ -558,7 +554,6 @@ int shade_polygon(Record& r, const float* baked, uint32_t needs) {
           }
         }
       }
-      (void)0;
       if (double{sum} > kVisible) {
         ++lit;
         if (f & 0x20) fogged |= 1, fog_light = l;
@@ -613,7 +608,7 @@ int shade_polygon(Record& r, const float* baked, uint32_t needs) {
           const float g = cone > 0.0f ? cone : 0.0f;
           const float rr = e->full == 0 ? range(l, dist) : 1.0f;
           const float d = e->full == 0 ? g * rr : g;
-          const float a = rr * lp(l, 200) + d * lp(l, 0xbc);
+          const float a = rr * lp(l, 0xc8) + d * lp(l, 0xbc);
           const float b = rr * lp(l, 0xcc) + d * lp(l, 0xc0);
           const float c = rr * lp(l, 0xd0) + d * lp(l, 0xc4);
           v[0] = a + v[0], v[1] = b + v[1], v[2] = c + v[2];
@@ -740,6 +735,98 @@ void light_records(const Model& m, const ModelPass& pass, RefPass& ref) {
           v[0] = v[5], v[1] = v[6], v[2] = v[7];
         }
       }
+    }
+  }
+}
+
+namespace {
+// Pirate's Moon 1.0 @ 0x00547dd0, the Direct3D path (the software one is not ported).
+void model_light(const float* vertex, uint32_t color, ::zmod::Light& l) {
+  const auto field = [&](int off) {
+    float v;
+    std::memcpy(&v, l.raw + off, 4);
+    return v;
+  };
+  zmth::MatrixStack& st = zmth::matrix_stack();
+  float c[3] = {vertex[0], vertex[1], vertex[2]};
+  if (!st.is_identity()) transform_point(vertex, st.matrix().m, c);
+  if (!(c[2] > clip3d_state().near_z)) return;
+  const zmth::Vec3 cam{c[0], c[1], c[2]};
+  zmth::Vec3 sc;
+  zmth::project_d3d(&cam, &sc, 1);
+  const ::zmod::DrawState& s = ::zmod::draw_state();
+  const auto below = [](float a, float b) { return !(a >= b); };
+  if (below(sc.x, s.point_rect[0]) || below(sc.y, s.point_rect[1])) return;
+  if (sc.x > s.point_rect[2] || sc.y > s.point_rect[3]) return;
+  int16_t priority;
+  std::memcpy(&priority, l.raw + 0x18, 2);
+  float z = sc.z;
+  if (priority != 0) z = (static_cast<float>(priority) * s.priority_scale - -1.0f) * z;
+  const float screen[3] = {sc.x, sc.y, z};
+  int32_t alpha = 0xff;
+  const float near_ = field(0x30), far_ = field(0x34);
+  if (far_ != 0.0f) {
+    if (!(c[2] < far_)) alpha = 0;
+    else if (c[2] > near_) {
+      const int32_t a = crt::msvc_ftol((far_ - c[2]) * field(0x38));
+      if (a < 0xff) alpha = a;
+    }
+  }
+  ::zmod::DrawTable& t = ::zmod::draw_table();
+  if (t.point) t.point(t.ctx, screen, color & 0xffff, alpha);
+  int32_t flare;
+  std::memcpy(&flare, l.raw + 0x3c, 4);
+  if (flare != 0 && g_state.flare) {
+    float world[3];
+    transform_point(c, zmth::view().camera.m, world);
+    g_state.flare(world, screen, color & 0xffff, l.raw + 0x30);
+  }
+}
+}  // namespace
+
+void draw_model_lights(Model& m) {
+  const int32_t n = m.count(0x20);
+  const float dt = ztimer::state().dt;
+  const auto gi = [](const ::zmod::Light& l, int off) {
+    int32_t v;
+    std::memcpy(&v, l.raw + off, 4);
+    return v;
+  };
+  const auto gf = [](const ::zmod::Light& l, int off) {
+    float v;
+    std::memcpy(&v, l.raw + off, 4);
+    return v;
+  };
+  const auto pf = [](::zmod::Light& l, int off, float v) { std::memcpy(l.raw + off, &v, 4); };
+  const auto pu = [](::zmod::Light& l, int off, uint32_t v) { std::memcpy(l.raw + off, &v, 4); };
+  for (int32_t i = 0; i < n; ++i) {
+    ::zmod::Light& l = m.lights[i];
+    const int32_t type = gi(l, 0);
+    if (type == 0) {
+      if (gi(l, 4) == 1) {
+        const float t = dt + gf(l, 0x10);
+        pf(l, 0x10, t);
+        if (gf(l, 8) < t) {
+          const uint32_t pair = static_cast<uint32_t>(gi(l, 0x14));
+          pf(l, 0x10, 0.0f);
+          pu(l, 0x14, (pair & 0xffff) | (static_cast<uint32_t>(l.color) << 16));
+          l.color = static_cast<uint16_t>(pair >> 16);
+        }
+      }
+      model_light(l.vertices, l.color, l);
+    } else if (type == 1) {
+      const float t = dt + gf(l, 0x10);
+      pf(l, 0x10, t);
+      if (gf(l, 8) < t) {
+        uint32_t k = static_cast<uint32_t>(gi(l, 0x14)) + 1;  // the whole dword: 0xffff carries into the colour
+        if (static_cast<int32_t>(k & 0xffff) >= gi(l, 0xc)) k &= 0xffff0000u;
+        pu(l, 0x14, k);
+        pf(l, 0x10, 0.0f);
+      }
+      const uint32_t k = static_cast<uint32_t>(gi(l, 0x14));
+      const uint32_t at = k & 0xffff;
+      model_light(l.vertices + 3 * at, l.color, l);
+      if (at != 0) model_light(l.vertices + 3 * (at - 1), k >> 16, l);
     }
   }
 }
