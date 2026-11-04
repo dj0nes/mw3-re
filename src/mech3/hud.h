@@ -19,6 +19,7 @@ namespace mech3 {
 struct Mech;
 class Hud;
 struct Objectives;
+class Objective;
 
 // One part's damage silhouettes: blue, green, yellow, red, black, and where
 // the part sits in the silhouette (a 0x20-byte entry of [0x00605888]).
@@ -101,9 +102,9 @@ class HudObjectives : public ztwod::TextBox {
   void show_for(float seconds) override;  // +0x60  0x00446820
   void hide() override;              // +0x64  0x00446850
   void set_text(const char* format, ...) override;  // +0x7c  0x00446930: and a blank score beside it
-  void fill();                       // 0x00446ad0: the lines from the mission's objectives
-  void add_objective(uint8_t done, const char* text);  // 0x00446970: "Completed" / "In Progress" beside it
-  void add_more(uint8_t done, const char* score, const char* text);  // 0x00446a20: score null: none
+  void fill();                       // Pirate's Moon 1.0 @ 0x004486e0: the lines from the mission's objectives
+  void add_objective(int32_t status, const char* text, ztwod::Handle font);  // Pirate's Moon 1.0 @ 0x00448680
+  int32_t add_item(const Objective& it, bool* all_done);  // Pirate's Moon 1.0 @ 0x00448520
   void data_update(float dt);        // 0x00446900: shown, kept above the message panel's point
   void place_above(int32_t px, int32_t py);  // 0x004468b0: its panel's height above it, the panel 4 left
   HudPanel panel;                    // +0x4c8
@@ -541,6 +542,7 @@ class HudHooks : public zgame::Unported {
     int32_t operation = 0, mission = 0;      // vt+0x48, vt+0x4c
     const char* action_name = nullptr;       // Instant Action's game (0x00479460) vt+0x0c; null none
     const char* training_name = nullptr;     // 0x00437060 of 0x004794a0(vt+0x4c)
+    const char* game_name = nullptr;         // PM: the pilot's game's vt+0x08, the header for game types 1, 2, 4, 5
   };
   virtual ObjectivesSource objectives_source() {
     unported("0x00446ad0", {});

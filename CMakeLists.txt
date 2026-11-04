@@ -614,6 +614,8 @@ if(MW3_BUILD_PM)
   target_link_libraries(pmprobe PRIVATE pmcore mw3core)
   # zSound (pm-map step 7): the shared sound probe on PM's zSound (test_pm_sound.py)
   target_sources(pmprobe PRIVATE tests/probe_sound.cpp tests/probe_pm_sound.cpp)
+  # The HUD (pm-map step 7): the objectives box (test_pm_hud_objectives.py)
+  target_sources(pmprobe PRIVATE tests/probe_pm_hud.cpp)
 endif()
 
 # The SDL3 front end and the programs on it.

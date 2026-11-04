@@ -294,37 +294,53 @@ std::string objective_text(const Objective& o) {
 }
 }  // namespace
 
-// Mech3.exe 1.2 @ 0x00446970. The exe hands the text to the line as its
-// format; here as the format's argument (a '%' in it would read the stack).
-void HudObjectives::add_objective(uint8_t done, const char* text) {
-  TextBox::set_text("%s", text);  // vt+0xa0, no blank score
-  scores.set_text("%s", g_hooks->message(done ? 0x22f : 0x230));  // "Completed" : "In Progress"
-  const ztwod::Handle f = done ? font_complete : font_incomplete;
-  line().set_font(f);
-  scores.line().set_font(f);
-}
-
-// Mech3.exe 1.2 @ 0x00446a20: the text's further lines.
-void HudObjectives::add_more(uint8_t done, const char* score, const char* text) {
+// Pirate's Moon 1.0 @ 0x00448680 (the status message, the text, the font): a
+// line with its status beside it, both in the font. The exe hands the text to
+// the line as its format; here as the format's argument (a '%' would read the stack).
+void HudObjectives::add_objective(int32_t status, const char* text, ztwod::Handle font) {
   TextBox::set_text("%s", text);
-  if (score) scores.set_text("%s", score);
-  const ztwod::Handle f = done ? font_complete : font_incomplete;
-  line().set_font(f);
-  scores.line().set_font(f);
+  scores.set_text("%s", g_hooks->message(status));
+  line().set_font(font);
+  scores.line().set_font(font);
 }
 
-// Mech3.exe 1.2 @ 0x00446ad0: the mission's header, then each group's title
-// and its visible objectives (each line of the text a line), the failed
-// ones, the mission's end and how to close it; the panel sized to the lines
-// (docs/hud.md, The objectives box).
+// Pirate's Moon 1.0 @ 0x00448520 (the objective, the all-done flag or null):
+// its lines (strtok on '\n') if it has a text and is visible, the first with its
+// status: "Completed", "Failed" (done by failing, +0x09) or "In Progress". The
+// lines it added. MW3 did this inline (0x00446ad0) with add_more for the rest.
+int32_t HudObjectives::add_item(const Objective& it, bool* all_done) {
+  const bool failed = it.done && it.failed;
+  if (all_done) *all_done = *all_done && it.done;
+  const std::string text = objective_text(it);
+  if (text.empty() || !it.visible) return 0;
+  const ztwod::Handle font = it.done ? font_complete : font_incomplete;
+  const int32_t status = !it.done ? 0x230 : failed ? 0x1008 : 0x22f;
+  std::string copy = text;
+  char* t = std::strtok(&copy[0], "\n");
+  if (!t) t = &copy[0];  // the exe skips the split without a '\n'
+  add_objective(status, t, font);
+  int32_t lines = 1;
+  if (text.find('\n') == std::string::npos) return lines;
+  for (t = std::strtok(nullptr, "\n"); t; t = std::strtok(nullptr, "\n")) {
+    set_text("%s", t);  // vt+0x7c: a blank score beside it
+    ++lines;
+    line().set_font(font);
+  }
+  return lines;
+}
+
+// Pirate's Moon 1.0 @ 0x004486e0 (MW3's 0x00446ad0): the mission's header (game
+// types 1, 2 and 5 the game's name), then each group's title and its visible
+// objectives, the failed ones (with their status), the mission's end and how to
+// close it; the panel sized to the lines (docs/hud.md, The objectives box).
 void HudObjectives::fill() {
   HudHooks& k = *g_hooks;
   const HudHooks::ObjectivesSource src = k.objectives_source();
   const Objectives* o = src.objectives;
   const ObjectiveGroup* primary = o ? o->primary.get() : nullptr;
   const ObjectiveGroup* secondary = o ? o->secondary.get() : nullptr;
-  const ObjectiveGroup* final = primary && primary->done ? o->final.get() : nullptr;  // 0x0048fab0
-  const ObjectiveGroup* fail = o && o->fail && o->fail->done ? o->fail.get() : nullptr;  // 0x0048fad0
+  const ObjectiveGroup* final = primary && primary->done ? o->final.get() : nullptr;  // 0x004927f0
+  const ObjectiveGroup* fail = o && o->fail && o->fail->done ? o->fail.get() : nullptr;  // 0x00492810
   bool all_done = true;
   const int32_t height = text_height();
   int32_t lines = 0;
@@ -332,26 +348,18 @@ void HudObjectives::fill() {
   scores.clear();
   auto put = [&](const std::string& s) { set_text("%s", s.c_str()); };  // vt+0x7c
   auto msg = [&](int32_t id) { return std::string(k.message(id)); };
+  const char* name = src.game_name ? src.game_name : "";
   if (o && o->desc) {
     put(*o->desc);
     lines = 1;
   } else {
     switch (src.game_type) {
-      case 1:  // "Operation %1!d!, Mission %2!d!"
-        put(zutl::format_message_ints(0x177, {src.operation, src.mission}));
+      case 1:
+      case 2:
+      case 5:
+        put(name);
         lines = 1;
         break;
-      case 2: {
-        std::string s;
-        if (src.action_name) {
-          s = zutl::format_message(0x231, {std::to_string(src.operation).c_str(), src.action_name});
-        } else {
-          s = zutl::format_message_ints(0x232, {src.operation});
-        }
-        if (!s.empty()) put(s);
-        lines = 1;
-        break;
-      }
       case 3:  // "Network Game Scores", its columns
         set_font(font_scores);
         put(msg(0xdd5));
@@ -359,31 +367,13 @@ void HudObjectives::fill() {
         lines = 2;
         break;
       case 4:  // "T R A I N I N G   %1"
-        put(zutl::format_message(0x233, src.training_name ? src.training_name : ""));
+        put(zutl::format_message(0x233, name));
         lines = 1;
         break;
       default:
         break;
     }
   }
-  // Each visible objective with a text: its lines (strtok on '\n').
-  auto items = [&](const ObjectiveGroup& g, bool count_done) {
-    for (const std::unique_ptr<Objective>& it : g.items) {
-      const uint8_t done = it->done;
-      if (count_done) all_done = all_done && done;
-      if (!it->visible) continue;
-      const std::string text = objective_text(*it);
-      if (text.empty()) continue;
-      std::string copy = text;
-      bool first = true;
-      for (char* t = std::strtok(&copy[0], "\n"); t; t = std::strtok(nullptr, "\n")) {
-        if (first) add_objective(done, t);
-        else add_more(done, "", t);
-        first = false;
-        ++lines;
-      }
-    }
-  };
   if (primary && !primary->items.empty()) {
     line();
     if (!objective_text(*primary).empty()) {
@@ -393,38 +383,35 @@ void HudObjectives::fill() {
       put(msg(0x235));  // "P R I M A R Y  O B J E C T I V E S"
       ++lines;
     } else if (src.game_type != 2) {
-      put(zutl::format_message_ints(0x236, {src.operation, src.mission}));
+      // FIX (bug): PM's text is "Mission %2!d! ..." and the exe passes only the
+      // mission (vt+0x48), so %2 read what followed on the stack.
+      const int32_t m = zfix::options().bugs ? src.mission : 0;
+      put(zutl::format_message_ints(0x236, {m, m}));
       ++lines;
     }
-    items(*primary, true);
+    for (const std::unique_ptr<Objective>& it : primary->items) lines += add_item(*it, &all_done);
   }
   if (secondary && !secondary->items.empty()) {
     line();
     if (!objective_text(*secondary).empty()) put(objective_text(*secondary));
     else put(msg(0x237));  // "S E C O N D A R Y  O B J E C T I V E S"
     ++lines;
-    items(*secondary, false);
+    for (const std::unique_ptr<Objective>& it : secondary->items) lines += add_item(*it, nullptr);
   }
   if (final && !final->items.empty()) {
     put(objective_text(*final));  // "" without a text
     ++lines;
-    items(*final, true);
+    for (const std::unique_ptr<Objective>& it : final->items) lines += add_item(*it, &all_done);
   }
   if (!k.multiplayer_game() && fail && !fail->items.empty()) {
     put("");
-    ++lines;
     if (!objective_text(*fail).empty()) put(objective_text(*fail));
     else put(msg(0x238));  // "F A I L E D  O B J E C T I V E S"
-    ++lines;
-    for (const std::unique_ptr<Objective>& it : fail->items) {
-      if (!it->done || !it->visible) continue;
-      const std::string text = objective_text(*it);
-      if (text.empty()) continue;
-      add_more(1, nullptr, text.c_str());
-      ++lines;
-    }
+    lines += 2;
+    for (const std::unique_ptr<Objective>& it : fail->items)
+      if (it->done) lines += add_item(*it, nullptr);
   }
-  const std::string exit_key = k.command_key(0x71);  // Exit Mission
+  const std::string exit_key = k.command_key(0x79);  // Exit Mission (PM's numbering; MW3 0x71)
   if (k.multiplayer_game()) {
     set_font(font_scores);
     for (const std::string& s : k.multiplayer_scores()) {
@@ -442,7 +429,7 @@ void HudObjectives::fill() {
     put(zutl::format_message(0x23a, exit_key.c_str()));
     lines += 3;
   }
-  put(zutl::format_message(0x23c, k.command_key(0x43).c_str()));  // "Press %1 To Close Objectives Display"
+  put(zutl::format_message(0x23c, k.command_key(0x44).c_str()));  // "Press %1 To Close Objectives Display" (MW3 0x43)
   ++lines;
   panel.set_size(0x140, lines * height);
 }

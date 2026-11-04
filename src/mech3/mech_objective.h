@@ -171,6 +171,7 @@ class Objective {
   Kind kind;
   zgame::Handle nav = 0;                       // +0x04
   uint8_t done = 0;                     // +0x08
+  uint8_t failed = 0;                   // PM +0x09: done by failing (the box's "Failed")
   std::optional<std::string> desc;      // +0x0c
   std::unique_ptr<Store> salvage;       // +0x10
   // +0x14: the low byte of the description's pointer (the constructor reads
@@ -180,7 +181,7 @@ class Objective {
   zgame::Handle valve = 0;                     // +0x24  set_valve's
   int32_t value = 1;                    // +0x28
   std::optional<std::string> persist;   // +0x2c
-  uint8_t visible = 1;                  // +0x30
+  uint8_t visible = 1;                  // +0x30 (PM +0x34)
   uint8_t silent = 0;                   // +0x31
 };
 

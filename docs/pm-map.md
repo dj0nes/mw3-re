@@ -1304,9 +1304,22 @@ functions PM changed, and PM's new ones.
    vtable 0x5e5bd8: a node `spotlight`, the light `light%d` under it, mech +0x7c holds it (`0x465b9b`, in the mech's
    load). The toggle: `CMD_HEADLIGHT_TOGGLE` to `0x465dc0`, which flips it by `0x479940` and `0x4799b0`; fading
    through `0x479a40`, whose +0x34 scales the light's ambient and diffuse. The AI's: `ai_headlights` of world.zrd
-   is read into the mission's +0x30 (`mission_world`); its reader is still to trace. Then the HUD's lamp in step 7.
+   is read into the mission's +0x30 (`mission_world`); its reader is still to trace. The HUD never shows it (2026-11-04: no HUD code reads it; its only on/off query, 0x465df0 via 0x41f920, is the network sync's, 0x4705e0 bit 31).
 7. **Sound and the HUD**: the sound syntax reader (rewritten smaller), the
    HUD objectives, spot and headlights.
+   - **The HUD: mapped** (2026-11-04; MW3 0x43a800..0x448800 against PM 0x43bb00..0x44a000). 159 pairs
+     changed, 136 of them ported (`hud.cpp`, `mech_hud.cpp`, `app_hud.cpp`), most by small amounts (offsets or
+     the compiler, not read one by one); 10 MW3-only; 16 new in PM. No HUD headlight or "spot" (the
+     headlight's `spotlight` node): dev 1's mech step. The order: the objectives box, the damage static, the
+     radar's read (0x43dd00 -> 0x43f220, the largest pair difference), the rest by offsets.
+     - **The objectives box: done** (`HudObjectives::fill`, 0x004486e0 with 0x00448520 and 0x00448680;
+       docs/hud.md section 24, Pirate's Moon): MW3's structure, with game types 1, 2 and 5 headed by the
+       game's name (vt+0x08), an objective done by failing (PM's +0x09) shown "Failed" (0x1008), the failed
+       group's lines with their status, a further line of an objective with a blank score, and PM's command
+       numbers for the keys (0x79, 0x44). Test `test_pm_hud_objectives.py` (300 made-up missions; 9 breaks
+       caught). The network score list is MW3's. Left: the game's name in the program (PM's game object).
+     - **The damage static: next** (new: 0x43dda0 the 256x256 noise in three greys, 0x43dfa0 drawn over the
+       panels up to 0.9 alpha, 0x43e1f0 by the mech's health, 0x43d710, 0x43df70).
    - **zSound: done** (2026-11-04, `src/gamez/zsound` in place; docs/sound.md, Pirate's Moon):
      - PM's: the load 0x00591840 and the reader 0x00591900 / 0x005920e0 / 0x00592170 (no SYNTAX, no demo,
        sets made by name 0x00590ae0, INCLUDE_SETS, COMPILE_FORMAT, QPRIORITY, a 3-item keyword step);

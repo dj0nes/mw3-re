@@ -1496,6 +1496,24 @@ fill no line; without 0x00446930's blank score the columns differ.
 `build/mw3 --mission c1m1 --objectives N` (ours) opens the box from the
 N-th frame, for a screenshot.
 
+**Pirate's Moon** (0x004486e0, with 0x00448520 a line of an objective and
+0x00448680 a line with its status). The same box, with:
+- game types 1, 2 and 5 headed by the game's name (its vt+0x08), training
+  (4) by "T R A I N I N G   %1" with that name; MW3 formatted the operation
+  and mission;
+- an objective done by failing (+0x09) shows "Failed" (message 0x1008);
+- the failed group lists its done objectives with their status (MW3: no
+  status);
+- an objective's further lines go through the box's own set_text, so the
+  scores column gets a blank line beside each (MW3 left it);
+- the keys named are PM's commands 0x79 (exit) and 0x44 (close);
+- PM's 0x236 reads "Mission %2!d! P R I M A R Y  O B J E C T I V E S" but is
+  passed the mission alone: %2 reads what follows on the stack. FIX (bug):
+  the mission there.
+Checked by `test_pm_hud_objectives.py`. Its line height comes from the box's
+own text (0x005a1380 in MW3, as the port's), which nothing here sets: whether
+the panel is sized right in play is not checked.
+
 ## 24b. The player's death and a network kill's scores (2026-11-01)
 
 - **The player's death** (0x0041b263..0x0041b30c, inside Die 0x0041b0d0,

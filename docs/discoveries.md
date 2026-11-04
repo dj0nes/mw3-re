@@ -4328,3 +4328,9 @@ The screen after the pilot for INSTANT ACTION, 0x00488bc0 (details:
   Pirate's Moon's file asks for mono anyway. Its file also lists a
   `DEMO_FMV` set under `EXCLUDE_SETS`, a key the game no longer reads (it
   looks for `INCLUDE_SETS`), so nothing is left out.
+- **Pirate's Moon's objectives can fail.** The expansion's objectives screen
+  shows "Failed" beside an objective you failed, where MechWarrior 3 only had
+  "Completed" and "In Progress". Its primary objectives' title is meant to say
+  which mission you are on, but the game hands the number to the wrong slot,
+  so the number shown is not the mission's (from the code; not yet seen on
+  screen, and only when the objectives have no title of their own).
