@@ -17,6 +17,9 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
+from unicorn import UC_HOOK_CODE  # noqa: E402
+from unicorn.x86_const import UC_X86_REG_ESP  # noqa: E402
+
 from modeldraw_common import Stats, fbits, same_float, scenario  # noqa: E402
 import test_pm_gamez as g  # noqa: E402
 import test_pm_lighting as lit  # noqa: E402
@@ -26,6 +29,11 @@ import test_pm_zar  # noqa: E402
 
 REACH, DRAW, TL_P, SETS_P, PLAIN, WITH_SETS, PRIORITY = 0x562620, 0x562840, 0x8c4c54, 0x8ccc60, 0x8c4bf8, 0x8c4bfc, 0xa4e090
 TOL, ROUNDING = 2e-4, 0.01
+SPLIT, TRIS, VERTS = 0x562120, 0x68aac8, 0x6a2d48
+TIE = 1e-5     # a triangle's two longest edges this close: rounding can choose either
+# When a tie fell differently: a few pixels may differ a lot where a light's pool is sharp
+# (26.7 of 255 seen on 1.7% of a polygon), the polygon as a whole hardly (mean 0.48 at most).
+PICTURE, TIE_MEAN, TIE_SHARE = 3.0, 1.0, 0.05
 
 
 class Emulated(rec.Emulated):
@@ -38,6 +46,15 @@ class Emulated(rec.Emulated):
             self.native_stub(s, fn)
             self.w32(slot, s)
         self.kinds = []
+        self.tie = False
+        self.cpu._uc.hook_add(UC_HOOK_CODE, self.at_split, begin=SPLIT, end=SPLIT)
+
+    def at_split(self, uc, address, size, user):  # a near tie between the longest edges?
+        tri, _ = struct.unpack('<II', uc.mem_read(uc.reg_read(UC_X86_REG_ESP) + 8, 8))
+        p = [struct.unpack('<3f', uc.mem_read(VERTS + struct.unpack('<i', uc.mem_read(TRIS + tri * 32 + 4 * k, 4))[0] * 0xec, 12)) for k in range(3)]
+        e = sorted(sum((a - b) ** 2 for a, b in zip(p[k], p[(k + 1) % 3])) for k in range(3))
+        if e[2] - e[1] <= TIE * e[2]:
+            self.tie = True
 
     def at_end(self, uc, address, size, user):
         pass
@@ -60,6 +77,38 @@ class Emulated(rec.Emulated):
     def with_sets(self, c):
         self.triangle()
         return 0
+
+
+def colour_at(tris, x, y):
+    """The Gouraud colour at a screen point, perspective-correct, from (x, y, rhw, diffuse) vertices."""
+    for a, b, c in tris:
+        d = (b[1] - c[1]) * (a[0] - c[0]) + (c[0] - b[0]) * (a[1] - c[1])
+        if abs(d) < 1e-9:
+            continue
+        l = ((b[1] - c[1]) * (x - c[0]) + (c[0] - b[0]) * (y - c[1])) / d
+        m = ((c[1] - a[1]) * (x - c[0]) + (a[0] - c[0]) * (y - c[1])) / d
+        n = 1 - l - m
+        if l >= -1e-4 and m >= -1e-4 and n >= -1e-4:
+            w = l * a[2] + m * b[2] + n * c[2]
+            return [(l * a[2] * (a[3] >> s & 255) + m * b[2] * (b[3] >> s & 255) + n * c[2] * (c[3] >> s & 255)) / w for s in (16, 8, 0)]
+    return None
+
+
+def picture_apart(exe, ours, rect):
+    """The largest colour difference between two triangulations over the screen rect."""
+    xs = [v[0] for t in exe for v in t]
+    ys = [v[1] for t in exe for v in t]
+    x0, x1 = max(min(xs), rect[0]), min(max(xs), rect[2])
+    y0, y1 = max(min(ys), rect[1]), min(max(ys), rect[3])
+    worst, total, over, sampled = 0.0, 0.0, 0, 0
+    for j in range(48):
+        for i in range(48):
+            x, y = x0 + (x1 - x0) * (i + 0.5) / 48, y0 + (y1 - y0) * (j + 0.5) / 48
+            a, b = colour_at(exe, x, y), colour_at(ours, x, y)
+            if a and b:
+                e = max(abs(p - q) for p, q in zip(a, b))
+                worst, total, over, sampled = max(worst, e), total + e, over + (e > PICTURE), sampled + 1
+    return worst, total / max(sampled, 1), over / max(sampled, 1)
 
 
 def main():
@@ -94,7 +143,7 @@ def main():
         model = struct.unpack_from('<I', r, 0x3c)[0]
         if struct.unpack_from('<I', r, 0xd0)[0] & 0x1000000 and model and emu.i32(model + 0x10) > 0:
             nodes.append(i)
-    stats, seen = Stats(), {}
+    stats, seen, ties = Stats(), {}, []
     for d in range(polygons):
         bits53 = int(d >= polygons // 2)  # the second half at 53 bits
         if d == 0 or d == polygons // 2:
@@ -115,9 +164,10 @@ def main():
         cx, cy, cz = rng.uniform(-60, 60), rng.uniform(-60, 60), rng.uniform(near + 5, 200)
         size = rng.choice((2.0, 10.0, 40.0, 120.0))
         pos = []
+        regular = rng.random() < 0.5
         for k in range(count):
             t = k / count * 2 * math.pi
-            rr = size * rng.uniform(0.5, 1.5)  # uneven: a tie between edges could fall either way at 53 bits
+            rr = size if regular else size * rng.uniform(0.5, 1.5)  # regular: edges tie (test below)
             pos += [cx + rr * math.cos(t), cy + rr * math.sin(t), max(near + 1, cz + rng.uniform(-size, size) * 0.3)]
         # Screen points the exe itself projects, so unprojecting comes back close.
         tl, record = [], []
@@ -176,7 +226,7 @@ def main():
             emu.w32(lit.LIST + q * 20 + 12, reach)
             p.probe_pm_light_reach(q, 0, reach)
         want_reach = emu.call(REACH, args=[rec_at]) & 0xffffffff
-        emu.tris = []
+        emu.tris, emu.tie = [], False
         want_ret = emu.call(DRAW, args=[rec_at]) & 0xffffffff
         reach = I()
         n = p.probe_pm_projected(i, pi, flags, count, (F * len(pos))(*pos), (F * len(record))(*record), (F * len(tl))(*tl), nsets,
@@ -194,6 +244,23 @@ def main():
         ours_each = 3 * 40  # ours: 3 x 10 words, the exe's TL 3 x 8
         extra = sum(24 + (36 if q == 2 else 0) for q in kinds)
         tris = (n - 4) // (ours_each + extra)
+        # Two equal edges can differ by rounding, differently here and in the exe (at 53 bits
+        # the more often), so a split falls on the other one: another triangulation of the same
+        # polygon (traced, docs/pm-map.md). Only with such a tie, and only if the picture agrees.
+        vertex = lambda o, v: struct.unpack_from('<4fIIf2ff', o, v * 40)  # noqa: E731
+        ours_tris = [buf.raw[4 + q * (ours_each + extra):4 + (q + 1) * (ours_each + extra)] for q in range(tris)]
+        apart = tris != len(emu.tris) or any(
+            abs(struct.unpack_from('<f', w_, v * 0x20)[0] - vertex(o, v)[0]) > 1.0 or abs(struct.unpack_from('<f', w_, v * 0x20 + 4)[0] - vertex(o, v)[1]) > 1.0
+            for o, w_ in zip(ours_tris, emu.tris) for v in range(3))
+        if apart and emu.tie:
+            exe_t = [[(lambda q: (q[0], q[1], q[3], q[4]))(struct.unpack_from('<4fI', w_, v * 0x20)) for v in range(3)] for w_ in emu.tris]
+            our_t = [[(lambda q: (q[0], q[1], q[3], q[4]))(vertex(o, v)) for v in range(3)] for o in ours_tris]
+            worst, mean, share = picture_apart(exe_t, our_t, rect)
+            seen['ties'] = seen.get('ties', 0) + 1
+            ties.append((round(worst, 1), round(mean, 2), round(share, 3), size, tris, bits53, count, flags))
+            if mean > TIE_MEAN or share > TIE_SHARE:
+                raise SystemExit(f'polygon {d} size {size}: a tie, but the picture is {mean:.2f} apart on average, {share:.3f} of it over {PICTURE}; flags {flags:#x}')
+            continue
         if tris != len(emu.tris):
             raise SystemExit(f'polygon {d} size {size}: {tris} triangles, the exe {len(emu.tris)}; flags {flags:#x}')
         seen['triangles'] = seen.get('triangles', 0) + tris
@@ -223,6 +290,8 @@ def main():
                         raise SystemExit(f'polygon {d} triangle {t} kind {q} float {j}: {b}, the exe {a}')
                 ao += k * 4
                 ae += k * 4
+    ties.sort(reverse=True)
+    print(f'ties that fell differently: {len(ties)}, the worst {ties[:3]} (worst, mean, share over 3, size, triangles, 53 bits, corners, flags)')
     print(f'ok: {polygons} polygons; {stats.floats} floats, {stats.exact} exact, off by place {stats.where}; {seen}')
     if not seen.get('drawn') or not seen.get('triangles'):
         raise SystemExit('nothing drawn')

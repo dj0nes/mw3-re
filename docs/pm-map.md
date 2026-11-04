@@ -945,6 +945,19 @@ functions PM changed, and PM's new ones.
        probe keeps the original's path). Left, for the casters' port: `shadow_model` and
        `shadow_model_morphed` read `node->model`, so a PM node casts no shadow image and
        takes no morph there; safe, and to route with PM's caster (texture at +0x64).
+       **PM draws no projected shadows until the caster's port:** do not read their
+       absence as a phase 6 bug in the eye check.
+       **Traced, a tie between edges:** a split takes the triangle's longest edge. A
+       midpoint split leaves two edges equal in exact arithmetic; rounding makes one
+       longer, not always the same one here and in the exe (968.056571 against 968.056552
+       in the exe, 968.056335 against 968.056396 here, in the case traced at polygon 3021).
+       The split falls on the other edge: another triangulation of the same polygon. On
+       8 in 30,000 random polygons, 24 and 53 bits both: mean difference at most 0.48 of 255,
+       worst 26.7 on 1.7% of one polygon where a light's pool is sharp. The original can
+       flip the same way as the camera moves. `test_pm_projected.py` allows only a
+       near tie the exe's own split saw, and only if the picture agrees; it prints how
+       many. **Eye check, phase 6:** a projected light over a light-mapped polygon, bugs
+       on and off (the first set's colours), and any shimmer at a short light's pool.
      - Order from here. Phase 5, clipping; phase 6, the submit, which deletes `draw_unlit`.
 3. **The mission**: load, setup and the world parameters (`mission.cpp`
    114 new, 14 of the port's changed), the standalone missions
