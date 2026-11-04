@@ -1078,8 +1078,11 @@ functions PM changed, and PM's new ones.
        which the debug start otherwise leaves off, so the rest of the world goes dark.
      - **Eye check, still to do with the game around it:** points meeting blended polygons (batched,
        0x59ee90, not ported); a short light's pool on a regular polygon; a projected light over a
-       light-mapped polygon, bugs on and off; an axis-aligned wall with a light map (seam); c1's stair-stepped
-       sand and red, c2's jagged orange edge; the black shape in c1, c3, c4, now with stars, so perhaps a piece of
+       light-mapped polygon, bugs on and off; an axis-aligned wall with a light map (seam); c2's jagged
+       orange edge; c1's stair-stepped sand and red, which the data says is authored: within 800 units of
+       the centre the ground is `dirt01` (115 polygons) and `sand01` (98) with transition tiles `tertrans01` (73,
+       no alpha) and `tertrans02` (26, alpha), mostly strips, so the steps are the tiles' edges; no
+       original screenshot was compared; the black shape in c1, c3, c4, now with stars, so perhaps a piece of
        sky waiting on the sky's port: confirm when sky lands; c4's flat green.
 3. **The mission**: load, setup and the world parameters (`mission.cpp`
    114 new, 14 of the port's changed), the standalone missions

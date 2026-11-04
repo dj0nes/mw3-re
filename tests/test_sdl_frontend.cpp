@@ -1033,7 +1033,13 @@ TEST(sdl_render_draws_a_light_map) {
     for (int i = 0; i < 16; ++i) rgba.insert(rgba.end(), {cr, cg, cb, ca});
     return r->create_texture(4, 4, rgba.data(), 1);
   };
-  const int32_t base = solid(200, 100, 50, 255), map = solid(128, 255, 255, 0);
+  // The map dark on its left half, so that wrapping at u = 3 would blend in its dark edge.
+  std::vector<uint8_t> map_rgba;
+  for (int i = 0; i < 16; ++i) {
+    if (i % 4 < 2) map_rgba.insert(map_rgba.end(), {0, 0, 0, 0});
+    else map_rgba.insert(map_rgba.end(), {128, 255, 255, 0});
+  }
+  const int32_t base = solid(200, 100, 50, 255), map = r->create_texture(4, 4, map_rgba.data(), 1);
   r->set_viewport(0, 0, 640, 480);
   r->clear(true, 10, 20, 30);
   r->begin_scene();
