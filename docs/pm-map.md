@@ -744,6 +744,33 @@ functions PM changed, and PM's new ones.
        the 24-bit result without, where the sum keeps multiples of 2^29, so it
        is 0 unless a value is huge. `test_pm_cull.py` on PM's exe: 4,000 of each,
        the colours at both precisions. Breaks, 16 of 16.
+     - **The side clipper: ported** (2026-11-03, `gmod_clip3d`, `clip2d`):
+       `0x552e50` with its wrappers `0x54ade0`..`0x54ae80`, which differ only by
+       the mask (`0x54ae60` and `0x54ae80` are the same). Its polygon's codes
+       (+0x34) pick the passes, left, right, top, bottom, a pass reading one
+       scratch set and writing the other. Values go perspective-correct by rhw.
+       A NaN is outside left and top, inside right and bottom. A set's overrun
+       is the near clippers' FIX (bug): room for four passes at 1.5n.
+       `test_pm_clip2d.py` on PM's exe at 24-bit x87: 7,500 polygons. As well as
+       the near test's tolerances, a case with extreme inputs may end with
+       another vertex count (2 in 7,500). Past 64 vertices the port alone,
+       `pm_clip2d_keeps_large_polygons_whole`. Breaks, 22 of 22.
+     - **Do polygons past 64 reach the clippers?** One, narrowly. The eight
+       largest in c1 (313 and 198 vertices, flag 0x4000, which the draw never
+       reads) are the flat `inout` boundary areas, which PM deletes at mission
+       load as MW3 does (`0x4cddb0`, MW3's `0x4c3930`, render.md 6a), so they are
+       never drawn. Outside `inout` the largest is 64 (`g3860`; c1, c3 and c4
+       counted, c2 not). A 64-vertex polygon losing exactly one corner to the
+       near plane makes 65: on the exe's clippers in the emulator the two
+       textured paths then fault on a pointer the 65th vertex overwrote
+       (0x6887d0), and the other four write past the scratch silently. So the
+       fix guards a real but rare fault; not seen in play.
+     - **For the zones (the lead, from W58, not on main yet):** in MW3 an AI
+       mech's ski and collision queries honour the zones in the camera's view,
+       so a lancemate in another zone loses the floor under him (0x476a30, zone
+       mode on from 0x49e82b; 0x4161f6 and 0x4c33ff turn it off). Fixed in Skis
+       and `Mech::collide_query` behind bugs. Check PM's twins of those two calls
+       when PM's zones are reached, and tell the lead if PM differs.
      - Order from here: the option's state; the other helpers in groups,
        each with the setters it first reads; then `0x543b10` by call trace, as
        `0x53f2e0` was. Emulator only until the world class and the mission can

@@ -27,6 +27,7 @@ struct ClipPoly {
   uint32_t flags = 0;           // +0x1c  bit 8: the record's +0x10 too
   int32_t count = 0;            // +0x20
   uint8_t* extra = nullptr;     // +0x24  a byte a vertex: moved with the rest, never read here
+  uint32_t codes = 0;           // +0x34  the polygon's plane codes (0x0054fc60)
 };
 
 // The globals they read and rewrite.
@@ -36,6 +37,8 @@ struct Clip3dState {
   float* arena_rec = nullptr;   // 0x00a4cfac
   float* arena_tl = nullptr;    // 0x00a4cfb4
   uint8_t* arena_extra = nullptr;  // 0x00a4cfbc
+  float left = 0, top = 0;      // 0x008d4b0c, 0x008d4b10  the view's sides, screen space (0x00548990)
+  float right = 0, bottom = 0;  // 0x008d4b24, 0x008d4b28
 };
 Clip3dState& clip3d_state();
 
@@ -46,5 +49,14 @@ int clip3d_textured(ClipPoly& p);         // 0x00549ab0  UVs, the record's +0x14
 int clip3d_textured_lit(ClipPoly& p);     // 0x0054a450  UVs and the whole record
 int clip3d_textured_shadow(ClipPoly& p);  // 0x0054a6f0  as 0x00549ab0 without +0x10, with shadow sets
 int clip3d_textured_lit_shadow(ClipPoly& p);  // 0x0054aa50  everything
+
+// The side clippers: a polygon's TL x, y and rhw against the screen's four sides,
+// in the polygon's own codes (left, right, top, bottom), after projection. Values
+// are carried perspective-correct. 1 to draw it, 0 with fewer than 3 vertices.
+int clip2d_plain(ClipPoly& p);            // 0x0054ade0
+int clip2d_lit(ClipPoly& p);              // 0x0054ae00  the record's +0..+8 and +0x10
+int clip2d_textured(ClipPoly& p);         // 0x0054ae20  UVs, the record's +0x10..+0x1c
+int clip2d_textured_lit(ClipPoly& p);     // 0x0054ae40  UVs and the whole record
+int clip2d_textured_lit_shadow(ClipPoly& p);  // 0x0054ae60, 0x0054ae80 alike: and the shadow sets
 
 }  // namespace pm::zmod

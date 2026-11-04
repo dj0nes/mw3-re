@@ -4186,6 +4186,14 @@ The screen after the pilot for INSTANT ACTION, 0x00488bc0 (details:
   corner's colour and fog but copies its point-light value from one neighbour,
   so the light on the cut edge can jump. Pirate's Moon blends it like the rest.
   Very rarely visible. (docs/pm-map.md, gmod_matl.c)
+- **Pirate's Moon's level designers stopped at 64 corners, and it mattered.**
+  The drawing code has room for 64 corners on a polygon and never checks. The
+  largest polygon the game draws has exactly 64. If the camera clips off exactly
+  one of its corners, the cut makes 65, and in an emulator the original then
+  faults. Very rare, and never seen in real play. The largest polygons of all,
+  313 corners, are the invisible mission boundaries, which the game deletes when
+  a mission loads. The rebuild has room for every corner. (docs/pm-map.md,
+  gmod_matl.c)
 - **Pirate's Moon's text data files can include other files.** Its reader
   takes `#include name.zrd` (MechWarrior 3's knows only `#ifdef`, `#else`
   and `#endif`): the named file is read right there, as if pasted in, up

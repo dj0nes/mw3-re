@@ -624,6 +624,38 @@ int probe_pm_clip3d(int which, float near_z, int count, uint32_t flags, float* p
   return 0;
 }
 
+// test_pm_clip2d.py: one polygon through a side clipper (0..4), as probe_pm_clip3d.
+int probe_pm_clip2d(int which, uint32_t codes, const float* sides, int count, float* rec, float* tl, uint8_t* extra,
+                    void* shadows, float* a_rec, float* a_tl, uint8_t* a_extra, int32_t* out) {
+  pm::zmod::ClipPoly p;
+  p.rec = rec, p.tl = tl, p.extra = extra, p.count = count, p.codes = codes;
+  auto* raw = static_cast<uint8_t*>(shadows);
+  pm::zmod::ClipShadows sets;
+  std::memcpy(&sets.count, raw, 4);
+  std::memcpy(sets.kind, raw + 0x20, 0x1c);
+  for (int k = 0; k < 7; ++k) {
+    sets.xyz[k].resize(64 * 3), sets.uv[k].resize(64 * 2);
+    std::memcpy(sets.xyz[k].data(), raw + 0x3c + k * 0x300, 0x300);
+    std::memcpy(sets.uv[k].data(), raw + 0x1558 + k * 0x200, 0x200);
+  }
+  p.shadows = &sets;
+  pm::zmod::Clip3dState& s = pm::zmod::clip3d_state();
+  s.left = sides[0], s.right = sides[1], s.top = sides[2], s.bottom = sides[3];
+  s.arena_rec = a_rec, s.arena_tl = a_tl, s.arena_extra = a_extra;
+  int (*const fn[5])(pm::zmod::ClipPoly&) = {pm::zmod::clip2d_plain, pm::zmod::clip2d_lit, pm::zmod::clip2d_textured,
+                                             pm::zmod::clip2d_textured_lit, pm::zmod::clip2d_textured_lit_shadow};
+  out[0] = fn[which](p);
+  for (int k = 0; k < 7; ++k) {
+    std::memcpy(raw + 0x3c + k * 0x300, sets.xyz[k].data(), 0x300);
+    std::memcpy(raw + 0x1558 + k * 0x200, sets.uv[k].data(), 0x200);
+  }
+  out[1] = p.count;
+  out[2] = p.rec != rec, out[3] = p.tl != tl, out[4] = p.extra != extra;
+  out[5] = static_cast<int32_t>(s.arena_rec - a_rec), out[6] = static_cast<int32_t>(s.arena_tl - a_tl);
+  out[7] = static_cast<int32_t>(s.arena_extra - a_extra);
+  return 0;
+}
+
 // test_pm_light_map.py: script lines ('|'-separated, words by spaces) through
 // the dispatcher with PM's table. texture_add answers 0x70000000 + 0x10 * call
 // number. Out, per line: the light map, the cursor, the misses, the names asked.

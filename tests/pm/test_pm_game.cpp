@@ -1,3 +1,4 @@
+#include <cmath>
 // Pirate's Moon's side of the engine (src/pm/pm_game, docs/games-layout.md):
 // the game table and telling PM's install from MW3's.
 #include <cstdio>
@@ -478,4 +479,46 @@ TEST(pm_clip3d_keeps_the_largest_polygon_whole) {
   EXPECT(on_plane == 1022 && in_front == 512 && wrong == 0);
   EXPECT(sets.uv[6].size() == kOut * 2 && sets.xyz[6].size() == kOut * 3);
   std::printf("  pm clip3d: %d in, %d out: %d cuts, %d in front\n", kIn, p.count, on_plane, in_front);
+}
+
+// The same for the side clipper, the port alone: a zigzag past the left side,
+// then a star across all four sides, on the path carrying the most.
+TEST(pm_clip2d_keeps_large_polygons_whole) {
+  constexpr int kIn = 1023, kRoom = 8000;
+  std::vector<float> rec(kIn * 8, 7.0f), tl(kIn * 8), a_rec(kRoom * 8), a_tl(kRoom * 8);
+  std::vector<uint8_t> extra(kIn), a_extra(kRoom);
+  pm::zmod::ClipShadows sets;
+  sets.count = 7;
+  for (int s = 0; s < 7; ++s) {
+    sets.kind[s] = 2;
+    sets.uv[s].assign(kIn * 2, 0.5f);
+    sets.xyz[s].assign(kIn * 3, 2.0f);
+  }
+  pm::zmod::Clip3dState& st = pm::zmod::clip3d_state();
+  st.left = 0, st.right = 640, st.top = 0, st.bottom = 480;
+  auto run = [&](uint32_t codes, auto place) {
+    for (int i = 0; i < kIn; ++i) {
+      place(i, &tl[i * 8]);
+      tl[i * 8 + 2] = 0.5f, tl[i * 8 + 6] = tl[i * 8 + 7] = 3.0f;
+    }
+    st.arena_rec = a_rec.data(), st.arena_tl = a_tl.data(), st.arena_extra = a_extra.data();
+    pm::zmod::ClipPoly p;
+    p.rec = rec.data(), p.tl = tl.data(), p.extra = extra.data(), p.shadows = &sets, p.count = kIn, p.codes = codes;
+    EXPECT(pm::zmod::clip2d_textured_lit_shadow(p) == 1);
+    int wrong = 0;
+    for (int i = 0; i < p.count; ++i) {
+      auto off = [](float v, float want) { return !(std::fabs(v - want) < 1e-3f); };  // blended: within rounding
+      wrong += off(p.rec[i * 8], 7.0f) || off(p.tl[i * 8 + 7], 3.0f);
+      wrong += off(sets.uv[6][i * 2 + 1], 0.5f) || off(sets.xyz[6][i * 3 + 2], 2.0f);
+    }
+    EXPECT(wrong == 0 && p.tl == a_tl.data() && sets.uv[6].size() >= static_cast<size_t>(p.count) * 2);
+    return p.count;
+  };
+  const int zigzag = run(1, [](int i, float* v) { v[0] = i % 2 ? -10.0f : 10.0f, v[1] = 240.0f; });
+  EXPECT(zigzag == 1534);
+  const int star = run(0xf, [](int i, float* v) {
+    v[0] = i % 2 ? -10.0f : 650.0f, v[1] = i % 4 < 2 ? -10.0f : 490.0f;
+  });
+  EXPECT(star >= 3);
+  std::printf("  pm clip2d: %d in, zigzag %d out, star %d out\n", kIn, zigzag, star);
 }
