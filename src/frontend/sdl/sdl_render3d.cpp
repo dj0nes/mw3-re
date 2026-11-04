@@ -165,7 +165,7 @@ SdlRender3D::SdlRender3D(SDL_GPUDevice* device, SDL_Window* window) : dev_(devic
   fs_flat_ = make_shader(dev_, "fs_flat", SDL_GPU_SHADERSTAGE_FRAGMENT, 0);
   vs_light_map_ = make_shader(dev_, "vs_light_map", SDL_GPU_SHADERSTAGE_VERTEX, 0);
   fs_light_map_ = make_shader(dev_, "fs_light_map", SDL_GPU_SHADERSTAGE_FRAGMENT, 2);
-  ok_ = vs_ && fs_tex_ && fs_flat_ && vs_light_map_ && fs_light_map_;
+  ok_ = vs_ && fs_tex_ && fs_flat_;  // the light map's are Pirate's Moon's alone: draw_light_map
   if (!ok_) std::fprintf(stderr, "SdlRender3D shaders: %s\n", SDL_GetError());
 }
 
@@ -361,6 +361,11 @@ void SdlRender3D::draw(platform::Primitive type, const platform::TLVertex* v, in
 void SdlRender3D::draw_light_map(platform::Primitive type, const platform::LightMapVertex* v, int count, int32_t map,
                                  const platform::DrawState& state) {
   if (count < 3) return;
+  if (!vs_light_map_ || !fs_light_map_) {  // only the pools of light are lost
+    static bool told = false;
+    if (!told) std::fprintf(stderr, "SdlRender3D: no light map shaders, light maps not drawn\n"), told = true;
+    return;
+  }
   const auto first = static_cast<uint32_t>(vertices_.size());
   const auto add = [&](const platform::LightMapVertex& m) {
     platform::TLVertex a{m.sx, m.sy, m.sz, m.rhw, m.diffuse, m.specular, m.u0, m.v0}, b{};

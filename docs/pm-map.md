@@ -1067,6 +1067,10 @@ functions PM changed, and PM's new ones.
        bit. `test_pm_device.py` compares the vertices, states and fog sends with the exe's two-stage
        path (option 2), and half its steps run at 53 bits for the colours. `mw3sdltests`'
        `sdl_render_draws_a_light_map` checks the pixels: added, faded, fogged, clamped.
+       **Checked:** all three languages compile (GLSL with glslangValidator, HLSL with `dxc` on the PC, by the
+       lead); only MSL has run. HLSL and GLSL have run nowhere: `sdl_render_draws_a_light_map` joins the
+       Windows and Linux checks when those builds next run. A driver refusing these two shaders costs only
+       the pools of light (one log line); `ok_` does not depend on them, so MW3 cannot lose its renderer to them.
        **The polygon's u, v under a light map (quirk):** 0x5a04bb keeps them only when the last set is
        a light map and the first is not; otherwise the sets before leave theirs in the vertices.
        **All three "on" settings take this formula** (`fixes.md`). The three-stage path (option 1, or

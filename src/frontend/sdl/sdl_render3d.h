@@ -35,6 +35,7 @@ class SdlRender3D : public platform::Render3D {
   void draw_light_map(platform::Primitive type, const platform::LightMapVertex* vertices, int count, int32_t map,
                       const platform::DrawState& state) override;
   void set_fog_color(uint8_t r, uint8_t g, uint8_t b) override;
+  void lose_light_map_shaders_for_test() { vs_light_map_ = nullptr; }
   void present() override;
   bool read_back(std::vector<uint32_t>* argb, int* width, int* height) override;
   bool hold_frame() override;

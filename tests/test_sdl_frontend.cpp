@@ -1075,6 +1075,43 @@ TEST(sdl_render_draws_a_light_map) {
   EXPECT(near_rgb(c, 10 + 50, 20 + 50, 30 + 25));
 }
 
+// A driver that refuses the light map's shaders costs only the pools of light: the rest draws.
+TEST(sdl_render_goes_on_without_light_map_shaders) {
+  if (!SDL_InitSubSystem(SDL_INIT_VIDEO)) return;
+  sdlfe::SdlWindow w;
+  EXPECT(w.init(true));
+  w.create("mw3 no light map test", 640, 480);
+  sdlfe::SdlRender3D* r = w.render();
+  r->lose_light_map_shaders_for_test();
+  r->set_viewport(0, 0, 640, 480);
+  r->clear(true, 10, 20, 30);
+  r->begin_scene();
+  platform::DrawState s;
+  s.depth_always = true;
+  const auto v = [](float x, float y) {
+    platform::TLVertex t{};
+    t.sx = x, t.sy = y, t.sz = 0.5f, t.rhw = 1.0f, t.diffuse = 0xff00ff00u, t.specular = 0xff000000u;
+    return t;
+  };
+  platform::LightMapVertex m{};
+  m.sz = 0.5f, m.rhw = 1.0f, m.diffuse = 0xffffffffu, m.specular = 0xff000000u;
+  const platform::LightMapVertex three[3] = {m, m, m};
+  const uint8_t texel[64] = {};
+  const int32_t tex = r->create_texture(4, 4, texel, 1);
+  platform::DrawState with = s;
+  with.texture = tex;
+  r->draw_light_map(platform::Primitive::kFan, three, 3, tex, with);
+  const platform::TLVertex quad[4] = {v(0, 0), v(320, 0), v(320, 480), v(0, 480)};
+  r->draw(platform::Primitive::kFan, quad, 4, s);
+  r->end_scene();
+  r->present();
+  std::vector<uint32_t> f;
+  int fw = 0, fh = 0;
+  if (!r->read_back(&f, &fw, &fh)) return;  // no GPU on this runner
+  EXPECT((f[240 * fw + fw / 4] & 0xffffff) == 0x00ff00u);
+  EXPECT((f[240 * fw + fw * 3 / 4] & 0xffffff) == 0x0a141eu);
+}
+
 // Playtest W25: a message box over the lab's (or a mission's) GPU frame at
 // 16:9 showed over the 16-bit buffer's 640x480 copy of it, low-res until
 // answered. The frame shown is kept at its own size (hold_frame) and put
