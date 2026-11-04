@@ -225,7 +225,7 @@ c2m4: from never arriving, 158 s of 180 stuck, to there in 70 s.
 **When it steers: walk first.** The rule that took the longest to find, and it
 fixed the worst results. The grid leaves the exe's walk only when that walk is
 failing: the straight way to the brain's range (+0x28) is blocked by the
-buffered grid, or the pilot made no 2 m in 3 s while he should be walking (the
+buffered grid, or the pilot made no 6 m net in 3 s while he should be walking (the
 boundary's pull included: it holds him at a shape's edge when the leader stands
 in one). Then it takes over for at least 10 s and keeps to a path it took. On
 open ground the exe's walk to the centimetre. It hands back to the exe once the
@@ -242,8 +242,9 @@ circles.
 range the goal is the enemy itself (a spot on a ring round a moving enemy was a
 detour).
 
-**Unstuck** by the pilot's own place (2 m in 3 s), not the distance to a
-waypoint: the 2 s re-path reset that one for ever.
+**Unstuck** by the pilot's own net progress (6 m in 3 s), not the distance to a
+waypoint (re-paths reset that) nor "moved 2 m from a mark" (bouncing on the spot
+resets that: 86 s stuck in c2m4's tunnel).
 
 **Which orders.** Follow, form up, attack and the pocket commander's spot go
 through the follow and fight states; the refit's walk to the dock's approach
@@ -261,12 +262,25 @@ on the storey of the leader, seconds of game time.
 
 | Case | Exe | Before | Grid |
 |---|---|---|---|
-RESULTS_ROWS
+| c2m4, Epona's first mission: from the start to the works, 618 m, the floor 100 m down | never (158 s of 180 stuck) | 70 s | **57 s**, 0 stuck |
+| c2m4: under the conveyor, 522 m | never (154 s stuck) | 91 s | **75 s** |
+| c2m4: over the river, bank to bank, 210 m | never (90 s stuck, in the river) | never (94 s stuck) | **29 s**, 0 stuck |
+| c3m5: a blocked line, 200 m | never (74 s stuck) | 53 s (14 s stuck) | **23 s** (4 s stuck) |
+| c2m3: a blocked line, 200 m | never | never | **11 s** |
+| c2m1: a blocked line, 150 m | 15 s | 15 s | **8.8 s**, 0 stuck |
+| c1m4: a map spot up a cliff | stops at the cliff's foot, 58 m off | the same | **there**, the way round, about 60 s |
+| c2m1: an enemy 25 m behind a wall: in sight | no | never | **6 s** (a firing spot) |
+| c2m1: open ground, 250 m | 42.9 m at the end | 42.9 m | 42.9 m: the exe's walk exactly |
+| c2m1: an enemy 80 m behind a wall | never | 25.8 s | 28 s: **slower** |
+| c2m1: the player round the HQs (W27's route): in range, frames | never | 954 | 1642: **slower**, round the parked HQs |
+| W27's five other routes | | | the same, or a little better |
 
 **Not shown by a run: the top of c2m4's conveyor.** The strip at x -1206..-942,
 z -1390..-1354, y -88.5 joins nothing at mission start (333 cells), and its
 pieces move in play by triggers these tests do not fire. The grid sees the strip
 and the world watch rebuilds on a move (unit tested on a door), but a lancemate
 following the player up onto it is for a playtest. Cost in a Release build: the
-worst search in these runs 15.9 ms, the median under 1 ms; a failed search in the
-widest window is dearer, and backs off 5 to 60 s.
+worst search in these runs 16.8 ms, the median under 3 ms; building 768 places a
+frame about 2 ms (a tile in 11 frames; by work, not time, so a mission plays the
+same each run); the 9 tiles at the start 0.2 s. A failed search in the widest
+window is dearer (750 ms in Debug, not measured in Release) and backs off 5 to 60 s.

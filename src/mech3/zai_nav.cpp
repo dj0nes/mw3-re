@@ -779,27 +779,28 @@ bool Follower::step(const float pos[3], const float to[3], float now, float dt, 
   if (now - watch_t >= 3.0f) {
     const bool moved_on = std::hypot(pos[0] - watch_pos[0], pos[2] - watch_pos[1]) >= kProgress;
     watch_t = now, watch_pos[0] = pos[0], watch_pos[1] = pos[2];
-    if (moved_on) goto walk_on;
-    if (now - stuck_t > 20.0f) stuck = 0;
-    ++stuck, stuck_t = now;
-    if (stuck >= 4) {
-      path.clear(), stuck = 0;
-      fallback_until = now + 10.0f;
-      return false;
+    if (!moved_on) {
+      if (now - stuck_t > 20.0f) stuck = 0;
+      ++stuck, stuck_t = now;
+      if (stuck >= 4) {
+        path.clear(), stuck = 0;
+        fallback_until = now + 10.0f;
+        return false;
+      }
+      const float ux = (path[at][0] - pos[0]) / std::max(d, 0.01f), uz = (path[at][2] - pos[2]) / std::max(d, 0.01f);
+      for (float s = 4.0f; s <= 12.0f; s += 4.0f) g.hold(cell_of(pos[0] + ux * s), cell_of(pos[2] + uz * s), pos[1], now + 10.0f);
+      if (stuck == 3) back_until = now + 2.0f;
+      found_t = -1e9f, last_ask = -1e9f;  // ask again
     }
-    const float ux = (path[at][0] - pos[0]) / std::max(d, 0.01f), uz = (path[at][2] - pos[2]) / std::max(d, 0.01f);
-    for (float s = 4.0f; s <= 12.0f; s += 4.0f) g.hold(cell_of(pos[0] + ux * s), cell_of(pos[2] + uz * s), pos[1], now + 10.0f);
-    if (stuck == 3) back_until = now + 2.0f;
-    found_t = -1e9f, last_ask = -1e9f;  // ask again
   }
-walk_on:
   if (now < back_until && at > 0) {
     out[0] = path[at - 1][0], out[2] = path[at - 1][2];
   } else {
     out[0] = path[at][0], out[2] = path[at][2];
   }
   out[1] = pos[1];
-  if (std::getenv("MW3_NAV_DUMP")) dump_paths()[this] = path;
+  static const bool dumping = std::getenv("MW3_NAV_DUMP") != nullptr;
+  if (dumping) dump_paths()[this] = path;
   static const bool log = std::getenv("MW3_NAV_LOG") != nullptr;
   if (log && static_cast<int>(now * 2) != static_cast<int>((now - dt) * 2))
     std::fprintf(stderr, "nav %.1f: at %.0f %.0f %.0f to %.0f %.0f %.0f, wp %d/%zu %.0f %.0f %.0f (%.0f m), stuck %d\n", now, pos[0], pos[1],

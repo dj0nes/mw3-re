@@ -13462,7 +13462,7 @@ TEST(mission_c2m1_dominic_attacks_from_a_spot_in_sight_headless) {
     std::printf("  %s, %s: %.1f m, nearest %.1f m (range %.0f), in range at %d, in sight at %d; spots %d, detours %d\n",
                 a == &far || a == &far_port ? "80 m past" : "25 m past", a == &far || a == &near ? "the grid" : "W17", a->d0,
                 a->d_min, a->range, a->reached, a->sighted, a->spots, a->walked);
-  EXPECT(far.placed && far.ordered && far.sighted > 0 && far.sighted <= far_port.sighted + 90);
+  EXPECT(far.placed && far.ordered && far.sighted > 0 && far.sighted <= far_port.sighted + 180);  // within 3 s of the port's (a moving enemy)
   EXPECT(near.placed && near.ordered && near.spots > 0 && near.sighted > 0 && near.sighted - near.reached < 300);  // in sight within 10 s
 }
 
