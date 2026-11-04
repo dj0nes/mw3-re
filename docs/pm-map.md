@@ -873,10 +873,24 @@ functions PM changed, and PM's new ones.
        and its rounding grows to 2^-23 / |sum|; the test allows exactly that and
        lists the cases (2 in 3,000, allowing 0.004 and 0.009, worst seen 0.0054).
        Breaks, 14 of 14. Emulator only.
-     - Order from here: the option's state; the other helpers in groups,
-       each with the setters it first reads; then `0x543b10` by call trace, as
-       `0x53f2e0` was. Emulator only until the world class and the mission can
-       draw in `mw3pm`.
+     - **Phase 3: the draw up to its first lighting call** (`begin_model`,
+       `build_records`, `lights_reaching`; `test_pm_records.py`). The exe's draw runs
+       whole with a hook at the end of each ref's build (0x54471c), which compares
+       what it built and skips the rest. The needs (fog from `[0xa4e038]`, where 2
+       fogs every model, not only flagged ones; lights; tint), camera space with
+       morphs, plane codes, normals, the gates; per polygon the back-face test, its
+       flip with flag 0x400, polygon codes, fog factors and flags 8, 0x20, an
+       all-fog polygon dropped, UVs, colours, normals, the extra UV sets, strips. PM's
+       normal is (p2 - p1) x (p0 - p1), MW3's the other way, each with its own test.
+       Not reached by this test: the lights' part of the needs, the bake's call, the
+       model's own lights (0x547dd0). They come with phase 4.
+       The draw's fade and shadow flag are the shared `DrawState`'s, as the walk
+       sets them; `cull_state().fade` must follow it before `tl_colours` (phase 6).
+     - Order from here. Phase 4, the lighting: 0x5602e0 and 0x5603f0 (MW3 0x545720,
+       rewritten by polygon), the model's lights 0x547dd0, the bake 0x55fb30
+       (MW3 0x544ed0), the shadow sets, the light map's sets (`0x543b10` lines
+       1310-1490), and as its own item the projected lights 0x562620 and 0x562840.
+       Phase 5, clipping; phase 6, the submit, which deletes `draw_unlit`.
 3. **The mission**: load, setup and the world parameters (`mission.cpp`
    114 new, 14 of the port's changed), the standalone missions
    (`readersa1..4`), the objectives.

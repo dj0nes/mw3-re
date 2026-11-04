@@ -14,6 +14,7 @@ namespace pm::zmod {
 struct ClipShadows {
   int32_t count = 0;
   int32_t kind[7] = {};  // 2: the set has xyz as well
+  void* texture[7] = {};  // +0x04  each set's texture record
   std::vector<float> xyz[7];  // 3 a vertex
   std::vector<float> uv[7];   // 2 a vertex
 };

@@ -13,7 +13,7 @@ struct CullState {
   float far_z = 0;       // 0x008d4b20  from the view (0x00548990)
   float slope_x = 0;     // 0x008d43a4  from the projection (0x0053b730)
   float slope_y = 0;     // 0x008d43a8
-  uint32_t codes[1024] = {};  // 0x008dbbb4  a code per model vertex
+  uint32_t codes[4096] = {};  // 0x008dbbb4  a code per model vertex (1,024 in the exe, unchecked)
   float fade = 1.0f;     // 0x00a4e078  the vertices' alpha, 1 opaque
 };
 CullState& cull_state();

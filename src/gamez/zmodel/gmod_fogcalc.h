@@ -7,7 +7,7 @@
 namespace zmod {
 
 struct FogCalc {
-  static constexpr int kMax = 1216;   // 0x7463a4 up to the camera buffer at 0x7476a4
+  static constexpr int kMax = 4096;   // FIX (A): PM's models; MW3's exe has 1,216 (0x7463a4 to 0x7476a4)
   float camera_to_world[4][3] = {};   // 0x0073fc00  only column 1 (world y) is read
   const float (*verts)[3] = nullptr;  // 0x0074639c  the model's camera-space vertices
   float factor[kMax] = {};            // 0x007463a4  fog per vertex, 0 clear .. 1 full

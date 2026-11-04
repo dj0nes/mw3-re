@@ -690,6 +690,90 @@ int probe_pm_walk_load(const char* world) {
   zmth::reset_stack();
   return walk_node_index(walk_camera());
 }
+// test_pm_records.py: the state 0x00543b10 reads, as the exe's setters leave it.
+void probe_pm_records_state(int fog_on, float fog_near, float fog_far, float alt_high, float alt_low, int shading,
+                            int shadows, float opacity, int tint, float far_z, float slope_x, float slope_y) {
+  ::zmod::fog_set_near(fog_near), ::zmod::fog_set_far(fog_far);
+  ::zmod::fog_set_alt_high(alt_high), ::zmod::fog_set_alt_low(alt_low);
+  ::zmod::fog().on = fog_on;
+  std::memcpy(::zmod::fog_calc().camera_to_world, zmth::view().camera.m, 48);
+  ::zmod::draw_state().vertex_shading = shading, ::zmod::draw_state().shadows = shadows, ::zmod::draw_state().opacity = opacity;
+  ::zmod::lighting().tint_on = tint;
+  pm::zmod::CullState& c = pm::zmod::cull_state();
+  c.far_z = far_z, c.slope_x = slope_x, c.slope_y = slope_y;
+}
+void probe_pm_set_node(int node, int off, uint32_t v) { ::zcls::node_at(node)->put<uint32_t>(off, v); }
+// The light map's gate: a texture or none, the option (0x0040b270's value).
+void probe_pm_records_light_map(int on, int option) {
+  static ::zimg::TextureEntry entry{};
+  pm::zimg::set_light_map(on ? &entry : nullptr);
+  pm::zmod::draw_state().light_map_option = option;
+}
+// Polygon `poly` given k more materials' UVs (k + 1 materials, the first kept):
+// the same material again for each, as the UVs alone are what is read here.
+void probe_pm_set_sets(int node, int poly, int k, const float* uvs) {
+  pm::zmod::Polygon& p = ::zcls::node_at(node)->pm_model->polygons[poly];
+  const int n = static_cast<int>(p.flags & 0x3ff);
+  auto** mats = new ::zmod::Material*[static_cast<size_t>(k) + 1];
+  auto** arr = new float*[static_cast<size_t>(k) + 1];
+  mats[0] = p.materials[0], arr[0] = p.uvs ? p.uvs[0] : nullptr;
+  for (int i = 0; i < k; ++i) {
+    mats[i + 1] = p.materials[0];
+    arr[i + 1] = new float[static_cast<size_t>(n) * 2];
+    std::memcpy(arr[i + 1], uvs + i * n * 2, static_cast<size_t>(n) * 8);
+  }
+  p.materials = mats, p.uvs = arr, p.material_count = k + 1;
+}
+// test_pm_records.py: 0x00543b10's model part and each ref's records, as offsets
+// into the arenas, and what they hold. The caller loaded and set a view
+// (probe_pm_draw_load, probe_pm_draw_view).
+int probe_pm_records(int node, const float* world, uint32_t mask, uint8_t* out, int cap) {
+  static std::string b;
+  b.clear();
+  const auto put = [&](const void* p, size_t n) { b.append(static_cast<const char*>(p), n); };
+  const auto i32 = [&](int32_t v) { put(&v, 4); };
+  ::zcls::Node* n = ::zcls::node_at(node);
+  pm::zmod::Model& m = *n->pm_model;
+  zmth::MatrixStack& st = zmth::matrix_stack();
+  const zmth::MatrixStack saved = st;
+  zmth::Mat34 base, local;
+  std::memcpy(base.m, world, 48);
+  st.top = 0, st.slot[0] = &base, st.identity[0] = 0;
+  zmth::push(&local);
+  float centre[3] = {};
+  pm::zmod::ModelPass pass;
+  int ok = pm::zmod::prepare_model(m, centre);
+  if (ok) {
+    ok = pm::zmod::begin_model(*n, m, mask, pass);
+    if (ok) {
+      pm::zmod::RefPass ref;
+      for (int32_t r = 0; r < m.count(0x5c); ++r) {
+        pm::zmod::build_records(m, m.refs[r], pass, ref);
+        for (const pm::zmod::Record& q : ref.records) {
+          i32(static_cast<int32_t>(q.polygon - m.polygons)), i32(r), i32(static_cast<int32_t>(q.flags)), i32(q.count);
+          i32(static_cast<int32_t>(q.codes));
+          put(q.pos, static_cast<size_t>(q.polygon->flags & 0x3ff) * 12);
+          const uint32_t sets = q.shadows ? static_cast<uint32_t>(q.shadows->count) : 0;
+          i32(q.normal != nullptr), i32(q.normals != nullptr), i32(static_cast<int32_t>(sets));
+          if (q.normal && pass.cull) put(q.normal, 12);
+          if (q.normals) put(q.normals, static_cast<size_t>(q.polygon->flags & 0x3ff) * 12);
+          for (uint32_t k = 0; k < sets; ++k) put(q.shadows->uv[k].data(), q.shadows->uv[k].size() * 4);
+          const bool textured = (m.refs[r].polygon->materials[0]->flags & 1) != 0;
+          for (uint32_t k = 0; k < (q.polygon->flags & 0x3ff); ++k) {
+            if (q.flags & 8 || (pass.needs & 1)) put(q.rec + k * 8 + 4, 4);
+            if (textured) put(q.rec + k * 8 + 5, 12), put(q.tl + k * 8 + 6, 8);
+          }
+        }
+      }
+    }
+    zmth::pop();
+  }
+  st = saved;
+  if (static_cast<int>(b.size()) + 12 > cap) return -1;
+  uint32_t head[3] = {static_cast<uint32_t>(ok), pass.needs, static_cast<uint32_t>(pass.shadows) | pass.light_maps << 1 | pass.projected << 2 | pass.bake << 3 | pass.cull << 4};
+  std::memcpy(out, head, 12), std::memcpy(out + 12, b.data(), b.size());
+  return static_cast<int>(b.size()) + 12;
+}
 // A LoD's data as PM's exe holds it (0x5c bytes), through the reader's translation.
 void probe_pm_lod_set(int node, const uint8_t* pm) {
   pm::zcls::translate_lod(*static_cast<::zcls::Lod*>(::zcls::node_at(node)->data), pm);

@@ -256,6 +256,10 @@ unusual happens.
   nothing.
 - In Pirate's Moon, a points model with no points or no polygons draws nothing;
   the original loops for hours or crashes. No shipped model is one.
+- In Pirate's Moon, light maps draw on any graphics card, where the original needed
+  one with two textures and two blending stages; LIGHT MAPS off still turns them off.
+- In Pirate's Moon, a model bigger than the original's working space (no shipped one
+  is known) draws nothing or fewer layers instead of overwriting memory.
 - In Pirate's Moon, a large polygon cut at the camera or the screen's sides keeps
   every corner. The original's working space held 64 corners, unchecked, so a
   64-corner polygon losing one corner to the camera wrote past the end.
