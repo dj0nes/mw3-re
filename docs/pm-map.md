@@ -1124,9 +1124,12 @@ functions PM changed, and PM's new ones.
        **Stubs left in `--fly`:** a mission's depth-only clear is copied, not reached through the state;
        `horscroll*` scroll words run but with no frame's tick.
      - **For Owen's PC, with the view:** a gap between terrain and sky in c2 and c4 from height (`mw3pm --fly c2
-       --pos 1536 120 -1792 --look 0 8`, `c4 --pos 2048 130 -2048 --look 0 8`): with the colour clear off the
-       port shows the frame's old contents there, as the original's device would; compare in the original at
-       those places, as far as a jump jet reaches.
+       --pos 1536 120 -1792 --look 0 8`, `c4 --pos 2048 130 -2048 --look 0 8`). PM's mission sets the clear
+       colour to 0 (0x45129a) and the colour clear off (0x451282, 0x4838db; 0x488f27 turns it on elsewhere), so
+       the frame starts black and that gap keeps old contents; `--fly` does the same. Compare in the
+       original at those places, as far as a jump jet reaches: a black band, or old frames, or none.
+     - **Eye check so far.** c1's and c2's edges read as authored transition tiles (`tertrans01`, `tertrans02`, c2's
+       with alpha, `mw3pm --fly c2 --pos 1500 135 -1600 --look 0 35`); no original compared.
      - **Eye check, still to do with the game around it:** points meeting blended polygons (batched,
        0x59ee90, not ported); a short light's pool on a regular polygon; a projected light over a
        light-mapped polygon, bugs on and off; an axis-aligned wall with a light map (seam); c2's jagged
