@@ -159,7 +159,9 @@ def main():
                 fl &= ~0x40
             if rng.random() < 0.2:
                 fl |= 0x80
-            far = rng.choice((rng.uniform(3, 12), rng.uniform(10, 300)))  # short: the split's floor of 30
+            # Short, on all but the largest polygons: the split's floor of 30. On those it would
+            # pass the exe's 2,048 triangles, unchecked, and overwrite its own vertices (fixes.md).
+            far = rng.uniform(40, 300) if size > 40 else rng.choice((rng.uniform(3, 12), rng.uniform(10, 300)))
             near_l = far * rng.choice((0.0, 0.2, 0.7))
             struct.pack_into('<I', b, 0xe0, fl)
             if far < 12:  # over the polygon, or a short light reaches nothing
