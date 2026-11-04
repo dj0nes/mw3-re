@@ -692,12 +692,18 @@ functions PM changed, and PM's new ones.
          data. Dead; not ported.
      - **The light map itself.** `[0x683cb0]` holds one texture. The script's
        `LightMapTexture` (`0x5b2d10`) sets it through `0x532450`, and
-       `0x530810` clears it. `0x4aefe0` compares a name with it (not read
-       further), and `0x5995a0` (zvid_dd) marks that texture's surface as it
-       is made. The draw uses it only when it is set, `[0x8ccc64]` is not -1,
-       and `[0x8ccc68]` and `[0x8ccc6c]` are at least 2: `0x59b8a0` splits
-       those two from one value of the video device's (`[0xb0a16c]`; which
-       capability is not read yet).
+       `0x530810` clears it. The draw adds it to a polygon as one more shadow
+       set, of kind 2 (the set with xyz): set's texture from the entry's +8.
+       `0x4aefe0` changes the video mode (`0x4399f0`, `0x483700`, `0x484ed0`..):
+       it keeps the texture's name, frees the texture, clears `[0x683cb0]` and
+       finds it again after, as a mode change loses surfaces. `0x5995a0` (zvid_dd)
+       marks that texture's surface as it is made. The draw uses the light map
+       only when it is set, the option's `[0x8ccc64]` is not -1, and the device
+       can: `0x59b8a0` reads the last fields of the D3D device description at
+       `0xb0a074` (size `0xfc`), `[0x8ccc68]` being `wMaxSimultaneousTextures` and
+       `[0x8ccc6c]` `wMaxTextureBlendStages`, both 0 unless `dwTextureOpCaps` has
+       MODULATE, and both needing at least 2. The GPU path always has two
+       textures to give, so that gate becomes true there.
      - **The option.** `LIGHT MAPS` is a graphics option: `0x43a060` offers
        `LIGHT MAPS` (3), `LIGHT MAPS A` (1), `LIGHT MAPS B` (2). `0x40b270`
        keeps a settings value and sets `[0x8ccc64]` from its bits 17 and 18:

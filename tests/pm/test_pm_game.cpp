@@ -570,8 +570,8 @@ TEST(pm_mechlib_refused_model_keeps_no_counts) {
   zgame::set_game(zgame::mw3_table());
 }
 
-// 0x00558f50's fresh model: flags 3 (its other callers keep some of those bits,
-// 0x00559340 among them), the rest clear.
+// 0x00558f50's fresh model: flags 3, the rest clear. The only ported caller
+// replaces the header; the others are to check as they are ported (pm-map.md).
 TEST(pm_model_alloc_starts_with_flags_3) {
   pm::zmod::models() = pm::zmod::ModelPool{};
   const pm::zmod::Model* m = pm::zmod::model_alloc();
