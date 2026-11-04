@@ -968,15 +968,29 @@ functions PM changed, and PM's new ones.
        ignore 0x8c4c40). The device kinds take different arguments: flat (colour, alpha, count,
        overlay), lit (alpha, count, overlay), textured kinds (count, texture, fade, overlay).
        A flat polygon's u, v are whatever its arena held, and no texture reads them: not compared.
-       Not in this test: projected lights (`test_pm_projected.py`), polygons over 48 corners (the
-       exe's clippers overrun past 64, on its stack; fixes.md).
+       Whole draws run under projected lights at 24 bits, on models under 120 units with at most 16
+       corners (the split's 2,048 triangles); at 53 a tie falls either way (`test_pm_projected.py`).
+       **Facing, bit for bit:** at the exe's own test, its inputs go to the port's `face`, and the
+       sum and normal must match exactly at both precisions. It found the sum's order wrong in the
+       port ((z+y)+x; the exe (x+y)+z), which a polygon-level compare hid, since it flips a polygon
+       only on a tie. The exe stores e0x and e0y; the rest stay on the x87's stack, so double at 53.
+       **Large polygons.** In the four worlds' models: 19 of 49 to 64 corners, 27 of over 64 (313 the
+       largest). The exe's clippers hold 64 corners on its stack, a set too. A draw clips only if
+       corners + 2 per active plane stays within 64 (no shipped polygon is known to gain more), else
+       runs with no planes, and then counts only if every vertex is on screen; over 64 corners also
+       has no sets. Left uncovered: clipping polygons of 55 to 64 with all planes (and 63, 64 with
+       any), everything clipped over 64, and sets over 64. The port is unbounded there (fixes.md).
+       `test_pm_submit.py` reaches c1 and c3 only.
        Two allowances, both at 53 bits only, both counted in the test's last line. **A flat mesh
        edge-on:** with the camera in its plane, facing is the rounding of a sum near 0 and the
        polygons passing differ (the exe's sums are double, ours float); allowed only when every
        triangle of both call lists covers under 0.05 square pixels. **A side cut:** a vertex a
        screen side made, on an edge reaching far off screen; the exe interpolates in double and
-       we in float, under 1 pixel (largest seen 0.293). At 24 bits neither fires. Not chased:
-       play-accurate, and the port's float is the same step at 24 bits.
+       we in float, under 1 pixel (largest seen 0.293). Counted only when the plain compare refuses
+       the vertex. At 24 bits neither fires. Not chased (the lead, 2026-11-04): play-accurate, and
+       the port's float is the same step at 24 bits. One exception at either precision: **a near
+       cut under sets**, 0x54a6f0, leaves its fog to the arena (fixes.md), so the fog word of a
+       vertex on the near plane is not compared there.
      - Order from here. The device side: PM's device functions onto Render3D, which deletes
        `draw_unlit`.
 3. **The mission**: load, setup and the world parameters (`mission.cpp`

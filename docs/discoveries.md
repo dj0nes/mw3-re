@@ -4230,3 +4230,11 @@ The screen after the pilot for INSTANT ACTION, 0x00488bc0 (details:
   not at single precision where it would show in MechWarrior 3, so the fade is
   probably there too. The original's three-stage path reads as dropping the fade
   anyway, so that wants a look at the original itself. (docs/pm-map.md, gmod_matl.c)
+
+- Pirate's Moon: fog on a polygon that also carries a shadow or a light map can
+  flicker at the very edge of the screen nearest you. When the camera's plane
+  cuts such a polygon, the game makes new corners for it, and on this one kind
+  of polygon it forgets to work out their fog, so they take whatever another
+  polygon left in that memory. The same polygon without the shadow is right.
+  Read from the code and seen once in about 3,000 test draws; not yet seen in
+  play. The rebuild works the fog out. (docs/pm-map.md, gmod_matl.c)

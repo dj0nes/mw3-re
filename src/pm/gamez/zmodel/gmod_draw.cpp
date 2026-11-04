@@ -11,6 +11,7 @@
 #include "crt/msvc_math.h"
 #include "gamez/zmath/zmth_matrix.h"
 #include "gamez/zmath/zmth_vector.h"
+#include "gamez/zutil/zfix.h"
 #include "gamez/zutil/ztimer.h"
 #include "gamez/zmodel/gmod_bake.h"
 #include "gamez/zmodel/gmod_cull.h"
@@ -197,20 +198,20 @@ void push_fog_color() {
 
 // The polygon's first three positions: (p2 - p1) x (p0 - p1), and n . p0 (MW3's is
 // the other way round, and its test too).
-float face(const float* p, float* n) {
-  const float e2x = p[6] - p[3], e2y = p[7] - p[4], e2z = p[8] - p[5];
-  const float e0x = p[0] - p[3], e0y = p[1] - p[4], e0z = p[2] - p[5];
-  float a = e0z * e2y, b = e0y * e2z;
-  n[0] = a - b;
-  a = e0x * e2z, b = e0z * e2x;
-  n[1] = a - b;
-  a = e0y * e2x, b = e0x * e2y;
-  n[2] = a - b;
-  const float x = n[0] * p[0], y = n[1] * p[1], z = n[2] * p[2];
-  const float s = z + y;
-  return s + x;
+template <typename R>  // what the x87 keeps between stores: float at 24 bits, double at 53
+float face_at(const float* p, float* n) {
+  const R e2x = R{p[6]} - R{p[3]}, e2y = R{p[7]} - R{p[4]}, e2z = R{p[8]} - R{p[5]};
+  const float e0x = p[0] - p[3], e0y = p[1] - p[4];  // stored; the rest stay on the x87's stack
+  const R e0z = R{p[2]} - R{p[5]};
+  n[0] = static_cast<float>(e0z * e2y - R{e0y} * e2z);
+  n[1] = static_cast<float>(R{e0x} * e2z - e0z * e2x);
+  n[2] = static_cast<float>(R{e0y} * e2x - R{e0x} * e2y);
+  const R x = R{n[0]} * R{p[0]}, y = R{n[1]} * R{p[1]}, z = R{n[2]} * R{p[2]};
+  const R s = x + y;
+  return static_cast<float>(s + z);
 }
 }  // namespace
+float face(const float* p, float* n) { return zfix::options().fpu53 ? face_at<double>(p, n) : face_at<float>(p, n); }
 
 // Pirate's Moon 1.0 @ 0x0055ebf0. MW3's lights_reaching (0x00543d90) without its
 // light values and fog mix: PM works those out by polygon (0x005602e0).

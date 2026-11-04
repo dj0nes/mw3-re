@@ -165,6 +165,10 @@ def main():
                 sys.stdout.flush()
                 os._exit(1)
             stats['dropped' if not want[0][0] else 'moved' if want[0][2] else 'kept'] += 1
+    if not p.probe_pm_clip3d_fog_fix():  # the shipped path: fixes.md, 0x54a6f0
+        print('with bugs on, 0x54a6f0 near cut does not carry the fog')
+        sys.stdout.flush()
+        os._exit(1)
     print(f'ok: {cases * 6} polygons identical ({stats})')
     sys.stdout.flush()
     os._exit(0)

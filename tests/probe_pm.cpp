@@ -901,6 +901,7 @@ void probe_pm_light_map_surface(uint32_t surface) {
 }
 int probe_pm_sets(int node, const float* world, uint32_t mask, int fpu53, uint8_t* out, int cap) {
   zfix::options().fpu53 = fpu53 != 0;
+  zfix::options().bugs = false;  // the original's path
   static std::string b;
   b.clear();
   const auto put = [&](const void* p, size_t n) { b.append(static_cast<const char*>(p), n); };
@@ -993,6 +994,11 @@ void probe_pm_set_fpu53(int on) { zfix::options().fpu53 = on != 0; }
 void probe_pm_set_bugs(int on) { zfix::options().bugs = on != 0; }
 // test_pm_submit.py: the whole draw, every device call: kind, count, cull, primitive,
 // shade, fade, overlay, its TL vertices, then its sets' UVs and colours.
+float probe_pm_face(const float* p, float* n, int fpu53) {
+  zfix::options().fpu53 = fpu53 != 0;
+  return pm::zmod::face(p, n);
+}
+
 // A material's texture says it has an alpha plane, or the material takes back what it had.
 void probe_pm_material_alpha(int node, int ref, int on) {
   static zimg::Texture image;
@@ -1019,7 +1025,7 @@ int probe_pm_submit(int node, const float* world, uint32_t mask, int fpu53, cons
   std::memcpy(base.m, world, 48);
   st.top = 0, st.slot[0] = &base, st.identity[0] = 0;
   pm::zmod::draw_model(::zcls::node_at(node), mask, [](const pm::zmod::DeviceCall& d) {
-    const int32_t head[7] = {d.kind, d.count, static_cast<int32_t>(d.cull), d.primitive, d.shade, d.overlay, d.sets ? d.sets->count : -1};
+    const int32_t head[7] = {d.kind, d.count, static_cast<int32_t>(d.cull), d.primitive, d.kind == pm::zmod::DeviceCall::kProjected ? static_cast<int32_t>(d.flags) : d.shade, d.overlay, d.sets ? d.sets->count : -1};
     b.append(reinterpret_cast<const char*>(head), sizeof head);
     b.append(reinterpret_cast<const char*>(&d.fade), 4);
     b.append(reinterpret_cast<const char*>(d.tl), static_cast<size_t>(d.count) * 32);
@@ -1219,8 +1225,36 @@ void probe_pm_tl_colours(int fpu53, float fade, int count, float* rec, float* tl
 // test_pm_clip3d.py: one polygon through clipper `which` (0..5, the exe's
 // order), the buffers rewritten in place. Out: the result, the count, whether
 // each of pos, rec, tl, extra moved to its arena, and how far each arena went.
+// The fog of a polygon with sets, near cut, bugs on: FIX (bug) on 0x0054a6f0. 1 if it matches
+// the plain textured clipper's, which carries it; 0 if not.
+int probe_pm_clip3d_fog_fix() {
+  float pos[8 * 3] = {-1, -1, 5, 1, -1, 5, 1, 1, -5, -1, 1, -5};
+  float rec[2][8 * 8] = {}, tl[2][8 * 8] = {};
+  uint8_t extra[8] = {};
+  float arena_pos[8 * 3], arena_rec[8 * 8], arena_tl[8 * 8];
+  uint8_t arena_extra[8];
+  for (int v = 0; v < 4; ++v) rec[0][v * 8 + 4] = rec[1][v * 8 + 4] = 0.1f * static_cast<float>(v + 1);
+  float out[2][4];
+  pm::zmod::ClipShadows none;
+  zfix::options().bugs = true;
+  for (int k = 0; k < 2; ++k) {
+    float p[8 * 3];
+    std::memcpy(p, pos, sizeof p);
+    pm::zmod::Clip3dState& st = pm::zmod::clip3d_state();
+    st.near_z = 1.0f, st.arena_pos = arena_pos, st.arena_rec = arena_rec, st.arena_tl = arena_tl, st.arena_extra = arena_extra;
+    pm::zmod::ClipPoly c;
+    c.pos = p, c.rec = rec[k], c.tl = tl[k], c.extra = extra, c.count = 4, c.flags = 8, c.codes = 0x10;
+    if (k) c.shadows = &none;
+    if (!(k ? pm::zmod::clip3d_textured_shadow(c) : pm::zmod::clip3d_textured(c)) || c.count != 4) return 0;
+    for (int v = 0; v < 4; ++v) out[k][v] = c.rec[v * 8 + 4];
+  }
+  zfix::options().bugs = false;
+  return std::memcmp(out[0], out[1], sizeof out[0]) == 0;
+}
+
 int probe_pm_clip3d(int which, float near_z, int count, uint32_t flags, float* pos, float* rec, float* tl, uint8_t* extra,
                     void* shadows, float* a_pos, float* a_rec, float* a_tl, uint8_t* a_extra, int32_t* out) {
+  zfix::options().bugs = false;  // the original's path
   pm::zmod::ClipPoly p;
   p.pos = pos, p.rec = rec, p.tl = tl, p.extra = extra, p.flags = flags, p.count = count;
   // The exe's record (0x2358 bytes) to the port's growing sets, and back after.

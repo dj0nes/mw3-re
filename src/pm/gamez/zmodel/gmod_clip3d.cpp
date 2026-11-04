@@ -2,6 +2,8 @@
 
 #include <cstring>
 
+#include "gamez/zutil/zfix.h"
+
 #pragma STDC FP_CONTRACT OFF
 
 // How these differ from MW3's: docs/pm-map.md, gmod_matl.c.
@@ -288,7 +290,10 @@ int clip3d_textured(ClipPoly& p) { return clip(p, kPlain | kUv | kRecColour | (p
 // Pirate's Moon 1.0 @ 0x0054a450
 int clip3d_textured_lit(ClipPoly& p) { return clip(p, kPlain | kRecLight | kRec10 | kRecColour | kUv); }
 // Pirate's Moon 1.0 @ 0x0054a6f0
-int clip3d_textured_shadow(ClipPoly& p) { return clip(p, kPlain | kShadows | kRecColour | kUv); }
+// FIX (bug): the exe does not carry the fog (+0x10), so a cut vertex fogs from what its arena held.
+int clip3d_textured_shadow(ClipPoly& p) {
+  return clip(p, kPlain | kShadows | kRecColour | kUv | (p.flags & 8 && zfix::options().bugs ? kRec10 : 0));
+}
 // Pirate's Moon 1.0 @ 0x0054aa50
 int clip3d_textured_lit_shadow(ClipPoly& p) {
   return clip(p, kPlain | kRecLight | kShadows | kRecColour | kRec10 | kUv);

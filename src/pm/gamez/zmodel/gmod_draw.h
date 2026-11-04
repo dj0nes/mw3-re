@@ -138,6 +138,8 @@ struct DeviceCall {
 };
 
 // Pirate's Moon 1.0 @ 0x00543b10: a node's model. The device calls go to `device`.
+// The facing test's sum over a polygon's first three positions (0x0054422e..0x005442c1), and its normal.
+float face(const float* p, float* n);
 int32_t draw_model(::zcls::Node* node, uint32_t mask, void (*device)(const DeviceCall&));
 
 // 0x0055ebf0: which lights reach the sphere; their count.
