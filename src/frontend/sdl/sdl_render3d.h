@@ -95,6 +95,7 @@ class SdlRender3D : public platform::Render3D {
   int vx_ = 0, vy_ = 0, vw_ = 640, vh_ = 480;
   bool clear_color_ = true;
   bool clear_pending_ = true;
+  bool frame_new_ = true;  // frame_ was just made: nothing has defined its pixels
   SDL_GPUTexture* frame_ = nullptr;  // the back buffer
   SDL_GPUTexture* held_ = nullptr;   // a shown frame kept (hold_frame), the back buffer's size
   // A hidden window's last frame (no swapchain to wait on): waited for before
