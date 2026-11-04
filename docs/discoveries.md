@@ -2737,6 +2737,13 @@ From the view and its cameras (0x40aca0, 0x430e70; details: `view.md`).
   camera key cycles to (tether behind, zippercam beside), each mech has
   godseye (150 m up, looking straight down), mcbtether (30 m back) and area
   (40 m off); what switches to those is not traced yet.
+- **The side camera can go under the water, and the game knows.** The zippercam
+  rides low, about 4 m above the mech's feet at the start of c1 m1, and nothing
+  keeps a camera out of water, only out of the ground. Standing in 5 m of water
+  puts it 1 m under the surface: the world switches to its underwater fog, the
+  sky turns dark, and a hard line runs across the mech where the surface meets
+  the horizon. The tether camera stays above it there. (From the code:
+  0x0040af30, 0x0040b0e0; not yet compared on the original running.)
 - **The cockpit view bobs with the mech's motion,** and twisting or pitching
   the torso adds to the tilt; the bob is 0.15 of the motion, behind a switch
   that is on in 1.2 ([0x5e2448]; no menu sets it that we know of).
