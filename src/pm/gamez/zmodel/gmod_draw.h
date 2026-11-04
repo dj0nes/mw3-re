@@ -69,6 +69,7 @@ struct RefPass {
   std::vector<uint8_t> extra;
   std::vector<ClipShadows> shadows;
   int32_t strips = 0;      // local_c
+  size_t at = 0, normal_at = 0, face_at = 0;  // the arenas' next free
   bool projected = false;  // local_80
   bool light_maps = false; // local_88
 };
@@ -99,6 +100,13 @@ void light_records(const Model& m, const ModelPass& pass, RefPass& ref);
 // flag 0x200, into its scratch (not two-sided ones). The light-to-vertex vector carries
 // over, as MW3's (zmod::bake_state): a spot's first vertex reads it unset.
 void bake_static_light(Model& m);
+// 0x00543b10 after the lighting: strips into triangles where something needs them
+// apart, polygons with plane codes into a fan of them, the projected shadows' sets
+// (MW3's collect_shadows 0x00540552), the light map's. Each is one of the exe's loops.
+void split_strips(const ::zmod::Material& mat, const ModelPass& pass, RefPass& ref);
+void split_fans(const ModelPass& pass, RefPass& ref);
+void shadow_sets(const ::zmod::Material& mat, const ModelPass& pass, RefPass& ref);
+void light_map_sets(RefPass& ref);
 // 0x0055ebf0: which lights reach the sphere; their count.
 int32_t lights_reaching(const float centre[3], float radius);
 

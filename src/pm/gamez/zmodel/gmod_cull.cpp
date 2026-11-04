@@ -23,10 +23,6 @@ uint32_t rounded_sum(float a, float b) {  // a + 0.5
   if (zfix::options().fpu53) return low_word(static_cast<double>(a) + b + 6755399441055744.0);
   return low_word((a + b) - -6755399441055744.0f);
 }
-uint32_t rounded_product(float a, float b) {  // a * 255
-  if (zfix::options().fpu53) return low_word(static_cast<double>(a) * b + 6755399441055744.0);
-  return low_word((a * b) - -6755399441055744.0f);
-}
 
 // A channel's value + 0.5, rounded, in 0..255.
 uint32_t channel(float v) {
@@ -36,6 +32,11 @@ uint32_t channel(float v) {
 }  // namespace
 
 CullState& cull_state() { return g_cull; }
+
+uint32_t rounded_product(float a, float b) {
+  if (zfix::options().fpu53) return low_word(static_cast<double>(a) * b + 6755399441055744.0);
+  return low_word((a * b) - -6755399441055744.0f);
+}
 
 // Pirate's Moon 1.0 @ 0x005403d0
 void set_fade(float fade) { g_cull.fade = fade; }

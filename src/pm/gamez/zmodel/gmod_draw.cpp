@@ -13,6 +13,7 @@
 #include "gamez/zmath/zmth_vector.h"
 #include "gamez/zutil/ztimer.h"
 #include "gamez/zmodel/gmod_bake.h"
+#include "gamez/zmodel/gmod_cull.h"
 #include "gamez/zmodel/gmod_draw.h"
 #include "gamez/zmodel/gmod_fog.h"
 #include "gamez/zmodel/gmod_fogcalc.h"
@@ -326,16 +327,19 @@ int build_records(Model& m, const MaterialRef& ref, const ModelPass& pass, RefPa
   const int32_t fog = ::zmod::fog().on;
   const float* factor = ::zmod::fog_calc().factor;
   // The arenas: each polygon's vertices, with room for what the clippers add.
-  size_t verts = 0, sets = 0;
+  size_t verts = 0, tris = 0;
   for (int32_t i = 0; i < ref.usage_count; ++i) {
-    verts += (ref.polygon[i].flags & 0x3ff) + 8;
-    if (ref.polygon[i].material_count > 1) ++sets;
+    const size_t n = ref.polygon[i].flags & 0x3ff;
+    verts += n + 8;
+    if (n > 2) tris += n - 2;
   }
+  verts += tris * (3 + 8);  // the strips' and fans' triangles, each with the clippers' room
+  const size_t records = static_cast<size_t>(ref.usage_count) + tris;
   out.pos.resize(verts * 3), out.normals.resize(verts * 3);
   out.rec.resize(verts * 8), out.tl.resize(verts * 8);
-  out.faces.resize(static_cast<size_t>(ref.usage_count) * 3);
+  out.faces.resize(records * 3);
   out.extra.assign(verts, 0);
-  out.shadows.reserve(sets);
+  out.records.reserve(records), out.shadows.reserve(records);
   size_t at = 0, normal_at = 0, face_at = 0;
   for (int32_t pi = 0; pi < ref.usage_count; ++pi) {
     Polygon& p = ref.polygon[pi];
@@ -412,6 +416,7 @@ int build_records(Model& m, const MaterialRef& ref, const ModelPass& pass, RefPa
     at += static_cast<size_t>(n) + 8;
     if (!strip) face_at += 3;
   }
+  out.at = at, out.normal_at = normal_at, out.face_at = face_at;
   return out.records.empty() ? 0 : 1;
 }
 
@@ -852,7 +857,9 @@ void bake_static_light(Model& m) {
     Polygon& p = m.polygons[pi];
     if (p.flags & 0x400) continue;
     const int32_t n = static_cast<int32_t>(p.flags & 0x3ff);
-    pos.resize(static_cast<size_t>(n) * 3);
+    // At least 9 floats: poly_normal reads three vertices, and past a smaller polygon's
+    // the exe reads old stack.
+    pos.assign(static_cast<size_t>(n > 3 ? n : 3) * 3, 0.0f);
     for (int32_t i = 0; i < n; ++i) std::memcpy(&pos[static_cast<size_t>(i) * 3], &g_state.cam[static_cast<size_t>(p.vertex_indices[i]) * 3], 12);
     const bool vn = !no_sun && (p.flags & 0x1000);
     if (vn) {
@@ -934,6 +941,264 @@ void bake_static_light(Model& m) {
     }
     if (directed) {
       for (int32_t i = n - 1; i >= 0; --i) out[i] = out[i] - 1.0f;
+    }
+  }
+}
+
+namespace {
+// One triangle of `src`, vertices a, b, c, appended to the arenas; its positions and
+// face normal are already at the arenas' next free.
+Record& add_triangle(RefPass& ref, const Record& src, int a, int b, int c, uint32_t codes, float* normal) {
+  const int v[3] = {a, b, c};
+  Record r;
+  r.polygon = src.polygon, r.flags = src.flags, r.count = 3, r.codes = codes;
+  std::memcpy(r.lit, src.lit, 12);
+  r.pos = &ref.pos[ref.at * 3], r.rec = &ref.rec[ref.at * 8], r.tl = &ref.tl[ref.at * 8];
+  r.extra = &ref.extra[ref.at];
+  r.normal = normal;
+  for (int k = 0; k < 3; ++k) {
+    std::memcpy(r.rec + k * 8, src.rec + v[k] * 8, 32);
+    std::memcpy(r.tl + k * 8 + 6, src.tl + v[k] * 8 + 6, 8);
+  }
+  if (src.normals) {
+    r.normals = &ref.normals[ref.normal_at * 3];
+    for (int k = 0; k < 3; ++k) std::memcpy(r.normals + k * 3, src.normals + v[k] * 3, 12);
+    ref.normal_at += 3;
+  }
+  if (src.shadows) {
+    ref.shadows.emplace_back();
+    ClipShadows& s = ref.shadows.back();
+    s.count = src.shadows->count;
+    for (int32_t k = 0; k < s.count; ++k) {
+      s.texture[k] = src.shadows->texture[k];
+      s.kind[k] = src.shadows->kind[k];
+      s.uv[k].resize(6);
+      for (int i = 0; i < 3; ++i) std::memcpy(&s.uv[k][static_cast<size_t>(i) * 2], &src.shadows->uv[k][static_cast<size_t>(v[i]) * 2], 8);
+    }
+    r.shadows = &s;
+  }
+  ref.at += 3 + 8;
+  ref.records.push_back(r);
+  return ref.records.back();
+}
+}  // namespace
+
+// 0x00544b00..0x005451cd: taken apart when clipped at the camera, seen through, shadowed
+// or lit by a map or projected light. A strip's flip is in its index pairs.
+void split_strips(const ::zmod::Material& mat, const ModelPass& pass, RefPass& ref) {
+  if (ref.strips == 0) return;
+  const bool near_ = (pass.mask & 0x10) != 0;
+  const bool shadowed = pass.shadows && ::zmod::shadow_casters().count > 0 && mat.texture && !has_alpha(mat);
+  const bool seen_through = shadowed || ::zmod::draw_state().opacity < 1.0f || (mat.texture && has_alpha(mat));
+  if (!near_ && !seen_through && !ref.projected && !ref.light_maps) return;
+  const float tolerance = ::zmod::draw_state().backface;
+  const size_t end = ref.records.size();
+  for (size_t ri = 0; ri < end; ++ri) {
+    if (ref.records[ri].count == 0 || !(ref.records[ri].polygon->flags & 0x2000)) continue;
+    uint32_t f = ref.records[ri].flags;
+    if (!seen_through) {
+      if (!near_) {
+        if (!((ref.light_maps && (f & 0x400)) || (ref.projected && (f & 0x200)))) continue;
+      } else if (!ref.projected && !ref.light_maps && ref.records[ri].codes == 0) {
+        continue;
+      }
+    }
+    ref.records[ri].flags |= 0x100;
+    const int32_t n = ref.records[ri].count;
+    const uint32_t* idx = ref.records[ri].polygon->vertex_indices;
+    for (int32_t k = 2; k < n; ++k) {
+      const int a = k - 2, b = (k - 1) | 1, c = k & ~1;
+      if (idx[a] == idx[b] || idx[a] == idx[c] || idx[b] == idx[c]) continue;
+      const Record& src = ref.records[ri];
+      float* pos = &ref.pos[ref.at * 3];
+      std::memcpy(pos, src.pos + a * 3, 12), std::memcpy(pos + 3, src.pos + b * 3, 12), std::memcpy(pos + 6, src.pos + c * 3, 12);
+      float* normal = &ref.faces[ref.face_at];
+      if (!(face(pos, normal) < -tolerance)) continue;
+      uint32_t codes = src.codes;
+      if (src.codes != 0) {
+        const int32_t tri[3] = {static_cast<int32_t>(idx[a]), static_cast<int32_t>(idx[b]), static_cast<int32_t>(idx[c])};
+        if (polygon_codes(3, tri, &codes) == 0) continue;
+      }
+      ref.face_at += 3;
+      add_triangle(ref, src, a, b, c, codes, normal);
+    }
+    ref.records[ri].count = 0;
+  }
+}
+
+// 0x005451ce..0x005456e8
+void split_fans(const ModelPass& pass, RefPass& ref) {
+  if (!(pass.mask & 0x1f)) return;
+  const size_t end = ref.records.size();
+  for (size_t ri = 0; ri < end; ++ri) {
+    if (ref.records[ri].count <= 3 || ref.records[ri].codes == 0 || (ref.records[ri].polygon->flags & 0x2000)) continue;
+    const int32_t n = ref.records[ri].count;
+    const uint32_t* idx = ref.records[ri].polygon->vertex_indices;
+    for (int32_t k = 2; k < n; ++k) {
+      const Record& src = ref.records[ri];
+      const int32_t tri[3] = {static_cast<int32_t>(idx[k]), static_cast<int32_t>(idx[0]), static_cast<int32_t>(idx[k - 1])};
+      uint32_t codes = 0;
+      if (polygon_codes(3, tri, &codes) == 0) continue;
+      float* pos = &ref.pos[ref.at * 3];
+      std::memcpy(pos, src.pos + k * 3, 12), std::memcpy(pos + 3, src.pos, 12), std::memcpy(pos + 6, src.pos + (k - 1) * 3, 12);
+      float* normal = &ref.faces[ref.face_at];
+      if (src.normal) std::memcpy(normal, src.normal, 12);
+      ref.face_at += 3;
+      add_triangle(ref, src, k, 0, k - 1, codes, normal);
+    }
+    ref.records[ri].count = 0;
+  }
+}
+
+// 0x005456f8..0x00545ab0, as MW3's collect_shadows; the sets go on the polygon's own.
+void shadow_sets(const ::zmod::Material& mat, const ModelPass& pass, RefPass& ref) {
+  const ::zmod::ShadowCasters& casters = ::zmod::shadow_casters();
+  if (!pass.shadows || casters.count == 0 || !mat.texture || has_alpha(mat)) return;
+  const float* m = zmth::view().camera.m;
+  const float* off = ::zmod::lighting().camera_offset;
+  static std::vector<float> world, ground;
+  for (Record& r : ref.records) {
+    if (r.count == 0 || (r.shadows && r.shadows->count >= 7)) continue;
+    const int32_t n = r.count;
+    world.resize(static_cast<size_t>(n) * 3), ground.resize(static_cast<size_t>(n) * 2);
+    float lowest = 3.4028235e+38f;
+    for (int32_t i = n - 1; i >= 0; --i) {
+      transform_point(r.pos + i * 3, m, &world[static_cast<size_t>(i) * 3]);
+      if (lowest > world[static_cast<size_t>(i) * 3 + 1]) lowest = world[static_cast<size_t>(i) * 3 + 1];
+    }
+    for (int32_t c = casters.count - 1; c >= 0; --c) {
+      const ::zmod::ShadowCaster& s = *casters.list[c];
+      if (lowest > s.box_max[1]) continue;
+      const float* nv = r.normal;
+      const float f2 = nv[2] * s.slope_cam[2], f1 = nv[1] * s.slope_cam[1], f0 = nv[0] * s.slope_cam[0];
+      const float facing = (f2 + f1) + f0;
+      if (!(facing > 0.0f)) continue;
+      const float lx = (off[0] + s.position[0]) * s.slope[0], lz = (off[2] + s.position[2]) * s.slope[1];
+      const float limit = (s.slope_len + s.slope_len) + lz + lx;
+      bool slide_all = false;
+      for (int32_t i = n - 1; i >= 0; --i) {
+        const float a = s.slope[0] * world[static_cast<size_t>(i) * 3], b = world[static_cast<size_t>(i) * 3 + 2] * s.slope[1];
+        if (a + b <= limit) {
+          slide_all = true;
+          break;
+        }
+      }
+      float max_x = -3.4028235e+38f, min_x = 3.4028235e+38f, min_z = 3.4028235e+38f, max_z = -3.4028235e+38f;
+      for (int32_t i = n - 1; i >= 0; --i) {
+        const float* w = &world[static_cast<size_t>(i) * 3];
+        float* g = &ground[static_cast<size_t>(i) * 2];
+        g[0] = w[0], g[1] = w[2];
+        if (slide_all || w[1] < s.ground_y) {
+          const float t = s.ground_y - w[1];
+          g[0] = t * s.slope[0] + g[0];
+          g[1] = t * s.slope[1] + g[1];
+        }
+        if (g[0] < min_x) min_x = g[0];
+        if (max_x < g[0]) max_x = g[0];
+        if (g[1] < min_z) min_z = g[1];
+        if (max_z < g[1]) max_z = g[1];
+      }
+      const float x0 = off[0] + s.box_min[0], z0 = off[2] + s.box_min[2];
+      if (!(x0 < max_x) || !(z0 < max_z)) continue;
+      if (!(min_x < off[0] + s.box_max[0]) || !(min_z < off[2] + s.box_max[2])) continue;
+      if (!r.shadows) {
+        ref.shadows.emplace_back();
+        r.shadows = &ref.shadows.back();
+      }
+      ClipShadows& set = *r.shadows;
+      std::vector<float>& uv = set.uv[set.count];
+      uv.resize(static_cast<size_t>(n) * 2);
+      for (int32_t i = 0; i < n; ++i) {
+        uv[static_cast<size_t>(i) * 2] = (ground[static_cast<size_t>(i) * 2] - x0) * s.scale[0];
+        uv[static_cast<size_t>(i) * 2 + 1] = (ground[static_cast<size_t>(i) * 2 + 1] - z0) * s.scale[1];
+      }
+      set.texture[set.count] = s.texture;
+      set.kind[set.count] = 1;
+      if (++set.count > 6) break;
+    }
+  }
+}
+
+// 0x00545ab1..0x00546009: each polygon flagged 0x400, each map light (flags 0x10, 0x80)
+// whose square across its range covers the polygon: UVs in that square, the light's
+// colour by the vertex colour, the fade with distance.
+void light_map_sets(RefPass& ref) {
+  if (!ref.light_maps) return;
+  const ::zmod::LightList& list = ::zmod::light_list();
+  const ::zmod::Material* first = nullptr;
+  static std::vector<float> to;
+  for (Record& r : ref.records) {
+    if (r.count == 0 || !(r.flags & 0x400) || (r.shadows && r.shadows->count >= 7)) continue;
+    if (!r.normal) continue;  // the exe reads through null; a strip is split before it comes here
+    first = r.polygon->materials[0];
+    ::zmod::normalize(r.normal);
+    const int32_t n = r.count;
+    to.resize(static_cast<size_t>(n) * 3);
+    for (int32_t li = 0; li < list.count; ++li) {
+      const ::zmod::LightEntry& e = list.list[li];
+      if (!e.reach) continue;
+      const ::zcls::Light* l = e.data;
+      const uint32_t f = lflags(l);
+      if (!(f & 0x10) || !(f & 0x80)) continue;
+      const float lx = lp(l, 0x78), ly = lp(l, 0x7c), lz = lp(l, 0x80);
+      const float* n3 = r.normal;
+      const float d0 = lz - r.pos[2], d1 = ly - r.pos[1], d2 = lx - r.pos[0];
+      to[0] = d2, to[1] = d1, to[2] = d0;
+      const float along = n3[2] * d0 + n3[1] * d1 + n3[0] * d2;
+      const float dist = along < 0.0f ? -along : along;
+      if (!(dist < lp(l, 0xe8))) continue;
+      const float k = 0.5f / std::sqrt(lp(l, 0xf0) - dist * dist);
+      for (int32_t i = 1; i < n; ++i) {
+        to[static_cast<size_t>(i) * 3] = lx - r.pos[i * 3];
+        to[static_cast<size_t>(i) * 3 + 1] = ly - r.pos[i * 3 + 1];
+        to[static_cast<size_t>(i) * 3 + 2] = lz - r.pos[i * 3 + 2];
+      }
+      const zmth::Vec3 nv{n3[0], n3[1], n3[2]};
+      zmth::Vec3 uax;
+      zmth::perpendicular(nv, &uax);
+      uax.x = uax.x * k, uax.y = uax.y * k, uax.z = uax.z * k;
+      const float vax[3] = {n3[1] * uax.z - n3[2] * uax.y, n3[2] * uax.x - n3[0] * uax.z, n3[0] * uax.y - n3[1] * uax.x};
+      uint32_t seen = 0;
+      for (int32_t i = 0; i < n; ++i) {
+        float* t = &to[static_cast<size_t>(i) * 3];
+        const float u = t[2] * uax.z + t[1] * uax.y + t[0] * uax.x;
+        const float v = t[2] * vax[2] + t[1] * vax[1] + t[0] * vax[0];
+        t[0] = u, t[1] = v;
+        if (double{u} >= -0.5) seen |= 1;
+        if (double{u} <= 0.5) seen |= 2;
+        if (double{v} >= -0.5) seen |= 4;
+        if (double{v} <= 0.5) seen |= 8;
+      }
+      if (seen != 0xf) continue;
+      if (!r.shadows) {
+        ref.shadows.emplace_back();
+        r.shadows = &ref.shadows.back();
+      }
+      ClipShadows& set = *r.shadows;
+      const int32_t at = set.count;
+      set.uv[at].resize(static_cast<size_t>(n) * 2), set.xyz[at].resize(static_cast<size_t>(n) * 3);
+      for (int32_t i = 0; i < n; ++i) {
+        set.uv[at][static_cast<size_t>(i) * 2] = to[static_cast<size_t>(i) * 3] + 0.5f;
+        set.uv[at][static_cast<size_t>(i) * 2 + 1] = to[static_cast<size_t>(i) * 3 + 1] + 0.5f;
+        float* c = &set.xyz[at][static_cast<size_t>(i) * 3];
+        c[0] = lp(l, 0xd4), c[1] = lp(l, 0xd8), c[2] = lp(l, 0xdc);
+        if (first->flags & 1) {
+          c[0] = r.rec[i * 8 + 5] * c[0], c[1] = r.rec[i * 8 + 6] * c[1], c[2] = r.rec[i * 8 + 7] * c[2];
+        }
+        for (int q = 0; q < 3; ++q) c[q] = clamp255(c[q]);
+      }
+      ::zimg::TextureEntry* map = pm::zimg::light_map();
+      set.texture[at] = map ? map->surface : nullptr;
+      set.kind[at] = 2;
+      uint32_t fade = 0xff000000u;
+      if (lp(l, 0xe4) < dist) {
+        int32_t w = static_cast<int32_t>(rounded_product((lp(l, 0xe8) - dist) * lp(l, 0xf4), 255.0f));
+        if (w >= 0x100) w = 0xff;
+        else if (w < 0) w = 0;
+        fade = static_cast<uint32_t>(w) << 24;
+      }
+      set.fade[at] = fade;
+      if (++set.count > 6) break;
     }
   }
 }

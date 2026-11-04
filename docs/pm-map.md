@@ -896,10 +896,23 @@ functions PM changed, and PM's new ones.
      - **Phase 4b: the model's lights** (`draw_model_lights`, 0x547dd0;
        `test_pm_model_lights.py`). No shipped world model has any, so they are made in
        the test. The exe batches its opaque points; the port draws each as it comes.
+       The test compares order within the points only. **Eye check, phase 6:** points
+       meeting blended polygons, since draw order could change the result. The flare
+       hook (0x588910) is still to wire to `flare_add`, and that mapping is unchecked.
      - **Phase 4c: the bake** (`bake_static_light`, 0x55fb30; `test_pm_bake.py`, and
        `test_pm_lighting.py` with the real bake feeding it). As MW3's: a spot's first
        vertex reads the light-to-vertex vector left from the last one, which the exe
        has on its stack, and below near^2 the range is tested with the squared distance.
+       **Known gap:** with vertex shading off the exe's bake reads the last draw's
+       normals; that path is not tested with the real bake.
+     - **Phases 4d and 4e: strips and fans into triangles, the sets** (`split_strips`,
+       `split_fans`, `shadow_sets`, `light_map_sets`; `test_pm_sets.py`, to the end of
+       the sets at 0x54600e). Casters and lights are made in the test, up to all seven
+       sets on a polygon. PM keeps a caster's texture at +0x64, MW3 at +0x60: the
+       caster's own port must place it. A light map set: UVs in the square across the
+       light's range, colour the light's PM +0xd4 by the vertex colour, fade at
+       +0x153c from (far - d) * 255. The fade is the 1.5 * 2^52 rounding, so at 24 bits
+       it is only ever 0 or full; c3 runs at 53 bits to reach the values between.
        The test maps a zero page, for a strip's missing normal and the bench's null
        texture images. Every null read on the exe's side then succeeds, so a passing
        run does not show those two are the only null reads in this path.

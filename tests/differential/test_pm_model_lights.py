@@ -1,7 +1,8 @@
 """PM's model lights against its exe: the blink and step animation at 0x543b10's
 start, and 0x547dd0's points and lens flares. No shipped world model has any, so they
 are made here. The exe batches its opaque points and hands them over at the end;
-each side's points are compared in the order they were made.
+each side's points are compared in the order they were made, within the points only:
+how they fall among blended polygons is for the eye check (docs/pm-map.md).
 
     cmake --build build --target pmprobe
     .venv/bin/python -P tests/differential/test_pm_model_lights.py [draws]
@@ -117,6 +118,10 @@ def main():
             far = rng.choice((0.0, rng.uniform(5, 200)))
             struct.pack_into('<iifi', b, 0, kind, rng.choice((0, 1)), rng.uniform(0, 0.1), rng.randint(1, per))
             struct.pack_into('<fI', b, 0x10, rng.uniform(0, 0.2), rng.randint(0, 3) | rng.randint(0, 0xffff) << 16)
+            if kind == 1 and rng.random() < 0.2:  # the step past 0xffff carries into the colour: on the first frame
+                struct.pack_into('<f', b, 8, 0.0)
+                struct.pack_into('<fI', b, 0x10, 1.0, 0xffff | rng.randint(0, 0xfffe) << 16)
+                struct.pack_into('<i', b, 0xc, 2)  # vertices 0, 1, 0..: the carried colour shows at 1
             struct.pack_into('<h', b, 0x18, rng.choice((0, 0, 2, -3)))
             struct.pack_into('<H', b, 0x28, rng.randint(0, 0xffff))
             struct.pack_into('<3fi', b, 0x30, far * rng.uniform(0, 0.9), far, 255.0 / max(far, 1.0) * rng.uniform(0.5, 2), rng.choice((0, 0, 1)))
@@ -134,38 +139,41 @@ def main():
             p.probe_pm_set_model(i, off, v)
         emu.w32(model + 0x40, recs)
         p.probe_pm_set_model_lights(i, count, records, (F * len(verts))(*verts), per)
-        dt = rng.uniform(0, 0.2)
-        events, opaque = emu.run(i, world, dt)
-        n = p.probe_pm_model_lights(i, (F * 12)(*world), dt, buf, len(buf))
-        raw = buf.raw[:n]
-        ours, at = [], 0
-        while at < n:
-            kind = struct.unpack_from('<i', raw, at)[0]
-            if kind == 1:
-                ours.append((1, struct.unpack_from('<3f', raw, at + 4), struct.unpack_from('<I', raw, at + 16)[0], struct.unpack_from('<i', raw, at + 20)[0]))
-                at += 24
-            else:
-                ours.append((2, struct.unpack_from('<3f', raw, at + 4), struct.unpack_from('<3f', raw, at + 16), struct.unpack_from('<I', raw, at + 28)[0]))
-                at += 32
+        # Several frames on the same lights, the steps spanning their periods: the
+        # stepping, its carry into the colour and the blink's swap are state.
+        for frame in range(rng.randint(1, 8)):
+            dt = rng.choice((0.0, rng.uniform(0, 0.05), rng.uniform(0, 0.2)))
+            events, opaque = emu.run(i, world, dt)
+            n = p.probe_pm_model_lights(i, (F * 12)(*world), dt, buf, len(buf))
+            raw = buf.raw[:n]
+            ours, at = [], 0
+            while at < n:
+                kind = struct.unpack_from('<i', raw, at)[0]
+                if kind == 1:
+                    ours.append((1, struct.unpack_from('<3f', raw, at + 4), struct.unpack_from('<I', raw, at + 16)[0], struct.unpack_from('<i', raw, at + 20)[0]))
+                    at += 24
+                else:
+                    ours.append((2, struct.unpack_from('<3f', raw, at + 4), struct.unpack_from('<3f', raw, at + 16), struct.unpack_from('<I', raw, at + 28)[0]))
+                    at += 32
+            ours_opaque = [e for e in ours if e[0] == 1 and e[3] == 0xff]
+            ours_rest = [e for e in ours if not (e[0] == 1 and e[3] == 0xff)]
+            for label, a, b in (('opaque', opaque, ours_opaque), ('others', events, ours_rest)):
+                if len(a) != len(b):
+                    raise SystemExit(f'draw {d} node {i}: {len(b)} {label}, the exe {len(a)}: {b[:3]} {a[:3]}')
+                for x, y in zip(a, b):
+                    seen[f'{label} {x[0]}'] = seen.get(f'{label} {x[0]}', 0) + 1
+                    if x[0] != y[0] or (x[0] == 1 and (x[2:] != y[2:])) or (x[0] == 2 and x[3] != y[3]):
+                        raise SystemExit(f'draw {d} node {i} {label}: {y}, the exe {x}')
+                    for ax, ay in zip(x[1], y[1]):
+                        if not same_float(ax, ay, stats, TOL, label, ROUNDING):
+                            raise SystemExit(f'draw {d} node {i} {label}: {y}, the exe {x}')
+                    if x[0] == 2:
+                        for ax, ay in zip(x[2], y[2]):
+                            if not same_float(ax, ay, stats, TOL, 'flare', ROUNDING):
+                                raise SystemExit(f'draw {d} node {i}: flare {y}, the exe {x}')
         for off, v in undo:
             emu.w32(model + off, v)
             p.probe_pm_set_model(i, off, v)
-        ours_opaque = [e for e in ours if e[0] == 1 and e[3] == 0xff]
-        ours_rest = [e for e in ours if not (e[0] == 1 and e[3] == 0xff)]
-        for label, a, b in (('opaque', opaque, ours_opaque), ('others', events, ours_rest)):
-            if len(a) != len(b):
-                raise SystemExit(f'draw {d} node {i}: {len(b)} {label}, the exe {len(a)}: {b[:3]} {a[:3]}')
-            for x, y in zip(a, b):
-                seen[f'{label} {x[0]}'] = seen.get(f'{label} {x[0]}', 0) + 1
-                if x[0] != y[0] or (x[0] == 1 and (x[2:] != y[2:])) or (x[0] == 2 and x[3] != y[3]):
-                    raise SystemExit(f'draw {d} node {i} {label}: {y}, the exe {x}')
-                for ax, ay in zip(x[1], y[1]):
-                    if not same_float(ax, ay, stats, TOL, label, ROUNDING):
-                        raise SystemExit(f'draw {d} node {i} {label}: {y}, the exe {x}')
-                if x[0] == 2:
-                    for ax, ay in zip(x[2], y[2]):
-                        if not same_float(ax, ay, stats, TOL, 'flare', ROUNDING):
-                            raise SystemExit(f'draw {d} node {i}: flare {y}, the exe {x}')
     print(f'ok: {draws} draws; {stats.floats} floats, {stats.exact} exact, off by place {stats.where}; {seen}')
     if len(seen) < 3:
         raise SystemExit('points or flares never reached')
