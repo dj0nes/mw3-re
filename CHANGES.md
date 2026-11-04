@@ -254,6 +254,9 @@ unusual happens.
   `#include` others). Pirate's Moon's `#include` reads only files inside
   the game and its mods: a name with `..`, a drive or a full path reads
   nothing.
+- In Pirate's Moon, a large polygon cut where it passes the camera keeps every
+  corner. The original's working space held 64 corners, unchecked, and its
+  polygons reach 313, so it wrote past the end.
 - A vehicle with a name of 20 letters or more (or with a `%` in it) in a
   mission's vehicle file keeps its name; the original cut it and, from 28
   letters, overwrote the vehicle's settings. A made-up vehicle whose name
