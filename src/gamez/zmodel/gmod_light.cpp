@@ -153,6 +153,8 @@ int light_chain_to_world(zcls::Node* node, int) {
 }
 }  // namespace
 
+float clouds_at_camera(const float p[3]) { return g_clouds.on ? cloud_at_camera(p) : 1.0f; }
+
 LightList& light_list() { return g_list; }
 Clouds& clouds() { return g_clouds; }
 Lighting& lighting() { return g_lighting; }

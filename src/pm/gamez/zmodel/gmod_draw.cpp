@@ -158,7 +158,7 @@ int prepare_model(Model& m, float centre[3]) {
 }
 
 namespace {
-constexpr int32_t kMaxVerts = ::zmod::FogCalc::kMax;  // the shared factor array; the exe has no limit
+constexpr int32_t kMaxVerts = 1024;  // the plane codes' array; the largest shipped model has 500
 
 template <typename T> T hdr(const Model& m, int off) {
   T v;
@@ -409,6 +409,339 @@ int build_records(Model& m, const MaterialRef& ref, const ModelPass& pass, RefPa
     if (!strip) face_at += 3;
   }
   return out.records.empty() ? 0 : 1;
+}
+
+namespace {
+constexpr double kVisible = 0.003921569;  // 0x005f0a60
+
+// A field of PM's light data by PM's own offset: below +0xb0 the shared block, then
+// PM's colours (`pm_colors`), then the shared block's +0xb0.. (cls_zbd, read_node).
+float lp(const ::zcls::Light* l, int off) {
+  if (off < 0xb0) return l->get<float>(off);
+  if (off < 0xe0) return l->pm_colors[(off - 0xb0) / 4];
+  return l->get<float>(off - 0x30);
+}
+uint32_t lflags(const ::zcls::Light* l) { return l->get<uint32_t>(0xb0); }
+float dot(const float* a, const ::zcls::Light* l) {
+  const float z = a[2] * lp(l, 0x98), y = a[1] * lp(l, 0x94), x = a[0] * lp(l, 0x90);
+  const float s = z + y;
+  return s + x;
+}
+float clamp255(float v) {
+  if (v <= 255.0f) return v < 0.0f ? 0.0f : v;
+  return 255.0f;
+}
+float range(const ::zcls::Light* l, float d) {  // over the light's range
+  if (!(d < lp(l, 0xe8))) return 0.0f;
+  if (!(lp(l, 0xe4) < d)) return 1.0f;
+  return (lp(l, 0xe8) - d) * lp(l, 0xf4);
+}
+}  // namespace
+
+// Pirate's Moon 1.0 @ 0x005602e0
+void sort_lights(RefPass& ref) {
+  g_state.directed.clear(), g_state.point.clear(), g_state.spot.clear();
+  ::zmod::LightList& list = ::zmod::light_list();
+  for (int32_t i = 0; i < list.count; ++i) {
+    ::zmod::LightEntry& e = list.list[i];
+    if (!e.reach) continue;
+    const uint32_t f = lflags(e.data);
+    if (f & 8) g_state.directed.push_back(&e);
+    else if (f & 4) g_state.spot.push_back(&e);
+    else if (!(lp(e.data, 0xa0) == 0.0f) || !(lp(e.data, 0x9c) == 0.0f)) g_state.point.push_back(&e);
+  }
+  for (Record& r : ref.records) {
+    for (int32_t i = 0; i < r.count; ++i) {
+      r.rec[i * 8] = r.rec[i * 8 + 1] = r.rec[i * 8 + 2] = 1.0f;
+      if (!(r.flags & 8)) r.rec[i * 8 + 4] = 0.0f;
+    }
+  }
+}
+
+// Pirate's Moon 1.0 @ 0x005603f0. Vertices last to first, as the exe.
+int shade_polygon(Record& r, const float* baked, uint32_t needs) {
+  float* rec = r.rec;
+  const float* pos = r.pos;
+  const int32_t n = r.count;
+  const bool no_shading = (r.flags & 0x80) != 0;
+  // FIX (bug): a strip with no vertex normals has no normal at all; the exe reads
+  // through null there (fixes.md).
+  static const float kNoNormal[3] = {};
+  const float* normal = r.normal ? r.normal : kNoNormal;
+  const float* normals = r.normals;
+  int32_t bright = 0, lit = 0;
+  uint32_t fogged = 0;
+  const ::zcls::Light* fog_light = nullptr;
+  const bool has_baked = baked != nullptr;
+  if (needs & 2) {
+    if (baked) {
+      float sum = 0.0f;
+      for (int32_t i = 0; i < n; ++i) {
+        float v = baked[i];
+        if (!no_shading) v = ::zmod::clouds_at_camera(pos + i * 3) * v;
+        v = v - 1.0f;
+        rec[i * 8] = v + rec[i * 8], rec[i * 8 + 1] = v + rec[i * 8 + 1], rec[i * 8 + 2] = v + rec[i * 8 + 2];
+        sum = std::fabs(v) + sum;
+      }
+      if (double{sum} > kVisible) bright = 1;
+    }
+    if (!g_state.directed.empty() || !g_state.spot.empty()) {
+      if (r.normal) ::zmod::normalize(const_cast<float*>(r.normal));
+    }
+    for (const ::zmod::LightEntry* e : g_state.directed) {
+      const ::zcls::Light* l = e->data;
+      const uint32_t f = lflags(l);
+      if ((f & 0x200) && has_baked) continue;  // PM's static light: in the bake
+      const bool each = !no_shading && normals;
+      float shade = 0.0f;
+      if (!no_shading && !normals) {
+        const float d = dot(normal, l);
+        shade = d > 0.0f ? ((f & 0x400) ? d : d * lp(l, 0x9c)) : 0.0f;
+      }
+      for (int32_t i = n - 1; i >= 0; --i) {
+        if (each) {
+          const float d = dot(normals + i * 3, l);
+          shade = d > 0.0f ? ((f & 0x400) ? d : d * lp(l, 0x9c)) : 0.0f;
+        }
+        float* v = rec + i * 8;
+        if (f & 0x400) {  // PM's own colours
+          const float c = no_shading ? 1.0f : ::zmod::clouds_at_camera(pos + i * 3);
+          const float s = no_shading ? shade : c * shade;
+          const float a0 = c * lp(l, 200), a1 = c * lp(l, 0xcc), a2 = c * lp(l, 0xd0);
+          const float d0 = s * lp(l, 0xbc), d1 = s * lp(l, 0xc0), d2 = s * lp(l, 0xc4);
+          const float t0 = a0 + d0, t1 = a1 + d1, t2 = a2 + d2;
+          v[0] = (t0 - 1.0f) + v[0], v[1] = (t1 - 1.0f) + v[1], v[2] = (t2 - 1.0f) + v[2];
+        } else {
+          float k = shade + lp(l, 0xa0);
+          if (!no_shading) k = ::zmod::clouds_at_camera(pos + i * 3) * k;
+          v[0] = (k * lp(l, 0xa4) - 1.0f) + v[0];
+          v[1] = (k * lp(l, 0xa8) - 1.0f) + v[1];
+          v[2] = (k * lp(l, 0xac) - 1.0f) + v[2];
+        }
+      }
+      ++bright;
+    }
+    for (const ::zmod::LightEntry* e : g_state.point) {
+      const ::zcls::Light* l = e->data;
+      const uint32_t f = lflags(l);
+      float sum = 0.0f;
+      if ((f & 0x20) && (r.flags & 8)) continue;
+      if ((f & 0x200) && has_baked) continue;
+      if ((r.flags & 0x400) && (f & 0x80)) continue;
+      if ((r.flags & 0x200) && (f & 0x40)) continue;
+      if (e->full != 0 || e->reach != 0) {
+        const float* colour;
+        float base;
+        if (f & 0x400) {
+          colour = nullptr, base = 1.0f;
+        } else {
+          colour = nullptr, base = lp(l, 0xa0) + lp(l, 0x9c);
+        }
+        for (int32_t i = n - 1; i >= 0; --i) {
+          float k = base;
+          if (e->full == 0) {
+            const float* p = pos + i * 3;
+            const float x = lp(l, 0x78) - p[0], y = lp(l, 0x7c) - p[1], z = lp(l, 0x80) - p[2];
+            const float d2 = z * z + y * y + x * x;
+            if (!(d2 < lp(l, 0xf0))) continue;
+            if (lp(l, 0xec) <= d2) k = range(l, std::sqrt(d2)) * base;
+          }
+          float* v = rec + i * 8;
+          if (f & 0x20) {
+            v[4] = k + v[4];
+            sum = k + sum;
+          } else {
+            const int at = (f & 0x400) ? 0xd4 : 0xa4;
+            const float a = k * lp(l, at), b = k * lp(l, at + 4), c = k * lp(l, at + 8);
+            v[0] = a + v[0], v[1] = b + v[1], v[2] = c + v[2];
+            sum = std::fabs(a) + std::fabs(b) + std::fabs(c) + sum;
+          }
+        }
+      }
+      (void)0;
+      if (double{sum} > kVisible) {
+        ++lit;
+        if (f & 0x20) fogged |= 1, fog_light = l;
+      }
+    }
+    for (const ::zmod::LightEntry* e : g_state.spot) {
+      const ::zcls::Light* l = e->data;
+      const uint32_t f = lflags(l);
+      if ((f & 0x20) && (r.flags & 8)) continue;
+      if ((f & 0x200) && has_baked) continue;
+      if ((r.flags & 0x400) && (f & 0x80)) continue;
+      if ((r.flags & 0x200) && (f & 0x40)) continue;
+      float facing = 1.0f;
+      if (!normals) {
+        facing = dot(normal, l);
+        if (facing <= 0.0f && lp(l, 0xa0) == 0.0f) continue;
+      }
+      float sum = 0.0f;
+      for (int32_t i = n - 1; i >= 0; --i) {
+        const float* p = pos + i * 3;
+        float to[3] = {lp(l, 0x78) - p[0], lp(l, 0x7c) - p[1], lp(l, 0x80) - p[2]};
+        float dist = 0.0f;
+        if (e->full == 0) {
+          const float d2 = to[2] * to[2] + to[1] * to[1] + to[0] * to[0];
+          if (!(d2 < lp(l, 0xf0))) continue;
+          dist = std::sqrt(d2);
+          const float inv = 1.0f / dist;  // 0x00537b60
+          to[0] = inv * to[0], to[1] = inv * to[1], to[2] = inv * to[2];
+        }
+        if (normals) facing = dot(normals + i * 3, l);
+        float cone = 0.0f;
+        if (facing > 0.0f) {
+          if (e->full != 0) ::zmod::normalize(to);
+          const float d = dot(to, l);
+          if (d < 0.0f) cone = 0.0f;
+          else cone = d;
+        }
+        if (cone <= 0.0f && lp(l, 0xa0) == 0.0f) continue;
+        float* v = rec + i * 8;
+        if (!(f & 0x400) || (f & 0x20)) {
+          float k = cone > 0.0f ? cone * lp(l, 0x9c) + lp(l, 0xa0) : lp(l, 0xa0);
+          if (e->full == 0) k = range(l, dist) * k;
+          if (f & 0x20) {
+            v[4] = k + v[4];
+            sum = k + sum;
+            continue;
+          }
+          const float a = k * lp(l, 0xa4), b = k * lp(l, 0xa8), c = k * lp(l, 0xac);
+          v[0] = a + v[0], v[1] = b + v[1], v[2] = c + v[2];
+          sum = std::fabs(a) + std::fabs(b) + std::fabs(c) + sum;
+        } else {
+          const float g = cone > 0.0f ? cone : 0.0f;
+          const float rr = e->full == 0 ? range(l, dist) : 1.0f;
+          const float d = e->full == 0 ? g * rr : g;
+          const float a = rr * lp(l, 200) + d * lp(l, 0xbc);
+          const float b = rr * lp(l, 0xcc) + d * lp(l, 0xc0);
+          const float c = rr * lp(l, 0xd0) + d * lp(l, 0xc4);
+          v[0] = a + v[0], v[1] = b + v[1], v[2] = c + v[2];
+          sum = std::fabs(a) + std::fabs(b) + std::fabs(c) + sum;
+        }
+      }
+      if (double{sum} > kVisible) {
+        ++lit;
+        if (f & 0x20) fogged |= 1, fog_light = l;
+      }
+    }
+  }
+  if (needs & 4) {
+    ++lit;
+    const float w = ::zmod::lighting().tint_weight;
+    for (int32_t i = n - 1; i >= 0; --i) rec[i * 8 + 4] = w + rec[i * 8 + 4];
+    fogged |= 1;
+  }
+  if (lit == 0 && bright == 0) return 0;
+  int ret = 0;
+  const auto apart = [](float a, float b) { return double{std::fabs(a - b)} > kVisible; };
+  bool white = !apart(rec[(n - 1) * 8], 1.0f);
+  for (int32_t i = n - 1; white && i >= 0; --i)
+    white = !apart(rec[i * 8], 1.0f) && !apart(rec[i * 8 + 1], 1.0f) && !apart(rec[i * 8 + 2], 1.0f);
+  if (!white) {
+    r.flags |= 0x10;
+    ret = 1;
+    bool alike = true;
+    for (int32_t i = n - 1; alike && i >= 1; --i)
+      alike = !apart(rec[i * 8], rec[0]) && !apart(rec[i * 8 + 1], rec[1]) && !apart(rec[i * 8 + 2], rec[2]);
+    if (!alike) r.flags |= 0x40;
+  }
+  if (fogged) {
+    fogged = 0;
+    for (int32_t i = n - 1; i >= 0; --i) {
+      float& v = rec[i * 8 + 4];
+      if (v > 1.0f) v = 1.0f;
+      else if (v < 0.0f) v = 0.0f;
+      if (double{v} > kVisible) fogged = 1;
+    }
+    if (!(r.flags & 0x60)) {
+      for (int32_t i = n - 1; i >= 1; --i) {
+        if (apart(rec[i * 8 + 4], rec[4])) {
+          r.flags |= 0x20;
+          break;
+        }
+      }
+    }
+    if (fogged) {
+      const bool was = (r.flags & 8) != 0;
+      r.flags |= 0x18;
+      ret = 1;
+      const float* rgb = fog_light ? nullptr : ::zmod::lighting().tint;
+      float own[3];
+      if (fog_light) {
+        for (int k = 0; k < 3; ++k) own[k] = lp(fog_light, 0xa4 + k * 4);
+        rgb = own;
+      }
+      if (was) {
+        if (g_state.mix_fog) g_state.mix_fog(rgb);
+        return 1;
+      }
+      zrndr::DeviceFog& d = zrndr::device_fog();
+      for (int k = 0; k < 3; ++k) d.color[k] = rgb[k] * 255.0f;
+      if (d.sent[0] != d.color[0] || d.sent[1] != d.color[1] || d.sent[2] != d.color[2]) {
+        for (int k = 0; k < 3; ++k) d.sent[k] = d.color[k];
+        if (d.send) d.send();
+      }
+      return 1;
+    }
+  }
+  return ret;
+}
+
+// 0x00544797..0x00544ad6
+void light_records(const Model& m, const ModelPass& pass, RefPass& ref) {
+  if (pass.needs == 0) return;
+  sort_lights(ref);
+  const ::zmod::Material& mat = *ref.records.front().polygon->materials[0];
+  // The exe tests +0x10, which on a coloured material holds the file's index.
+  const bool textured = mat.texture != nullptr || mat.texture_index != 0;
+  const uint32_t shading = pass.needs & 6;
+  const bool shade_off = (hdr<uint8_t>(m, 8) & 0x20) != 0;
+  for (Record& r : ref.records) {
+    if (ref.light_maps) {
+      const ::zmod::LightList& list = ::zmod::light_list();  // 0x005625e0
+      for (int32_t i = 0; i < list.count; ++i) {
+        const uint32_t f = lflags(list.list[i].data);
+        if (list.list[i].reach && (f & 0x10) && (f & 0x80)) {
+          r.flags |= 0x400;
+          break;
+        }
+      }
+    }
+    if (shading) {
+      if (shade_off) r.flags |= 0x80;
+      const float* baked = pass.bake && !(r.polygon->flags & 0x400) ? reinterpret_cast<const float*>(r.polygon->scratch) : nullptr;
+      if (shade_polygon(r, baked, pass.needs) == 0) {
+        r.flags &= ~0x80u;
+      } else {
+        std::memcpy(r.lit, r.rec, 12);
+        for (int32_t i = r.count - 1; i >= 0; --i) {
+          float* v = r.rec + i * 8;
+          if (!textured) {
+            v[0] = clamp255(v[0] * mat.r), v[1] = clamp255(v[1] * mat.g), v[2] = clamp255(v[2] * mat.b);
+          } else {
+            v[0] = clamp255(v[5] * v[0]), v[1] = clamp255(v[6] * v[1]), v[2] = clamp255(v[7] * v[2]);
+          }
+        }
+        r.flags &= ~0x80u;
+      }
+    }
+    if ((r.flags & 0x18) && !(r.flags & 0x10)) {
+      r.lit[0] = r.lit[1] = r.lit[2] = 1.0f;
+      if (!textured) {  // the rest of the vertices only with a polygon-wide flag
+        const int32_t last = (r.flags & 0xe0) ? r.count - 1 : 0;
+        for (int32_t i = last; i >= 0; --i) {
+          float* v = r.rec + i * 8;
+          v[0] = mat.r, v[1] = mat.g, v[2] = mat.b;
+        }
+      } else {
+        for (int32_t i = r.count - 1; i >= 0; --i) {
+          float* v = r.rec + i * 8;
+          v[0] = v[5], v[1] = v[6], v[2] = v[7];
+        }
+      }
+    }
+  }
 }
 
 }  // namespace pm::zmod

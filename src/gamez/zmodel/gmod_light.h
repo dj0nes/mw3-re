@@ -106,6 +106,9 @@ int32_t world_update_lights(zcls::Node* world);               // 0x004f2f60 (cls
 int32_t light_update(zcls::Node* node);                      // 0x004fb310 (Light.c)
 void light_world_pose(zcls::Node* node, zcls::Light* data);  // 0x004fb0c0 (Light.c)
 
+// The cloud shading at a camera-space point, 1 without clouds.
+float clouds_at_camera(const float p[3]);
+
 // --- Per model ---
 // ECX camera-space bounding centre, stack radius. Fills each entry's full and
 // reach and the per-light intensity into rec[i][0] (directed) or rec[i][1];

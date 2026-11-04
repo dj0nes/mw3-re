@@ -884,6 +884,15 @@ functions PM changed, and PM's new ones.
        normal is (p2 - p1) x (p0 - p1), MW3's the other way, each with its own test.
        Not reached by this test: the lights' part of the needs, the bake's call, the
        model's own lights (0x547dd0). They come with phase 4.
+       Shipped counts, for the arenas: largest model 500 vertices (mechlib; 351 in a
+       world), 64 morphs, 420 polygons, 120 polygons in a ref, no polygon with extra
+       materials (all four worlds and mechlib's 76 trees).
+     - **Phase 4a: the polygon lighting** (`lights_reaching` 0x55ebf0, `sort_lights`
+       0x5602e0, `shade_polygon` 0x5603f0, `light_records`; `test_pm_lighting.py`).
+       Lights are made in the test, every kind and flag, with clouds and the bake's
+       results. PM's lights have their own colours (flag 0x400, PM +0xb0..+0xdf), 0x200
+       means already in the bake, 0x20 means the light is fog rather than colour.
+       Left: the bake 0x55fb30 itself, the projected lights' test 0x562620.
        The draw's fade and shadow flag are the shared `DrawState`'s, as the walk
        sets them; `cull_state().fade` must follow it before `tl_colours` (phase 6).
      - Order from here. Phase 4, the lighting: 0x5602e0 and 0x5603f0 (MW3 0x545720,
