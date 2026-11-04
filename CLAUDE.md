@@ -97,16 +97,19 @@ for later. Anything only the software path showed comes to the GPU path.
   the existing differential tests against the PM exe too (`original.py`
   takes the exe: `MW3_EXE=pm` or `Original(exe='pm')`). mech3ax reads PM
   formats, as a cross-check. Two games, two programs, one package (Owen,
-  2026-10-31, replacing "both games in one program"; docs/games-layout.md):
-  `mw3` and `mw3pm` are separate executables over one shared engine, plus
-  a launcher program (ours) that starts whichever the player picks; each
-  game also starts directly, without the launcher. One repo: `src/gamez/`
-  shared, `src/mech3/` MW3 only, `src/pm/` PM only (PM's own and its
-  changed versions, `// Pirate's Moon 1.0 @ 0x...`); separate CMake
-  targets and test executables, so either game builds and ships alone. One
-  download per platform holds all three. MW3 is tagged `v1.0` ("done")
-  before any PM code reaches `main`; until then PM work stays on the
-  `mac5/pm` branch. Each game mounts its own data and keeps its own saves.
+  2026-10-31, replacing "both games in one program"): `mw3` and `mw3pm` are
+  separate executables, plus a launcher program (ours) that starts whichever
+  the player picks; each game also starts directly, without the launcher.
+  One download per platform holds all three. Each game mounts its own data
+  and keeps its own saves.
+  **PM lives on the branch `pm`, which never merges to main (Owen,
+  2026-11-04, replacing the shared-engine layout).** As the original's
+  `branchep1`: a complete copy of the game with PM's changes in place,
+  MW3 on `main` staying as it shipped plus bug fixes. PM's improvements never
+  reach `main`. Fixes cross by git: MW3's fixes merge from `main` into `pm`;
+  a bug found on `pm` that MW3 also has is cherry-picked or redone on `main`.
+  Packages build `mw3` and the launcher from a tag on `main` and `mw3pm` from
+  a tag on `pm`. Ports on `pm` carry `// Pirate's Moon 1.0 @ 0x...`.
 - Pirate's Moon 1.0 is extracted for reading alongside MW3 (not ported):
   `game/pm/` (the install, `Mech3.exe` sha256 57cd2ee7...) and
   `game/pm-disc/` (the image; track 2 is CD audio). First findings and the
