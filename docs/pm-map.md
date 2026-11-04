@@ -1114,7 +1114,9 @@ functions PM changed, and PM's new ones.
        and some where a record's fade is nearly out: every draw in order, matrix and fade, and every tree built. Not
        observable there: the tree's own cull and fade skips only repeat what each record's checks decide, so breaking
        them changes no draw. The gate [0x60d968] is not ported: nothing in the exe writes it by direct address.
-       `mw3pm --fly` does not load clutter yet, so no picture shows it. The world's update (0x504a40) rebuilds the
+       `mw3pm --fly` loads it as a mission does (no ground test): rocks and small props on the ground in
+       `--fly c2 --pos 1536 40 -1792 --look 0 15` and `--fly c3 --pos 1792 25 -896 --look 180 5`; no original compared.
+       The world's update (0x504a40) rebuilds the
        tree and takes in records' flag 4; it comes with the world class. The rest is not ported
        (0x5106b0..0x514b90, 65 functions, ~3,500 lines of pseudocode). Scattered props laid on the ground by its material. **It waits for the interpreter
        and the mission load**: its template names come from the script command `AddClutterTemplates`

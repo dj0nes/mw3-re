@@ -1,3 +1,4 @@
+#include "pm/gamez/zclass/cls_clutter.h"
 #include "frontend/pm_debug_world.h"
 
 #include <cstdio>
@@ -144,6 +145,11 @@ std::string pm_world_load(const std::string& mission, const std::string& block, 
   zrdr::init();
   zrdr::open_archive(("zbd\\" + mission + "\\reader.zbd").c_str(), false);  // 0x00490630's first
   pm::mech3::world_read_params(zcls::camera_world(camera_node()), camera_node(), block.empty() ? nullptr : block.c_str(), true);
+  // The scattered props, as 0x00492f8c: no ground test, the settings, the script's templates, the laying.
+  pm::zcls::clutter_skip_ground_test(true);
+  pm::zcls::clutter_read_settings("templates.zrd");
+  pm::zcls::clutter_load_templates(zint::clutter_templates());
+  pm::zcls::clutter_lay(zcls::camera_world(camera_node()));
   // A mission's `day` or `night` on `horizon` (night_day.zrd, c1's only; the animations' calls are
   // not ported here). Night: m2, m5 and sa4 (start_single_c1.zrd, start_salone_c1.zrd).
   if (zrdr::Node* calls = zrdr::load("night_day.zrd")) {
