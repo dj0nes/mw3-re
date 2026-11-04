@@ -196,7 +196,8 @@ bool zero3(const float* p) {
 // 1 without a box, 5 and a report for a null node).
 const float* node_box(const Node* node) {
   if (!node || !(node->flags() & 0x100)) return nullptr;
-  return reinterpret_cast<const float*>(node->raw + 0x74);
+  // PM's box is wherever its writer pointed (0x004fe740); MW3's always here.
+  return node->pm_box ? node->pm_box : reinterpret_cast<const float*>(node->raw + 0x74);
 }
 
 // Mech3.exe 1.2 @ 0x004ed650. 1 for a null node.
@@ -559,7 +560,9 @@ int node_children_box(Node* node) {
 // fits now (or flags the cell it stays in), and other parents are marked
 // changed. FIX (A): the exe printf()s "haha" for a node named
 // "blackhawk_01" here, a debug leftover with no console to show it; dropped.
-int node_bound_box(Node* node) {
+int node_bound_box(Node* node) { return zgame::game().zcls_node_bound_box(node); }
+
+int mw3_node_bound_box(Node* node) {
   if (!node) return zerr::report(0x400, kFile, 0xda2, "Null node pointer."), 5;
   if (node->cls() == 2) return 0;
   const uint32_t flags = node->flags();

@@ -1,5 +1,6 @@
 #include "pm/pm_game.h"
 #include "pm/gamez/zclass/cls_clutter.h"
+#include "pm/gamez/zclass/cls_world.h"
 
 #include <cstdint>
 #include <cstdio>
@@ -18,7 +19,7 @@
 namespace pm {
 namespace {
 const zgame::Table kPm = {"Pirate's Moon", "Pirate's Moon 1.0", zar::read_table, zar::write_table, zar::span,
-                         zrdr::parse_text, zcls::read_zbd, zcls::node_alloc, zcls::node_set_active,
+                         zrdr::parse_text, zcls::read_zbd, zcls::node_alloc, zcls::node_bound_box, zcls::node_set_active,
                          zcls::node_model_box, zcls::node_model_header, zcls::light_create, zeff::anim_read_zbd,
                          // mechlib (pm-map step 1e)
                          zcls::mechlib_open, zcls::mechlib_load,

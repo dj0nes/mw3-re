@@ -2323,3 +2323,63 @@ int probe_pm_node_zones(const uint32_t* pairs, int count) {
 }
 
 }  // extern "C"
+
+extern "C" {
+
+// pm::zcls::node_bound_box on node `index`, with its flags and two boxes set first, for
+// test_pm_world_box.py. Out: flags, +0x2c, which box (0 union, 1 model, 2 children, 3 other), the
+// chosen six floats, x, z, range x, z, parent count.
+int probe_pm_box_op(int index, uint32_t flags, const float* model, const float* kids, const float* scale, uint32_t* out) {
+  const ::zcls::NodePool& pool = ::zcls::nodes();
+  ::zcls::Node* n = &pool.blocks[static_cast<size_t>(index) / pool.block_size][static_cast<size_t>(index) % pool.block_size];
+  n->set_flags(flags);
+  std::memcpy(n->raw + 0x8c, model, 24), std::memcpy(n->raw + 0xa4, kids, 24);
+  if (n->cls() == 6) std::memcpy(static_cast<::zcls::Lod*>(n->data)->pm_tail, scale, 12);
+  const int r = ::zcls::node_bound_box(n);
+  out[0] = n->flags(), out[1] = n->get<uint32_t>(0x2c);
+  out[2] = n->pm_box == reinterpret_cast<const float*>(n->raw + 0x74) ? 0
+           : n->pm_box == reinterpret_cast<const float*>(n->raw + 0x8c) ? 1
+           : n->pm_box == reinterpret_cast<const float*>(n->raw + 0xa4) ? 2 : 3;
+  std::memcpy(out + 3, n->pm_box, 24);
+  out[9] = static_cast<uint32_t>(n->get<int32_t>(0x4c)), out[10] = static_cast<uint32_t>(n->get<int32_t>(0x50));
+  out[11] = static_cast<uint32_t>(static_cast<int32_t>(n->pm_virtual[0])), out[12] = static_cast<uint32_t>(static_cast<int32_t>(n->pm_virtual[1]));
+  out[13] = static_cast<uint32_t>(n->parent_count());
+  out[14] = n->parent_count() > 0 ? n->parents[0]->flags() : 0;
+  out[15] = n->parent_count() > 0 ? n->parents[0]->get<uint32_t>(0x2c) : 0;
+  return r;
+}
+
+// The world's cells and direct children, as test_pm_world_box.py reads the exe's: for each cell z then
+// x its count, then node index and y range sorted by the test; the children's indexes; the pending
+// count.
+void probe_pm_world_area2(const float* area) {
+  std::memcpy(static_cast<::zcls::World*>(::zcls::camera_world(walk_camera())->data)->pm_area2, area, 16);
+}
+
+int probe_pm_world_lists(uint32_t* out, int cap) {
+  ::zcls::Node* wn = ::zcls::camera_world(walk_camera());
+  auto* w = static_cast<::zcls::World*>(wn->data);
+  int n = 0;
+  const auto word = [&](uint32_t v) { if (n < cap) out[n] = v; ++n; };
+  for (int z = 0; z < w->get<int32_t>(0x8c); ++z) {
+    for (int x = 0; x < w->get<int32_t>(0x88); ++x) {
+      ::zcls::Partition& p = w->rows[z][x];
+      const int count = p.get<int16_t>(0x3a);
+      word(static_cast<uint32_t>(count));
+      word(p.get<uint32_t>(0));
+      for (int i = 0; i < count; ++i) {
+        word(static_cast<uint32_t>(walk_node_index(p.nodes[i])));
+        uint32_t v;
+        std::memcpy(&v, &p.pm_y[i][0], 4), word(v);
+        std::memcpy(&v, &p.pm_y[i][1], 4), word(v);
+      }
+    }
+  }
+  word(static_cast<uint32_t>(wn->child_count()));
+  for (int i = 0; i < wn->child_count(); ++i) word(static_cast<uint32_t>(walk_node_index(wn->children[i])));
+  word(static_cast<uint32_t>(w->get<int32_t>(4)));
+  word(wn->flags()), word(wn->get<uint32_t>(0x2c));
+  return n;
+}
+
+}  // extern "C"

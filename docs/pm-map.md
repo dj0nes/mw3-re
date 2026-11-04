@@ -375,11 +375,12 @@ with LoD fields and a ranged light edited, since shipped data reaches neither):
 
 Left for the world class:
 
-- `node_bound_box` writes the box at +0x74 and `node_box` returns that address. PM's
-  writer 0x4fe740 (MW3 0x4ecc00) instead points +0x70 at the box it chose, +0x74
-  only for the union of two, so on a PM node the shared one leaves the box the cull
-  reads stale. `node_box_xz` and two more reads of +0x74 in `class.cpp` have not met
-  PM's nodes either.
+- The box writer is ported (`pm/gamez/zclass/cls_world`, 0x4fe740 with 0x505300, 0x505550, 0x506000, 0x505c80,
+  0x4fd8d0, 0x4ff660; `test_pm_world_box.py`, through the table's `zcls_node_bound_box`): +0x70 points at the box it
+  chose, +0x74 only for the union of two, and `node_box` follows it. A LoD's scale multiplies the chosen box in
+  place, so that box grows at every call past a scale of 1. A node fitting one cell is on its list with a y range; a
+  node across more is among the world's children with the range kept. `node_box_xz` and two more reads of +0x74
+  in `class.cpp` have not met PM's nodes. The rest of the class (the update 0x504a40, the free, zones) is next.
 - `shadow_model_morphed` reads `node->model` and so returns on a PM node, safely,
   without casting: to route in phase 4.
 

@@ -18,6 +18,7 @@ NodeObserver& node_update_observer();
 int node_model_box(Node* node);     // the running game's (zgame::Table)
 int mw3_node_model_box(Node* node);  // 0x004ed220  +0x8c from the model, flag 0x200
 int node_children_box(Node* node);  // 0x004ecf70  +0xa4 from the children's, flag 0x400
+int mw3_node_bound_box(Node* node);  // the table's, MW3's
 int node_bound_box(Node* node);     // 0x004ecc00  +0x74 = model box u children's box, flag 0x100
 
 // The frame update of changed nodes (list.cpp: 0x004f7e00, 0x004f7f70,

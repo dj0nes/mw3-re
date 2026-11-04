@@ -44,6 +44,7 @@ struct Table {
   // A new node, light and the active switch (zcls/cls_node.h, light.h):
   // PM's node points at its box, its light data is 0x100 bytes.
   zcls::Node* (*zcls_node_alloc)();                      // 0x004eacd0; PM 0x004fc550
+  int (*zcls_node_bound_box)(zcls::Node* node);           // 0x004ecc00; PM 0x004fe740
   int (*zcls_node_set_active)(zcls::Node* node, int on);  // 0x004eb170; PM 0x004fca50
   int (*zcls_node_model_box)(zcls::Node* node);          // 0x004ed220; PM 0x004fef40 (its model type)
   uint8_t* (*zcls_node_model_header)(const zcls::Node* node);  // ours: the model's header, null without one
