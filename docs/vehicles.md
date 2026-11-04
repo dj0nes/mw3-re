@@ -1919,12 +1919,23 @@ time in the air grows on short frames either way, by another cause, not looked a
 as over a 1/30 s frame, `(ground - y) * min(1/dt, 30)`; frames of 1/30 s and longer
 are the exe's. Test `fix_vehicle_support_rise_per_second`.
 
-**Tried and dropped: the vehicles' physics at a fixed 1/30 s** (time accumulated in
-`vehicle_frame`, the move run once per 1/30 s; the controls still per frame). 6, 2
-and 16 ms came out clean, 8, 4 and 3 ms worse (up to 77 degrees and 65 m/s, near
--1415 -1710 in c1m2, on a route no unstepped run took). Probably the routes changing
-(single runs swing between 11 and 74 degrees by route alone, item 2), but not shown.
-Do not try it again without many runs per frame time.
+What the fix leaves: c2m3 at short frames. Its vehicles still spend far longer past
+20 degrees than at 33 ms (about 170 s against 1 s over the run's vehicles), with peak
+speeds lower than the original's; some other per-frame term keeps them tilted, not
+found. c1m1 and c1m2 match 33 ms.
+
+**A possible later fix (Owen chose the one-liner for now, 2026-11-04): the move at a
+fixed 1/30 s with drawn-position blending.** Time accumulated per vehicle in
+`vehicle_frame`, the move (0x4a1240, the track step and suspension) run once per
+1/30 s of game time, the controls still per frame. Measured on a prototype, events
+past 20 degrees / seconds past / peak m/s per run, c2m3: 33 ms 4 / 1.8 / 23, 16 ms
+7 / 3.0 / 22, 8 ms 4 / 1.7 / 23, 4 ms 5 / 2.0 / 18 (one parked mobile HQ stayed tilted
+at 2 ms). c1m2's few events at 8 and 4 ms all sit at about -1418 -1710, where no
+33 ms run drives: 30 fps physics on another route, not frame time. A first try
+without many runs had called this "worse"; that was the same route effect. What it
+needs before it ships: the vehicles move in 30 Hz steps, so at 144 fps they would
+visibly stutter; the drawn position and rotation need blending between steps (the
+node is set inside the step), and the step's own tests.
 
 Not covered: a fight (the APCs drive their routes with the player idle or held
 near), the other vehicle classes (BASIC, flying), PM.
