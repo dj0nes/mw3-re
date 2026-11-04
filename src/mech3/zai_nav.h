@@ -25,6 +25,8 @@ struct World {
   // the water's surface there, NaN when none.
   virtual bool ground(float x, float z, float top, float* y, float* water) = 0;
   virtual bool wall(const float a[3], const float b[3]) = 0;
+  // What stands in the way for now and may leave: x0, z0, x1, z1 each.
+  virtual void parked(std::vector<std::array<float, 4>>* out) { (void)out; }
 };
 World& zcls_world();  // the mission's world through zClass's queries
 

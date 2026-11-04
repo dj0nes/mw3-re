@@ -6,6 +6,7 @@
 #include <cstdlib>
 #include <queue>
 
+#include "gamez/zclass/class.h"
 #include "gamez/zclass/cls_di.h"
 #include "gamez/zmodel/gmod_cull.h"
 #include "gamez/zmodel/gmod_matl.h"
@@ -18,6 +19,7 @@
 namespace mech3::ai::nav {
 
 namespace {
+constexpr float kGiveWay = 22.0f;  // m round a parked vehicle
 // The world's own queries (as mech3's wall_between and the tests' ground):
 // every zone's ground, water a material of soil 1.
 struct ZclsWorld : World {
@@ -57,6 +59,25 @@ struct ZclsWorld : World {
       return true;
     }
     return false;
+  }
+  // The vehicles at rest (a parked mobile HQ, a tank waiting): the grid's
+  // edges leave them out, for they may drive off.
+  void parked(std::vector<std::array<float, 4>>* out) override {
+    for (void* v : program_vehicles()) {
+      if (!program_vehicle_active(v)) continue;
+      float vel[3];
+      program_vehicle_velocity(v, vel);
+      if (std::hypot(vel[0], vel[2]) > 0.5f) continue;
+      float e[6];
+      auto* node = static_cast<zcls::Node*>(program_vehicle_node(v));
+      if (!node || zcls::node_box_extent_xz(node, e) != 0) continue;
+      // Its hull, and at least the giving way's distance round its centre
+      // (0x004cc3e0: too close inside +0x78 x 0.9, shipped mostly 25; the
+      // walkable buffer adds a cell): a path through there is pushed back.
+      const float cx = (e[0] + e[3]) * 0.5f, cz = (e[2] + e[5]) * 0.5f;
+      const float hx = std::max((e[3] - e[0]) * 0.5f, kGiveWay), hz = std::max((e[5] - e[2]) * 0.5f, kGiveWay);
+      out->push_back({cx - hx, cz - hz, cx + hx, cz + hz});
+    }
   }
 };
 
@@ -231,6 +252,10 @@ void Grid::release(float now) {
           static_cast<uint8_t>(~kHeld);
     it = held_.erase(it);
   }
+  // A cell lifted above may be under a later hold too.
+  for (const auto& h : held_)
+    if (Tile* t = tile(tile_of(h.first[0]), tile_of(h.first[1]), false))
+      t->cells[(h.first[1] - tile_of(h.first[1]) * kTile) * kTile + (h.first[0] - tile_of(h.first[0]) * kTile)].flags |= kHeld;
 }
 
 bool line_clear(const Grid& g, float ax, float az, float bx, float bz) {
@@ -306,7 +331,7 @@ Find find_path(Grid& g, const float from[3], const float to[3], std::vector<std:
     return Find::kBuilding;
   }
   int sx, sz, gx, gz;
-  if (!nearest_walkable(g, fx, fz, 3, &sx, &sz) || !nearest_walkable(g, tx, tz, 8, &gx, &gz)) return Find::kNone;
+  if (!nearest_walkable(g, fx, fz, 8, &sx, &sz) || !nearest_walkable(g, tx, tz, 8, &gx, &gz)) return Find::kNone;
   const int w = x1 - x0 + 1, h = z1 - z0 + 1;
   auto idx = [&](int x, int z) { return (z - z0) * w + (x - x0); };
   std::vector<float> cost(static_cast<size_t>(w) * h, 1e30f);
@@ -375,6 +400,15 @@ void service(float now, double budget_us) {
   static const zcls::Node* world_seen = nullptr;
   if (world_hooks().world != world_seen) world_seen = world_hooks().world, g.reset(&zcls_world());
   g.release(now);
+  static float parked_t = -1e30f;
+  if (g.world() && now - parked_t >= 1.0f) {  // held a little past the next look
+    parked_t = now;
+    std::vector<std::array<float, 4>> rects;
+    g.world()->parked(&rects);
+    for (const auto& r : rects)
+      for (int cz = cell_of(r[1]); cz <= cell_of(r[3]); ++cz)
+        for (int cx = cell_of(r[0]); cx <= cell_of(r[2]); ++cx) g.hold(cx, cz, now + 1.5f);
+  }
   static float dumped = -1e30f;
   if (const char* file = std::getenv("MW3_NAV_DUMP"); file && now - dumped >= 10.0f && g.tiles()) {
     dumped = now;
