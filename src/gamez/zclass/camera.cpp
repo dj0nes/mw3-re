@@ -1041,20 +1041,21 @@ int render_cells(Node* world, Node* camera_node, Camera* cam) {
       const int32_t visible =
           (g_walk.hidden_surface && g_walk.ring > 0) ? zmod::hidden_surface(centre, p.get<float>(0x34)) : 1;
       if (!visible) continue;
-      // Lights out of reach of the cell (+0x60 position, +0xb8 range) get 0x200.
+      // A positioned, ranged light (flags 0x10, 2) keeps 0x200, on, only while it
+      // reaches this cell (+0x60 position, +0xb8 range); any other light always has it.
       for (int32_t i = 0; i < w->get<int32_t>(0xa0); ++i) {
         if (!(w->lights[i]->flags() & kActive)) continue;
         auto* l = static_cast<Light*>(w->light_data[i]);
         uint32_t lf = l->get<uint32_t>(0xb0);
-        bool out = true;
+        bool on = true;
         if ((lf & 0x10) && (lf & 2)) {
           const float dx = centre[0] - l->get<float>(0x60), dy = centre[1] - l->get<float>(0x64),
                       dz = centre[2] - l->get<float>(0x68);
           const float reach = p.get<float>(0x34) + l->get<float>(0xb8);
           const float d2 = (dx * dx + dy * dy) + dz * dz;
-          out = !(reach * reach > d2);
+          on = reach * reach > d2;
         }
-        l->put<uint32_t>(0xb0, out ? (lf | 0x200) : (lf & ~0x200u));
+        l->put<uint32_t>(0xb0, on ? (lf | 0x200) : (lf & ~0x200u));
       }
       if (fog) {
         const float* pos = cam->floats(0x2c);
