@@ -1020,6 +1020,78 @@ TEST(sdl_render_keeps_a_shown_frame) {
   EXPECT(!r->restore_frame());
 }
 
+// A mission's colour clear is off (start_mission): a new back buffer, at the first frame or after
+// a size change, still starts a defined black where no draw reaches. Metal's undefined memory
+// happened to be magenta; anything but the defined colour fails here.
+TEST(sdl_render_new_frame_is_defined_with_the_colour_clear_off) {
+  if (!SDL_InitSubSystem(SDL_INIT_VIDEO)) return;
+  sdlfe::SdlWindow w;
+  EXPECT(w.init(true));
+  w.create("mw3 new frame test", 640, 480);
+  w.frame_size(640, 480, 640, 480);
+  sdlfe::SdlRender3D* r = w.render();
+  auto scene = [&](bool colour, uint8_t red, bool quad) {
+    r->set_viewport(0, 0, 640, 480);
+    r->clear(colour, red, 0, 0);
+    r->begin_scene();
+    if (quad) {
+      const uint32_t white = 0xffffffffu;
+      const platform::TLVertex v[4] = {{0, 0, 0.5f, 1, white, white, 0, 0}, {320, 0, 0.5f, 1, white, white, 0, 0},
+                                       {320, 480, 0.5f, 1, white, white, 0, 0}, {0, 480, 0.5f, 1, white, white, 0, 0}};
+      r->draw(platform::Primitive::kFan, v, 4, platform::DrawState{});
+    }
+    r->end_scene();
+  };
+  auto resize = [&](int width, int height) {
+    SDL_SetWindowSize(w.sdl(), width, height);
+    SDL_SyncWindow(w.sdl());
+  };
+  // Every pixel of the frame's right half is `want`, the left half white when `quad`.
+  auto check = [&](const char* what, uint32_t want, bool quad) {
+    std::vector<uint32_t> f;
+    int rw = 0, rh = 0;
+    EXPECT(r->read_back(&f, &rw, &rh));
+    int bad = 0;
+    for (int y = 0; y < rh; ++y)
+      for (int x = 0; x < rw; ++x) {
+        if (x >= rw / 2 - 2 && x <= rw / 2 + 2) continue;  // the quad's edge
+        bad += (f[y * rw + x] & 0xffffffu) != (quad && x < rw / 2 ? 0xffffffu : want);
+      }
+    std::printf("%s: %dx%d, %d wrong\n", what, rw, rh, bad);
+    EXPECT(bad == 0);
+  };
+  scene(false, 200, true);
+  std::vector<uint32_t> probe;
+  int pw = 0, ph = 0;
+  if (!r->read_back(&probe, &pw, &ph)) return;  // no GPU on this runner
+  check("first frame, clear off", 0, true);
+  scene(false, 0, false);
+  check("second frame keeps it", 0, true);
+
+  resize(800, 600);
+  scene(false, 200, true);  // a colour asked with the clear off is not used
+  check("size change, clear off", 0, true);
+  resize(640, 480);
+  scene(true, 90, false);
+  check("size change, clear on: the colour asked", 90u << 16, false);
+
+  // A restored frame is not cleared over, though the size change made a new texture for it.
+  scene(true, 0, true);
+  std::vector<uint32_t> held, back;
+  int hw = 0, hh = 0;
+  EXPECT(r->read_back(&held, &hw, &hh) && r->hold_frame());
+  resize(800, 600);
+  scene(true, 40, false);
+  resize(640, 480);
+  EXPECT(r->restore_frame());
+  scene(false, 0, false);
+  int bw = 0, bh = 0;
+  EXPECT(r->read_back(&back, &bw, &bh));
+  std::printf("restored: %dx%d, same %d\n", bw, bh, back == held);
+  EXPECT(bw == hw && bh == hh && back == held);
+  r->drop_frame();
+}
+
 TEST(sdl_layer_rgba_table_matches_the_bits) {
   int bad = 0;
   for (int f = 0; f < 2; ++f)
