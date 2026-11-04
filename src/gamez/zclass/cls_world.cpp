@@ -381,6 +381,9 @@ int world_free_partitions(Node* world) {
       p.nodes = nullptr;
       delete[] p.fades;
       p.fades = nullptr;
+      delete[] p.pm_y;
+      p.pm_y = nullptr;
+      if (zgame::game().cell_clutter_free) zgame::game().cell_clutter_free(p);
     }
     if (own) delete[] w->rows[z];
   }

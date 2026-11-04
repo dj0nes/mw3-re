@@ -123,5 +123,6 @@ void clutter_crater(::zcls::Node* world, const float point[3], float radius);
 // 0x00513a40: the settings, the pieces and the template names, at a mission's end. The cells'
 // records go with the world.
 void clutter_free(std::list<std::string>& names);
+void clutter_free_cell(::zcls::Partition& cell);  // with the world's grid (0x00505ab0)
 
 }  // namespace pm::zcls

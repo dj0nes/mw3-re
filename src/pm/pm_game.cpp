@@ -23,7 +23,7 @@ const zgame::Table kPm = {"Pirate's Moon", "Pirate's Moon 1.0", zar::read_table,
                          zcls::node_model_box, zcls::node_model_header, zcls::light_create, zeff::anim_read_zbd,
                          // mechlib (pm-map step 1e)
                          zcls::mechlib_open, zcls::mechlib_load,
-                         zimg::set_light_map, zimg::set_additive, 0x800, true, false, zcls::clutter_draw_cell};
+                         zimg::set_light_map, zimg::set_additive, 0x800, true, false, zcls::clutter_draw_cell, zcls::clutter_free_cell};
 }  // namespace
 
 const zgame::Table& table() { return kPm; }

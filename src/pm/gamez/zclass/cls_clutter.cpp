@@ -673,6 +673,12 @@ void clutter_draw_cell(const ::zcls::World* world, ::zcls::Partition& cell) {
 
 void clutter_skip_ground_test(bool on) { g_lay.skip_ground = on; }
 
+void clutter_free_cell(::zcls::Partition& cell) {
+  delete static_cast<CellClutter*>(cell.pm_clutter);
+  cell.pm_clutter = nullptr;
+  cell.put<int32_t>(0x40, 0);
+}
+
 void clutter_free(std::list<std::string>& names) {
   g_templates.clear();
   g_pieces.clear();

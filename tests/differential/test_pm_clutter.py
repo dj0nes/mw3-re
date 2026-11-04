@@ -30,6 +30,7 @@ import zrd  # noqa: E402
 
 READ, ANIM, WATCH, WATCH2, ZERR, STRDUP_IAT = 0x513030, 0x524b50, 0x5a4d80, 0x5a4dc0, 0x406cb0, '_strdup'
 LISTS, LIST_DIRTY, BEGIN, END, CAP = 0x60db00, 0x60db84, 0x639bf4, 0x639bf8, 0x639bfc
+FREE, MAP_CTOR = 0x513a40, 0x5117f0
 ON_HIT, ON_COLLIDE, ANIM_START = 0x513c60, 0x513cf0, 0x5216e0
 LAY, GROUND, BOX, CRATER, SKIP_GROUND = 0x513a30, 0x4ff8d0, 0x5043d0, 0x513d90, 0x639c1c
 TEXTURE_NAME = 0xc  # in PM's 0x2c-byte entry
@@ -205,6 +206,8 @@ DIFF = Differences()
 
 
 class World(test_pm_walk.Emulated):
+    REAL_MAP = False
+
     """0x5139d0 on a world loaded by the exe's own reader. The map at 0x639be0 is the exe's std::map,
     stubbed by a dict: only what goes in it is compared."""
 
@@ -213,10 +216,15 @@ class World(test_pm_walk.Emulated):
         self.native_stub(zr.OP_NEW, lambda c: self.alloc(c.arg(0)))
         self.cpu.import_code(g.IAT['_CIfmod'] if '_CIfmod' in g.IAT else test_pm_zar.IAT['_CIfmod'], CIFMOD)
         self.groups, self.values = {}, {}
-        self.head = self.alloc(0x20)
-        self.w32(MAP_HEAD, self.head)
-        self.native_stub(MAP_FIND, self.find, 8)
-        self.native_stub(MAP_INSERT, self.insert, 8)
+        if self.REAL_MAP:
+            self.cpu.stub_import(test_pm_zar.IAT['??0_Lockit@std@@QAE@XZ'], lambda c: c.ecx, 0)
+            self.cpu.stub_import(test_pm_zar.IAT['??1_Lockit@std@@QAE@XZ'], lambda c: 0, 0)
+            self.call(MAP_CTOR)
+        else:
+            self.head = self.alloc(0x20)
+            self.w32(MAP_HEAD, self.head)
+            self.native_stub(MAP_FIND, self.find, 8)
+            self.native_stub(MAP_INSERT, self.insert, 8)
         self.errors = []
         self.cpu.stubs[test_pm_zar.LOG_ERROR] = (self.error, 0)
 
@@ -475,10 +483,11 @@ class Laying(World):
                     seen.add(self.index(self.r32(items + 0x5c * i)))
         return sorted(seen)
 
-    def lay(self, names, skip_ground=0):
+    def lay(self, names, skip_ground=0, again=False):
         uc = self.cpu._uc
         uc.mem_write(SKIP_GROUND, bytes([skip_ground]))
-        self.w32(BEGIN, 0), self.w32(END, 0), self.w32(CAP, 0)
+        if not again:
+            self.w32(BEGIN, 0), self.w32(END, 0), self.w32(CAP, 0)
         self.w32(LIST_DIRTY, 0)
         self.call(READ, args=[self.string('templates.zrd')])
         self.w32(TEMPLATE_NAMES, self.link(names))
@@ -600,6 +609,45 @@ def compare_scene_lay(probe, emu):
         i = next((k for k, (a, b) in enumerate(zip(want, got)) if a != b), min(len(want), len(got)))
         raise SystemExit(f'crafted laying: word {i} of {len(want)} and {len(got)}\n exe {want[:i + 7]}\n port {got[:i + 7]}')
     print(f'crafted laying identical: {want[0]} records')
+
+
+class Reloading(Laying):
+    REAL_MAP = True
+
+
+def compare_second_load(probe, world, names):
+    """Load, free (0x513a40), load again from the same seed, with the exe's own std::map: the same
+    records in the cells on both sides, not twice as many, and on both loads."""
+    emu = Reloading(world)
+    first, _, _, _ = emu.lay(names, 1)
+    buf = (ctypes.c_uint32 * (1 << 25))()
+    rel = f'zbd/{world}/reader.zbd'
+    n = probe.probe_pm_clutter_lay(str(g.ZBD / world / 'gamez.zbd').encode(), str(PM).encode(), rel.encode(), '\n'.join(names).encode(), 1, buf, len(buf))
+    got_first = list(buf[3:n])
+    want_first = [v for r in first for v in r]
+    emu.call(FREE)
+    if emu.r32(BEGIN) != emu.r32(END) or emu.r32(emu.r32(MAP_HEAD)) != emu.r32(MAP_HEAD) or emu.r32(emu.r32(TEMPLATE_NAMES)) != emu.r32(TEMPLATE_NAMES):
+        raise SystemExit(f'{world}: the exe did not free')
+    d = emu.r32(emu.world_node + 0x38)
+    for z in range(emu.i32(d + 0x9c)):  # the world's going takes the records with it, in the game
+        for x in range(emu.i32(d + 0x98)):
+            cell = emu.r32(emu.r32(d + 0xa0) + 4 * z) + 0x58 * x
+            emu.w32(cell + 0x40, 0), emu.w32(cell + 0x44, 0)
+    emu.seed = 1
+    second, _, _, _ = emu.lay(names, 1, again=True)
+    n2 = probe.probe_pm_clutter_relay('\n'.join(names).encode(), buf, len(buf))
+    got_second = list(buf[3:n2])
+    want_second = [v for r in second for v in r]
+    if len(want_second) != len(want_first):
+        raise SystemExit(f'{world}: the exe laid {len(want_first)} words, then {len(want_second)}')
+    # The turn's words as elsewhere; everything else exact.
+    for label, a, b in (('first', want_first, got_first), ('second', want_second, got_second), ('port twice', got_first, got_second)):
+        if len(a) != len(b):
+            raise SystemExit(f'{world}: {label}: {len(a)} words against {len(b)}')
+        for i, (p, q) in enumerate(zip(a, b)):
+            if p != q and not (3 <= i % 23 < 12 and abs(struct.unpack('<f', struct.pack('<I', p))[0] - struct.unpack('<f', struct.pack('<I', q))[0]) < 2e-7):
+                raise SystemExit(f'{world}: {label}: word {i} (field {i % 23} of record {i // 23}): {p:08x}, {q:08x}')
+    return len(first)
 
 
 def compare_trees(probe, emu, world):
@@ -914,6 +962,7 @@ def main():
     probe.probe_pm_walk_frame.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_uint32, ctypes.c_float, ctypes.c_int, ctypes.c_void_p, ctypes.c_int]
     probe.probe_pm_clutter_trees.argtypes = [ctypes.c_void_p, ctypes.c_int]
     probe.probe_pm_node_zones.argtypes = [ctypes.c_void_p, ctypes.c_int]
+    probe.probe_pm_clutter_relay.argtypes = [ctypes.c_char_p, ctypes.c_void_p, ctypes.c_int]
     probe.probe_pm_world_update.restype = None
     probe.probe_pm_cell_touch.restype = None
     probe.probe_pm_clutter_poke.restype = None
@@ -929,6 +978,8 @@ def main():
     records, _ = compare_laying(probe, 'c2', names, skip_ground=1)
     print(f'c2, as a mission loads it (no ground test): {records} records; records flagged by craters as they went: {CRATERS}')
     print(f'frames over the records: {FRAME_DIFF[1]} draws in order, worst relative float difference {FRAME_DIFF[0]:g}')
+    for world in ('c2', 'c4'):
+        print(f'{world}: loaded, freed and loaded again: {compare_second_load(probe, world, names)} records both times')
     print(f'cell state: worst relative float difference {test_pm_world_box.WORST[0]:g}')
     print(f'trees: {TREES[0]} words, worst relative float difference {TREES[1]:g}')
     print(f'rotated records: {ULPS.same} of {ULPS.total} words bit-identical, worst {ULPS.worst:g}; '

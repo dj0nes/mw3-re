@@ -69,6 +69,7 @@ struct Table {
   bool cell_fades;
   // A cell's clutter records, after its nodes (PM 0x0050a1e0). Null in MW3.
   void (*cell_clutter)(const zcls::World* world, zcls::Partition& cell);
+  void (*cell_clutter_free)(zcls::Partition& cell);
 };
 
 const Table& mw3_table();

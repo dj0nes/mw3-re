@@ -19,7 +19,7 @@ const Table kMw3 = {"MechWarrior 3", "Mech3.exe 1.2", zutl_zar::read_table, zutl
                     zcls::mw3_light_create, zeff::mw3_anim_read_zbd,
                     // mechlib (pm-map step 1e)
                     zcls::mw3_mechlib_open, zcls::mw3_mechlib_load,
-                    nullptr, nullptr, 0x200, false, true, nullptr};
+                    nullptr, nullptr, 0x200, false, true, nullptr, nullptr};
 const Table* g_game = &kMw3;
 }  // namespace
 

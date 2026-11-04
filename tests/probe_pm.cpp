@@ -2045,32 +2045,8 @@ int probe_pm_clutter_scene(const float* verts, const float* uvs, int n, const fl
 
 }  // extern "C"
 
-extern "C" {
-
-// The whole clutter load on a world, as the exe's (test_pm_clutter.py, class Laying): the settings,
-// the templates, the laying, with the same made-up ground. Out: rand calls, cell changes, the count,
-// then each record as the test reads it.
-int probe_pm_clutter_lay(const char* world, const char* dir, const char* archive, const char* names, int skip_ground,
-                         uint32_t* out, int cap) {
-  if (probe_pm_walk_load(world) < 0) return -1;
-  pm::zcls::clutter_skip_ground_test(skip_ground != 0);
-  mount_only(dir);
-  zrdr::close_archives(true);
-  zrdr::init();
-  if (!zrdr::open_archive(archive, true)) return -2;
-  pm::zcls::ClutterHooks& h = pm::zcls::clutter_hooks();
-  h = {};
-  h.ground_heights = [](::zcls::Node*, float x, float y, float z, float* heights, int) -> int {
-    uint32_t bx, by, bz;
-    std::memcpy(&bx, &x, 4), std::memcpy(&by, &y, 4), std::memcpy(&bz, &z, 4);
-    const uint32_t v = (bx * 31u + bz * 17u) >> 3;
-    const int n = static_cast<int>(v % 4);
-    for (int i = 0; i < n; ++i) heights[i] = (v >> (8 + i) & 1) ? y - 1.5f : y - 4.0f;
-    return n;
-  };
-  crt::msvc_srand(1);
-  pm::zcls::clutter_templates().clear();
-  pm::zcls::clutter_pieces().clear();
+namespace {
+int clutter_load_and_write(const char* names, uint32_t* out, int cap) {
   pm::zcls::clutter_read_settings("templates.zrd");
   std::list<std::string> list;
   std::string all(names);
@@ -2110,6 +2086,49 @@ int probe_pm_clutter_lay(const char* world, const char* dir, const char* archive
   }
   out[0] = static_cast<uint32_t>(crt::msvc_rand()), out[1] = 0, out[2] = static_cast<uint32_t>(count);
   return n;
+}
+}  // namespace
+
+extern "C" {
+
+// The whole clutter load on a world, as the exe's (test_pm_clutter.py, class Laying): the settings,
+// the templates, the laying, with the same made-up ground. Out: rand calls, cell changes, the count,
+// then each record as the test reads it.
+int probe_pm_clutter_lay(const char* world, const char* dir, const char* archive, const char* names, int skip_ground,
+                         uint32_t* out, int cap) {
+  if (probe_pm_walk_load(world) < 0) return -1;
+  pm::zcls::clutter_skip_ground_test(skip_ground != 0);
+  mount_only(dir);
+  zrdr::close_archives(true);
+  zrdr::init();
+  if (!zrdr::open_archive(archive, true)) return -2;
+  pm::zcls::ClutterHooks& h = pm::zcls::clutter_hooks();
+  h = {};
+  h.ground_heights = [](::zcls::Node*, float x, float y, float z, float* heights, int) -> int {
+    uint32_t bx, by, bz;
+    std::memcpy(&bx, &x, 4), std::memcpy(&by, &y, 4), std::memcpy(&bz, &z, 4);
+    const uint32_t v = (bx * 31u + bz * 17u) >> 3;
+    const int n = static_cast<int>(v % 4);
+    for (int i = 0; i < n; ++i) heights[i] = (v >> (8 + i) & 1) ? y - 1.5f : y - 4.0f;
+    return n;
+  };
+  crt::msvc_srand(1);
+  pm::zcls::clutter_templates().clear();
+  pm::zcls::clutter_pieces().clear();
+  return clutter_load_and_write(names, out, cap);
+}
+
+// After probe_pm_clutter_lay: the free, the world's records gone with it, the same seed, the load again.
+int probe_pm_clutter_relay(const char* names, uint32_t* out, int cap) {
+  std::list<std::string> list(1, "x");
+  pm::zcls::clutter_free(list);
+  if (!list.empty() || !pm::zcls::clutter_templates().empty() || !pm::zcls::clutter_pieces().empty()) return -3;
+  auto* w = static_cast<::zcls::World*>(::zcls::camera_world(walk_camera())->data);
+  for (int z = 0; z < w->get<int32_t>(0x8c); ++z) {
+    for (int x = 0; x < w->get<int32_t>(0x88); ++x) pm::zcls::clutter_free_cell(w->rows[z][x]);
+  }
+  crt::msvc_srand(1);
+  return clutter_load_and_write(names, out, cap);
 }
 
 }  // extern "C"
