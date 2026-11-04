@@ -329,11 +329,6 @@ bool NavWay::step(zgame::Handle v, const float pos[3], const float to[3], bool e
       if (!h.wall_between(eye, aim)) return follow.path.clear(), false;
     }
   }
-  static const bool log = std::getenv("MW3_NAV_LOG") != nullptr;
-  if (log && static_cast<int>(now) != static_cast<int>(now - dt))
-    std::fprintf(stderr, "navway %.1f: at %.0f %.0f %.0f enemy %d to %.0f %.0f, spot %d %.0f %.0f %.0f, open %d, fallback %.1f\n", now,
-                 pos[0], pos[1], pos[2], enemy, to[0], to[2], has_spot, spot[0], spot[1], spot[2],
-                 nav::line_clear(nav::grid(), pos, goal), follow.fallback_until);
   if (follow.step(pos, goal, now, dt, out, must_find, has_spot ? 0.0f : range)) return true;
   // The spot in a straight line: walked to as it is (the fallbacks head for the enemy).
   if (has_spot && now >= follow.fallback_until && std::hypot(spot[0] - pos[0], spot[2] - pos[2]) > 6.0f &&

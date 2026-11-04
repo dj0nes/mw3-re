@@ -1,9 +1,7 @@
 #include "mech3/zai_nav.h"
 
 #include <algorithm>
-#include <chrono>
 #include <cstdio>
-#include <cstdlib>
 #include <cstring>
 #include <queue>
 
@@ -105,12 +103,6 @@ constexpr float kWallLow = 2.5f, kWallHigh = 6.5f;  // the wall probes over the 
 constexpr int kWindows[] = {64, 128, 256};  // the search's margins round from and to, in cells (256 m .. 1 km)
 constexpr int kMaxExpand = 250000;
 
-// The dump's copies of the paths walked lately (a follower may be gone by
-// the dump), by follower.
-std::unordered_map<const void*, Way>& dump_paths() {
-  static std::unordered_map<const void*, Way> m;
-  return m;
-}
 }  // namespace
 
 World& zcls_world() {
@@ -485,97 +477,119 @@ void ask_tiles(Grid& g, int x0, int z0, int x1, int z1) {
 }
 }  // namespace
 
-Find find_path(Grid& g, const float from[3], const float to[3], Way* out) {
+void PathSearch::begin(const float from[3], const float to[3]) {
+  for (int i = 0; i < 3; ++i) from_[i] = from[i], to_[i] = to[i];
+  active_ = true, started_ = false, open_window_ = false, window_ = 0;
+}
+
+float PathSearch::octile(int x, int z) const {
+  const float ax = static_cast<float>(std::abs(x - gx_)), az = static_cast<float>(std::abs(z - gz_));
+  return (std::max(ax, az) + 0.41421356f * std::min(ax, az)) * kCell;
+}
+
+Find PathSearch::run(Grid& g, int* budget, Way* out) {
   out->clear();
-  const int fx = cell_of(from[0]), fz = cell_of(from[2]), tx = cell_of(to[0]), tz = cell_of(to[2]);
-  // Round both ends first: nothing can be said without them.
-  auto ask_ends = [&] {
-    ask_tiles(g, fx - 8, fz - 8, fx + 8, fz + 8);
-    ask_tiles(g, tx - 8, tz - 8, tx + 8, tz + 8);
-  };
-  if (!g.built(fx, fz) || !g.built(tx, tz)) return ask_ends(), Find::kBuilding;
-  int sx, sz, sl, gx, gz, gl;
-  if (!nearest_walkable(g, fx, fz, from[1], 8, &sx, &sz, &sl) || !nearest_walkable(g, tx, tz, to[1], 8, &gx, &gz, &gl)) {
-    ask_ends();
-    return g.queue.empty() ? Find::kNone : Find::kBuilding;
-  }
-  const bool shapes = !goal_in_shape(g, to);
-  Way cells;
-  bool found = false;
-  for (const int margin : kWindows) {
-    const int x0 = std::min(fx, tx) - margin, x1 = std::max(fx, tx) + margin;
-    const int z0 = std::min(fz, tz) - margin, z1 = std::max(fz, tz) + margin;
-    // No answer from part of a window: ground not built yet reads as a wall,
-    // and a path round that is a wrong one.
-    bool missing = false;
-    for (int tz2 = tile_of(z0); tz2 <= tile_of(z1) && !missing; ++tz2)
-      for (int tx2 = tile_of(x0); tx2 <= tile_of(x1) && !missing; ++tx2) {
-        auto it = g.all().find(Grid::key(tx2, tz2));
-        missing = it == g.all().end() || !it->second->done();
-      }
-    if (missing) {
-      ask_tiles(g, x0, z0, x1, z1);
-      return Find::kBuilding;
-    }
-    const int w = x1 - x0 + 1, h = z1 - z0 + 1;
-    auto idx = [&](int x, int z, int l) { return ((z - z0) * w + (x - x0)) * kLevels + l; };
-    std::vector<float> cost(static_cast<size_t>(w) * h * kLevels, 1e30f);
-    std::vector<int32_t> from_of(static_cast<size_t>(w) * h * kLevels, -1);
-    using Item = std::pair<float, int32_t>;
-    std::priority_queue<Item, std::vector<Item>, std::greater<Item>> open;
-    auto octile = [&](int x, int z) {
-      const float ax = static_cast<float>(std::abs(x - gx)), az = static_cast<float>(std::abs(z - gz));
-      return (std::max(ax, az) + 0.41421356f * std::min(ax, az)) * kCell;
+  if (!started_) {
+    fx_ = cell_of(from_[0]), fz_ = cell_of(from_[2]), tx_ = cell_of(to_[0]), tz_ = cell_of(to_[2]);
+    // Round both ends first: nothing can be said without them.
+    auto ask_ends = [&] {
+      ask_tiles(g, fx_ - 8, fz_ - 8, fx_ + 8, fz_ + 8);
+      ask_tiles(g, tx_ - 8, tz_ - 8, tx_ + 8, tz_ + 8);
     };
-    cost[idx(sx, sz, sl)] = 0;
-    open.push({octile(sx, sz), idx(sx, sz, sl)});
-    int expanded = 0;
-    while (!open.empty() && expanded < kMaxExpand) {
-      const auto [f, i] = open.top();
-      open.pop();
-      const int place = i / kLevels, l = i % kLevels;
-      const int x = x0 + place % w, z = z0 + place / w;
-      if (f - octile(x, z) > cost[i] + 1e-3f) continue;  // stale
-      if (x == gx && z == gz && l == gl) {
-        found = true;
-        break;
+    if (!g.built(fx_, fz_) || !g.built(tx_, tz_)) return ask_ends(), active_ = false, Find::kBuilding;
+    if (!nearest_walkable(g, fx_, fz_, from_[1], 8, &sx_, &sz_, &sl_) || !nearest_walkable(g, tx_, tz_, to_[1], 8, &gx_, &gz_, &gl_)) {
+      ask_ends();
+      active_ = false;
+      return g.queue.empty() ? Find::kNone : Find::kBuilding;
+    }
+    shapes_ = !goal_in_shape(g, to_);
+    started_ = true;
+  }
+  for (;;) {
+    if (!open_window_) {
+      if (window_ >= static_cast<int>(sizeof kWindows / sizeof kWindows[0])) return active_ = false, Find::kNone;
+      const int margin = kWindows[window_];
+      x0_ = std::min(fx_, tx_) - margin, x1_ = std::max(fx_, tx_) + margin;
+      z0_ = std::min(fz_, tz_) - margin, z1_ = std::max(fz_, tz_) + margin;
+      // No answer from part of a window: ground not built yet reads as a wall,
+      // and a path round that is a wrong one.
+      bool missing = false;
+      for (int tz2 = tile_of(z0_); tz2 <= tile_of(z1_) && !missing; ++tz2)
+        for (int tx2 = tile_of(x0_); tx2 <= tile_of(x1_) && !missing; ++tx2) {
+          auto it = g.all().find(Grid::key(tx2, tz2));
+          missing = it == g.all().end() || !it->second->done();
+        }
+      if (missing) {
+        ask_tiles(g, x0_, z0_, x1_, z1_);
+        active_ = false;
+        return Find::kBuilding;
       }
-      ++expanded;
+      w_ = x1_ - x0_ + 1;
+      const size_t size = static_cast<size_t>(w_) * (z1_ - z0_ + 1) * kLevels;
+      cost_.assign(size, 1e30f);
+      from_of_.assign(size, -1);
+      open_.clear();
+      const int first = ((sz_ - z0_) * w_ + (sx_ - x0_)) * kLevels + sl_;
+      cost_[first] = 0;
+      open_.push_back({octile(sx_, sz_), first});
+      expanded_ = 0;
+      open_window_ = true;
+    }
+    const auto later = std::greater<Item>();
+    while (!open_.empty() && expanded_ < kMaxExpand) {
+      if (*budget <= 0) return Find::kWorking;
+      std::pop_heap(open_.begin(), open_.end(), later);
+      const auto [f, i] = open_.back();
+      open_.pop_back();
+      const int place = i / kLevels, l = i % kLevels;
+      const int x = x0_ + place % w_, z = z0_ + place / w_;
+      if (f - octile(x, z) > cost_[i] + 1e-3f) continue;  // stale
+      if (x == gx_ && z == gz_ && l == gl_) {
+        finish(g, out);
+        return Find::kOk;
+      }
+      ++expanded_, --*budget;
       for (int dz = -1; dz <= 1; ++dz)
         for (int dx = -1; dx <= 1; ++dx) {
           if (!dx && !dz) continue;
           const int nx = x + dx, nz = z + dz;
-          if (nx < x0 || nx > x1 || nz < z0 || nz > z1) continue;
+          if (nx < x0_ || nx > x1_ || nz < z0_ || nz > z1_) continue;
           const int nl = g.step(x, z, l, dx, dz);
           if (nl < 0) continue;
           const Cell* there = g.cell(nx, nz, nl);
           const float step = (dx && dz ? 1.41421356f : 1.0f) * kCell * water_cost(there->depth) * (there->flags & kNear ? 8.0f : 1.0f) *
-                             (shapes && g.avoided(nx, nz, nl) ? 20.0f : 1.0f) * (g.tight(nx, nz, nl) ? 3.0f : 1.0f);
-          const int j = idx(nx, nz, nl);
-          if (cost[i] + step < cost[j]) {
-            cost[j] = cost[i] + step, from_of[j] = i;
-            open.push({cost[j] + octile(nx, nz), j});
+                             (shapes_ && g.avoided(nx, nz, nl) ? 20.0f : 1.0f) * (g.tight(nx, nz, nl) ? 3.0f : 1.0f);
+          const int j = ((nz - z0_) * w_ + (nx - x0_)) * kLevels + nl;
+          if (cost_[i] + step < cost_[j]) {
+            cost_[j] = cost_[i] + step, from_of_[j] = i;
+            open_.push_back({cost_[j] + octile(nx, nz), j});
+            std::push_heap(open_.begin(), open_.end(), later);
           }
         }
     }
-    if (found) {
-      for (int i = idx(gx, gz, gl); i >= 0; i = from_of[i]) {
-        const int place = i / kLevels;
-        const int x = x0 + place % w, z = z0 + place / w;
-        cells.push_back({centre_of(x), g.cell(x, z, i % kLevels)->y, centre_of(z)});
-      }
-      std::reverse(cells.begin(), cells.end());
-      break;
-    }
+    open_window_ = false;
+    ++window_;
   }
-  if (!found) return Find::kNone;
-  // String-pulled: from each point the farthest one in a clear line.
-  std::array<float, 3> here = {from[0], from[1], from[2]};
+}
+
+void PathSearch::finish(Grid& g, Way* out) {
+  Way cells;
+  const int goal = ((gz_ - z0_) * w_ + (gx_ - x0_)) * kLevels + gl_;
+  for (int i = goal; i >= 0; i = from_of_[i]) {
+    const int place = i / kLevels;
+    const int x = x0_ + place % w_, z = z0_ + place / w_;
+    cells.push_back({centre_of(x), g.cell(x, z, i % kLevels)->y, centre_of(z)});
+  }
+  std::reverse(cells.begin(), cells.end());
+  // String-pulled: from each point the farthest one in a clear line, looked for
+  // at most 512 m on (a leg is checked cell by cell: long paths would pay twice).
+  constexpr size_t kLook = 128;
+  std::array<float, 3> here = {from_[0], from_[1], from_[2]};
   size_t k = 0;
   while (k + 1 < cells.size()) {
     size_t far = k + 1;
-    for (size_t j = cells.size() - 1; j > k + 1; --j)
-      if (line_clear_avoiding(g, here.data(), cells[j].data(), shapes)) {
+    for (size_t j = std::min(cells.size() - 1, k + kLook); j > k + 1; --j)
+      if (line_clear_avoiding(g, here.data(), cells[j].data(), shapes_)) {
         far = j;
         break;
       }
@@ -585,9 +599,17 @@ Find find_path(Grid& g, const float from[3], const float to[3], Way* out) {
   }
   if (out->empty()) out->push_back(cells.back());
   // The last waypoint the brain's point itself when it is walkable.
-  const int tl = g.level_at(tx, tz, to[1]);
-  if (tl >= 0 && g.walkable(tx, tz, tl)) out->back() = {to[0], to[1], to[2]};
-  return Find::kOk;
+  const int tl = g.level_at(tx_, tz_, to_[1]);
+  if (tl >= 0 && g.walkable(tx_, tz_, tl)) out->back() = {to_[0], to_[1], to_[2]};
+  active_ = false, open_window_ = false;
+  cost_ = {}, from_of_ = {}, open_ = {};
+}
+
+Find find_path(Grid& g, const float from[3], const float to[3], Way* out) {
+  PathSearch s;
+  s.begin(from, to);
+  int budget = 1 << 30;
+  return s.run(g, &budget, out);
 }
 
 namespace {
@@ -656,13 +678,13 @@ void restart() {
   Grid& g = grid();
   g.reset(&zcls_world());
   watched().clear();
-  dump_paths().clear();
   if (world_hooks().world) watch_begin();
   g_watch_t = -1e30f;
 }
 
-void service(float now, int steps) {
+void service(float now, int steps, int search_steps) {
   Grid& g = grid();
+  g.search_budget = search_steps;
   if (g.world() != &zcls_world()) restart();
   if (now - g_watch_t >= 1.0f || now < g_watch_t) g_watch_t = now, watch_look(g, now);
   static int32_t shapes = 0;
@@ -683,12 +705,6 @@ void service(float now, int steps) {
         for (int cx = cell_of(mx - kGiveWay); cx <= cell_of(mx + kGiveWay); ++cx)
           if (std::hypot(centre_of(cx) - mx, centre_of(cz) - mz) <= kGiveWay) g.hold(cx, cz, r[4], now + 1.5f, kNear);
     }
-  }
-  static float dumped = -1e30f;
-  if (const char* file = std::getenv("MW3_NAV_DUMP"); file && now - dumped >= 10.0f && g.tiles()) {
-    dumped = now;
-    dump(file, {});
-    dump_paths().clear();
   }
   while (!g.queue.empty() && steps > 0) {
     const auto [tx, tz] = g.queue.front();
@@ -740,16 +756,13 @@ bool Follower::step(const float pos[3], const float to[3], float now, float dt, 
   // The world changed under the path: a new one only if the way on is shut.
   const bool changed = found_version != g.version && now - found_t > 2.0f && !path.empty() && !line_clear(g, pos, path[at].data());
   if (found_version != g.version && !changed) found_version = g.version;
-  if ((path.empty() || moved || changed || found_t < -1e8f) && now - last_ask >= 0.5f) {
-    last_ask = now;
+  if (search.active() || ((path.empty() || moved || changed || found_t < -1e8f) && now - last_ask >= 0.5f)) {
+    if (!search.active()) last_ask = now, search.begin(pos, to);
     Way p;
-    const auto t0 = std::chrono::steady_clock::now();
-    const Find f = find_path(g, pos, to, &p);
-    static const bool find_log = std::getenv("MW3_NAV_LOG") != nullptr;
-    if (find_log)
-      std::fprintf(stderr, "find %.1f: %d, %zu points, %.2f ms, queue %zu\n", now, static_cast<int>(f), p.size(),
-                   std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count(), g.queue.size());
-    if (f == Find::kOk) {
+    const Find f = search.run(g, &g.search_budget, &p);
+    if (f == Find::kWorking) {
+      if (path.empty()) return false;  // the walk as before until there is an answer
+    } else if (f == Find::kOk) {
       if (!path.empty()) ++repaths;
       ++paths;
       if (path.empty()) watch_t = now, watch_pos[0] = pos[0], watch_pos[1] = pos[2];
@@ -799,12 +812,6 @@ bool Follower::step(const float pos[3], const float to[3], float now, float dt, 
     out[0] = path[at][0], out[2] = path[at][2];
   }
   out[1] = pos[1];
-  static const bool dumping = std::getenv("MW3_NAV_DUMP") != nullptr;
-  if (dumping) dump_paths()[this] = path;
-  static const bool log = std::getenv("MW3_NAV_LOG") != nullptr;
-  if (log && static_cast<int>(now * 2) != static_cast<int>((now - dt) * 2))
-    std::fprintf(stderr, "nav %.1f: at %.0f %.0f %.0f to %.0f %.0f %.0f, wp %d/%zu %.0f %.0f %.0f (%.0f m), stuck %d\n", now, pos[0], pos[1],
-                 pos[2], to[0], to[1], to[2], at, path.size(), path[at][0], path[at][1], path[at][2], d, stuck);
   return true;
 }
 
@@ -852,7 +859,6 @@ void dump(const char* file, const std::vector<const Follower*>& followers, int f
   std::vector<const Way*> paths;
   for (const Follower* f : followers)
     if (f) paths.push_back(&f->path);
-  for (const auto& kv : dump_paths()) paths.push_back(&kv.second);
   for (const Way* way : paths)
     for (const auto& q : *way) {
       const int x = cell_of(q[0]), z = cell_of(q[2]);

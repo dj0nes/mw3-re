@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <memory>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 // Ours, not the exe's (W58, docs/lancemate-pathing.md): a walkability grid
@@ -93,6 +94,7 @@ class Grid {
   int tiles_done() const;
   std::vector<std::pair<int, int>> queue;              // tiles asked for, oldest first
   float parked_t = -1e30f;                             // the last look at the parked vehicles
+  int search_budget = 0;                               // the paths' work left this frame (cells), all pilots'
   // For the dump: every tile.
   const std::unordered_map<uint64_t, std::unique_ptr<Tile>>& all() const { return tiles_; }
   static uint64_t key(int tx, int tz) {
@@ -132,7 +134,7 @@ bool line_clear_avoiding(Grid& g, const float a[3], const float b[3], bool shape
 // no longer count on the way (the fewest cells in one could be a long way round).
 bool goal_in_shape(Grid& g, const float to[3]);
 
-enum class Find { kOk, kBuilding, kNone };
+enum class Find { kOk, kBuilding, kNone, kWorking };
 using Way = std::vector<std::array<float, 3>>;
 // A path from `from` to `to` (or the walkable cell nearest it, within 32 m, on
 // its floor), string-pulled into waypoints (x, y, z), the last the goal. The
@@ -141,9 +143,31 @@ using Way = std::vector<std::array<float, 3>>;
 // queued; kNone: no way in the widest window.
 Find find_path(Grid& g, const float from[3], const float to[3], Way* out);
 
+// The same over several frames: run() does at most `*budget` cells' work, taken
+// off it, and answers kWorking while there is more. A failed search over the
+// widest window takes 320 ms in Release; one frame must not pay that.
+class PathSearch {
+ public:
+  bool active() const { return active_; }
+  void begin(const float from[3], const float to[3]);
+  Find run(Grid& g, int* budget, Way* out);
+
+ private:
+  using Item = std::pair<float, int32_t>;
+  bool active_ = false, started_ = false, shapes_ = true, open_window_ = false;
+  float from_[3] = {}, to_[3] = {};
+  int fx_ = 0, fz_ = 0, tx_ = 0, tz_ = 0, sx_ = 0, sz_ = 0, sl_ = 0, gx_ = 0, gz_ = 0, gl_ = 0;
+  int window_ = 0, x0_ = 0, x1_ = 0, z0_ = 0, z1_ = 0, w_ = 0, expanded_ = 0;
+  std::vector<float> cost_;
+  std::vector<int32_t> from_of_;
+  std::vector<Item> open_;
+  float octile(int x, int z) const;
+  void finish(Grid& g, Way* out);
+};
+
 // The once-a-frame work: the queued tiles built for `steps` places, the holds
 // past their time lifted. `now` the game's time (s).
-void service(float now, int steps);
+void service(float now, int steps, int search_steps = 3000);
 // A mission's start, replays too (the same world's address, its nodes new): the
 // grid and what it watches begun again.
 void restart();
@@ -151,6 +175,7 @@ void restart();
 // The pilot's follower: the path it is on toward the brain's point.
 struct Follower {
   Way path;
+  PathSearch search;           // the one under way
   int at = 0;                  // the waypoint walked to
   float goal[2] = {};          // the brain's point the path was found for
   float found_t = -1e9f;       // when
@@ -182,10 +207,9 @@ struct Follower {
 // switch, and not in a network game.
 bool on_for(bool ally);
 
-// Ours (W58, for the tests and the dump): MW3_NAV_DUMP=file.ppm writes the
-// built cells (black no ground, dark red walls and no way on, grey by height,
-// blue water) and the paths (green) each 10 s of game time; the top floor,
-// or the floor that many down where there is one.
+// Ours (W58, for the tests): the built cells to a PPM (black no ground, dark red
+// not walkable, grey by height, blue water) with the followers' paths in green;
+// the top floor, or the floor that many down where there is one.
 void dump(const char* path, const std::vector<const Follower*>& followers, int floor_from_top = 0);
 
 }  // namespace mech3::ai::nav

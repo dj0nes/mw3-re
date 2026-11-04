@@ -2,6 +2,7 @@
 // made-up world of flat ground, boxes for walls, a cliff and water.
 #include <cmath>
 #include <cstdio>
+#include <string>
 #include <vector>
 
 #include "check.h"
@@ -318,6 +319,7 @@ TEST(nav_follower_takes_waypoints_round_the_wall_and_gives_up_when_stuck) {
   nav::Follower f;
   const float pos[3] = {80, 0, 120}, to[3] = {170, 0, 120};
   float out[3];
+  g.search_budget = 1 << 30;  // service gives it each frame
   EXPECT(f.step(pos, to, 1.0f, 1 / 30.0f, out));
   EXPECT(f.paths == 1 && !(out[0] == to[0] && out[2] == to[2]));
   const float wp[3] = {out[0], 4.0f, out[2]}, here[3] = {pos[0], 4.0f, pos[2]};
@@ -327,11 +329,13 @@ TEST(nav_follower_takes_waypoints_round_the_wall_and_gives_up_when_stuck) {
   bool gave_up = false;
   for (int k = 0; k < 30 * 30 && !gave_up; ++k) {
     now += 1 / 30.0f;
+    g.search_budget = 1 << 30;
     gave_up = !f.step(pos, to, now, 1 / 30.0f, out);
   }
   EXPECT(gave_up && now > 10.0f && now < 20.0f);
   EXPECT(!f.step(pos, to, now + 5.0f, 1 / 30.0f, out));  // the fallback's 10 s
   g.release(now + 11.0f);
+  g.search_budget = 1 << 30;
   EXPECT(f.step(pos, to, now + 11.0f, 1 / 30.0f, out));  // and the grid again after
   g.reset(nullptr);
 }
@@ -419,4 +423,43 @@ TEST(nav_a_keep_out_shape_is_walked_round_unless_the_goal_is_in_it) {
   EXPECT(find_pumped(g, a, inside, &p) == nav::Find::kOk);
   EXPECT(p.back()[0] == inside[0] && p.back()[2] == inside[2]);
   EXPECT(path_len(a, p) < 70.0f);  // straight in: sent there, the shape does not count
+}
+
+TEST(nav_dump_writes_the_grid) {
+  FakeWorld w;
+  nav::Grid& g = nav::grid();
+  g.reset(&w);
+  build_all(g, 0, 0, 0, 0);
+  const std::string file = std::string(MW3_TEST_TMP) + "/nav_dump.ppm";
+  nav::dump(file.c_str(), {});
+  std::FILE* f = std::fopen(file.c_str(), "rb");
+  EXPECT(f != nullptr);
+  if (f) {
+    char head[3] = {};
+    EXPECT(std::fread(head, 1, 2, f) == 2 && head[0] == 'P' && head[1] == '6');
+    std::fclose(f);
+  }
+  g.reset(nullptr);
+}
+
+TEST(nav_a_search_spreads_over_frames_to_the_same_way) {
+  FakeWorld w;
+  w.boxes.push_back({120, 0, 124, 240, 20});  // a long wall: more than a frame's search
+  nav::Grid g;
+  g.reset(&w);
+  build_all(g, -1, -1, 2, 2);
+  const float a[3] = {80, 0, 120}, b[3] = {170, 0, 120};
+  nav::Way whole, part;
+  EXPECT(nav::find_path(g, a, b, &whole) == nav::Find::kOk && !whole.empty());
+  nav::PathSearch s;
+  s.begin(a, b);
+  int frames = 0;
+  nav::Find f = nav::Find::kWorking;
+  while (f == nav::Find::kWorking && frames < 100000) {
+    int budget = 50;
+    f = s.run(g, &budget, &part);
+    EXPECT(budget <= 0 || f != nav::Find::kWorking);  // no more than it was given
+    ++frames;
+  }
+  EXPECT(f == nav::Find::kOk && frames > 3 && part == whole && !s.active());
 }

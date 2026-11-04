@@ -251,8 +251,7 @@ through the follow and fight states; the refit's walk to the dock's approach
 point (`RepairState`) has its own. The AI nets' scripted routes (`NodeState`)
 stay the exe's: those are the mission's script, not an order to a lancemate.
 
-Debugging: `MW3_NAV_DUMP=file.ppm` (the grid and the paths; its header gives
-the origin cell), `MW3_NAV_LOG=1` (the follower and the fight's choice).
+Debugging: `nav::dump` writes the grid and given paths to a PPM from a test.
 
 ## Results (2026-11-04)
 
