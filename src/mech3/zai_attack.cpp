@@ -280,8 +280,9 @@ bool firing_spot(const float pos[3], const float tgt[3], float range, float out[
       const float a = 0.39269908f * static_cast<float>(k);
       const float x = tgt[0] + std::cos(a) * ring * range, z = tgt[2] + std::sin(a) * ring * range;
       const int cx = nav::cell_of(x), cz = nav::cell_of(z);
-      if (!g.walkable(cx, cz)) continue;
-      const float y = g.cell(cx, cz)->y;
+      const int level = g.level_at(cx, cz, tgt[1]);  // on the enemy's storey
+      if (level < 0 || !g.walkable(cx, cz, level)) continue;
+      const float y = g.cell(cx, cz, level)->y;
       if (has_player && pd > 1.0f) {
         const float ux = (tgt[0] - pl[0]) / pd, uz = (tgt[2] - pl[2]) / pd;
         const float sx = x - pl[0], sz = z - pl[2], sl = std::hypot(sx, sz);
@@ -304,7 +305,9 @@ bool NavWay::step(zgame::Handle v, const float pos[3], const float to[3], bool e
   float goal[3] = {to[0], to[1], to[2]};
   // Out of range: the enemy itself (the brain's range band stops him). In
   // range without a line of sight: a firing spot with one.
-  if (enemy && range > 1.0f && std::hypot(to[0] - pos[0], to[2] - pos[2]) <= range) {
+  // Near over or under it on another storey is not near.
+  const bool near_it = range > 1.0f && std::hypot(to[0] - pos[0], to[2] - pos[2]) <= range && std::fabs(to[1] - pos[1]) < nav::kHead;
+  if (enemy && near_it) {
     const float eye[3] = {pos[0], pos[1] + 6.0f, pos[2]}, aim[3] = {to[0], to[1] + 5.0f, to[2]};
     if (!h.wall_between(eye, aim)) {
       has_spot = false;
@@ -321,7 +324,7 @@ bool NavWay::step(zgame::Handle v, const float pos[3], const float to[3], bool e
   } else {
     has_spot = false;
     // A leader in range and in sight: the exe's follow and its band.
-    if (!enemy && range > 1.0f && std::hypot(to[0] - pos[0], to[2] - pos[2]) <= range) {
+    if (!enemy && near_it) {
       const float eye[3] = {pos[0], pos[1] + 6.0f, pos[2]}, aim[3] = {to[0], to[1] + 5.0f, to[2]};
       if (!h.wall_between(eye, aim)) return follow.path.clear(), false;
     }
@@ -330,15 +333,30 @@ bool NavWay::step(zgame::Handle v, const float pos[3], const float to[3], bool e
   if (log && static_cast<int>(now) != static_cast<int>(now - dt))
     std::fprintf(stderr, "navway %.1f: at %.0f %.0f %.0f enemy %d to %.0f %.0f, spot %d %.0f %.0f %.0f, open %d, fallback %.1f\n", now,
                  pos[0], pos[1], pos[2], enemy, to[0], to[2], has_spot, spot[0], spot[1], spot[2],
-                 nav::line_clear(nav::grid(), pos[0], pos[2], goal[0], goal[2]), follow.fallback_until);
+                 nav::line_clear(nav::grid(), pos, goal), follow.fallback_until);
   if (follow.step(pos, goal, now, dt, out)) return true;
   // The spot in a straight line: walked to as it is (the fallbacks head for the enemy).
   if (has_spot && now >= follow.fallback_until && std::hypot(spot[0] - pos[0], spot[2] - pos[2]) > 6.0f &&
-      nav::line_clear(nav::grid(), pos[0], pos[2], spot[0], spot[2])) {
+      nav::line_clear(nav::grid(), pos, spot)) {
     out[0] = spot[0], out[1] = pos[1], out[2] = spot[2];
     return true;
   }
   return false;
+}
+
+// Straight at the grid's waypoint, as the follow's crumbs: walking only while
+// it is within 60 degrees ahead.
+void nav_drive(Brain& b, zgame::Handle v, const float pos[3], const float goal[3], float* turn) {
+  BrainHooks& h = brain_hooks();
+  float fwd[3] = {0, 0, 0};
+  h.forward(v, &fwd[0], &fwd[2]);
+  float dir[3] = {goal[0] - pos[0], 0.0f, goal[2] - pos[2]};
+  const float gl = std::hypot(dir[0], dir[2]);
+  if (gl > 0.01f) dir[0] /= gl, dir[2] /= gl;
+  float dot = 0, cross = 0;
+  *turn = turn_toward(fwd, dir, &dot, &cross, *turn, turn_params());
+  b.controls->set_turn(*turn);
+  b.controls->set_throttle(dot >= 0.5f ? dot : 0.0f);
 }
 
 // Mech3.exe 1.2 @ 0x004d1d10. The exe takes the order's part as the vehicle

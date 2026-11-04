@@ -19618,6 +19618,7 @@ struct CheatKeys : platform::Input {
   int32_t mouse_state(platform::MouseState*) override { return kNotAcquired; }
   int32_t joystick_state(platform::JoyState*) override { return kNotAcquired; }
 };
+int g_cheat_mission_op = 0;  // the campaign's operation for the launch (a lancemate comes with it); 0 the default
 int cheat_mission(const char* write, int32_t index, int32_t number, int limit,
                   const std::function<bool(int, mech3::GameEngine&, CheatKeys&)>& step,
                   const std::function<bool(mech3::GameEngine&, mech3::Mech3App&)>& other = nullptr) {
@@ -19650,6 +19651,7 @@ int cheat_mission(const char* write, int32_t index, int32_t number, int limit,
     EXPECT(app.init_instance());
     mech3::GameEngine::Launch l;
     l.index = index, l.number = number;
+    if (g_cheat_mission_op) l.op = g_cheat_mission_op;
     engine.set_launch(l);
     app.post_intro_ = &mech3::states().load;
     bool done = false;
@@ -23010,4 +23012,318 @@ TEST(node_world_cached_of_a_moved_node_keeps_the_matrix_stack_headless) {
   EXPECT(checked && same);
   EXPECT(faults.empty == 0 && faults.under_pop == 0 && faults.over_push == 0);
   EXPECT(zmth::matrix_stack().top == 0);
+}
+
+// W58 (docs/lancemate-pathing.md, Testing): the lance's long way. The player
+// stands where the grid finds the longest way round from the lancemate (the
+// straight line blocked, 150..400 m off), the lancemate following as he does unordered; the exe (bugs off), the port before (W17,
+// W27) and the grid, in range and in sight of him by when, and stuck how long.
+namespace {
+struct FarRun {
+  bool placed = false, ordered = false;
+  int crossings = 0, reached = -1, stuck_s = 0, paths = 0, frames = 0;
+  float d0 = 0, d_min = 1e9f, d_end = 0, range = 0;
+};
+FarRun lance_far_run(int32_t index, int32_t number, bool bugs, bool nav) {
+  namespace nv = mech3::ai::nav;
+  FarRun out;
+  const NavAllies nav_on(nav);
+  const bool bugs_was = zfix::options().bugs;
+  zfix::options().bugs = bugs;
+  g_cheat_mission_op = index >= 3 ? 4 : index + 1;  // c1 c2 c3, c4 and c4b
+  void *mate = nullptr, *player = nullptr;
+  mech3::ai::Brain* brain = nullptr;
+  float mark[2] = {};
+  auto pos_of = [](void* m, float o[3]) {
+    mech3::LaunchedMech x;
+    mech3::describe_mech(m, &x);
+    o[0] = x.pos[0], o[1] = x.pos[1], o[2] = x.pos[2];
+  };
+  cheat_mission("w58_far_write", index, number, 6000, [&](int f, mech3::GameEngine& engine, CheatKeys&) {
+    out.frames = f;
+    if (f == 3) {
+      int32_t made = 0;
+      const mech3::AiMechMade* ai = mech3::mission_ai_mechs(&made);
+      player = mech3::mech_mission_player();
+      const zgame::Handle pv = player ? engine.handle_of(player) : 0;
+      for (int32_t i = 0; i < made && !mate; ++i) {  // the lance's first (Dominic where he is)
+        const mech3::ai::AiTarget* t = ai[i].mech ? mech3::ai::brain_hooks().targetable(engine.handle_of(ai[i].mech)) : nullptr;
+        if (t && pv && t->is_ally(pv)) {
+          if (!ai[i].name || std::string(ai[i].name) != "Dominic_Paine") continue;
+          mate = ai[i].mech;
+          brain = static_cast<mech3::AiControls*>(ai[i].controls)->brain.get();
+        }
+      }
+      if (!mate) return true;
+      float d[3];
+      pos_of(mate, d);
+      // By the grid: the place 150..400 m off whose straight line is blocked
+      // and whose way round is the longest against it.
+      nv::service(0.0f, 0.0);
+      nv::Grid& g = nv::grid();
+      const int ct = nv::tile_of(nv::cell_of(d[0])), rt = nv::tile_of(nv::cell_of(d[2]));
+      for (int tz = rt - 3; tz <= rt + 3; ++tz)
+        for (int tx = ct - 3; tx <= ct + 3; ++tx) {
+          double budget = 1e12;
+          g.build(tx, tz, &budget);
+        }
+      g.parked_t = -1e30f;
+      nv::service(0.0f, 0.0);  // the parked vehicles, on the built tiles
+      float best[3] = {}, best_ratio = 0;
+      for (float r = 150.0f; r <= 400.0f; r += 50.0f)
+        for (int k = 0; k < 24; ++k) {
+          const float a = static_cast<float>(k) * 0.2617994f;
+          const float x = d[0] + std::sin(a) * r, z = d[2] + std::cos(a) * r;
+          const int lv = g.level_at(nv::cell_of(x), nv::cell_of(z), d[1]);
+          if (lv < 0 || !g.walkable(nv::cell_of(x), nv::cell_of(z), lv)) continue;
+          const float p[3] = {x, g.cell(nv::cell_of(x), nv::cell_of(z), lv)->y, z};
+          if (nv::line_clear(g, d, p)) continue;
+          float clamped[3];
+          if (mech3::ai::brain_hooks().inout_clamp(engine.handle_of(mate), p, clamped)) continue;
+          nv::Way way;
+          if (nv::find_path(g, d, p, &way) != nv::Find::kOk) continue;
+          float len = 0, px = d[0], pz = d[2];
+          for (const auto& q : way) len += std::hypot(q[0] - px, q[2] - pz), px = q[0], pz = q[2];
+          if (len / r > best_ratio) best_ratio = len / r, best[0] = x, best[1] = p[1], best[2] = z;
+        }
+      out.crossings = static_cast<int>(best_ratio * 100.0f);
+      if (best_ratio < 1.1f) return true;
+      mech3::program_mech_set_invincible(player, true);
+      mech3::program_mech_set_invincible(mate, true);
+      mech3::move_mech(player, best, 0.0f);
+      out.range = brain->params.get<float>(0x28);
+      out.placed = true;
+      return false;
+    }
+    if (!out.placed || f < 5) return false;
+    if (f == 5) out.ordered = true;  // a lancemate follows unordered (form on me is his "stop")
+    float a[3], b[3];
+    pos_of(mate, a), pos_of(player, b);
+    const float dd = std::hypot(a[0] - b[0], a[2] - b[2]);
+    if (f == 5) out.d0 = dd, mark[0] = a[0], mark[1] = a[2];
+    out.d_min = std::min(out.d_min, dd), out.d_end = dd;
+    if (f % 120 == 0) {  // not 2 m in 2 s, past his range
+      if (dd > out.range && std::hypot(a[0] - mark[0], a[2] - mark[1]) < 2.0f) out.stuck_s += 2;
+      mark[0] = a[0], mark[1] = a[2];
+    }
+    if (auto* fs = dynamic_cast<mech3::ai::FollowState*>(brain->current().state.get()))
+      out.paths = std::max(out.paths, static_cast<int>(fs->nav.follow.paths));
+    if (dd <= out.range) {
+      const float e[3] = {a[0], a[1] + 6, a[2]}, t[3] = {b[0], b[1] + 5, b[2]};
+      if (!wall_between_seg(e, t)) return out.reached = f, true;
+    }
+    return f >= 5400;  // 90 s
+  });
+  g_cheat_mission_op = 0;
+  zfix::options().bugs = bugs_was;
+  return out;
+}
+}  // namespace
+
+TEST(mission_lance_far_way_before_and_after_headless) {
+  if (!have_game()) return;
+  const std::array<int32_t, 2> kMissions[] = {{0, 4}, {1, 1}, {1, 3}, {2, 2}, {2, 5}, {4, 4}, {4, 6}};
+  int measured = 0;
+  for (const auto& m : kMissions) {
+    const FarRun exe = lance_far_run(m[0], m[1], false, false), port = lance_far_run(m[0], m[1], true, false),
+                   grid = lance_far_run(m[0], m[1], true, true);
+    if (!grid.placed) {
+      std::printf("  %sm%d: no Dominic, or no place with a long way round\n", mech3::mission_dir(m[0]), m[1]);
+      continue;
+    }
+    ++measured;
+    for (const auto& [r, who] : {std::pair{&exe, "the exe"}, {&port, "W17/W27"}, {&grid, "the grid"}})
+      std::printf("  %sm%d %s: %.0f m, the way %d%% of it, ordered %d, range %.0f; there at %d (%.1f s) of %d, nearest %.0f m, stuck %d s, paths %d\n",
+                  mech3::mission_dir(m[0]), m[1], who, r->d0, r->crossings, r->ordered, r->range, r->reached,
+                  r->reached / 60.0f, r->frames, r->d_min, r->stuck_s, r->paths);
+  }
+  EXPECT(measured >= 3);
+}
+
+// W58: Epona's first mission (Owen: "that one gave me the most trouble with
+// lancemate pathing"). c2m4 has two floors, the ground and the works 90 m
+// under it, joined by ramps and thin walkways. The player stands in the works,
+// Dominic follows from the start: the exe, the port before, the grid.
+namespace {
+struct WorksRun {
+  bool placed = false, door = false;
+  int reached = -1, stuck_s = 0, paths = 0, way_points = 0, way_at = 0, frames = 0;
+  float way_len = 0, d0 = 0, d_min = 1e9f, y_end = 0, range = 0;
+};
+WorksRun c2m4_works_run(bool bugs, bool nav, const float spot[3]) {
+  namespace nv = mech3::ai::nav;
+  WorksRun out;
+  const NavAllies nav_on(nav);
+  const bool bugs_was = zfix::options().bugs;
+  zfix::options().bugs = bugs;
+  g_cheat_mission_op = 2;
+  void *mate = nullptr, *player = nullptr;
+  mech3::ai::Brain* brain = nullptr;
+  float mark[2] = {};
+  auto pos_of = [](void* m, float o[3]) {
+    mech3::LaunchedMech x;
+    mech3::describe_mech(m, &x);
+    o[0] = x.pos[0], o[1] = x.pos[1], o[2] = x.pos[2];
+  };
+  cheat_mission("w58_works_write", 1, 4, 14000, [&](int f, mech3::GameEngine& engine, CheatKeys&) {
+    out.frames = f;
+    (void)engine;
+    if (f == 3) {
+      int32_t made = 0;
+      const mech3::AiMechMade* ai = mech3::mission_ai_mechs(&made);
+      player = mech3::mech_mission_player();
+      for (int32_t i = 0; i < made && !mate; ++i)
+        if (ai[i].mech && ai[i].name && std::string(ai[i].name) == "Dominic_Paine") {
+          mate = ai[i].mech;
+          brain = static_cast<mech3::AiControls*>(ai[i].controls)->brain.get();
+        }
+      if (!mate || !player) return true;
+      mech3::program_mech_set_invincible(player, true);
+      mech3::program_mech_set_invincible(mate, true);
+      mech3::move_mech(player, spot, 0.0f);
+      out.range = brain->params.get<float>(0x28);
+      out.placed = true;
+      return false;
+    }
+    if (!out.placed || f < 5) return false;
+    float a[3], b[3];
+    pos_of(mate, a), pos_of(player, b);
+    const float dd = std::hypot(a[0] - b[0], a[2] - b[2]);
+    if (f == 5) out.d0 = dd, mark[0] = a[0], mark[1] = a[2];
+    out.d_min = std::min(out.d_min, dd), out.y_end = a[1];
+    if (f % 120 == 0) {
+      if (dd > out.range && std::hypot(a[0] - mark[0], a[2] - mark[1]) < 2.0f) out.stuck_s += 2;
+      mark[0] = a[0], mark[1] = a[2];
+      if (std::getenv("W58_LOG")) std::fprintf(stderr, "  t %d: at %.0f %.0f %.0f, %.0f m\n", f / 60, a[0], a[1], a[2], dd);
+    }
+    if (f == 60)  // the player has shot the factory door down (its target's destroy_anim)
+      if (zeff::AnimDef* door = zeff::anim_find("open_fdoors")) zeff::anim_start(door, nullptr, 0, 0, 0), out.door = true;
+    if (auto* fs = dynamic_cast<mech3::ai::FollowState*>(brain->current().state.get())) {
+      out.paths = std::max(out.paths, static_cast<int>(fs->nav.follow.paths));
+      if (!fs->nav.follow.path.empty() && out.way_points == 0) {
+        out.way_points = static_cast<int>(fs->nav.follow.path.size());
+        out.way_at = f;
+        float px = a[0], pz = a[2];
+        for (const auto& q : fs->nav.follow.path) {
+          out.way_len += std::hypot(q[0] - px, q[2] - pz), px = q[0], pz = q[2];
+          if (std::getenv("W58_LOG")) std::fprintf(stderr, "    way %.0f %.0f %.0f\n", q[0], q[1], q[2]);
+        }
+      }
+    }
+    if (dd <= out.range && std::fabs(a[1] - b[1]) < 12.0f) return out.reached = f, true;
+    return f >= 10800;  // 3 minutes
+  });
+  g_cheat_mission_op = 0;
+  zfix::options().bugs = bugs_was;
+  return out;
+}
+}  // namespace
+
+TEST(mission_c2m4_lancemate_reaches_the_works_headless) {
+  if (!have_game()) return;
+  const float spot[3] = {-640.0f, -90.0f, -1000.0f};
+  const WorksRun exe = c2m4_works_run(false, false, spot), port = c2m4_works_run(true, false, spot), grid = c2m4_works_run(true, true, spot);
+  for (const auto& [r, who] : {std::pair{&exe, "the exe"}, {&port, "W17/W27"}, {&grid, "the grid"}})
+    std::printf("  %s: door %d, %.0f m off, there at %d (%.0f s) of %d frames, nearest %.0f m, his height at the end %.0f, stuck %d s, paths %d (the first at %d: %d points, %.0f m)\n", who, r->door, r->d0,
+                r->reached, r->reached / 60.0f, r->frames, r->d_min, r->y_end, r->stuck_s, r->paths, r->way_at, r->way_points, r->way_len);
+  EXPECT(grid.placed && grid.way_points > 0);
+  EXPECT(grid.reached > 0);
+}
+
+TEST(w58tmp_flood_headless) {
+  if (!have_game()) return;
+  namespace nv = mech3::ai::nav;
+  g_cheat_mission_op = 2;
+  cheat_mission("w58_flood_write", 1, 4, 200, [&](int f, mech3::GameEngine&, CheatKeys&) {
+    if (f != 3) return false;
+    void* pl = mech3::mech_mission_player();
+    mech3::LaunchedMech x;
+    mech3::describe_mech(pl, &x);
+    const float start[3] = {x.pos[0], x.pos[1], x.pos[2]};
+    const float spot[3] = {-640.0f, -90.0f, -1000.0f};
+    nv::service(0.0f, 0.0);
+    nv::Grid& g = nv::grid();
+    const int ct = nv::tile_of(nv::cell_of(start[0])), rt = nv::tile_of(nv::cell_of(start[2]));
+    const int t0x = ct - 2, t1x = ct + 8, t0z = rt - 4, t1z = rt + 5;
+    for (int tz = t0z; tz <= t1z; ++tz)
+      for (int tx = t0x; tx <= t1x; ++tx) {
+        double budget = 1e12;
+        g.build(tx, tz, &budget);
+      }
+    const int x0 = t0x * nv::kTile, z0 = t0z * nv::kTile, w = (t1x - t0x + 1) * nv::kTile, h = (t1z - t0z + 1) * nv::kTile;
+    std::vector<uint8_t> mark(static_cast<size_t>(w) * h * nv::kLevels, 0);
+    auto flood = [&](const float at[3], uint8_t bit) {
+      std::vector<int> stack;
+      int cx = nv::cell_of(at[0]), cz = nv::cell_of(at[2]);
+      int l = g.level_at(cx, cz, at[1]);
+      for (int r = 0; r < 12 && (l < 0 || !g.walkable(cx, cz, l)); ++r) cx += 1, l = g.level_at(cx, cz, at[1]);
+      std::fprintf(stderr, "FLOOD %d start cell %d %d level %d y %.1f walkable %d\n", bit, cx, cz, l, l >= 0 ? g.cell(cx, cz, l)->y : 0.f, l >= 0 && g.walkable(cx, cz, l));
+      if (l < 0) return 0;
+      auto idx = [&](int a, int b, int c) { return ((b - z0) * w + (a - x0)) * nv::kLevels + c; };
+      stack.push_back(idx(cx, cz, l));
+      mark[stack.back()] |= bit;
+      int n = 0;
+      while (!stack.empty()) {
+        const int i = stack.back();
+        stack.pop_back();
+        ++n;
+        const int place = i / nv::kLevels, lv = i % nv::kLevels, a = x0 + place % w, b = z0 + place / w;
+        for (int dz = -1; dz <= 1; ++dz)
+          for (int dx = -1; dx <= 1; ++dx) {
+            if (!dx && !dz) continue;
+            const int na = a + dx, nb = b + dz;
+            if (na < x0 || na >= x0 + w || nb < z0 || nb >= z0 + h) continue;
+            const int nl = g.step(a, b, lv, dx, dz);
+            if (nl < 0) continue;
+            const int j = idx(na, nb, nl);
+            if (mark[j] & bit) continue;
+            mark[j] |= bit;
+            stack.push_back(j);
+          }
+      }
+      return n;
+    };
+    const int a = flood(start, 1), b = flood(spot, 2);
+    std::fprintf(stderr, "FLOOD reached from the start %d, from the spot %d\n", a, b);
+    if (const char* pr = std::getenv("W58_PROFILE")) {  // x0 z0 x1 z1 in cells: every place's floors and links
+      int px0, pz0, px1, pz1;
+      if (std::sscanf(pr, "%d %d %d %d", &px0, &pz0, &px1, &pz1) == 4)
+        for (int cz = pz0; cz <= pz1; ++cz)
+          for (int cx = px0; cx <= px1; ++cx) {
+            std::fprintf(stderr, "CELL %d %d (%.0f %.0f):", cx, cz, nv::centre_of(cx), nv::centre_of(cz));
+            for (int l = 0; l < nv::kLevels; ++l) {
+              const nv::Cell* c = g.cell(cx, cz, l);
+              if (!c || (c->flags & nv::kNoGround)) continue;
+              std::fprintf(stderr, " [%d y %.1f f%#x e%d s%d w%d m%d]", l, c->y, c->flags, c->east, c->south, g.walkable(cx, cz, l), mark[((cz - z0) * w + (cx - x0)) * nv::kLevels + l]);
+            }
+            std::fprintf(stderr, "\n");
+          }
+    }
+    if (std::FILE* fp = std::fopen(std::getenv("W58_MAP"), "wb")) {
+      std::fprintf(fp, "P6\n# origin %d %d cell 4\n%d %d\n255\n", x0, z0, w, h);
+      for (int cz = z0; cz < z0 + h; ++cz)
+        for (int cx = x0; cx < x0 + w; ++cx) {
+          uint8_t m = 0;
+          float low = 1e30f, top = -1e30f;
+          for (int l = 0; l < nv::kLevels; ++l) {
+            const nv::Cell* c = g.cell(cx, cz, l);
+            if (c && !(c->flags & nv::kNoGround)) {
+              if (c->y < low) m = mark[((cz - z0) * w + (cx - x0)) * nv::kLevels + l];
+              low = std::min(low, c->y), top = std::max(top, c->y);
+            }
+          }
+          // Green from the start, magenta from the spot; grey by the lowest floor; floors stacked lighter.
+          uint8_t rgb[3];
+          const uint8_t v = low < 1e29f ? static_cast<uint8_t>(std::clamp(90.0f + (low + 100.0f) * 0.9f, 30.0f, 200.0f)) : 0;
+          rgb[0] = rgb[1] = rgb[2] = v;
+          if (m & 1) rgb[0] = v / 2, rgb[1] = static_cast<uint8_t>(std::min(255, v + 60)), rgb[2] = v / 2;
+          if (m & 2) rgb[0] = static_cast<uint8_t>(std::min(255, v + 80)), rgb[1] = v / 3, rgb[2] = static_cast<uint8_t>(std::min(255, v + 80));
+          if ((m & 3) == 3) rgb[0] = 255, rgb[1] = 255, rgb[2] = 0;
+          std::fwrite(rgb, 1, 3, fp);
+        }
+      std::fclose(fp);
+    }
+    return true;
+  });
+  g_cheat_mission_op = 0;
 }

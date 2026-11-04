@@ -16,34 +16,41 @@ namespace mech3::ai::nav {
 constexpr float kCell = 4.0f;   // m
 constexpr int kTile = 64;       // cells a side: 256 m
 constexpr float kClimb = 0.7f;  // rise over run a step may take: tan 35 degrees (the skis' clamp)
+constexpr int kLevels = 3;      // floors a place may hold (the ground over a mine, a bridge)
+constexpr float kHead = 12.0f;  // the room a mech needs under what is above it
 
-// What the grid reads of the world: the ground (water left out) and the
-// water's surface at a place, and whether a wall stands between two points.
+// A floor at a place: the height of its ground, and of the water over it (NaN none).
+struct Floor {
+  float y = 0, water = 0;
+};
+// What the grid reads of the world.
 struct World {
   virtual ~World() = default;
-  // The highest ground under (x, z) from `top` down; false when none. `water`
-  // the water's surface there, NaN when none.
-  virtual bool ground(float x, float z, float top, float* y, float* water) = 0;
+  // The grounds under (x, z), highest first, water left out; how many (at most max).
+  virtual int ground(float x, float z, Floor* out, int max) = 0;
   virtual bool wall(const float a[3], const float b[3]) = 0;
-  // What stands in the way for now and may leave: x0, z0, x1, z1 each.
-  virtual void parked(std::vector<std::array<float, 4>>* out) { (void)out; }
+  // What stands in the way for now and may leave: x0, z0, x1, z1 and its height.
+  virtual void parked(std::vector<std::array<float, 5>>* out) { (void)out; }
 };
 World& zcls_world();  // the mission's world through zClass's queries
 
 enum : uint8_t {
-  kNoGround = 1,   // no ground: never walked
-  kWallE = 2,      // the step east (+x) is a wall or too steep
-  kWallS = 4,      // the step south (+z)
-  kHeld = 8,       // blocked for a while by the unstuck rule (a vehicle, a gate the grid missed)
+  kNoGround = 1,   // no such floor here
+  kWallE = 2,      // a wall on the step east (+x)
+  kWallS = 4,      // a wall on the step south (+z)
+  kHeld = 8,       // blocked for a while (a parked vehicle; the unstuck rule)
+  kLow = 16,       // too little room under the floor above (a bridge at head height)
 };
 struct Cell {
-  float y = 0;     // ground height
-  float depth = 0; // water over it, 0 none
+  float y = 0;       // ground height
+  float depth = 0;   // water over it, 0 none
   uint8_t flags = kNoGround;
+  int8_t east = -1;  // the floor a step east (+x) reaches, -1 none (too steep, walled, no ground)
+  int8_t south = -1; // the same south (+z)
 };
 struct Tile {
-  std::array<Cell, kTile * kTile> cells;
-  int built = 0;   // cells built: grounds 0..n, then edges n..2n; 2n done
+  std::array<Cell, kTile * kTile * kLevels> cells;
+  int built = 0;   // places built: grounds 0..n, then edges n..2n; 2n done
   bool done() const { return built >= 2 * kTile * kTile; }
 };
 
@@ -54,17 +61,27 @@ class Grid {
   // The tile holding cell (cx, cz) built within `budget_us` of work (true
   // when it is done); queued otherwise.
   bool build(int tx, int tz, double* budget_us);
-  const Cell* cell(int cx, int cz) const;  // null: its tile not built yet
-  bool built(int cx, int cz) const { return cell(cx, cz) != nullptr; }
-  // The cell's own walkability, with the 4 m buffer: it and its eight
-  // neighbours have ground and no wall between them. Unknown (unbuilt): false.
-  bool walkable(int cx, int cz) const;
-  bool step_ok(int cx, int cz, int dx, int dz) const;  // the move to the neighbour
-  void hold(int cx, int cz, float until);              // the unstuck rule's block
+  const Cell* cell(int cx, int cz, int level) const;  // null: its tile not built yet
+  bool built(int cx, int cz) const { return cell(cx, cz, 0) != nullptr; }
+  // The floor here nearest height y, -1 none.
+  int level_at(int cx, int cz, float y) const;
+  // The floor's own walkability, with the 4 m buffer against what would hit
+  // a mech: no wall among it and its eight neighbours at its height, none of
+  // them rising past a step into its body. A drop beside it needs no margin
+  // (a thin walkway, a ledge). Unknown (unbuilt): false.
+  bool walkable(int cx, int cz, int level) const;
+  // The floor the move to the neighbouring place reaches, -1 none.
+  int step(int cx, int cz, int level, int dx, int dz) const;
+  void hold(int cx, int cz, float y, float until);     // blocked for a while
   void release(float now);                             // holds past their time lifted
+  // The tiles under that rectangle built again behind the old ones, as what
+  // stands there has changed (a door opened, a ramp fallen, a building down).
+  void refresh(float x0, float z0, float x1, float z1, float now);
+  int version = 0;  // counts the changes a path may depend on
   size_t tiles() const { return tiles_.size(); }
   int tiles_done() const;
   std::vector<std::pair<int, int>> queue;              // tiles asked for, oldest first
+  float parked_t = -1e30f;                             // the last look at the parked vehicles
   // For the dump: every tile.
   const std::unordered_map<uint64_t, std::unique_ptr<Tile>>& all() const { return tiles_; }
   static uint64_t key(int tx, int tz) {
@@ -72,12 +89,19 @@ class Grid {
   }
 
  private:
+  struct Held {
+    int cx, cz, level;
+    float until;
+  };
   Tile* tile(int tx, int tz, bool make);
   void build_ground(Tile& t, int tx, int tz, int i);
   void build_edges(Tile& t, int tx, int tz, int i);
+  Cell* held_cell(const Held& h);
   World* world_ = nullptr;
   std::unordered_map<uint64_t, std::unique_ptr<Tile>> tiles_;
-  std::vector<std::pair<std::array<int, 2>, float>> held_;
+  std::unordered_map<uint64_t, std::unique_ptr<Tile>> fresh_;  // being built again
+  std::unordered_map<uint64_t, float> refreshed_;              // when each tile was last asked again
+  std::vector<Held> held_;
 };
 Grid& grid();
 
@@ -85,15 +109,19 @@ inline int cell_of(float v) { return static_cast<int>(std::floor(v / kCell)); }
 inline float centre_of(int c) { return (static_cast<float>(c) + 0.5f) * kCell; }
 inline int tile_of(int c) { return c >= 0 ? c / kTile : -((-c + kTile - 1) / kTile); }
 
-// The straight way from a to b over built cells, each walkable and each step
-// allowed; false when blocked or any cell is unbuilt.
-bool line_clear(const Grid& g, float ax, float az, float bx, float bz);
+// The straight way from a to b over built cells on one walk of floors, each
+// walkable and each step allowed, ending on b's floor; false when blocked or
+// any cell is unbuilt.
+bool line_clear(const Grid& g, const float a[3], const float b[3]);
 
 enum class Find { kOk, kBuilding, kNone };
-// A path from `from` to `to` (or the walkable cell nearest it, within 32 m),
-// string-pulled into waypoints (x, z), the last the goal. kBuilding: tiles it
-// needs are queued; kNone: no way within the search's window.
-Find find_path(Grid& g, const float from[3], const float to[3], std::vector<std::array<float, 2>>* out);
+using Way = std::vector<std::array<float, 3>>;
+// A path from `from` to `to` (or the walkable cell nearest it, within 32 m, on
+// its floor), string-pulled into waypoints (x, y, z), the last the goal. The
+// search looks 256 m past both ends, then 512 m, then 1 km (a river's far
+// ramp), over the tiles built. kBuilding: none yet, and tiles it needs are
+// queued; kNone: no way in the widest window.
+Find find_path(Grid& g, const float from[3], const float to[3], Way* out);
 
 // The once-a-frame work: the queued tiles built within `budget_us`, the
 // holds past their time lifted. `now` the game's time (s).
@@ -101,7 +129,7 @@ void service(float now, double budget_us);
 
 // The pilot's follower: the path it is on toward the brain's point.
 struct Follower {
-  std::vector<std::array<float, 2>> path;
+  Way path;
   int at = 0;                  // the waypoint walked to
   float goal[2] = {};          // the brain's point the path was found for
   float found_t = -1e9f;       // when
@@ -112,6 +140,10 @@ struct Follower {
   float back_until = -1e9f;    // stepping back until then
   float fallback_until = -1e9f;  // the exe's way (or W17/W27) until then
   int32_t paths = 0, repaths = 0, waypoints = 0;  // for the tests
+  // No way found: asked again only when the world or the goal changed, or
+  // after a wait that doubles.
+  int none_version = -1;
+  float none_until = -1e9f, none_wait = 5.0f, none_goal[2] = {};
   // Where to walk this frame toward `to` (the brain's point), the pilot at
   // `pos`: true with `out` a waypoint when the straight way is blocked and a
   // path is had; false to go as before (the exe's, or W17/W27).
@@ -123,8 +155,9 @@ struct Follower {
 bool on_for(bool ally);
 
 // Ours (W58, for the tests and the dump): MW3_NAV_DUMP=file.ppm writes the
-// built cells (black no ground, dark red walls, grey by height, blue water)
-// and the paths (green) each 10 s of game time and at the end.
-void dump(const char* path, const std::vector<const Follower*>& followers);
+// built cells (black no ground, dark red walls and no way on, grey by height,
+// blue water) and the paths (green) each 10 s of game time; the top floor,
+// or the floor that many down where there is one.
+void dump(const char* path, const std::vector<const Follower*>& followers, int floor_from_top = 0);
 
 }  // namespace mech3::ai::nav

@@ -166,6 +166,7 @@ struct NavWay {
 };
 // Whether this pilot walks by the grid (zfix bugs, its side's switch).
 bool nav_for(zgame::Handle v);
+void nav_drive(Brain& b, zgame::Handle v, const float pos[3], const float goal[3], float* turn);
 
 // The fight (0x004d1ca0 -> 0x004d1cc0, vtable 0x005ccb60, over the waiting
 // state 0x004c8a30): what the target vehicle net's attack behaviour (slot 1)

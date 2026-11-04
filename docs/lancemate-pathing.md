@@ -162,38 +162,63 @@ network games until checked.
 
 ## As built (W58, 2026-11-03)
 
-Decided with the lead: 4 m cells; water costed by the gait's slowdown
-(0x004181c0's factor, not avoided); `nav_enemies` off; W17/W27 stay the
-fallback while a tile builds and when A* finds nothing; off in network
-games; the 3 x 3 tiles round the player built at mission start; a dump.
-Code: `mech3/zai_nav` (the grid, A*, the follower), `zai_attack`'s `NavWay`
-(the follow and fight states' use, the firing spot), `app_mission`'s
-`nav_prebuild`. Changed from the design above, by what the runs showed:
+The design above was for a one-storey grid. Owen's cases (Epona's first
+mission, c2m4: a ramp, a thin walkway, a river; every order, not only
+follow) and the runs changed it. Code: `mech3/zai_nav` (the grid, A*, the
+follower), `zai_attack`'s `NavWay` (the follow's, the fight's and the repair
+walk's use, the firing spot), `GameEngine::nav_prebuild`.
 
-- **When the grid steers.** Not by the grid's cells along the straight
-  way (a steep cell or one near the leader turned open ground into a
-  path): only when the world's segment query finds a wall on the line at
-  2.5 and 6.5 m (as the grid's edges), or when a straight walk makes no
-  2 m in 3 s; then the line is judged with the grid's buffer for 10 s (a
-  wall's corner, a cliff, a hole). On open ground the exe's walk, to the
-  centimetre (`mission_c2m1_dominic_follows_round_walls_headless`).
-- **What stays only.** A wall hit whose owner is a mech or a vehicle
-  (0x0040e920) does not count: otherwise the leader's own body read as a
-  wall at the line's end, and a mech standing on a tile as it is built
-  would be baked in as one. Buildings count, destructible or not: one
-  brought down stays a wall in the grid for the mission (the grid is walked
-  round it; the exe's straight walk still goes through the gap when the
-  line itself is clear).
-- **In range and in sight, the exe's.** The follow and the fight hand back
-  to the exe (its range band, its fight) once the point is within the
-  brain's range (+0x28) and in sight (eye 6 m up, 5 m over the other).
-- **Firing spots only in range without sight.** Out of range the goal is
-  the enemy itself (a spot on a ring round a moving enemy was a detour);
-  in range behind a wall, a spot with a line of sight (the rings, 16 ways,
-  off the player's line of fire), walked to with the buffer always.
-- **Unstuck by place.** Progress is the pilot's own place (2 m in 3 s), not
-  the distance to a waypoint: the 2 s re-path reset that one for ever.
+**Floors.** c2m4 has two grounds at the same place: the land (y about 0 to
+40) and the works 90 m under it. A grid of the highest ground cannot see the
+works at all. Each place holds up to three floors, from every ground hit;
+a step joins a floor to the floor beside it within tan 35 degrees (the skis'
+clamp). A floor with under 12 m of room below the one above is not walked
+(a bridge at head height, which kills in the original). A ramp is then only
+a walk of floors, and the land and a mine join where they really do.
 
-Debugging: `MW3_NAV_DUMP=file.ppm` (the grid and the paths; its header
-gives the origin cell), `MW3_NAV_LOG=1` (the follower and the fight's
-choice twice a second).
+**What needs a margin.** A wall, or ground rising into a mech's body, keeps a
+cell's distance (the 3 x 3 buffer). A drop beside a cell does not: a thin
+walkway is walkable. Too steep or nothing there is no way but no wall.
+
+**The search looks further.** Over the tiles built, 256 m past both ends, then
+512 m, then 1 km (a river's far ramp); tiles missing from a window it found no
+way in are asked for before a wider one. No way at all: W17/W27 and the exe's
+walk, and asked again only when the grid changed, the goal moved 50 m, or
+after a wait that doubles (5 to 60 s).
+
+**The world changes.** The factory door (`factdoor`, destroy_anim
+`open_fdoors`) is a wall across the works' tunnel until it is shot down, and
+c2m4 also has falling ramps and moving slabs. Once a second every still
+object3d (no mech's or vehicle's) is compared with its matrix and active
+flags; a change builds the tiles under it again behind the old ones, each at
+most every 10 s. A building brought down opens up the same way.
+
+**Mechs and vehicles.** Left out of the walls by their owner (0x0040e920), or
+the leader's own body reads as a wall and a mech standing on a tile as it is
+built is baked in. But the mobile HQs stand still at speed 0 and pilots bump
+along them: **a vehicle at rest** holds the cells round it for 1.5 s at a
+time, looked at once a second, at least 22 m from its centre, as the exe's own
+giving way (0x4cc3e0, too close inside +0x78 x 0.9, shipped mostly 25) pushes
+a pilot back from inside that: a path through there never gets through.
+
+**When it steers.** Only when the buffered straight line is blocked: on open
+ground the exe's walk to the centimetre (`..follows_round_walls_headless`).
+It hands back to the exe once the point is within the brain's range (+0x28),
+in sight, **and on the same storey**: the exe's follow measures flat, so a
+lancemate 31 m off and 90 m over the player's head counts as arrived. That was
+the trouble in c2m4.
+
+**Firing spots** only in range without sight, on the enemy's storey; out of
+range the goal is the enemy itself (a spot on a ring round a moving enemy was a
+detour).
+
+**Unstuck** by the pilot's own place (2 m in 3 s), not the distance to a
+waypoint: the 2 s re-path reset that one for ever.
+
+**Which orders.** Follow, form up, attack and the pocket commander's spot go
+through the follow and fight states; the refit's walk to the dock's approach
+point (`RepairState`) has its own. The AI nets' scripted routes (`NodeState`)
+stay the exe's: those are the mission's script, not an order to a lancemate.
+
+Debugging: `MW3_NAV_DUMP=file.ppm` (the grid and the paths; its header gives
+the origin cell), `MW3_NAV_LOG=1` (the follower and the fight's choice).
