@@ -46,7 +46,7 @@ struct Window : Raw<0xf8> {};
 struct Display : Raw<0x1c> {};     // clear colour floats at +0x10
 struct Object3d : Raw<0x90> {};
 struct Lod : Raw<0x50> {
-  uint8_t pm_tail[0xc] = {};       // PM only, +0x50..+0x5b
+  uint8_t pm_tail[0xc] = {};       // PM only, its +0x34..+0x3f (its +0x40.. are MW3's +0x34..)
 };
 
 struct Light : Raw<0xd0> {

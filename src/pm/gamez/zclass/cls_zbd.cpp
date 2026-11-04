@@ -82,6 +82,15 @@ int32_t translate_node(Node& n, const uint8_t* pm) {
   return static_cast<int32_t>(i32<int32_t>(pm, 0x70));
 }
 
+// PM's LoD (0x5c bytes) into MW3's layout: three words at +0x34..+0x3f are PM's
+// own, MW3's +0x34..+0x4f follow them at +0x40 (the fades, the uniform flag,
+// the morph: 0x00508680 against MW3's 0x004f5090; docs/pm-map.md).
+void translate_lod(::zcls::Lod& l, const uint8_t* pm) {
+  std::memcpy(l.raw, pm, 0x34);
+  std::memcpy(l.pm_tail, pm + 0x34, 0xc);
+  std::memcpy(l.raw + 0x34, pm + 0x40, 0x1c);
+}
+
 // PM's +0x70: which box (0 the node's, 1 the model's, 2 the children's) made
 // a pointer to it; any other value is left (the shared Node has none).
 const float* box_pointer(const Node& n, int32_t box) {
@@ -222,8 +231,7 @@ int read_node(Node* node, std::FILE* f, int32_t base) {
       node->data = l;
       uint8_t pm[0x5c] = {};
       ok = std::fread(pm, sizeof pm, 1, f) == 1;
-      std::memcpy(l->raw, pm, 0x50);
-      std::memcpy(l->pm_tail, pm + 0x50, 0xc);
+      translate_lod(*l, pm);
       if (!ok) return read_error(0x479, "Error reading node lod data.");
       push_front(kAllNodes, node);
       break;

@@ -154,7 +154,7 @@ Node* read_node(std::FILE* f, Node* parent, int32_t* children) {
     auto* l = static_cast<::zcls::Lod*>(node->data);
     uint8_t pm[0x5c] = {};
     std::fread(pm, sizeof pm, 1, f);
-    std::memcpy(l->raw, pm, 0x50), std::memcpy(l->pm_tail, pm + 0x50, 0xc);
+    translate_lod(*l, pm);
   } else {
     if (bounded()) g_broken = true;  // ours: the exe would dereference null
     return nullptr;

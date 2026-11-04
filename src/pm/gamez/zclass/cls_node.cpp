@@ -50,6 +50,8 @@ int node_model_box(Node* node) {
   return 0;
 }
 
+uint8_t* node_model_header(const Node* node) { return node->pm_model ? node->pm_model->header : nullptr; }
+
 int node_set_active(Node* node, int on) {
   if (!node) return zerr::report(0x400, kClassFile, 0x4cd, "Null node pointer."), 5;
   switch (node->cls()) {

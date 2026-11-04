@@ -1,11 +1,19 @@
 // Pirate's Moon's ported functions behind a C interface, for the differential
 // tests run against PM's exe (tests/differential, MW3_EXE=pm). PM's table is
 // set on load; MW3's probe is tests/probe.cpp.
+#include <cmath>
 #include <cstdint>
 #include <cstring>
 #include <string>
 
 #include "gamez/zclass/class.h"
+#include "gamez/zclass/camera.h"
+#include "gamez/zmodel/gmod_init.h"
+#include "gamez/zmodel/gmod_cull.h"
+#include "gamez/zmodel/gmod_light.h"
+#include "gamez/zutil/ztimer.h"
+#include "gamez/zmodel/gmod_fog.h"
+#include "gamez/zmodel/gmod_fogcalc.h"
 #include "gamez/zgame/zgame_table.h"
 #include "gamez/zreader/zreader.h"
 #include "gamez/zutil/zutl_path.h"
@@ -190,7 +198,7 @@ void put_world_nodes(std::string& b, int32_t n_unread, bool item_set = false) {
       case 5: put(static_cast<::zcls::Object3d*>(n.data)->raw, 0x90); break;
       case 6: {
         auto* l = static_cast<::zcls::Lod*>(n.data);
-        put(l->raw, 0x50), put(l->pm_tail, 0xc);
+        put(l->raw, 0x34), put(l->pm_tail, 0xc), put(l->raw + 0x34, 0x1c);
         break;
       }
       case 9: {
@@ -630,6 +638,84 @@ int probe_pm_node_box(int node, const float* world, uint8_t* out) {
   if (n->pm_model) std::memcpy(out + 36, n->pm_model->header + 0x48, 16);
   std::memcpy(out + 52, corners, sizeof corners);
   return 52 + sizeof corners;
+}
+// test_pm_walk.py: the world render (0x0050a9e0) with the model draw recording:
+// node, mask, the stack's top, the fade, the walk's morph, the model's flag 8 and
+// factor.
+extern "C++" {
+namespace {
+std::string g_walk_log;
+template <typename T> void walk_put(T v) { g_walk_log.append(reinterpret_cast<const char*>(&v), sizeof v); }
+int32_t walk_node_index(const ::zcls::Node* n) {
+  const ::zcls::NodePool& p = ::zcls::nodes();
+  for (size_t b = 0; b < p.blocks.size(); ++b) {
+    const ::zcls::Node* base = p.blocks[b].get();
+    if (n >= base && n < base + p.block_size) return static_cast<int32_t>(b * p.block_size + (n - base));
+  }
+  return -1;
+}
+int32_t walk_record(::zcls::Node* node, uint32_t mask) {
+  walk_put(walk_node_index(node)), walk_put(mask);
+  g_walk_log.append(reinterpret_cast<const char*>(zmth::matrix_stack().matrix().m), 48);
+  walk_put(::zmod::draw_state().opacity), walk_put(::zcls::scene_walk().morph);
+  const uint8_t* h = node->pm_model->header;
+  uint32_t flags;
+  float factor;
+  std::memcpy(&flags, h + 8, 4), std::memcpy(&factor, h + 0x24, 4);
+  walk_put(flags), walk_put(factor);
+  auto* w = static_cast<::zcls::World*>(::zcls::camera_world(::zcls::list_head(::zcls::kCameras)->node)->data);
+  for (int32_t i = 0; i < w->get<int32_t>(0xa0); ++i) walk_put(static_cast<::zcls::Light*>(w->light_data[i])->get<uint32_t>(0xb0));
+  return 0;
+}
+::zcls::Node* walk_camera() { return ::zcls::list_head(::zcls::kCameras)->node; }
+}  // namespace
+}  // extern "C++"
+int probe_pm_walk_load(const char* world) {
+  if (probe_pm_draw_load(world) != 0) return -1;
+  ::zcls::scene_walk() = ::zcls::SceneWalk{};
+  ::zmod::walk_state() = ::zmod::WalkState{};
+  ::zmod::walk_state().draw = walk_record;
+  ::zmod::zones() = ::zmod::Zones{};
+  ::zmod::shadow_casters() = ::zmod::ShadowCasters{};
+  ::zmod::draw_state() = ::zmod::DrawState{};
+  ::zmod::lighting().tint_on = 0;
+  ::zmod::cull_hooks() = ::zmod::CullHooks{};
+  ::zmod::cull_hooks().hidden_surface = [](void*, const float c[3], float) -> int32_t {
+    const int32_t gx = static_cast<int32_t>(std::floor(c[0] / 37.0f)), gz = static_cast<int32_t>(std::floor(c[2] / 37.0f));
+    return ((gx * 7 + gz * 13) % 5 + 5) % 5 != 0;
+  };
+  ::zcls::world_render_hooks() = ::zcls::WorldRenderHooks{};
+  ::zcls::update_hooks() = ::zcls::UpdateHooks{};
+  zrndr::device_fog().active = 1;
+  zmth::reset_stack();
+  return walk_node_index(walk_camera());
+}
+// A LoD's data as PM's exe holds it (0x5c bytes), through the reader's translation.
+void probe_pm_lod_set(int node, const uint8_t* pm) {
+  pm::zcls::translate_lod(*static_cast<::zcls::Lod*>(::zcls::node_at(node)->data), pm);
+}
+void probe_pm_light_edit(uint32_t flags, float x, float y, float z, float range) {
+  auto* w = static_cast<::zcls::World*>(::zcls::camera_world(walk_camera())->data);
+  auto* l = static_cast<::zcls::Light*>(w->light_data[0]);
+  l->put<uint32_t>(0xb0, flags);
+  l->put<float>(0x60, x), l->put<float>(0x64, y), l->put<float>(0x68, z), l->put<float>(0xb8, range);
+}
+int probe_pm_walk_frame(const float* pos, const float* rot, uint32_t frame, float dt, int hse, uint8_t* out, int cap) {
+  ::zcls::scene_walk().hidden_surface = hse;
+  ::zcls::Node* c = walk_camera();
+  ::zcls::camera_set_rotation(c, rot[0], rot[1], rot[2]);
+  ::zcls::camera_set_position(c, pos[0], pos[1], pos[2]);
+  ::zcls::frames().frame = frame;
+  ztimer::state().dt = dt;
+  g_walk_log.clear();
+  ::zcls::render_world(c, 0);
+  auto* w = static_cast<::zcls::World*>(::zcls::camera_world(c)->data);
+  for (int32_t i = 0; i < w->get<int32_t>(0xa0); ++i) {
+    walk_put(static_cast<::zcls::Light*>(w->light_data[i])->get<uint32_t>(0xb0));
+  }
+  if (static_cast<int>(g_walk_log.size()) > cap) return -1;
+  std::memcpy(out, g_walk_log.data(), g_walk_log.size());
+  return static_cast<int>(g_walk_log.size());
 }
 void probe_pm_flip_flags(int node, uint32_t mask) {
   ::zcls::Node* n = ::zcls::node_at(node);

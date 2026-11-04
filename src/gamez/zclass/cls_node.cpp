@@ -452,7 +452,8 @@ int node_is_billboard(Node* node) {
   return type == 1 && mode == 0 ? 1 : 0;
 }
 
-uint8_t* node_model_header(const Node* node) { return node->model ? node->model->header : nullptr; }
+uint8_t* node_model_header(const Node* node) { return zgame::game().zcls_node_model_header(node); }
+uint8_t* mw3_node_model_header(const Node* node) { return node->model ? node->model->header : nullptr; }
 
 namespace {
 int32_t g_immediate = 1;  // .data initial 1

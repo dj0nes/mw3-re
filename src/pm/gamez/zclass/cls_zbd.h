@@ -6,7 +6,7 @@
 #include <vector>
 
 namespace zimg { struct TextureEntry; }
-namespace zcls { struct Node; }
+namespace zcls { struct Node; struct Lod; }
 
 // C:\zipper\branchep1\gamez\zClass\cls_zbd.c: Pirate's Moon's gamez.zbd
 // (version 41) stacks: each file read appends to the material, model and
@@ -61,6 +61,7 @@ int read_nodes(int32_t size, std::FILE* f, int32_t model_base);
 // box_pointer makes the node's pm_box.
 int32_t translate_node(::zcls::Node& n, const uint8_t* pm);
 const float* box_pointer(const ::zcls::Node& n, int32_t box);
+void translate_lod(::zcls::Lod& l, const uint8_t* pm);
 // Pirate's Moon 1.0 @ 0x005171a0: one node's class data and links. 1 when
 // it has data or links, 0 when not, -1 on an error or an unknown class.
 int read_node(::zcls::Node* node, std::FILE* f, int32_t node_base);

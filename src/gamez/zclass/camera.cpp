@@ -16,6 +16,7 @@
 #include "gamez/zclass/object3d.h"
 #include "gamez/zerror/zerr.h"
 #include "gamez/zmath/zmth_matrix.h"
+#include "gamez/zgame/zgame_table.h"
 #include "gamez/zmodel/gmod_const.h"
 #include "gamez/zmodel/gmod_cull.h"
 #include "gamez/zmodel/gmod_draw.h"
@@ -65,10 +66,18 @@ void push_mask(uint32_t mask) {
 }
 void pop_mask() { --zmod::walk_state().top; }
 
+bool model_has_lights(const Node* node) {
+  const uint8_t* h = node_model_header(node);
+  if (!h) return false;
+  int32_t n;
+  std::memcpy(&n, h + 0x20, 4);
+  return n > 0;
+}
+
 void draw_model_of(Node* node, uint32_t mask) {
-  if (!node->model && !node->pm_model) return;  // PM's models: its own draw (walk_state().draw)
-  if (g_walk.morph && node->model) {
-    uint8_t* h = node->model->header;
+  uint8_t* h = node_model_header(node);  // PM's too (0x00507f30); the draw is walk_state().draw
+  if (!h) return;
+  if (g_walk.morph) {
     uint32_t f;
     std::memcpy(&f, h + 8, 4);
     f |= 8;
@@ -222,7 +231,7 @@ int32_t render_object3d(Node* node, int32_t mode) {
     }
     int32_t visible = 1;
     if (g_walk.hidden_surface && g_walk.ring > 0 && mode != 1 && !g_walk.overlay &&
-        (!node->model || static_cast<int32_t>(node->model->count(0x20)) <= 0))
+        !model_has_lights(node))
       visible = zmod::hidden_surface(nf(node, 0x64), *nf(node, 0x70));
     if (visible) {
       node->set_flags(node->flags() | kDrawn);
@@ -1017,6 +1026,7 @@ int pick_cells_virtual(Node* world, Camera* cam) {
 // Mech3.exe 1.2 @ 0x004f6720 (ECX world node, EDX camera node, stack camera
 // data): the picked cells ring by ring, nearest first.
 int render_cells(Node* world, Node* camera_node, Camera* cam) {
+  const zgame::Table& game = zgame::game();
   World* w = static_cast<World*>(world->data);
   int32_t restored = 1;
   const int r = w->get<int32_t>(0x50) ? pick_cells_virtual(world, cam) : pick_cells(world, cam);
@@ -1049,13 +1059,14 @@ int render_cells(Node* world, Node* camera_node, Camera* cam) {
         uint32_t lf = l->get<uint32_t>(0xb0);
         bool on = true;
         if ((lf & 0x10) && (lf & 2)) {
-          const float dx = centre[0] - l->get<float>(0x60), dy = centre[1] - l->get<float>(0x64),
-                      dz = centre[2] - l->get<float>(0x68);
+          float dx = centre[0] - l->get<float>(0x60), dy = centre[1] - l->get<float>(0x64),
+                dz = centre[2] - l->get<float>(0x68);
+          if (game.light_reach_wrapped && e.wrapped) dx = dx - -e.dx, dz = dz - -e.dz;  // PM's [0x008d43b0]
           const float reach = p.get<float>(0x34) + l->get<float>(0xb8);
           const float d2 = (dx * dx + dy * dy) + dz * dz;
           on = reach * reach > d2;
         }
-        l->put<uint32_t>(0xb0, on ? (lf | 0x200) : (lf & ~0x200u));
+        l->put<uint32_t>(0xb0, on ? (lf | game.light_on_bit) : (lf & ~game.light_on_bit));
       }
       if (fog) {
         const float* pos = cam->floats(0x2c);
@@ -1078,7 +1089,8 @@ int render_cells(Node* world, Node* camera_node, Camera* cam) {
       for (int32_t i = 0; i < count; ++i) render_node(p.nodes[i], count);
       // Fade entries (0x44 each; none in the files): node, matrix, near and
       // far on the squared distance (0x0051dfa0 returns it squared), factor.
-      const int32_t fades = p.get<int32_t>(0x40);
+      // PM's cell has no fades: its +0x40 count is another list (docs/pm-map.md).
+      const int32_t fades = game.cell_fades ? p.get<int32_t>(0x40) : 0;
       for (int32_t i = 0; i < fades; ++i) {
         uint8_t* f = p.fades + 0x44 * i;
         float fl[16];
@@ -1113,7 +1125,7 @@ int render_cells(Node* world, Node* camera_node, Camera* cam) {
   if (!restored) camera_update(camera_node);
   for (int32_t i = 0; i < w->get<int32_t>(0xa0); ++i) {
     auto* l = static_cast<Light*>(w->light_data[i]);
-    l->put<uint32_t>(0xb0, l->get<uint32_t>(0xb0) | 0x200);
+    l->put<uint32_t>(0xb0, l->get<uint32_t>(0xb0) | game.light_on_bit);
   }
   if (fog) zmod::fog_set_on(fog);
   return 0;

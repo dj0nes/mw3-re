@@ -1,4 +1,5 @@
 #pragma once
+#include <cstdint>
 
 namespace zcls { struct Node; }
 
@@ -16,5 +17,6 @@ int node_set_active(::zcls::Node* node, int on);
 // Pirate's Moon 1.0 @ 0x004fef40: MW3's on PM's model. Its 0x0055b1c0 and
 // 0x0055b360 read the same header offsets as MW3's, so zmod::model_box is shared.
 int node_model_box(::zcls::Node* node);
+uint8_t* node_model_header(const ::zcls::Node* node);  // ours: PM's model has MW3's +8, +0x20, +0x24
 
 }  // namespace pm::zcls

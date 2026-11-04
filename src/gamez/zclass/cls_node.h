@@ -127,7 +127,8 @@ int node_tree_any(Node* node, int (*test)(Node* node));   // 0x004f9e00
 int node_is_billboard(Node* node);                        // 0x004f9de0, a CylindricalY facade model
 
 // The node's model's 0x5c bytes (the use count at +0xc), null for none.
-uint8_t* node_model_header(const Node* node);
+uint8_t* node_model_header(const Node* node);  // the running game's (zgame::Table)
+uint8_t* mw3_node_model_header(const Node* node);
 // 0x004eb370: the old model's use count down, the new one's up and its box
 // into +0x8c (flag 0x200), the node marked changed (+0x2c bit 2). Null
 // drops the model (the use count is the caller's to act on).

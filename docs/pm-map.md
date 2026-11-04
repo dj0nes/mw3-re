@@ -329,8 +329,8 @@ PM's ported functions use the shared accessors, never PM's raw offsets,
 with a one-line comment where the offset differs. A node's model is
 `model` (MW3's) or `pm_model` (PM's; `model` stays null): the shared code
 reading `model` (73 places: gamez/zeffect/zeff_anim_events.cpp 11, gamez/zclass/cls_di.cpp 8, gamez/zeffect/zeff_anim_save.cpp 7, gamez/zclass/cls_node.cpp 7, gamez/zclass/camera.cpp 6, gamez/zinterp/zinterp.cpp 5, gamez/zgeometry/zgeo_model.cpp 5, mech3/zainet_inout.cpp 3, gamez/zclass/cls_mechlib.cpp 3, gamez/zmodel/gmod_cull.cpp 2, gamez/zclass/cls_zbd.cpp 2, gamez/zclass/class.cpp 2, pm/gamez/zclass/cls_zbd.cpp 1, mech3/veh_controls.cpp 1, mech3/veh_basic_object.cpp 1, mech3/mech_skin.cpp 1, mech3/mech_build.cpp 1, mech3/app_turret.cpp 1, mech3/app_mech.cpp 1, gamez/zmodel/gmod_draw.cpp 1, gamez/zeffect/zeff_anim_run.cpp 1, gamez/zdeclient/zdec_crater.cpp 1, gamez/zclass/cls_util.cpp 1, gamez/zclass/cls_node.h 1) must be routed before a PM world is
-drawn or collided with, apart from the walk and the model box (The debug start,
-below). PM's loader says in the log how many nodes carry a PM model, so a PM
+drawn or collided with, apart from the walk, the model box and the header (The
+debug start, below). PM's loader says in the log how many nodes carry a PM model, so a PM
 world never silently draws nothing.
 
 See docs/games-layout.md.
@@ -349,28 +349,52 @@ lights, fog, sets, priority, cycles or transparency. Stubbed: the camera's far
 clip (the file's 800 is opened to 4,000; the game's own setter is not ported),
 world.zrd, sky, clutter, the world class's update, the interpreter's commands.
 
-What the walk needed from the shared code for PM's nodes:
+What the walk needed from the shared code for PM's nodes
+(`test_pm_walk.py` runs PM's world render 0x50a9e0 against the exe, draw by draw,
+with LoD fields and a ranged light edited, since shipped data reaches neither):
 
-- `draw_model_of` skipped a node whose `model` is null: it now also takes
-  `pm_model`, and the morph set-up runs on MW3's model only.
-- `node_model_box` (MW3 0x4ed220, PM 0x4fef40) goes through the game table.
-  PM's 0x55b1c0 and 0x55b360 read the same header offsets as MW3's 0x53b4e0 and
+- `node_model_header` goes through the game table, and `draw_model_of`, the
+  hidden-surface test's "has lights" and the callers that ask "has it a model"
+  read it. PM sets a morphing LoD's flag 8 and factor on its model just as MW3
+  does (0x507f30, 0x4f4ab0).
+- `node_model_box` (MW3 0x4ed220, PM 0x4fef40) goes through the table. PM's
+  0x55b1c0 and 0x55b360 read the same header offsets as MW3's 0x53b4e0 and
   0x53b680, so PM's calls the shared `zmod::model_box`.
 - `node_box_corners` (MW3 0x4ebdb0, PM 0x4fda40) reads PM's box through its
   pointer (`pm_box`, PM's +0x70). It read box 0, empty on PM's world nodes, so
   every sphere sat at the origin and whole cells went missing depending on where
   the origin stood against the view.
+- PM's LoD (0x5c bytes) has three more words at +0x34; MW3's +0x34..+0x4f are at
+  its +0x40. `translate_lod` keeps MW3's layout in `raw` and the three words,
+  whose use is unknown, in `pm_tail`. Read as they were, every fade, the uniform
+  scale flag and the morph were the wrong fields.
+- The cells (0x509dd0 against 0x4f6720), by the table's data: a light's "reaches
+  this cell" bit is 0x800 (0x200 is PM's static bit); its reach test takes off the
+  wrapped camera offset ([0x8d43b0]); PM has no fades on a cell. Its +0x40 count
+  is another list, entries 0x5c bytes: over 20 of them call 0x504450, which is
+  not ported, and the debug draw 0x50a1e0 needs [0x60d968], which nothing sets.
 
-`test_pm_nodebox.py` checks those two against the exe. Other shared code reading
-the box at +0x74 directly (`class.cpp`: `node_box_xz` and three more) has not
-met PM's nodes yet and is listed for the world class. The walk itself needed no
-fork: PM's 0x509dd0, 0x509830 and 0x5050e0 are MW3's with PM's offsets.
+Left for the world class:
+
+- `node_bound_box` writes the box at +0x74 and `node_box` returns that address. PM's
+  writer 0x4fe740 (MW3 0x4ecc00) instead points +0x70 at the box it chose, +0x74
+  only for the union of two, so on a PM node the shared one leaves the box the cull
+  reads stale. `node_box_xz` and two more reads of +0x74 in `class.cpp` have not met
+  PM's nodes either.
+- `shadow_model_morphed` reads `node->model` and so returns on a PM node, safely,
+  without casting: to route in phase 4.
+
+The rest of the walk needed no fork: PM's 0x509830, 0x5092a0 and 0x5050e0 are MW3's
+with PM's offsets.
 
 Seen on screen, not yet explained: polygons with flag 0x2000 are strips (drawn as
 triangles here); a large unlit shape in each world's view from the middle (black
 in c1, c3 and c4, tan in c2), which may be a dome or a sky piece the game moves;
 in c4 a flat green area beside the grid texture, which may be a priority or
-overlay matter this draw leaves out. Each is to look at again under the real draw.
+overlay matter this draw leaves out; c1's stair-stepped sand and red edges and a
+jagged orange edge low in c2, which may be what the transparency and priority stubs
+do. Each is to check under the real draw against an original screenshot or the
+data, not by assuming.
 
 ## A porting order
 

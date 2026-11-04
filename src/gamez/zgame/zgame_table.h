@@ -44,6 +44,7 @@ struct Table {
   zcls::Node* (*zcls_node_alloc)();                      // 0x004eacd0; PM 0x004fc550
   int (*zcls_node_set_active)(zcls::Node* node, int on);  // 0x004eb170; PM 0x004fca50
   int (*zcls_node_model_box)(zcls::Node* node);          // 0x004ed220; PM 0x004fef40 (its model type)
+  uint8_t* (*zcls_node_model_header)(const zcls::Node* node);  // ours: the model's header, null without one
   zcls::Node* (*zcls_light_create)();                    // 0x004fa720; PM 0x0050e470
   // A mission's anim.zbd (zeff/zeff_anim_init.h): PM's is version 50.
   int (*zeff_anim_read_zbd)();  // 0x0050a0e0; PM 0x00523140
@@ -54,6 +55,12 @@ struct Table {
   // The script's LightMapTexture (PM's dispatcher 0x005b2d10): the texture it
   // names is the light map. Null in MW3, where the word is unknown.
   void (*zint_light_map_texture)(zimg::TextureEntry* texture);
+  // The walk's cells (zcls/camera.cpp, 0x004f6720; PM 0x00509dd0): the bit that
+  // says a light reaches the cell (MW3 0x200; PM's 0x200 is its static bit), PM's
+  // reach test taking off the wrapped camera offset, MW3's fades.
+  uint32_t light_on_bit;
+  bool light_reach_wrapped;
+  bool cell_fades;
 };
 
 const Table& mw3_table();
