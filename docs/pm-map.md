@@ -1316,7 +1316,7 @@ functions PM changed, and PM's new ones.
        docs/hud.md section 24, Pirate's Moon): MW3's structure, with game types 1, 2 and 5 headed by the
        game's name (vt+0x08), an objective done by failing (PM's +0x09) shown "Failed" (0x1008), the failed
        group's lines with their status, a further line of an objective with a blank score, and PM's command
-       numbers for the keys (0x79, 0x44). Test `test_pm_hud_objectives.py` (300 made-up missions; 9 breaks
+       numbers for the keys (0x79, 0x44), looked up by command name so they follow the table in use. Test `test_pm_hud_objectives.py` (300 made-up missions; 9 breaks
        caught). The network score list is MW3's. Left: the game's name in the program (PM's game object).
      - **The damage static: next** (new: 0x43dda0 the 256x256 noise in three greys, 0x43dfa0 drawn over the
        panels up to 0.9 alpha, 0x43e1f0 by the mech's health, 0x43d710, 0x43df70).
