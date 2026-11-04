@@ -2,11 +2,17 @@
 
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 
+#include "gamez/zclass/class.h"
 #include "gamez/zclass/cls_node.h"
 #include "gamez/zclass/list.h"
 #include "gamez/zerror/zerr.h"
+#include "gamez/zmath/zmth_vector.h"
+#include "gamez/zmodel/gmod_hit.h"
+#include "gamez/zmodel/gmod_matl.h"
 #include "gamez/zreader/zreader.h"
+#include "pm/gamez/zmodel/gmod_const.h"
 
 namespace pm::zcls {
 
@@ -16,6 +22,7 @@ constexpr double kDegToRad = 0.017453292519943295;  // [0x005deee8]
 
 ClutterHooks g_hooks;
 std::vector<std::unique_ptr<ClutterTemplate>> g_templates;
+std::map<::zimg::TextureEntry*, std::vector<ClutterPiece>> g_pieces;
 
 // Pirate's Moon 1.0 @ 0x005116b0: 0 when it is no number. FIX (bug): the exe reads past a short list;
 // here that is 0 too (fixes.md).
@@ -99,7 +106,84 @@ void read_entry(ClutterTemplate& t, zrdr::Node* entry) {
     t.substitutes.push_back(out);
   }
 }
+
+// The u or v of a piece, wrapped into 0..1.
+float wrap(float x) {
+  if (x < 0.0f) {
+    const float r = 1.0f - static_cast<float>(std::fmod(static_cast<double>(-x), 1.0));
+    return r == 1.0f ? 0.0f : r;
+  }
+  return x >= 1.0f ? static_cast<float>(std::fmod(static_cast<double>(x), 1.0)) : x;
+}
+
+// Pirate's Moon 1.0 @ 0x00511b50
+void project_children(::zcls::Node* node) {
+  const pm::zmod::Model* model = node->pm_model;
+  const pm::zmod::Polygon* poly = model->polygons;
+  const int count = static_cast<int>(poly->flags & 0x3ff);
+  std::vector<float> verts(static_cast<size_t>(count) * 3 + 9);
+  for (int i = 0; i < count; ++i) std::memcpy(&verts[static_cast<size_t>(i) * 3], &model->vertices[poly->vertex_indices[i] * 3], 12);
+  float n[3];
+  zmth::poly_normal(&verts[3], &verts[6], &verts[0], n);
+  auto& pieces = g_pieces[poly->materials[0]->texture];
+  for (int c = 0; c < node->child_count(); ++c) {
+    ::zcls::Node* child = node->children[c];
+    float at[3];
+    ::zcls::node_world_position(child, at);
+    // Through the plane through the origin along the normal: the children lie about the origin.
+    const float d = at[2] * n[2] + at[1] * n[1] + at[0] * n[0];
+    for (int k = 0; k < 3; ++k) at[k] = at[k] + n[k] * -d;
+    float a[3], b[3];
+    for (int k = 0; k < 3; ++k) a[k] = n[k] * -5.0f + at[k], b[k] = n[k] * 5.0f + at[k];
+    ::zcls::LineHit slot{};
+    float uv[2];
+    if (!::zmod::polygon_segment_uv(&slot, a, b, verts.data(), poly->uvs[0], uv, count, 1)) {
+      char msg[240];
+      std::snprintf(msg, sizeof msg, "LoadTemplate(): template %s clutter %s does not project to polygon.", node->name(), child->name());
+      zerr::report(0x200, kFile, 0x178, msg);
+      continue;
+    }
+    ClutterPiece piece{wrap(uv[0]), wrap(uv[1]), child, nullptr};
+    for (const auto& t : g_templates) {
+      if (t->name == child->name()) {
+        piece.settings = t.get();
+        break;
+      }
+    }
+    pieces.push_back(piece);
+  }
+}
+
+// Pirate's Moon 1.0 @ 0x00511ad0
+void walk_template(::zcls::Node* node) {
+  const pm::zmod::Model* model = node->pm_model;
+  if (!model) {
+    for (int i = 0; i < node->child_count(); ++i) walk_template(node->children[i]);
+    return;
+  }
+  if (model->count(0x10) == 1 && model->polygons->material_count == 1 && (model->polygons->materials[0]->flags & 1)) {
+    project_children(node);
+    return;
+  }
+  char msg[200];
+  std::snprintf(msg, sizeof msg, "LoadTemplates(): ignoring %s; its model has other than one textured polygon.", node->name());
+  zerr::report(0x200, kFile, 0x189, msg);
+}
 }  // namespace
+
+std::map<::zimg::TextureEntry*, std::vector<ClutterPiece>>& clutter_pieces() { return g_pieces; }
+
+void clutter_load_templates(const std::list<std::string>& names) {
+  for (const std::string& name : names) {
+    if (::zcls::Node* node = ::zcls::list_find_by_name(::zcls::kAllNodes, name.c_str())) {
+      walk_template(node);
+    } else {
+      char msg[200];
+      std::snprintf(msg, sizeof msg, "ClutterLoadTemplates(): cannot find node for template %s", name.c_str());
+      zerr::report(0x200, kFile, 0x399, msg);
+    }
+  }
+}
 
 ClutterHooks& clutter_hooks() { return g_hooks; }
 std::vector<std::unique_ptr<ClutterTemplate>>& clutter_templates() { return g_templates; }

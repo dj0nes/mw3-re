@@ -1082,8 +1082,10 @@ functions PM changed, and PM's new ones.
      - **`cls_clutter`: mapped; the settings ported** (`pm/gamez/zclass/cls_clutter`, 0x513030, 0x513310,
        0x513990; `test_pm_clutter.py`: the 64 shipped templates of the four worlds and crafted entries, each
        with every third named node missing, every field and node flag). The anim lookup (0x524b50) and a
-       substitute's hit callbacks (0x5a4d80, 0x5a4dc0; 0x513c60, 0x513cf0) are hooks so far. Next: the
-       templates' nodes (0x5139d0, 0x511ad0, 0x511b50), then the laying. The rest is not ported
+       substitute's hit callbacks (0x5a4d80, 0x5a4dc0; 0x513c60, 0x513cf0) are hooks so far. The templates'
+       nodes too (0x5139d0, 0x511ad0, 0x511b50): each world's script-named templates give 2 or 3 textures and
+       20 to 23 pieces, and crafted scenes reach what shipped data does not (pieces off their plane, u and v
+       outside 0..1, models that are not one textured polygon, a child that does not project). Next: the laying. The rest is not ported
        (0x5106b0..0x514b90, 65 functions, ~3,500 lines of pseudocode). Scattered props laid on the ground by its material. **It waits for the interpreter
        and the mission load**: its template names come from the script command `AddClutterTemplates`
        (0x512fd0, from 0x5b2e15, a list at [0x639c14]). The load (0x492f8c.., unless `-noclutter`,

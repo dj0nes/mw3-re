@@ -2,9 +2,11 @@
 // tests run against PM's exe (tests/differential, MW3_EXE=pm). PM's table is
 // set on load; MW3's probe is tests/probe.cpp.
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
+#include <list>
 #include <memory>
 #include <string>
 
@@ -1883,6 +1885,157 @@ int probe_pm_clutter(const char* dir, const char* archive, const char* file, con
   std::snprintf(text, static_cast<size_t>(text_cap), "%s", names_out.c_str());
   zrdr::close_archives(true);
   return n;
+}
+
+}  // extern "C"
+
+extern "C" {
+
+// pm::zcls::clutter_load_templates on a world (test_pm_clutter.py). `settings` and `names` are
+// joined by \n. Out: each error's level << 16 | line, then the groups: each its count, then u, v,
+// node index, settings index + 1. Groups in the map's order; the test sorts them.
+int probe_pm_clutter_nodes(const char* world, const char* settings, const char* names, uint32_t* out, int cap) {
+  const int r = probe_pm_walk_load(world);
+  if (r < 0) return -1;
+  const auto split = [](const std::string& all) {
+    std::vector<std::string> v;
+    for (size_t at = 0; at < all.size();) {
+      size_t end = all.find('\n', at);
+      if (end == std::string::npos) end = all.size();
+      v.push_back(all.substr(at, end - at));
+      at = end + 1;
+    }
+    return v;
+  };
+  pm::zcls::clutter_templates().clear();
+  pm::zcls::clutter_pieces().clear();
+  for (const std::string& s : split(settings)) {
+    auto t = std::make_unique<pm::zcls::ClutterTemplate>();
+    t->name = s;
+    pm::zcls::clutter_templates().push_back(std::move(t));
+  }
+  std::list<std::string> list;
+  for (const std::string& s : split(names)) list.push_back(s);
+  static std::vector<uint32_t> errors;
+  errors.clear();
+  ::zerr::set_sink([](int level, const char*, int at, const char*) {
+    errors.push_back(static_cast<uint32_t>(level) << 16 | static_cast<uint32_t>(at));
+  });
+  pm::zcls::clutter_load_templates(list);
+  ::zerr::set_sink(nullptr);
+  int n = 0;
+  const auto word = [&](uint32_t v) { if (n < cap) out[n] = v; ++n; };
+  word(static_cast<uint32_t>(errors.size()));
+  for (uint32_t e : errors) word(e);
+  word(static_cast<uint32_t>(pm::zcls::clutter_pieces().size()));
+  for (const auto& [texture, pieces] : pm::zcls::clutter_pieces()) {
+    word(static_cast<uint32_t>(pieces.size()));
+    for (const pm::zcls::ClutterPiece& p : pieces) {
+      uint32_t v;
+      std::memcpy(&v, &p.u, 4), word(v);
+      std::memcpy(&v, &p.v, 4), word(v);
+      word(static_cast<uint32_t>(walk_node_index(p.node)));
+      uint32_t which = 0;
+      for (size_t i = 0; i < pm::zcls::clutter_templates().size(); ++i)
+        if (pm::zcls::clutter_templates()[i].get() == p.settings) which = static_cast<uint32_t>(i + 1);
+      word(which);
+    }
+  }
+  return n;
+}
+
+}  // extern "C"
+
+extern "C" {
+
+// test_pm_clutter.py's crafted template: a node "tmpl" with one model (n vertices, `polys` polygons,
+// the first of `mats` materials with `mat_flags`), children c0.. at `kids`. `wrap_node`: tmpl holds
+// no model, a child does. Out as probe_pm_clutter_nodes, node indexes being the child's number.
+int probe_pm_clutter_scene(const float* verts, const float* uvs, int n, const float* kids, int n_kids, int polys,
+                           int mats, int mat_flags, int wrap_node, uint32_t* out, int cap) {
+  ::zcls::reset_lists();
+  static ::zcls::Node tmpl, holder;
+  static std::vector<::zcls::Node> children;
+  static std::vector<std::array<uint8_t, 0x100>> objects;
+  static std::vector<::zcls::Node*> kid_list;
+  static ::zcls::Node* holder_kids[1];
+  children.assign(static_cast<size_t>(n_kids), ::zcls::Node{});
+  objects.assign(static_cast<size_t>(n_kids), {});
+  kid_list.clear();
+  const auto name = [](::zcls::Node& node, const std::string& s) { std::strcpy(reinterpret_cast<char*>(node.raw), s.c_str()); };
+  tmpl = ::zcls::Node{}, holder = ::zcls::Node{};
+  for (int i = 0; i < n_kids; ++i) {
+    ::zcls::Node& c = children[static_cast<size_t>(i)];
+    name(c, "c" + std::to_string(i));
+    c.put<int32_t>(0x34, 5);
+    c.set_flags(0x80010);
+    std::memcpy(objects[static_cast<size_t>(i)].data() + 0x84, kids + i * 3, 12);
+    c.data = objects[static_cast<size_t>(i)].data();
+    kid_list.push_back(&c);
+  }
+  static pm::zmod::Model model;
+  static pm::zmod::Polygon poly;
+  static ::zmod::Material material;
+  static ::zmod::Material* material_list[2];
+  static std::vector<float> vertex_store, uv_store;
+  static std::vector<uint32_t> index_store;
+  static float* uv_list[2];
+  model = pm::zmod::Model{}, poly = pm::zmod::Polygon{}, material = ::zmod::Material{};
+  vertex_store.assign(verts, verts + n * 3);
+  uv_store.assign(uvs, uvs + n * 2);
+  index_store.resize(static_cast<size_t>(n));
+  for (int i = 0; i < n; ++i) index_store[static_cast<size_t>(i)] = static_cast<uint32_t>(i);
+  std::memcpy(model.header + 0x10, &polys, 4);
+  model.polygons = &poly, model.vertices = vertex_store.data();
+  poly.flags = static_cast<uint32_t>(n);
+  poly.vertex_indices = index_store.data();
+  poly.material_count = mats;
+  material.flags = static_cast<uint8_t>(mat_flags);
+  material_list[0] = material_list[1] = &material;
+  poly.materials = material_list;
+  uv_list[0] = uv_list[1] = uv_store.data();
+  poly.uvs = uv_list;
+  name(tmpl, "tmpl");
+  tmpl.put<int32_t>(0x34, 5);
+  tmpl.set_flags(0x10);
+  ::zcls::Node* owner = &tmpl;
+  if (wrap_node) {
+    name(holder, "holder");
+    holder.put<int32_t>(0x34, 5);
+    holder.set_flags(0x10);
+    holder_kids[0] = &holder;
+    tmpl.put<int32_t>(0x5c, 1), tmpl.children = holder_kids;
+    owner = &holder;
+  }
+  owner->pm_model = &model;
+  owner->put<int32_t>(0x5c, n_kids), owner->children = kid_list.data();
+  ::zcls::push_back(::zcls::kAllNodes, &tmpl);
+  pm::zcls::clutter_templates().clear();
+  pm::zcls::clutter_pieces().clear();
+  auto t = std::make_unique<pm::zcls::ClutterTemplate>();
+  t->name = "c1";
+  pm::zcls::clutter_templates().push_back(std::move(t));
+  static std::vector<uint32_t> errors;
+  errors.clear();
+  ::zerr::set_sink([](int level, const char*, int at, const char*) {
+    errors.push_back(static_cast<uint32_t>(level) << 16 | static_cast<uint32_t>(at));
+  });
+  pm::zcls::clutter_load_templates({"tmpl"});
+  ::zerr::set_sink(nullptr);
+  int w = 0;
+  const auto word = [&](uint32_t v) { if (w < cap) out[w] = v; ++w; };
+  word(static_cast<uint32_t>(errors.size()));
+  for (uint32_t e : errors) word(e);
+  for (const auto& [texture, pieces] : pm::zcls::clutter_pieces()) {
+    for (const pm::zcls::ClutterPiece& p : pieces) {
+      uint32_t v;
+      std::memcpy(&v, &p.u, 4), word(v);
+      std::memcpy(&v, &p.v, 4), word(v);
+      word(static_cast<uint32_t>(p.node - children.data()));
+      word(p.settings != nullptr);
+    }
+  }
+  return w;
 }
 
 }  // extern "C"

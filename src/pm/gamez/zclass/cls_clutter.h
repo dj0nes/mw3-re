@@ -1,10 +1,13 @@
 #pragma once
 #include <cstdint>
+#include <list>
+#include <map>
 #include <memory>
 #include <string>
 #include <vector>
 
 namespace zcls { struct Node; }
+namespace zimg { struct TextureEntry; }
 
 // C:\zipper\branchep1\gamez\zClass\cls_clutter.cpp, new in Pirate's Moon: scattered props laid on
 // the ground by its material (docs/pm-map.md). So far: the settings file.
@@ -49,5 +52,18 @@ ClutterHooks& clutter_hooks();
 std::vector<std::unique_ptr<ClutterTemplate>>& clutter_templates();  // 0x00639bf4
 
 void clutter_read_settings(const char* file);  // 0x00513030, with 0x00513310 on each entry
+
+// One child of a template node: where it sits on the template's polygon, in 0..1.
+struct ClutterPiece {
+  float u, v;
+  ::zcls::Node* node;
+  ClutterTemplate* settings;  // the entry named as the node, or null
+};
+// The pieces by the texture of the polygon they lie on (0x00639be0).
+std::map<::zimg::TextureEntry*, std::vector<ClutterPiece>>& clutter_pieces();
+
+// 0x005139d0: each script-named template (AddClutterTemplates), its node's tree walked to
+// single-polygon textured models (0x00511ad0), their children projected on to it (0x00511b50).
+void clutter_load_templates(const std::list<std::string>& names);
 
 }  // namespace pm::zcls
