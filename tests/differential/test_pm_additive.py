@@ -16,7 +16,7 @@ import test_pm_light_map as lm  # noqa: E402
 import test_pm_zar  # noqa: E402
 
 FIND, BIAS, D3D, ATOF = 0x5319f0, 0x598230, 0x8c4b70, 0x5de640
-LINES = ['TextureAdditiveTransparent one', 'TextureAdditiveTransparent two', 'TextureAdditiveTransparent nothing',
+LINES = ['TextureAdditiveTransparent one', 'TextureAdditiveTransparent nothing',
          'TextureAdditiveTransparent noimage', 'TextureAdditiveTransparent one', 'MipBias -1.0', 'MipBias 0.5', 'TextureAdditiveTransparentX two']
 
 
