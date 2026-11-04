@@ -410,6 +410,7 @@ TEST(sdl_input_virtual_gamepad_through_zinput_drives_the_axes) {
   SDL_DetachVirtualJoystick(id);
 }
 
+#if !defined(MW3_PM_SUITE)  // MW3's data or programs: not in Pirate's Moon's suite
 // Force feedback as rumble (FIX (A), sdl_force.h): the shipped force_eff.ifr
 // read as IFORCE2 reads it (18 records), the exe's names found with '_' for
 // ' ' ("i_fall" names nothing), a compound as its parts; a part on the slow
@@ -501,6 +502,7 @@ TEST(sdl_force_device_plays_the_ifr_effects_as_rumble) {
   SDL_DetachVirtualJoystick(id);
 }
 
+#endif  // MW3_PM_SUITE
 TEST(sdl_input_keyboard_buffers_like_getdevicedata) {
   sdlfe::SdlInput in;
   platform::KeyEvent ev[200];
@@ -1430,6 +1432,7 @@ TEST(sdl_host_ripple_moves_the_ring_on_the_screen) {
 // and counted, a fresh copy read once the count is back to 0; a grab is
 // freed on its release, and a second release of it is caught (FIX (bug))
 // instead of freeing it twice.
+#if !defined(MW3_PM_SUITE)  // MW3's data or programs: not in Pirate's Moon's suite
 TEST(sdl_host_image_release_counts_and_frees) {
   if (!std::filesystem::exists(std::string(MW3_GAME_DIR) + "/zbd/rimage.zbd")) return;
   zutl::Mounts saved = zutl::mounts();
@@ -2084,6 +2087,7 @@ TEST(sdl_program_check_runs_never_ask_for_the_install) {
 // keypad's 1..9, 0 and '.' (DIK 0x4f..0x53). On a Mac (no Num Lock; SDL
 // reports it off) the host takes it as on, FIX (A); elsewhere they follow
 // the lock, as on Windows.
+#endif  // MW3_PM_SUITE
 TEST(sdl_keypad_types_an_address) {
   sdlfe::SdlZinHost host(nullptr);
   zin::set_host(&host);
@@ -2210,6 +2214,7 @@ TEST(sdl_window_shape_maps_the_mouse_through_the_frame) {
 // at mode 5, a 640x480 frame pillarboxed in the window (step 2's fit), so a
 // click on each main-menu button's window point lands on that button's
 // 640x480 pixel, as in a 640x480 window.
+#if !defined(MW3_PM_SUITE)  // MW3's data or programs: not in Pirate's Moon's suite
 TEST(sdl_menu_clicks_land_on_the_same_buttons_at_any_window) {
   const sdlfe::FrameShape menus{640, 480, true};
   const int32_t buttons[][2] = {{60, 60}, {132, 135}, {60, 210}, {132, 285}, {60, 360}, {400, 360}, {470, 435}};
@@ -4756,3 +4761,4 @@ TEST(sdl_program_movies_keep_their_shape_on_a_wide_screen) {
 }
 #endif
 #endif
+#endif  // MW3_PM_SUITE

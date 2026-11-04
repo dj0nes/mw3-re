@@ -882,7 +882,8 @@ functions PM changed, and PM's new ones.
        0x4c3930) has its own area container (0xc0-byte areas), counts standalone missions (type 5, by 0x435db0)
        and training, and MW3's selection call 0x4c3b80 has no twin in PM's setup (PM picks the area while it
        loads, 0x4cdff0). The port's `inout` is still MW3's, so on PM a standalone mission has no boundary and
-       the grid none to keep to. Both go with PM's AI step; W58 is off for enemies and multiplayer anyway.
+       the grid none to keep to. The `inout` loader is the AI step's first item; the clutter queries go with
+       collision. W58 is off for enemies and multiplayer anyway.
      - **The draw, piece 1: the type dispatch ported** (2026-11-03,
        `pm/gamez/zmodel/gmod_draw`): `0x542a70` and `0x5416e0` (the facade's centre,
        MW3's `0x53dcf0` on PM's polygons). Type 0 the model-view, 1 a facade, 2
@@ -1260,11 +1261,16 @@ functions PM changed, and PM's new ones.
      moved (`CMD_MISSION_COMPLETE` 0x79 against 0x71). The port on `pm` still has MW3's table, so its ids agree
      among themselves; the test maps PM's two binds to MW3's. Porting PM's table (controls_cfg and every
      handler's ids) goes before any PM command handler, the headlight's toggle first.
-4. **Mechs and weapons**: the definition reader and its new weapons
+4. **Mechs and weapons**. First, its own small item: **PM's command table** (0x411980's 110
+   commands, renumbered; see the mission setup's note), with the bind files' load, checked against the
+   exe; then the mission test's mapping of PM's binds goes. It comes before any PM command handler.
+   Then the definition reader and its new weapons
    (`XPulseLaser_Large`, `HeavyLaser_Large`, `TBOLT5`), the firepoint
    fix-up (`promote1.cpp`, `CZMechFirePoint::CFixup`), `mech.cpp` (130
    new) and `mech_map.cpp` (97 new), the mech data and skins.
-5. **The AI**: targets (`zaitarget.cpp`, 162 new), the net editor and
+5. **The AI**. First: **PM's `inout` loader** (0x4cddb0 with 0x4cdb30, 0x4cd740, 0x4cdff0): without it a
+   standalone mission has no boundary once missions run (a play bug; see the zones note). Then targets
+   (`zaitarget.cpp`, 162 new), the net editor and
    in/out nets (85 and 73 new), the valves' new keys, the movement modes
    (Circle, Direct, Random Move).
 6. **The front end**: the load/save screens and saved games
