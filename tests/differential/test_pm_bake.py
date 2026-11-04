@@ -24,7 +24,7 @@ import test_pm_records as rec  # noqa: E402
 import test_pm_zar  # noqa: E402
 
 BAKE, CAM, NORMALS = 0x55fb30, 0x8dabac, 0x8dabb0
-TOL, ROUNDING = 2e-4, 0.002
+TOL, ROUNDING = 0.0, 0.0  # bit for bit at 24 bits (the 24-bit audit, pm-map.md)
 FIRST = 0x55fb39  # past the prologue
 STALE = 0x6c      # local_70: [ebp-0x6c]
 

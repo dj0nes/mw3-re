@@ -204,6 +204,26 @@ def compare(want, got, what):
                     raise SystemExit(f'{what} draw {k} vertex {v}: {y.hex()}, the exe {x.hex()}')
 
 
+def winding_agrees(rng):
+    """Direct3D's rule against the exe's own facing test. CULLMODE 2 (D3DCULL_CW, 0x5467a6 pushes
+    it for a strip) drops what runs clockwise on screen, screen y running down: a positive cross
+    product, as Emu.record and the port's draw. The exe's facing test on the same three points
+    (0x5442c7, as split_strips applies it) keeps d < 0. Screen y grows with camera y here (0x53b730
+    gives fy = cot * half height, positive), so both must keep the same triangles. No stub can say
+    which way CW cuts; this does."""
+    fx, fy, cx, cy = 572.0, 831.0, 320.0, 240.0
+    for _ in range(2000):
+        p = [(rng.uniform(-50, 50), rng.uniform(-50, 50), rng.uniform(5, 100)) for _ in range(3)]
+        s = [(fx * x / z + cx, fy * y / z + cy) for x, y, z in p]
+        cross = (s[1][0] - s[0][0]) * (s[2][1] - s[0][1]) - (s[1][1] - s[0][1]) * (s[2][0] - s[0][0])
+        e2 = [p[2][k] - p[1][k] for k in range(3)]
+        e0 = [p[0][k] - p[1][k] for k in range(3)]
+        n = (e0[2] * e2[1] - e0[1] * e2[2], e0[0] * e2[2] - e0[2] * e2[0], e0[1] * e2[0] - e0[0] * e2[1])
+        d = sum(n[k] * p[0][k] for k in range(3))
+        if abs(cross) > 1e-3 and abs(d) > 1e-3 and (cross < 0) != (d < 0):
+            raise SystemExit(f'the cull and the facing test disagree on {p}: cross {cross}, d {d}')
+
+
 def main():
     steps = int(sys.argv[1]) if len(sys.argv) > 1 else 4000
     p = test_pm_zar.load_pm_probe()
@@ -211,6 +231,7 @@ def main():
     p.probe_pm_device_call.argtypes = [I, I, V, I, I, I, I, I, F, I, I, I, V, V, V, V, I]
     p.probe_pm_device_flush.argtypes = [I, V, I]
     rng = random.Random(0x59e500)
+    winding_agrees(rng)
     emu = Emu()
     surfaces = []
     for i in range(8):

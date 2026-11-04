@@ -41,15 +41,18 @@ zcls::Node* camera_node() {
 
 zvid::D3DTexture g_fallback{};
 
-// The view's clip and the cull's, as 0x00548990 and 0x0053b730 leave them, then the draw.
+// The view's clip and the cull's, from what the shared setter left: PM's 0x00548990 and
+// 0x0053b730 are MW3's 0x00526e10 and 0x00521c60 (camera +0xb0, +0xb4, +0x1d4, +0x1d8; the window's
+// origin and size; D3D's sides x, y, x + w + 0.001, y + h + 0.001).
 int32_t draw_pm_model(zcls::Node* node, uint32_t mask) {
   const zmth::Projection& v = zmth::projection();
+  const zmod::ClipPlanes& from = zmod::draw_state().clip;
   pm::zmod::Clip3dState& c = pm::zmod::clip3d_state();
-  c.near_z = v.near_z;
-  c.left = v.origin_x, c.top = v.origin_y;
-  c.right = v.origin_x + v.half_w * 2.0f - 0.001f, c.bottom = v.origin_y + v.half_h * 2.0f - 0.001f;
+  c.near_z = from.near_z;
+  std::memcpy(&c.left, &from.side_04, 4), std::memcpy(&c.top, &from.side_08, 4);
+  std::memcpy(&c.right, &from.side_1c, 4), std::memcpy(&c.bottom, &from.side_20, 4);
   pm::zmod::CullState& k = pm::zmod::cull_state();
-  k.far_z = v.far_z, k.slope_x = v.cot_h, k.slope_y = v.cot_v;
+  k.far_z = from.far_z, k.slope_x = v.cot_h, k.slope_y = v.cot_v;
   return pm::zmod::draw_model(node, mask, pm::zvid::device_call);
 }
 
@@ -88,7 +91,7 @@ std::string pm_world_load(const std::string& mission, platform::Render3D* render
   zvid::install_model_draw_table();
   zmod::walk_state() = zmod::WalkState{};
   zmod::walk_state().draw = draw_pm_model;
-  zvid::overlay_list().limit = zvid::OverlayList::kMaxPm;
+  zvid::overlay_list().set_limit(zvid::OverlayList::kMaxPm);
   pm::zmod::draw_state().flare = zrndr::flare_add;  // 0x00588910
   zcls::WorldRenderHooks& h = zcls::world_render_hooks();
   h = zcls::WorldRenderHooks{};

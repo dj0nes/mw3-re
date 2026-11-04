@@ -7,6 +7,7 @@ a polygon can take all seven sets. The fade runs at both ends of its range.
     .venv/bin/python -P tests/differential/test_pm_sets.py [draws per world]
 """
 import ctypes
+import os
 import math
 import random
 import struct
@@ -107,6 +108,7 @@ def make_caster(rng, around):
 
 
 def main():
+    global TOL, ROUNDING
     draws = int(sys.argv[1]) if len(sys.argv) > 1 else 1500
     p = test_pm_zar.load_pm_probe()
     F, V, I, U = ctypes.c_float, ctypes.c_void_p, ctypes.c_int, ctypes.c_uint32
@@ -140,7 +142,8 @@ def main():
         path = g.ZBD / w / 'gamez.zbd'
         emu = Emulated(path)
         # c3 at 53 bits: the fade is the value rounded there, at 24 only 0 (CLAUDE.md).
-        fpu53 = 1 if w == 'c3' else 0
+        fpu53 = 1 if w == 'c3' and not os.environ.get('PM_24') else 0
+        TOL, ROUNDING = (2e-4, 0.01) if fpu53 else (0.0, 0.0)  # 24 bits: bit for bit (the audit, pm-map.md)
         emu.cpu.fpu_control(0x027f if fpu53 else 0x007f)
         assert p.probe_pm_draw_load(str(path).encode()) == 0
         nodes = []
@@ -259,7 +262,7 @@ def main():
                     for k in range(10):
                         relevant = (k in (6, 7) and needs & 6 and False) or k in (0, 1, 2, 4, 5, 6, 7) and (k > 4 and textured or k == 4 and (needs & 1) or k < 3 and needs & 6) or (k in (8, 9) and textured)
                         x, y = struct.unpack_from('<f', want, at)[0], struct.unpack_from('<f', got, ag)[0]
-                        if relevant and not same_float(x, y, stats, TOL, 'rec', ROUNDING):
+                        if relevant and not same_float(x, y, stats, 2e-4 if k == 4 else TOL, 'rec', 0.01 if k == 4 else ROUNDING):  # +0x10: the fog, shared fog_vertices keeps double
                             raise SystemExit(f'{w} draw {d} node {i} poly {a[0]} vertex {v} word {k}: {y}, the exe {x}; flags {a[2]:#x}')
                         at += 4
                         ag += 4

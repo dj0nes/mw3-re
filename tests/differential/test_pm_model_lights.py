@@ -21,7 +21,7 @@ import test_pm_records as rec  # noqa: E402
 import test_pm_zar  # noqa: E402
 
 DT, PACK, FLARE, PRIORITY, D3D_POINT, TL = 0x8c1b4c, 0x598420, 0x588910, 0xa4e090, 0x8c4c08, 0x8c4c54
-TOL, ROUNDING = 1e-4, 0.02
+TOL, ROUNDING = 0.0, 0.0  # bit for bit at 24 bits (the 24-bit audit, pm-map.md)
 
 
 class Emulated(rec.Emulated):

@@ -55,6 +55,10 @@
 #include "pm/pm_game.h"
 
 namespace {
+// The whole probe library tests the original's path, as tests/probe.cpp: the zfix fixes off.
+const bool g_fixes_off = (zfix::options().per_second = false, zfix::options().bugs = false,
+                          zfix::options().any_resolution = false, zfix::options().nested_lock = false,
+                          zfix::options().fpu53 = false, true);
 struct UsePm {
   UsePm() { zgame::set_game(pm::table()); }
 } g_use_pm;
@@ -904,7 +908,6 @@ void probe_pm_light_map_surface(uint32_t surface) {
 }
 int probe_pm_sets(int node, const float* world, uint32_t mask, int fpu53, uint8_t* out, int cap) {
   zfix::options().fpu53 = fpu53 != 0;
-  zfix::options().bugs = false;  // the original's path
   static std::string b;
   b.clear();
   const auto put = [&](const void* p, size_t n) { b.append(static_cast<const char*>(p), n); };
@@ -1038,13 +1041,12 @@ int take(int32_t* out, int cap) {
 
 void probe_pm_device_start(const int32_t* surfaces, const int32_t* format) {
   using namespace device_probe;
-  zfix::options().bugs = false;
   zvid::set_render3d(&g_recorder);
   zvid::draw_state() = platform::DrawState{};
   zvid::device_state() = zvid::DeviceState{};
   zvid::device_state().z_write = 1;
   zvid::transparent_queue().count = zvid::transparent_queue().vertex_count = 0;
-  zvid::overlay_list().count = 0, zvid::overlay_list().limit = zvid::OverlayList::kMaxPm;
+  zvid::overlay_list().count = 0, zvid::overlay_list().set_limit(zvid::OverlayList::kMaxPm);
   zvid::set_pixel_format(format[0], format[1], format[2]);
   zvid::channel_masks() = {static_cast<uint32_t>(format[3]), static_cast<uint32_t>(format[4]), static_cast<uint32_t>(format[5])};
   zrndr::device_fog().active = 1;
@@ -1343,7 +1345,6 @@ int probe_pm_clip3d_fog_fix() {
 
 int probe_pm_clip3d(int which, float near_z, int count, uint32_t flags, float* pos, float* rec, float* tl, uint8_t* extra,
                     void* shadows, float* a_pos, float* a_rec, float* a_tl, uint8_t* a_extra, int32_t* out) {
-  zfix::options().bugs = false;  // the original's path
   pm::zmod::ClipPoly p;
   p.pos = pos, p.rec = rec, p.tl = tl, p.extra = extra, p.flags = flags, p.count = count;
   // The exe's record (0x2358 bytes) to the port's growing sets, and back after.

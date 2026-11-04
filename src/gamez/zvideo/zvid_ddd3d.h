@@ -1,5 +1,6 @@
 #pragma once
 #include <cstdint>
+#include <vector>
 
 #include "platform/render3d.h"
 
@@ -64,9 +65,10 @@ struct OverlayPoly {               // 0x008dfc9c, 0x80c bytes each
 struct OverlayList {
   static constexpr int32_t kMax = 0x180;  // ZVID_MAX_OVERWRITE_POLYS
   static constexpr int32_t kMaxPm = 0xbb8;  // Pirate's Moon's (0x0059e535)
-  int32_t limit = kMax;            // set by Pirate's Moon's start
+  int32_t limit = kMax;            // set_limit
   int32_t count = 0;               // 0x00809318
-  OverlayPoly polys[kMaxPm] = {};  // 0x008dfc9c
+  std::vector<OverlayPoly> polys = std::vector<OverlayPoly>(kMax);  // 0x008dfc9c
+  void set_limit(int32_t n) { limit = n, polys.resize(static_cast<size_t>(n)); }
 };
 OverlayList& overlay_list();
 

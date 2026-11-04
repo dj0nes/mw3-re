@@ -830,16 +830,18 @@ functions PM changed, and PM's new ones.
        the near test's tolerances, a case with extreme inputs may end with
        another vertex count (2 in 7,500). Past 64 vertices the port alone,
        `pm_clip2d_keeps_large_polygons_whole`. Breaks, 22 of 22.
-     - **Do polygons past 64 reach the clippers?** One, narrowly. The eight
-       largest in c1 (313 and 198 vertices, flag 0x4000, which the draw never
-       reads) are the flat `inout` boundary areas, which PM deletes at mission
-       load as MW3 does (`0x4cddb0`, MW3's `0x4c3930`, render.md 6a), so they are
-       never drawn. Outside `inout` the largest is 64 (`g3860`, c1; none past it
-       in any of the four worlds). A 64-vertex polygon losing exactly one corner to the
-       near plane makes 65: on the exe's clippers in the emulator the two
-       textured paths then fault on a pointer the 65th vertex overwrote
-       (0x6887d0), and the other four write past the scratch silently. So the
-       fix guards a real but rare fault; not seen in play.
+     - **Do polygons past 64 reach the clippers?** No. All 27 past 64 in the four worlds' models
+       (c1 8 nodes of 313, 198 and 113 corners, `g5351`..; c2 6 of 189, `g2012`..; c3 6 of 231,
+       `g5380`..; c4 5 of 104, `g6114`..; plain polygons, flat at y = 0, each under `inout`/`inoutmN`)
+       are the `inout` boundary areas, which PM deletes at mission load as MW3 does (`0x4cddb0`,
+       MW3's `0x4c3930`, render.md 6a): never drawn. Outside `inout` the largest is 64, and all 19
+       of 49 to 64 corners are strips (`g3860`, c1), which `split_strips` makes triangles before a
+       clipper sees them when they need clipping, and which otherwise draw whole, unclipped.
+       The largest plain polygon that draws has at most 48. Corrected 2026-11-04: an earlier note
+       here feared a 64-corner polygon near-cut to 65. On the exe's clippers in the emulator a
+       65th vertex does fault (the two textured paths, a pointer overwritten at 0x6887d0; the other
+       four write past the scratch silently), but no shipped data reaches them with one. The fix
+       stays as a guard.
      - **For the zones (the lead, from W58, not on main yet):** in MW3 an AI
        mech's ski and collision queries honour the zones in the camera's view,
        so a lancemate in another zone loses the floor under him (0x476a30, zone
@@ -972,13 +974,9 @@ functions PM changed, and PM's new ones.
        sum and normal must match exactly at both precisions. It found the sum's order wrong in the
        port ((z+y)+x; the exe (x+y)+z), which a polygon-level compare hid, since it flips a polygon
        only on a tie. The exe stores e0x and e0y; the rest stay on the x87's stack, so double at 53.
-       **Large polygons.** In the four worlds' models: 19 of 49 to 64 corners, 27 of over 64 (313 the
-       largest). The exe's clippers hold 64 corners on its stack, a set too. A draw clips only if
-       corners + 2 per active plane stays within 64 (no shipped polygon is known to gain more), else
-       runs with no planes, and then counts only if every vertex is on screen; over 64 corners also
-       has no sets. Left uncovered: clipping polygons of 55 to 64 with all planes (and 63, 64 with
-       any), everything clipped over 64, and sets over 64. The port is unbounded there (fixes.md).
-       `test_pm_submit.py` reaches c1 and c3 only.
+       **Large polygons.** Every drawn node is compared, with every plane mask, in all four worlds
+       (c1, c2 at 24 bits, c3, c4 at 53); only the 27 `inout` polygons past 64 corners are left out,
+       which never draw (below). The 49 to 64 ones are strips, so nothing clips them whole.
        Two allowances, both at 53 bits only, both counted in the test's last line. **A flat mesh
        edge-on:** with the camera in its plane, facing is the rounding of a sum near 0 and the
        polygons passing differ (the exe's sums are double, ours float); allowed only when every
@@ -988,7 +986,7 @@ functions PM changed, and PM's new ones.
        the vertex. At 24 bits neither fires. Not chased (the lead, 2026-11-04): play-accurate, and
        the port's float is the same step at 24 bits. One exception at either precision: **a near
        cut under sets**, 0x54a6f0, leaves its fog to the arena (fixes.md), so the fog word of a
-       vertex on the near plane is not compared there.
+       polygon with a corner on the near plane is not compared there.
      - **The device side** (`pm/gamez/zvideo/zvid_tl`, the shared flushes; `test_pm_device.py`).
        The exe's 0x59d450, 0x59de30, 0x59e500, 0x59e830, 0x59eb60, 0x5a0060, 0x5a0390, 0x5a0f30,
        0x5a0ea0 and flushes 0x59f550, 0x59f9e0 run against a Direct3D stub that keeps the state
@@ -1020,6 +1018,46 @@ functions PM changed, and PM's new ones.
        `test_shadow_image`, `test_puffers` pass. Overlays over 64 corners go on as fans (FIX bug;
        the exe overruns); not compared. Points still take MW3's `draw_point`; PM's 0x59ee90 batches
        them (0x59f8a0): not ported yet, an eye-check item. `draw_unlit` is gone.
+       **The view: who sets it (closed 2026-11-04).** PM's `0x548990` and `0x53b730` read as MW3's
+       `0x526e10` and `0x521c60`, field for field: camera +0xb0 near, +0xb4 far, the window's origin
+       and size (or the screen's), `0x53b730(x, y, w/2, h/2, +0x1d4, +0x1d8, near, far)`; cx, cy =
+       origin + half; fx, fy = cot * half / near; the slopes [0x8d43a4], [0x8d43a8] are the two cots;
+       under Direct3D the clip rect is x, y, x + w + 0.001, y + h + 0.001 ([0x5e2b60] is +0.001), the
+       points' rect x + w - 0.001. So the shared setter (`gmod_init`, camera +0x1d4 at the same
+       place) is PM's, and `draw_pm_model` copies its rect rather than working one out. The debug
+       start's stubs do not feed it but for the far clip's value.
+       **Which way CW cuts.** 0x5467a6 pushes 2 to 0x59b870, SetRenderState(22, ..): CULLMODE
+       D3DCULL_CW, which drops triangles running clockwise on screen, screen y running down (a
+       positive cross product); a strip's odd triangles count reversed. `draw` here keeps the rest.
+       Screen y grows with camera y (fy positive), and the exe's facing test keeps d < 0 on the same
+       points; `test_pm_device.py`'s `winding_agrees` checks the two keep the same triangles.
+     - **The 24-bit audit (2026-11-04).** Each draw test forced to 24 bits (`PM_24=1` for those with
+       a 53-bit half), every field by distance in float steps. Bit for bit now, and held there
+       (tolerance 0 at 24 bits): `test_pm_bake`, `test_pm_model_lights`, `test_pm_lighting`'s colours and
+       lit values, `test_pm_sets`' positions, set u, v and colours and the records' other words,
+       `test_pm_projected` whole, `test_pm_submit`'s vertices and sets. What moved them: PM's compiler sums
+       three terms as (x + y) + z, and the port had (z + y) + x in `face`, `dot`, the light's distance (point,
+       spot, bake, reach) and the light map's along, u, v. Breaks catch the facing sum, `dot`, the point and
+       spot distances, along and v. The rest are read from the asm or by pattern: the bake's sum and u (asm;
+       u's axis has a zero term, so no test can tell), the reach distance (0x537a50's sum not read to its
+       end, the same compiler; it only meets a range compare).
+       Not bit for bit, with the reason:
+       - **Fog factors** (`test_pm_lighting`'s fog 62 to 96% exact on fogged polygons, the +0x10 word in
+         `test_pm_sets`, the records' `data`; off by up to 3,424 steps on a value of 0.00096): shared
+         `fog_vertices` keeps double, as the x87 does at 53 bits in play, and the exe's steps round at 24.
+         Tried: float steps at 24 bits made every plain fogged polygon exact (the rest went exact after the
+         order fixes), so that is the whole cause. Not kept: MW3's `test_fogsort` runs the original at
+         extended precision, and a test-only branch in code MW3 ships is not worth it. The fog fields keep
+         tolerance 2e-4; the specular byte may be 1 off.
+       - **The facade's models** (`test_pm_records` positions 75 to 94% exact, `test_pm_modeldraw` 97.4%
+         overall): shared `facade_turn` and its trig. **Not traced further**; its order and the x87's
+         asin against the port's are the suspects. Worst 2e-4 relative, as before. Tolerance stays.
+       - `test_pm_records`' other kinds lose 0.01 to 0.13% of positions, near zero or at most 128 steps:
+         **unexplained**. The same draws in `test_pm_sets` and `test_pm_submit` are exact, so my guess is
+         a facade left on a node between draws; not checked.
+       `project_d3d` and `unproject_d3d`: not on PM's path. `src/pm` calls neither; it has `project_point`,
+       `project_records` and `gmod_projected`'s local unprojection, each in PM's order. Their users are
+       MW3's draws (`gamez/zmodel/gmod_draw`, `gmod_light`).
      - Order from here. The light map's shader (`draw_light_map`).
 3. **The mission**: load, setup and the world parameters (`mission.cpp`
    114 new, 14 of the port's changed), the standalone missions

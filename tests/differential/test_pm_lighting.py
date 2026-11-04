@@ -26,7 +26,8 @@ import test_pm_zar  # noqa: E402
 LIT_END = 0x544ae2
 MASK_P, ANY, COUNT, LIST = 0xa4e0d8, 0xa4d014, 0xa4d01c, 0xa4d024
 CLOUDS, SCALE, U, V, AMP, BASE, TINT_W = 0x612e18, 0x612e20, 0x612e34, 0x612e38, 0x612e28, 0x612e24, 0xa4e08c
-TOL, ROUNDING = 2e-4, 0.002
+TOL, ROUNDING = 0.0, 0.0  # bit for bit at 24 bits (the 24-bit audit, pm-map.md)
+FOG_TOL, FOG_ROUNDING = 2e-4, 0.002  # the fog's factors: shared fog_vertices keeps double, the exe's steps round
 seen_bakes = [0]
 
 
@@ -258,7 +259,7 @@ def main():
                         continue
                     for k in range(4):
                         x, y = struct.unpack_from('<f', want, at)[0], struct.unpack_from('<f', got, at)[0]
-                        if not same_float(x, y, stats, TOL, 'rgb' if k < 3 else 'fog', ROUNDING):
+                        if not same_float(x, y, stats, TOL if k < 3 else FOG_TOL, 'rgb' if k < 3 else 'fog', ROUNDING if k < 3 else FOG_ROUNDING):
                             raise SystemExit(f'{w} draw {d} node {i} poly {a[0]} vertex {v}.{k}: {y}, the exe {x}; flags {a[2]:#x}, '
                                              f'lights {[hex(struct.unpack_from("<I", q, 0xe0)[0]) for q in blobs]}, needs {head[0]:#x}, clouds {cl[0]}, fog {fog}')
                         at += 4

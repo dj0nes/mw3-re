@@ -7,6 +7,7 @@ shipped default; projected triangles have their own test (test_pm_projected.py).
     .venv/bin/python -P tests/differential/test_pm_submit.py [draws per world]
 """
 import ctypes
+import os
 import random
 import struct
 import sys
@@ -128,15 +129,6 @@ def model_span(emu, node):
     return max(max(v[a::3]) - min(v[a::3]) for a in range(3))
 
 
-def all_on_screen(calls, rect):
-    for c in calls:
-        for k in range(c[1]):
-            x, y, z, w = struct.unpack_from('<4f', c[4], k * 32)
-            if w <= 0 or not (rect[0] <= x <= rect[2] and rect[1] <= y <= rect[3]):
-                return False
-    return True
-
-
 def on_side(tl, rect):
     x, y = struct.unpack_from('<2f', tl)
     return min(abs(x - rect[0]), abs(x - rect[2]), abs(y - rect[1]), abs(y - rect[3])) < 1e-3
@@ -160,6 +152,7 @@ def compare_floats(a, b, stats, where, msg):
 
 
 def main():
+    global TOL, ROUNDING
     draws = int(sys.argv[1]) if len(sys.argv) > 1 else 1500
     p = test_pm_zar.load_pm_probe()
     F, V, I, U = ctypes.c_float, ctypes.c_void_p, ctypes.c_int, ctypes.c_uint32
@@ -189,11 +182,12 @@ def main():
     buf = ctypes.create_string_buffer(1 << 24)
     md.Emulated.probe = p
     rng = random.Random(0x546000)
-    stats, seen, edge_on, cuts, worst, unclipped, off_screen, projected_draws, unfogged, faces = Stats(), {}, 0, 0, 0.0, 0, 0, 0, 0, 0
-    for w in ('c1', 'c3'):
+    stats, seen, edge_on, cuts, worst, large_draws, projected_draws, unfogged, faces = Stats(), {}, 0, 0, 0.0, 0, 0, 0, 0
+    for w in ('c1', 'c2', 'c3', 'c4'):
         path = g.ZBD / w / 'gamez.zbd'
         emu = Emulated(path)
-        fpu53 = 1 if w == 'c3' else 0
+        fpu53 = 1 if w in ('c3', 'c4') and not os.environ.get('PM_24') else 0
+        TOL, ROUNDING = (2e-4, 0.05) if fpu53 else (0.0, 0.0)  # 24 bits: bit for bit (the audit, pm-map.md)
         emu.cpu.fpu_control(0x027f if fpu53 else 0x007f)
         assert p.probe_pm_draw_load(str(path).encode()) == 0
         nodes, large, corners = [], [], {}
@@ -202,7 +196,13 @@ def main():
             model = struct.unpack_from('<I', r, 0x3c)[0]
             if struct.unpack_from('<I', r, 0xd0)[0] & 0x1000000 and model and emu.i32(model + 0x10) > 0 and emu.i32(model) == 0:
                 polys = emu.i32(model + 0x34) & 0xffffffff
-                corners[i] = max(emu.i32(polys + q * 0x28) & 0x3ff for q in range(emu.i32(model + 0x10)))
+                flags = [emu.i32(polys + q * 0x28) for q in range(emu.i32(model + 0x10))]
+                # Over 64 corners are the `inout` areas alone, deleted at mission load and never
+                # drawn (0x4cddb0, pm-map.md); the exe's clippers would overrun. The largest of
+                # the rest are strips, which become triangles before any clipper sees them.
+                if any(f & 0x3ff > 64 and not f & 0x2000 for f in flags):
+                    continue
+                corners[i] = max(f & 0x3ff for f in flags)
                 nodes.append(i)
                 if corners[i] > 48:
                     large.append(i)
@@ -214,7 +214,7 @@ def main():
             i = rng.choice(large) if large and rng.random() < 0.1 else rng.choice(nodes)
             world, cam, proj, *_ = scenario(rng, (0, 0, 0), 50.0)
             near = proj[6]
-            rect = (proj[0], proj[1], proj[0] + proj[2] * 2 - 0.001, proj[1] + proj[3] * 2 - 0.001)
+            rect = (proj[0], proj[1], proj[0] + proj[2] * 2 + 0.001, proj[1] + proj[3] * 2 + 0.001)  # 0x548a4b
             emu.view(cam, proj, near, rect, 0.0)
             emu.cpu._uc.mem_write(RECT_P, fbits(rect[0], rect[1], near))
             emu.cpu._uc.mem_write(0x8d4b24, fbits(rect[2], rect[3]))
@@ -239,10 +239,10 @@ def main():
             for _ in range(rng.randint(1, 4) if projected else rng.randint(0, 4)):
                 b = bytearray(lit.make_light(rng, cp))
                 fl = struct.unpack_from('<I', b, 0xe0)[0] & ~0x40
-                if corners[i] > 64:
-                    fl &= ~0x80  # no map lights: a set holds 64 corners in the exe
                 if projected:
-                    fl |= 0x10 | 0x40
+                    # No map lights: a first set's split colours are leftovers on both sides
+                    # (0x562120, fixes.md; test_pm_projected.py has that case).
+                    fl = (fl | 0x10 | 0x40) & ~0x80
                     far = rng.uniform(40, 300)
                     near_l = far * rng.choice((0.0, 0.2, 0.7))
                     struct.pack_into('<5f', b, 0xe4, near_l, far, near_l * near_l, far * far, 1.0 / max(far - near_l, 0.01))
@@ -250,7 +250,7 @@ def main():
                 blobs.append(bytes(b))
             emu.lights(blobs, 0, 0.1, 0, 0, 0, 1, 0.0)
             p.probe_pm_lights(len(blobs), b''.join(blobs) or None, 0, 0.1, 0, 0, 0, 1, 0.0)
-            casters = [sets.make_caster(rng, world[9:]) for _ in range(rng.choice((0, 0, 2, 5)) if corners[i] <= 64 else 0)]
+            casters = [sets.make_caster(rng, world[9:]) for _ in range(rng.choice((0, 0, 2, 5)))]
             for k, c in enumerate(casters):
                 a = emu.alloc(0x8c)
                 emu.cpu._uc.mem_write(a, c)
@@ -276,11 +276,6 @@ def main():
                 emu.w32(record, image), emu.w32(mat + 0x10, record)
                 p.probe_pm_material_alpha(i, alpha_ref, 1)
             mask = rng.choice((0, 0x3f, 0x10, 0x0f, 0x1f))
-            # The exe's clippers hold 64 corners, on its stack: past that it overruns (fixes.md).
-            # Each plane adds a corner to a convex polygon, so stay where that cannot pass 64.
-            forced = corners[i] + bin(mask & 0x1f).count('1') * 2 > 64
-            if forced:
-                mask = 0
             emu.draw_node(i, world, mask)
             n = p.probe_pm_submit(i, (F * 12)(*world), mask, fpu53, (F * 4)(*rect), overlay, buf, len(buf))
             if alpha_ref is not None:
@@ -297,11 +292,7 @@ def main():
             faces += len(emu.faces)
             emu.faces = []
             what = f'{w} draw {d} node {i} mask {mask:#x} fade {fade} overlay {overlay}'
-            if forced:  # unclipped: means something only if nothing needed clipping, as in play
-                if not (all_on_screen(ours, rect) and all_on_screen(emu.calls, rect)):
-                    off_screen += 1
-                    continue
-                unclipped += 1
+            large_draws += corners[i] > 48
             if fpu53 and [c[:2] for c in ours] != [c[:2] for c in emu.calls] and covers_nothing(ours) and covers_nothing(emu.calls):
                 edge_on += 1
                 continue
@@ -330,10 +321,11 @@ def main():
                     da, db = struct.unpack_from('<I', at, 16)[0], struct.unpack_from('<I', bt, 16)[0]
                     sa, sb = struct.unpack_from('<I', at, 20)[0], struct.unpack_from('<I', bt, 20)[0]
                     slack = 1 if fpu53 else 0
-                    if a[0] == 5 and mask & 0x10 and abs((sa >> 24) - (sb >> 24)) > slack and struct.unpack_from('<f', at, 8)[0] == 1.0:
-                        unfogged += 1  # a near cut under sets: 0x54a6f0 leaves its fog to the arena, fixes.md
+                    if a[0] == 5 and mask & 0x10 and abs((sa >> 24) - (sb >> 24)) > 1 and any(
+                            struct.unpack_from('<f', a[4], q * 32 + 8)[0] == 1.0 for q in range(a[1])):
+                        unfogged += 1  # a polygon near cut under sets: 0x54a6f0 leaves its fog to the arena, fixes.md
                         sa = sb
-                    if any(abs((da >> s & 255) - (db >> s & 255)) > slack for s in (24, 16, 8, 0)) or abs((sa >> 24) - (sb >> 24)) > slack:
+                    if any(abs((da >> s & 255) - (db >> s & 255)) > slack for s in (24, 16, 8, 0)) or abs((sa >> 24) - (sb >> 24)) > 1:  # the fog: shared fog_vertices keeps double
                         raise SystemExit(f'{what} call {k} {NAMES[a[0]]} vertex {v}: diffuse, specular {db:#x}, {sb:#x}; the exe {da:#x}, {sa:#x}')
                 if a[6] != b[6]:
                     raise SystemExit(f'{what} call {k}: {b[6]} sets, the exe {a[6]}')
@@ -341,7 +333,7 @@ def main():
                     if len(a[5]) != len(b[5]):
                         raise SystemExit(f'{what} call {k}: sets {len(b[5])} bytes, the exe {len(a[5])}')
                     compare_floats(a[5], b[5], stats, 'sets', f'{what} call {k} sets')
-    print(f'ok: {stats.floats} floats, {stats.exact} exact, off by place {stats.where}; {dict(sorted(seen.items()))}; edge-on draws allowed: {edge_on}; side cuts allowed: {cuts}, largest {worst:.3f} px; large draws on screen with no clip: {unclipped}, skipped off screen: {off_screen}; under projected lights: {projected_draws}; near cuts with stale fog: {unfogged}; {faces} facing tests bit for bit')
+    print(f'ok: {stats.floats} floats, {stats.exact} exact, off by place {stats.where}; {dict(sorted(seen.items()))}; edge-on draws allowed: {edge_on}; side cuts allowed: {cuts}, largest {worst:.3f} px; draws of over 48 corners: {large_draws}; under projected lights: {projected_draws}; near cuts with stale fog: {unfogged}; {faces} facing tests bit for bit')
     if len(seen) < 6:
         raise SystemExit('too few kinds of call')
 

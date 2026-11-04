@@ -13,6 +13,7 @@ With `fixed` the bug fix is on, and a first light map set's colours at a polygon
 and splits must differ from the exe's: the test then ends on that difference.
 """
 import ctypes
+import os
 import math
 import random
 import struct
@@ -116,6 +117,7 @@ def picture_apart(exe, ours, rect):
 
 
 def main():
+    global TOL, ROUNDING
     polygons = int(sys.argv[1]) if len(sys.argv) > 1 else 4000
     p = test_pm_zar.load_pm_probe()
     F, V, I, U = ctypes.c_float, ctypes.c_void_p, ctypes.c_int, ctypes.c_uint32
@@ -149,7 +151,8 @@ def main():
             nodes.append(i)
     stats, seen, ties = Stats(), {}, []
     for d in range(polygons):
-        bits53 = int(d >= polygons // 2)  # the second half at 53 bits
+        bits53 = int(d >= polygons // 2 and not os.environ.get('PM_24'))  # the second half at 53 bits
+        TOL, ROUNDING = (2e-4, 0.01) if bits53 else (0.0, 0.0)  # 24 bits: bit for bit (the audit, pm-map.md)
         if d == 0 or d == polygons // 2:
             emu.cpu.fpu_control(0x027f if bits53 else 0x007f)
         p.probe_pm_set_fpu53(bits53)

@@ -236,7 +236,7 @@ int32_t lights_reaching(const float centre[3], float radius) {
     } else {
       const float* p = e.data->floats(0x78);
       const float x = p[0] - centre[0], y = p[1] - centre[1], z = p[2] - centre[2];
-      d = std::sqrt(z * z + y * y + x * x);  // 0x00537a50
+      d = std::sqrt(x * x + y * y + z * z);  // 0x00537a50
     }
     if (!(d - radius < e.data->get<float>(0xb8)) && !(f & 8)) continue;  // PM +0xe8
     e.reach = 1;
@@ -440,9 +440,9 @@ float lp(const ::zcls::Light* l, int off) {
 }
 uint32_t lflags(const ::zcls::Light* l) { return l->get<uint32_t>(0xb0); }
 float dot(const float* a, const ::zcls::Light* l) {
-  const float z = a[2] * lp(l, 0x98), y = a[1] * lp(l, 0x94), x = a[0] * lp(l, 0x90);
-  const float s = z + y;
-  return s + x;
+  const float x = a[0] * lp(l, 0x90), y = a[1] * lp(l, 0x94), z = a[2] * lp(l, 0x98);
+  const float s = x + y;
+  return s + z;
 }
 float clamp255(float v) {
   if (v <= 255.0f) return v < 0.0f ? 0.0f : v;
@@ -553,7 +553,7 @@ int shade_polygon(Record& r, const float* baked, uint32_t needs) {
           if (e->full == 0) {
             const float* p = pos + i * 3;
             const float x = lp(l, 0x78) - p[0], y = lp(l, 0x7c) - p[1], z = lp(l, 0x80) - p[2];
-            const float d2 = z * z + y * y + x * x;
+            const float d2 = x * x + y * y + z * z;
             if (!(d2 < lp(l, 0xf0))) continue;
             if (lp(l, 0xec) <= d2) k = range(l, std::sqrt(d2)) * base;
           }
@@ -592,7 +592,7 @@ int shade_polygon(Record& r, const float* baked, uint32_t needs) {
         float to[3] = {lp(l, 0x78) - p[0], lp(l, 0x7c) - p[1], lp(l, 0x80) - p[2]};
         float dist = 0.0f;
         if (e->full == 0) {
-          const float d2 = to[2] * to[2] + to[1] * to[1] + to[0] * to[0];
+          const float d2 = to[0] * to[0] + to[1] * to[1] + to[2] * to[2];
           if (!(d2 < lp(l, 0xf0))) continue;
           dist = std::sqrt(d2);
           const float inv = 1.0f / dist;  // 0x00537b60
@@ -916,7 +916,7 @@ void bake_static_light(Model& m) {
       lit = term(factor, l);
       const auto measure = [&](const float* v) {
         to[0] = lp(l, 0x78) - v[0], to[1] = lp(l, 0x7c) - v[1], to[2] = lp(l, 0x80) - v[2];
-        const float d2 = to[2] * to[2] + to[1] * to[1] + to[0] * to[0];
+        const float d2 = to[0] * to[0] + to[1] * to[1] + to[2] * to[2];
         dist = d2;
         if (!(d2 < lp(l, 0xf0))) return false;
         if (spot) {
@@ -1152,7 +1152,7 @@ void light_map_sets(RefPass& ref) {
       const float* n3 = r.normal;
       const float d0 = lz - r.pos[2], d1 = ly - r.pos[1], d2 = lx - r.pos[0];
       to[0] = d2, to[1] = d1, to[2] = d0;
-      const float along = n3[2] * d0 + n3[1] * d1 + n3[0] * d2;
+      const float along = n3[0] * d2 + n3[1] * d1 + n3[2] * d0;
       const float dist = along < 0.0f ? -along : along;
       if (!(dist < lp(l, 0xe8))) continue;
       const float k = 0.5f / std::sqrt(lp(l, 0xf0) - dist * dist);
@@ -1169,8 +1169,8 @@ void light_map_sets(RefPass& ref) {
       uint32_t seen = 0;
       for (int32_t i = 0; i < n; ++i) {
         float* t = &to[static_cast<size_t>(i) * 3];
-        const float u = t[2] * uax.z + t[1] * uax.y + t[0] * uax.x;
-        const float v = t[2] * vax[2] + t[1] * vax[1] + t[0] * vax[0];
+        const float u = t[0] * uax.x + t[1] * uax.y + t[2] * uax.z;
+        const float v = t[0] * vax[0] + t[1] * vax[1] + t[2] * vax[2];
         t[0] = u, t[1] = v;
         if (double{u} >= -0.5) seen |= 1;
         if (double{u} <= 0.5) seen |= 2;
