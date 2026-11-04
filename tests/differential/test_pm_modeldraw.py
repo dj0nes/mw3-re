@@ -95,6 +95,25 @@ class Emulated(g.Emulated):
         return out
 
 
+def turn_cosine(world, centre, view):
+    """The cosine between the two vectors 0x538a50 builds its turn from (MW3's
+    0x51efb0: u, the top's y row, to d, its negated-x translation, after the sphere
+    facade's sign flips). Near -1 the quaternion between them is ill-conditioned."""
+    v = struct.unpack('<12f', view)
+    w = list(world)
+    for j in range(3):  # the centre, into the matrix below
+        w[9 + j] += centre[0] * w[j] + centre[1] * w[3 + j] + centre[2] * w[6 + j]
+    m = [0.0] * 12
+    for r in range(4):
+        for j in range(3):
+            m[3 * r + j] = sum(w[3 * r + k] * v[3 * k + j] for k in range(3)) + (v[9 + j] if r == 3 else 0.0)
+    for k in (1, 2, 4, 5, 7, 8):
+        m[k] = -m[k]
+    d, u = (-m[9], m[10], m[11]), (m[3], m[4], m[5])
+    nd, nu = sum(x * x for x in d) ** 0.5, sum(x * x for x in u) ** 0.5
+    return sum(a * b for a, b in zip(u, d)) / (nd * nu) if nd and nu else 1.0
+
+
 def compare(want, got, stats, tol):
     if len(want) != len(got):
         return f'{len(got)} bytes, the exe {len(want)}'
@@ -135,7 +154,7 @@ def main():
     buf = ctypes.create_string_buffer(1 << 22)
     Emulated.probe = p
     rng = random.Random(0x542a70)
-    stats, kinds = Stats(), {}
+    stats, kinds, degenerate = Stats(), {}, 0
     for w in ('c1', 'c3'):
         path = g.ZBD / w / 'gamez.zbd'
         emu = Emulated(path)
@@ -200,15 +219,12 @@ def main():
             n = p.probe_pm_prepare(i, wm, buf, len(buf))
             assert n >= 0
             tol = FACADE_TOL if emu.i32(model) == 1 else TOL
-            if any(want[104:116]):
-                # A centre far from the origin with the camera near it: the top's
-                # translation is a small difference of large sums, so a last bit
-                # (2^-23 of the centre) grows by their ratio. The centre itself is
-                # compared bit for bit. Measured: 93% of these floats are exact.
-                big = max(abs(v) for v in struct.unpack_from('<3f', want, 104))
-                t = struct.unpack_from('<3f', want, 44)
-                near_t = max(max(abs(v) for v in t), 1e-3)
-                tol = max(tol, 16 * 2 ** -23 * big / near_t)
+            # A sphere facade whose two vectors are opposite (a camera on the node,
+            # the centre along its y): rounding alone picks the turn, and any is
+            # valid. Only there, and counted.
+            if emu.i32(model) == 1 and emu.i32(model + 4) == 1 and \
+                    turn_cosine(world, struct.unpack_from('<3f', want, 104), emu.read(VIEW, 48)) < -0.9999:
+                tol, degenerate = 0.05, degenerate + 1
             problem = compare(want, buf.raw[:n], stats, tol)
             if problem:
                 print(f'{w} draw {d} node {i} {kind}: {problem}')
@@ -216,6 +232,7 @@ def main():
                     print('exe ', struct.unpack_from('<12f', want, 8))
                     print('port', struct.unpack_from('<12f', buf.raw, 8))
                     print('type, mode', emu.i32(model), emu.i32(model + 4), 'world', world[:3], world[9:], 'cam', cam[9:])
+                    print('turn cosine', turn_cosine(world, struct.unpack_from('<3f', want, 104), emu.read(VIEW, 48)))
                 sys.stdout.flush()
                 os._exit(1)
             for off, v in saved.items():
@@ -223,7 +240,7 @@ def main():
             emu.w32(model + 0x44, saved_m)
             if kind == 'morph':
                 p.probe_pm_set_morphs(i, b'', 0)
-    print(f'ok: {draws * 2} draws identical; {stats.floats} floats, {stats.exact} bit-identical, worst {stats.worst:.2g}; {kinds}')
+    print(f'ok: {draws * 2} draws identical; {stats.floats} floats, {stats.exact} bit-identical, worst {stats.worst:.2g}; {degenerate} with opposite vectors; {kinds}')
     sys.stdout.flush()
     os._exit(0)
 

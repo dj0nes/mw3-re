@@ -799,10 +799,11 @@ functions PM changed, and PM's new ones.
        the default flag, the stack's top and the one below, the points and the
        camera-space vertices, editing the data for what shipped data lacks. Points
        past a shorter morph list are the last draw's, on both sides, so the test
-       morphs them all. About 93% of the matrix floats are bit-identical and the worst
-       differs by about 1e-6, except a facade about a centre thousands of units out
-       with the camera near it, where the tolerance grows with their ratio (no
-       shipped model has flag 0x40); the centre itself is compared bit for bit.
+       morphs them all. The centre is compared bit for bit, and about 93% of the
+       matrix floats are bit-identical. One exception: a sphere facade whose two
+       vectors are opposite (a camera exactly on the node, the centre along its y),
+       where rounding alone picks the turn; only there the tolerance is 5%, and the
+       test counts them.
        Breaks, 14 of 14. Emulator only.
      - Order from here: the option's state; the other helpers in groups,
        each with the setters it first reads; then `0x543b10` by call trace, as
