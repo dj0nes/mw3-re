@@ -9,6 +9,11 @@ Install it over 1.0 or 1.0.1: your pilots, saves and settings are kept.
   such as jump jet flames and weapon fire. A mech now glows when its jets
   fire or its guns flash, as the original's code does. If you were used to
   1.0.1, fights and jumps will look a little brighter.
+- **Undefined colour in a new picture.** A rebuild bug: when the picture
+  changed size during a mission, the parts of the screen nothing draws on
+  could show random memory until something covered them. They now start
+  black. Nobody has reported seeing this; it turned up while working on
+  another part of the game.
 
 ## Still known
 
