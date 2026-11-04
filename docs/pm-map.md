@@ -616,16 +616,17 @@ functions PM changed, and PM's new ones.
        drove its UV arrays past 5 GB in 4 s, and a tree marked broken went on
        being read. Now the first break stops it and its model has no counts
        (ours, bounded only; the exe's path is unchanged and still identical).
-     - Breaks: 14 caught of 19, 5 not. MW3's version, the child count at
-       MW3's +0x5c, the box pointer, the LOD, colours always, UVs once, refs
-       not skipped, normals without +0xc (it took a polygon with flag 0x1000
-       and +0xc 0), the second material, flag bits 0-1, the parent, no sort,
-       cycled grouped as others, and the reader's stop after a broken polygon
-       and before a broken count's UVs (5 of these by the fuzz or the whole
-       test, or a crash in the probe's dump of a refused model). Not caught,
-       each with its reason: the one-ref shortcut (the regroup gives the same
-       order), the alloc's flags 3 (the only caller replaces the header), and
-       allocating before the check (calloc is lazy on the Mac: no memory seen).
+     - Breaks: 15 caught of 18. MW3's version, the child count at MW3's
+       +0x5c, the box pointer, the LOD, colours always, UVs once, refs not
+       skipped, normals without +0xc (it took a polygon with flag 0x1000 and
+       +0xc 0), the second material, flag bits 0-1, the parent, no sort,
+       cycled grouped as others; the fuzz catches the reader's stop before a
+       broken count's UVs (over 2 GB) and after a broken polygon. Refs not
+       skipped and the parent crash the probe's dump, which counts as caught.
+       Not caught, each with its reason: the one-ref shortcut (the regroup
+       gives the same order), the alloc's flags 3 (the only caller replaces
+       the header), allocating before the check (calloc is lazy on the Mac:
+       no memory seen; kept, as MW3's reader does).
 2. **The world**: the light maps and lighting (`gmod_matl.c` 39 new; PM
    drops MW3's fog), `cls_clutter.cpp` (32 new), the world class
    (`cls_world.c` 20 new), the script interpreter's new commands (the
