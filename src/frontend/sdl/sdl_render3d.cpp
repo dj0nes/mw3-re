@@ -351,7 +351,8 @@ bool SdlRender3D::ensure_frame() {
   ti.width = w, ti.height = h, ti.layer_count_or_depth = 1, ti.num_levels = 1;
   frame_ = SDL_CreateGPUTexture(dev_, &ti);
   frame_w_ = w, frame_h_ = h;
-  clear_pending_ = true;  // a new back buffer starts cleared
+  clear_pending_ = true;  // depth: a new back buffer's starts cleared
+  frame_new_ = true;      // colour too, even with the colour clear off (end_scene)
   return frame_ != nullptr;
 }
 
@@ -380,8 +381,13 @@ void SdlRender3D::end_scene() {
   ensure_depth(w, h);
   SDL_GPUColorTargetInfo ct{};
   ct.texture = frame_;
-  ct.clear_color = {clear_rgb_[0], clear_rgb_[1], clear_rgb_[2], 1};
-  ct.load_op = clear_pending_ && clear_color_ ? SDL_GPU_LOADOP_CLEAR : SDL_GPU_LOADOP_LOAD;
+  // A new back buffer starts black even with the colour clear off (a mission's): the pixels no
+  // draw reaches would show undefined memory.
+  const bool fill = clear_pending_ && clear_color_;
+  if (fill) ct.clear_color = {clear_rgb_[0], clear_rgb_[1], clear_rgb_[2], 1};
+  else ct.clear_color = {0, 0, 0, 1};
+  ct.load_op = fill || frame_new_ ? SDL_GPU_LOADOP_CLEAR : SDL_GPU_LOADOP_LOAD;
+  frame_new_ = false;
   ct.store_op = SDL_GPU_STOREOP_STORE;
   SDL_GPUDepthStencilTargetInfo dt{};
   dt.texture = depth_, dt.clear_depth = 0;  // DEPTHFILL 0 (0x005777f0)
@@ -484,6 +490,7 @@ bool SdlRender3D::restore_frame() {
   if (!held_ || !ensure_frame() || held_w_ != frame_w_ || held_h_ != frame_h_) return false;
   copy_texture(dev_, held_, frame_, frame_w_, frame_h_);
   clear_pending_ = false;  // the next pass draws over it
+  frame_new_ = false;
   return true;
 }
 void SdlRender3D::drop_frame() {
