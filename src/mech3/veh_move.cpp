@@ -6,6 +6,7 @@
 #include "gamez/zclass/cls_di.h"
 #include "gamez/zweapon/zweapon.h"
 #include "gamez/zmodel/gmod_matl.h"
+#include "gamez/zutil/zfix.h"
 #include "gamez/zmath/zmth_matrix.h"
 #include "gamez/zmath/zmth_vector.h"
 #include "gamez/zmodel/gmod_cull.h"
@@ -142,7 +143,11 @@ void vehicle_support_step(float* y, float* vs, float ground, int32_t* air, float
     *air = 0;
     return;
   }
-  *vs = (ground - *y) * hk().frame_inv_dt();
+  // FIX (B): the ground's step over this frame launched the vehicle harder the
+  // shorter the frame; on frames under 1/30 s it counts as over a 1/30 s frame
+  // (vehicles.md, High frame rates).
+  const float inv = hk().frame_inv_dt();
+  *vs = (ground - *y) * (zfix::options().per_second && inv > zfix::kReferenceFps ? zfix::kReferenceFps : inv);
   *y = ground;
   *air = 0;
 }
