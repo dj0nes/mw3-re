@@ -41,6 +41,7 @@ probe.sw_camera_put.argtypes = [ctypes.c_int, ctypes.c_uint32]
 probe.sw_globals.argtypes = [ctypes.c_uint32, ctypes.c_float] + [ctypes.c_int] * 6
 probe.sw_casters.argtypes = [ctypes.POINTER(ctypes.c_int), ctypes.POINTER(ctypes.c_int),
                              ctypes.POINTER(ctypes.c_float), ctypes.c_int]
+probe.sw_light_edit.argtypes = [ctypes.c_uint32] + [ctypes.c_float] * 4
 probe.sw_render.argtypes = [ctypes.c_void_p, ctypes.c_int]
 probe.sw_render_subtree.argtypes = [ctypes.c_int, ctypes.c_int, ctypes.c_void_p, ctypes.c_int]
 probe.sw_hull.argtypes = [ctypes.POINTER(ctypes.c_float), ctypes.c_int]
@@ -128,6 +129,9 @@ class Walk(Emulated):
         m = struct.unpack('<12f', c.read(top, 48))
         self.events.append((1, self.node_index(c.ecx), c.edx, m, self.f32(0x74a26c), self.u32(0x74a268),
                             self.u32(0x74a264), self.u32(0x74a270), self.u32(0x60bc20)))
+        wd = self.u32(self.camera_world() + 0x38)
+        table = self.u32(wd + 0xa8)
+        self.events.append((8, tuple(self.u32(self.u32(table + 4 * i) + 0xb0) for i in range(self.u32(wd + 0xa0)))))
         return 0
 
     def hse(self, c):
@@ -263,6 +267,10 @@ def parse_port(raw):
             gx, gz, r, v = struct.unpack_from('<iifI', raw, i)
             ev.append((2, gx, gz, r, v))
             i += 16
+        elif kind == 8:
+            n, = struct.unpack_from('<I', raw, i)
+            ev.append((8, struct.unpack_from(f'<{n}I', raw, i + 4)))
+            i += 4 + 4 * n
         elif kind in (5, 7):
             n, = struct.unpack_from('<I', raw, i)
             ev.append((kind, struct.unpack_from(f'<{n}i', raw, i + 4)))
@@ -314,6 +322,9 @@ def compare(what, want, got):
         elif a[0] == 2:
             if a[1:3] != b[1:3] or a[4] != b[4] or not close(a[3], b[3]):
                 return f'{what}: hidden-surface call {k}: original {a[1:]} port {b[1:]}'
+        elif a[0] == 8:
+            if a != b:
+                return f'{what}: event {k}: lights\' flags, original {[hex(x) for x in a[1]]} port {[hex(x) for x in b[1]]}'
         elif a[0] in (5, 7):
             if a != b:
                 return f'{what}: caster list {k} (kind {a[0]}): original {a[1]} port {b[1]}'
@@ -424,6 +435,7 @@ def main():
     srng = random.Random(7310)  # the subtree passes' own, so the frames stay as before
     buf = ctypes.create_string_buffer(64 << 20)
     total_frames = total_draws = total_hse = 0
+    light_frames = 0
     cover = dict(wrapped=0, cells=0, casters=0, cell_casters=0, full_lists=0, far_kept=0, near=0, sides=0, zone_frames=0, clamped=0,
                  hidden=0, faded=0, overlay=0)
     boxes = 0
@@ -524,6 +536,18 @@ def main():
             probe.sw_casters((ctypes.c_int * max(1, len(casters)))(*[c[0] for c in casters]),
                              (ctypes.c_int * max(1, len(casters)))(*[c[1] for c in casters]),
                              (ctypes.c_float * max(1, len(flat)))(*flat), len(casters))
+            # A ranged light over part of the view, every third frame (0x4f6720's reach test).
+            ltable = emu.u32(wd + 0xa8)
+            if emu.u32(wd + 0xa0) and k % 3 == 0:
+                ld = emu.u32(ltable)
+                lf = emu.u32(ld + 0xb0) | 0x12
+                lp = (pos[0] + crng.uniform(-60, 60), pos[1], pos[2] + crng.uniform(-60, 60))
+                lr = crng.uniform(10, 200)
+                emu.cpu.u32(ld + 0xb0, lf)
+                emu.cpu.write(ld + 0x60, struct.pack('<3f', *lp))
+                emu.cpu.write(ld + 0xb8, struct.pack('<f', lr))
+                probe.sw_light_edit(lf, *lp, lr)
+                light_frames += 1
             emu.globals(frame, dt, hse, lod_dyn, shadows, zone_mode, virtual, cell_filter)
             probe.sw_globals(frame, dt, hse, lod_dyn, shadows, zone_mode, virtual, cell_filter)
             emu.cpu.call(SET_ROT, ecx=emu.camera, stack_args=tuple(f2u(v) for v in rot))
