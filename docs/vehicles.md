@@ -1881,3 +1881,37 @@ the new game keeps the cut store and the reduced base count. On a win, what
 a lost base cut is gone for good (campaign.md section 9). No sign in
 0x00458xxx..0x0045bxxx of repairs looking at the mechs carried: the store
 is touched only here and by the repair (above).
+
+## High frame rates: why a vehicle tips and hops (W57, mapped 2026-11-04)
+
+Reported on Reddit as APCs leaving the ground near the town in c1m2 on very fast
+machines. Measured on c1m2 (1.2 data, the player idle, 58 s, `--frame-ms`, the two
+APCs that drive), the largest tilt and vertical speed over both:
+
+| Frame | 40..20 ms | 16 ms | 8 ms | 6 ms | 4 ms | 3 ms | 2 ms |
+|---|---|---|---|---|---|---|---|
+| Tilt | up to 17 deg | 12 | 20 | **73** | 46 | 26 | **59** |
+| Vertical speed, m/s | up to 6.7 | 4.4 | 6.5 | 22.6 | 12.9 | 17.2 | 27.5 |
+
+**The cause.** A support on the ground takes its vertical speed from the step in
+the ground, `*vs = (ground - y) / dt` (`vehicle_support_step`, 0x004a2820). So the same small
+rise gives a speed that grows as the frame shortens: 0.2 m is 6 m/s at 33 ms and
+about 66 m/s at 3 ms. That speed goes into the body's pitch and roll rates and on
+the next frame can leave the support in the air. It is not the e^-x table this row
+first suspected: dividing by 30 changes nothing there.
+
+**Tried, no good: physics at a fixed 1/30 s** (accumulated steps in `vehicle_frame`, the
+controls still per frame). 6, 2 and 16 ms came out clean, but 8, 4 and 3 ms were
+worse: up to 77 deg and 65 m/s, in another place (near -1415 -1710, on a route no
+unstepped run took). Not understood; dropped, as the next one needs none of it.
+
+**Tried, works: the speed as a 30 fps frame's**, `(ground - y) * min(1/dt, 30)`.
+At 16, 8, 6, 5, 4, 3, 2 and 1 ms: tilt at most 11 deg, vertical speed at most 1.8
+m/s, both APCs still driving their usual distance. Identical at 30 fps and below,
+so the original's look is kept and W50b's hops near 30 fps do not apply.
+
+Not settled: other missions and vehicle types, a fight, a player near; this is one
+mission's first minute. Not seen on the exe at those frame rates; by the code
+(a ported, emulator-checked function) it does the same. Numbers come from a log,
+not from looking at it.
+
