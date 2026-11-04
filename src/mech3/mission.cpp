@@ -105,8 +105,8 @@ void Missions::block_name(int32_t n, char* out) {
 void Missions::open_readers(const char* name) {
   MissionHooks& h = *g_hooks;
   h.reader_open(format("zbd\\%s\\reader.zbd", name).c_str(), 0);
-  h.reader_set_path(format("..\\data\\common\\zrdr;..\\data\\common\\zrdr\\mechs;..\\data\\%s\\zrdr;..\\data\\%s\\zrdr\\%s",
-                           name, name, name).c_str());
+  h.reader_set_path(format("..\\data\\common\\zrdr;..\\data\\common\\zrdr\\mechs;..\\data\\%s\\zrdr;..\\data\\%s\\zrdr\\aipath",
+                           name, name).c_str());
   h.reader_add_path(format("..\\data\\%s\\zrdr\\aipath\\%s", name, h.game_key()).c_str());
 }
 
@@ -339,7 +339,11 @@ bool Missions::setup() {
     case 4:  // 3: multiplayer
       load_objectives();
       start_anim(format("start_multiplayer_m%d", number), "start_multiplayer");
-      if (h.mp_flag()) h.mp_stations(stations);  // not checked; PM's way goes with step 8
+      // The MCB stations when the pilot's +0xc4 says so (0x004938e0 and the way points): step 8.
+      if ((h.field32(h.pilot_mp_player(), 0xc4) & 0xff) && h.mp_mcbs()) {
+        h.progress_text("Setting up Multiplayer MCBs");
+        h.mp_stations(h.mp_mcbs());
+      }
       break;
     case 5:  // 4: training
       turrets();

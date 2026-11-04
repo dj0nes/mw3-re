@@ -1232,14 +1232,22 @@ functions PM changed, and PM's new ones.
      on `cell_fades`; PM's own for the records (`0x4ffb40`, `0x4ffb90`, `0x4ffc80` and siblings at `0x500270`,
      `0x5007d0`, `0x5017e0`, `0x502a90`) are to port with the collision work, or a mech walks through props.
      `launch_sl_dropship` (the anim the launch asks for) is not found in c1m1: not looked into.
-   - **The setup `0x493ca0`: written from the code, not yet checked against the exe** (`Missions::setup`). Against
+   - **The setup `0x493ca0`: ported and checked** (`Missions::setup`, with begin `0x492130` and the cheats' check
+     `0x495110`; `test_pm_mission_load.py`'s second entry, every game type -1..5). Against
      MW3's: the block key is the game object's vt+0x58 (`m%d`, `ia%d`, `mp%d`, `sa%d`, else `default`, as
      `block_name`), the mission's own `reader<key>.zbd` is mounted by vt+0x64 before the load (`Missions::start`),
      new progress lines, the in-out call is an empty function, standalone (type 5) is a new case
      (`start_standalone_<key>`), and the objectives are the game object's vt+0x3c: single player's
      (0x435140) reads `objectives.zrd`'s block by the key as MW3's; training's sets (0x437f20, `<key>_set`,
      `<key><n>`), standalone's `sainfo.zrd` (0x40dac0) and PM's objective reader 0x45d620 are still to port.
-     `0x4f9930` at the end (zEffect's list) is a no-op hook. Next: a call-trace test like the load's.
+     `0x4f9930` at the end (zEffect's list) is a no-op hook. The reader paths' string differs too (`aipath`
+     in place of MW3's per-mission folder). Not checked: multiplayer's MCB stations (the pilot's +0xc4 is 0 in
+     the test).
+   - **PM's command table is renumbered** (0x411980's 110 commands against MW3's 105): new `CMD_EJECT`,
+     `CMD_HEADLIGHT_TOGGLE` 0x3c, `CMD_SNAPSHOT`, `CMD_TARGET_*_L` (lancemates), no `CMD_LOOK_REAR`, and most ids
+     moved (`CMD_MISSION_COMPLETE` 0x79 against 0x71). The port on `pm` still has MW3's table, so its ids agree
+     among themselves; the test maps PM's two binds to MW3's. Porting PM's table (controls_cfg and every
+     handler's ids) goes before any PM command handler, the headlight's toggle first.
 4. **Mechs and weapons**: the definition reader and its new weapons
    (`XPulseLaser_Large`, `HeavyLaser_Large`, `TBOLT5`), the firepoint
    fix-up (`promote1.cpp`, `CZMechFirePoint::CFixup`), `mech.cpp` (130

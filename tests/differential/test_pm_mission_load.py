@@ -1,4 +1,5 @@
-"""PM's mission load (mech3/mission, 0x492830 with its budget 0x4930c0) against PM's exe, by call traces
+"""PM's mission load (mech3/mission, 0x492830 with its budget 0x4930c0) and setup (0x493ca0 with its begin
+0x492130 and cheats' check 0x495110) against PM's exe, by call traces
 as test_mission_load.py does for MW3: every call out is stubbed in the emulator and a hook in the port,
 both answered from one script; the traces must be equal, then the memory written. Cases: the worlds,
 hardware and software, card memory from none to 64 MB, every TextureMemory setting, InstallOptions, every
@@ -18,7 +19,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from calltrace import Trace, compare  # noqa: E402
 import test_pm_zar  # noqa: E402
 
-LOAD_WORLD = 0x492830
+LOAD_WORLD, SETUP = 0x492830, 0x493ca0
 CURRENT = 0x9c
 NEW_BASE = 0x2c200000
 # PM's address, the port's key (MW3's address where the function has a twin), arguments, bytes popped.
@@ -46,6 +47,27 @@ CALLS = [
 ]
 STRINGS = [(0x4b31c0, '0x004af290', 'ver', ''), (0x598b10, '0x005799f0', 'drv', ''), (0x59ac60, '0x00579040', 'mode', ''),
            (0x596e50, '0x00576040', 'msg', 's0')]
+# The setup 0x493ca0 and its begin 0x492130 (game object slots apart).
+SETUP_CALLS = [
+    (0x579310, '0x00557320', 'zs0,s1', 0), (0x578070, '0x005561a0', 'zs0', 0), (0x578090, '0x005561e0', 'zs0', 0),
+    (0x414430, '0x00413e60', '', 0), (0x431d70, '0x004319a0', '', 0), (0x45af70, '0x00459e80', 'c', 0),
+    (0x495b30, '0x00491de0', 'zs0,zs1', 8), (0x4f9900, '0x004e7b40', '', 0), (0x5cb140, '0x005a84c0', 'c,zs0', 4),
+    (0x4ce410, '0x004c3240', '', 0), (0x413e60, '0x004135c0', 'c,zs0,zs1', 8), (0x4b8c20, '0x004b4ab0', 'c', 0),
+    (0x4a19c0, '0x0049e810', 'sb0', 0), (0x4aabe0, '0x004a76b0', 'zs0,s1', 0), (0x524b50, '0x0050b450', 'zs0', 0),
+    (0x47b6e0, '0x0047b6e0', 's0', 4), (0x47b710, '0x0047b710', 's0', 4), (0x590a70, '0x0056f6f0', 'zs0', 0),
+    (0x4e3250, '0x004d2e20', '', 0), (0x4e3620, '0x004d31d0', '', 0), (0x4f35c0, '0x004e2120', '', 0),
+    (0x4e8ae0, '0x004d8610', 'c', 0), (0x533b90, '0x0051a300', '', 0), (0x40f900, '0x0040f040', '', 0),
+    (0x4101c0, '0x0040f890', '', 0), (0x4e4f60, '0x004d4b30', '', 0), (0x521870, '0x00508c10', 's0,s1,s2,s3,s4', 0),
+    (0x5b8570, '0x005964c0', 's0', 4), (0x4f9930, '0x004f9930', '', 0), (0x536c30, '0x0051d2f0', 's0,s1', 0),
+    (0x40aca0, '0x0040cf20', '', 0), (0x40ad00, '0x0040cf80', '', 0), (0x40ad40, '0x0040cfc0', '', 0),
+]
+# PM's globals and handler to MW3's, as the port passes them. The command ids too: PM's table is
+# renumbered (CMD_MISSION_COMPLETE 0x79 against 0x71) and the port's is still MW3's (docs/pm-map.md).
+TO_MW3 = {0x6297b0: 0x605ae0, 0x628b50: 0x604e48, 0x62f828: 0x60b228, 0x627ca8: 0x604048, 0x627cd8: 0x604078,
+          0x627bf8: 0x603f90, 0x492170: 0x48f440, 0x79: 0x71, 0x7a: 0x72}
+HUD, HUD_STEP = 0x6203f0, 0x4b8
+TURRETS, NETWORK = 0x62cc46, 0x62cc51
+
 # PM's global, the probe's name for it, size.
 GLOBALS = [(0x629c50, 0x6061cc, 1), (0x617e80, 0x5f4244, 1), (0xb0e440, 0x9a17c0, 4), (0x61874c, 0x5f4c8c, 4),
            (0x62ca90, 0x608c84, 4), (0x62db98, 0x609a2c, 4)]
@@ -79,6 +101,10 @@ def make_script(case):
         '0x0047f2b0': lambda n, a: a[0], '0x004b52e0': lambda n, a: a[0], '0x0040aca0': lambda n, a: a[0],
         '0x004ac860': case['stealth_obj'], '0x004a51b0': 0x7700, '0x004a4de0': 0x7800,
         'game.vt+0x2c': case['type'], '0x0040d7b0': 3, '0x0040d750': 2,
+        'game.vt+0x54': case['index'], 'game.vt+0x4c': case['number'], 'game.vt+0x28': case['saved'],
+        'game.vt+0x54dir': 1, 'game.vt+0x58': lambda n, a: 2 + n, '0x0050b450': case['anims'],
+        '0x0047b710': NEW_BASE + 0x9000, '0x0056f6f0': lambda n, a: 0x9000 + n,
+        '0x0040cf20': case['cheats'][0], '0x0040cf80': case['cheats'][1], '0x0040cfc0': case['cheats'][2],
         '0x004af290': 7, '0x005799f0': 8, '0x00579040': 9, '0x00576040': 10,
     }
 
@@ -99,6 +125,9 @@ class Emu(test_pm_zar.Emulated):
                 self.native_stub(addr, self.stub(key, spec), pop)
         for addr, key, tag, spec in STRINGS:
             self.native_stub(addr, self.string_stub(key, tag, spec))
+        for addr, key, spec, pop in SETUP_CALLS:
+            self.native_stub(addr, self.stub(key, spec), pop)
+        self.native_stub(0x5ceabe, self.cs_ctor_str, 4)
         self.native_stub(0x4936f0, self.unload)
         self.native_stub(CSTRING_CTOR, self.cs_ctor)
         self.native_stub(CSTRING_DTOR, lambda c: 0)
@@ -113,6 +142,22 @@ class Emu(test_pm_zar.Emulated):
         vt = self.alloc(0x100)
         self.w32(game, vt)
         self.w32(vt + 0x28, self.fn_ptr(lambda c: t.handle('game.vt+0x2c', [])))
+        self.w32(vt + 0x50, self.fn_ptr(lambda c: t.handle('game.vt+0x54', [])))
+        self.w32(vt + 0x48, self.fn_ptr(lambda c: t.handle('game.vt+0x4c', [])))
+        self.w32(vt + 0x24, self.fn_ptr(lambda c: t.handle('game.vt+0x28', [])))
+        self.w32(vt + 0x54, self.fn_ptr(lambda c: self.keep(f"dir{t.handle('game.vt+0x54dir', [])}")))
+        self.w32(vt + 0x58, self.fn_ptr(lambda c: self.keep(f"key{t.handle('game.vt+0x58', [])}")))
+        self.w32(vt + 0x3c, self.fn_ptr(lambda c: t.handle('game.vt+0x3c', [
+            c.arg(i) - self.this - 0xb0 + 0x6098d0 + 0x78 for i in range(5)]), 0x14))
+        hud_vt = self.alloc(0x100)
+        self.w32(hud_vt + 0x7c, self.fn_ptr(lambda c: t.handle('hudline.vt+0x7c', [(c.arg(0) - HUD) // HUD_STEP])))
+        for i in range(25):
+            self.w32(HUD + HUD_STEP * i, hud_vt)
+        self.w8(TURRETS, case['turrets'])
+        self.w8(NETWORK, case['network'])
+        view = case['new'][2]
+        self.w32(view + 4, NEW_BASE + 0x8000)
+        self.w32(NEW_BASE + 0x8000 + 0x38, 0x2c310000)
         pilot = self.alloc(0x100)
         self.w32(pilot + 0x6c, game)
         self.w32(PILOT, pilot)
@@ -121,6 +166,8 @@ class Emu(test_pm_zar.Emulated):
         self.w32(self.this + CURRENT, case['current'] & 0xffffffff)
         for a, _, n in GLOBALS:
             (self.w8 if n == 1 else self.w32)(a, 0)
+        if case['current'] != -1:
+            self.w32(0x61874c, case['new'][2])  # the mission up has its view
 
     def w32(self, a, v):
         self.cpu._uc.mem_write(a, struct.pack('<I', v & 0xffffffff))
@@ -138,6 +185,8 @@ class Emu(test_pm_zar.Emulated):
         for tok in spec.split(',') if spec else []:
             if tok == 'c':
                 out.append(c.ecx)
+            elif tok.startswith('sb'):
+                out.append(c.arg(int(tok[2:])) & 0xff)
             elif tok.startswith('zs'):
                 p = c.arg(int(tok[2:]))
                 out.append(self.cstr(p).decode('latin-1') if p else 0)
@@ -146,7 +195,16 @@ class Emu(test_pm_zar.Emulated):
         return out
 
     def stub(self, key, spec):
-        return lambda c: self.t.handle(key, self.args(c, spec))
+        def f(c):
+            a = self.args(c, spec)
+            if spec in ('c', 's0,s1') or spec.startswith('c,'):  # an object or a bind: as MW3's
+                a = [TO_MW3.get(v, v) if isinstance(v, int) else v for v in a]
+            return self.t.handle(key, a)
+        return f
+
+    def cs_ctor_str(self, c):
+        self.w32(c.ecx, self.keep(self.cstr(c.arg(0)).decode('latin-1')))
+        return c.ecx
 
     def string_stub(self, key, tag, spec):
         def f(c):
@@ -190,10 +248,13 @@ class Emu(test_pm_zar.Emulated):
         return 0
 
 
-def run_exe(case):
+def run_exe(case, entry):
     t = Trace(make_script(case))
     e = Emu(t, case)
-    r = e.call(LOAD_WORLD, ecx=e.this, args=[case['index']]) & 0xff
+    if entry == 'world':
+        r = e.call(LOAD_WORLD, ecx=e.this, args=[case['index']]) & 0xff
+    else:
+        r = e.call(SETUP, ecx=e.this) & 0xff
     mem = {}
     for a, name, n in GLOBALS:
         mem[name] = e.r32(a) & (0xff if n == 1 else 0xffffffff)
@@ -205,7 +266,7 @@ def run_exe(case):
     return r, t.log, mem
 
 
-def run_port(probe, case):
+def run_port(probe, case, entry):
     t = Trace(make_script(case))
     cb = t.callback()
     probe.probe_app_set_callback(cb)
@@ -213,7 +274,14 @@ def run_port(probe, case):
     probe.probe_mission_poke(0x608e41, case['rgb'])
     probe.probe_mission_poke(0x62cc58, case['no_clutter'])
     probe.probe_mission_set((ctypes.c_int32 * 4)(*case['rect']), case['texmem'][0], case['texmem'][1], -1, case['current'])
-    r = probe.probe_mission_load_world(case['index'])
+    probe.probe_mission_poke(0x608e3a, case['turrets'])
+    probe.probe_mission_poke(0x608e45, case['network'])
+    view = case['new'][2]
+    probe.probe_mission_poke(view + 4, NEW_BASE + 0x8000)
+    probe.probe_mission_poke(NEW_BASE + 0x8000 + 0x38, 0x2c310000)
+    if case['current'] != -1:
+        probe.probe_mission_poke(0x5f4c8c, view)
+    r = probe.probe_mission_load_world(case['index']) if entry == 'world' else probe.probe_mission_setup()
     mem = {}
     for _, name, n in GLOBALS:
         mem[name] = probe.probe_mission_peek(name) & (0xff if n == 1 else 0xffffffff)
@@ -232,7 +300,7 @@ def make_case(seed):
         new[r.choice([0, 3])] = 0  # the view and its window the original writes through
     index = seed % 6 if r.random() < 0.9 else r.choice([6, 7, 8, 9, -1])
     case = {
-        'index': index, 'type': r.choice([0, 1, 2, 3, 3]), 'hw': r.randrange(2), 'fn390': r.choice([0, 0, 1]),
+        'index': index, 'type': r.choice([-1, 0, 1, 1, 2, 3, 4, 5, 5, 6]), 'hw': r.randrange(2), 'fn390': r.choice([0, 0, 1]),
         'texmem_ok': [r.choice([0, 1, 1]), r.choice([0, 1])],
         'texmem': [r.choice([0, 2 << 20, 3 << 20, 4 << 20, 6 << 20, 8 << 20, 12 << 20, 16 << 20, 64 << 20,
                              r.randrange(1 << 30)]), r.randrange(1 << 28)],
@@ -241,7 +309,9 @@ def make_case(seed):
         'nodes': {'world1': 0x7101, 'camera1': 0x7102, 'window1': 0x7103, 'display': 0x7104},
         'new': new, 'stealth_obj': r.choice([0, 0x7600]),
         'rect': [r.randrange(0, 50), r.randrange(0, 50), r.randrange(300, 1700), r.randrange(200, 1300)],
-        'rgb': r.randrange(2), 'current': -1,
+        'rgb': r.randrange(2), 'current': -1, 'number': r.randrange(0, 9), 'saved': r.randrange(2),
+        'anims': [r.choice([0, 0x8800]), r.choice([0, 0x8900])], 'turrets': r.randrange(2),
+        'network': r.randrange(2), 'cheats': [r.randrange(2), r.randrange(2), r.randrange(2)],
     }
     if r.random() < 0.08:
         case['current'] = r.choice([index, (index + 1) % 6])
@@ -254,18 +324,19 @@ def main():
     calls = 0
     for seed in range(count):
         case = make_case(seed)
-        a = run_exe(case)
-        b = run_port(probe, case)
-        name = f'seed {seed} (world {case["index"]}, hw {case["hw"]}, lod {case["lod"]})'
-        if not compare(name, a[1], b[1]):
-            raise SystemExit(1)
-        if a[0] != b[0]:
-            raise SystemExit(f'{name}: returned {a[0]} (exe), {b[0]} (port)')
-        if a[2] != b[2]:
-            diff = {str(k): (hex(a[2][k]), hex(b[2].get(k, 0))) for k in a[2] if a[2][k] != b[2].get(k)}
-            raise SystemExit(f'{name}: memory differs (exe, port): {diff}')
-        calls += len(a[1])
-    print(f'ok: {count} cases, {calls} calls identical')
+        for entry in ('world', 'setup'):
+            a = run_exe(case, entry)
+            b = run_port(probe, case, entry)
+            name = f'seed {seed} {entry} (world {case["index"]}, type {case["type"]}, hw {case["hw"]}, lod {case["lod"]})'
+            if not compare(name, a[1], b[1]):
+                raise SystemExit(1)
+            if a[0] != b[0]:
+                raise SystemExit(f'{name}: returned {a[0]} (exe), {b[0]} (port)')
+            if a[2] != b[2]:
+                diff = {str(k): (hex(a[2][k]), hex(b[2].get(k, 0))) for k in a[2] if a[2][k] != b[2].get(k)}
+                raise SystemExit(f'{name}: memory differs (exe, port): {diff}')
+            calls += len(a[1])
+    print(f'ok: {count} cases x 2 entries, {calls} calls identical')
 
 
 if __name__ == '__main__':

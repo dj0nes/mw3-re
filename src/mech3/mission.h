@@ -115,6 +115,8 @@ class MissionHooks : public zgame::Unported {
     unported("game.vt+0x3c", {a, b, c, d, e});
   }
   virtual void game_open_reader() { unported("game.vt+0x64", {}); }              // reader<key>.zbd
+  virtual Handle pilot_mp_player() { return unported("0x0047b710", {0}); }
+  virtual Handle mp_mcbs() { return unported("[0x0062fc18]", {}); }
   virtual void pilot_game_ia() { unported("0x0047b6e0", {0}); }                  // result not used
   virtual void fn_4f9930() { unported("0x004f9930", {}); }
   // Modules started for the mission.
