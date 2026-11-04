@@ -143,7 +143,7 @@ std::string pm_world_load(const std::string& mission, platform::Render3D* render
   if (zcls::Node* horizon = zcls::list_find_by_name(zcls::kAllNodes, "horizon")) zcls::camera_set_horizon(camera_node(), horizon);
   zrdr::init();
   zrdr::open_archive(("zbd\\" + mission + "\\reader.zbd").c_str(), false);  // 0x00490630's first
-  pm::mech3::world_read_params(zcls::camera_world(camera_node()), camera_node(), nullptr);
+  pm::mech3::world_read_params(zcls::camera_world(camera_node()), camera_node(), nullptr, true);
   // The mission's `day` on `horizon` (night_day.zrd; the animation's call is not ported here).
   for (const char* on : {"horscrollday", "horizon_planet", "horizon_day_stars"})
     if (zcls::Node* n = zcls::list_find_by_name(zcls::kAllNodes, on)) zcls::node_set_active(n, 1);

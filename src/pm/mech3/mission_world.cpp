@@ -18,6 +18,7 @@ struct Params {
   bool fog = false;
   float range[2] = {}, altitude[2] = {}, color[3] = {};
   ::zcls::Node* sky = nullptr;
+  bool fluctuate = false;  // [this+8]
 };
 
 // Pirate's Moon 1.0 @ 0x00495250
@@ -32,7 +33,8 @@ void read_block(zrdr::Node* params, ::zcls::Node* sun, ::zcls::Node* camera, Par
     zrdr::get_vec2(fog, "hwrange", p.range);  // Direct3D's, over it
     zrdr::get_vec3(fog, "color", p.color);
     zrdr::get_vec2(fog, "altitude", p.altitude);
-    p.sky = ::zcls::list_find_by_name(::zcls::kAllNodes, zrdr::get_string(fog, "node"));
+    const char* node = zrdr::get_string(fog, "node");  // 0x0050b920 takes a null name, MW3's not
+    p.sky = node ? ::zcls::list_find_by_name(::zcls::kAllNodes, node) : nullptr;
   }
   if (zrdr::Node* cam = zrdr::find(params, "camera")) zrdr::get_vec2(cam, "nearfar_clip", clip);
   if (zrdr::Node* s = sun ? zrdr::find(params, "sun") : nullptr) {
@@ -58,20 +60,27 @@ void read_block(zrdr::Node* params, ::zcls::Node* sun, ::zcls::Node* camera, Par
     ::zmod::clouds_set_period(zrdr::get_float(fl, "period", &v) ? v : 5.0f);
     ::zmod::clouds_set_wavelength(zrdr::get_float(fl, "wavelength", &v) ? v : 500.0f);
     const float base = zrdr::get_float(fl, "base", &v) ? v : 0.7f;
-    ::zmod::clouds_set_level(base, zrdr::get_float(fl, "amplitude", &amplitude) ? amplitude : 0.3f);
+    if (!zrdr::get_float(fl, "amplitude", &amplitude)) amplitude = 0.3f;
+    ::zmod::clouds_set_level(base, amplitude);
+    p.fluctuate = amplitude != 0.0f;  // flat: left off
     ::zmod::clouds_set_heading((zrdr::get_float(fl, "heading", &v) ? v : 0.0f) * kDegToRad);
-    ::zmod::clouds_set_on(1);  // 0x00495dd0, the block having been read
   }
 }
 }  // namespace
 
-void world_read_params(::zcls::Node* world, ::zcls::Node* camera, const char* key) {
+void world_read_params(::zcls::Node* world, ::zcls::Node* camera, const char* key, bool sun_option) {
   zrdr::Node* root = zrdr::load("world.zrd");
   if (!root) return;
   ::zcls::Node* sun = ::zcls::list_find_by_name(::zcls::kAllNodes, "sunlight");
   Params p;
   read_block(zrdr::find(root, "defaults"), sun, camera, p);
   if (key) read_block(zrdr::find(root, key), sun, camera, p);
+  // 0x00495dd0(1), on hardware: the sun on, then off without its option; the clouds on if read.
+  if (sun) {
+    ::zcls::node_set_active(sun, 1);
+    if (!sun_option) ::zcls::node_set_active(sun, 0);
+  }
+  if (p.fluctuate) ::zmod::clouds_set_on(1);
   if (p.fog) {
     ::zcls::world_set_fog_type(world, 1);
     ::zcls::world_set_fog_range(world, p.range[0], p.range[1]);

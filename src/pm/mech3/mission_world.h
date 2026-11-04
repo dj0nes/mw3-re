@@ -7,7 +7,8 @@
 namespace pm::mech3 {
 
 // Pirate's Moon 1.0 @ 0x00495ba0: `defaults`, then `key` over them (null: none), onto the world
-// and camera: fog, the camera's clip, the sun and the sky.
-void world_read_params(::zcls::Node* world, ::zcls::Node* camera, const char* key);
+// and camera: fog, the camera's clip, the sun and the sky. `sun_option` the player's (0x0040b360):
+// off, the sun's own light is out.
+void world_read_params(::zcls::Node* world, ::zcls::Node* camera, const char* key, bool sun_option);
 
 }  // namespace pm::mech3

@@ -12,6 +12,7 @@
 #include "platform/render3d.h"
 #include "pm/gamez/zvideo/zvid_tl.h"
 #include "pm/gamez/zclass/light.h"
+#include "pm/mech3/mission_world.h"
 #include "gamez/zclass/class.h"
 #include "gamez/zclass/camera.h"
 #include "gamez/zmodel/gmod_init.h"
@@ -1703,6 +1704,88 @@ int probe_pm_anim(const char* world, const char* path, int fail_at, int full, ui
 int probe_pm_anim_prereqs(int i) {
   const ::zeff::AnimDef& d = ::zeff::anim().defs[i];
   return d.count(0x110) | d.count(0x111) << 8;
+}
+
+}  // extern "C"
+
+extern "C" {
+
+// pm::mech3::world_read_params on a small scene (test_pm_world_params.py): `names` is the list's
+// nodes joined by \n, the skies being those from index 3 on. Words out: the world's +0x00..+0x33,
+// the camera's clip and its stale flag, the light's 0x100 bytes, each node's flags, the clouds, stale.
+// cfg: sun option, has sun, has horizon, light flags. Returns the words, or -1 if the archive fails.
+int probe_pm_world_params(const char* dir, const char* archive, const char* key, const char* names,
+                          const int32_t* cfg, uint32_t* out) {
+  mount_only(dir);
+  zrdr::close_archives(true);
+  zrdr::init();
+  if (!zrdr::open_archive(archive, true)) return -1;
+  zvid::set_pixel_format(5, 6, 5);
+  ::zcls::reset_lists();
+  ::zerr::set_sink(nullptr);
+  static ::zcls::Node nodes[32], *kids[32], horizon, sun, world, camera;
+  static ::zcls::Light light;
+  static ::zcls::World wd;
+  static ::zcls::Camera cd;
+  const auto setup = [](::zcls::Node& n, const char* name, int cls, void* data) {
+    n = ::zcls::Node{};
+    std::strcpy(reinterpret_cast<char*>(n.raw), name);
+    n.put<int32_t>(0x34, cls);
+    n.set_flags(0x10);
+    n.data = data;
+  };
+  std::string all(names);
+  int count = 0;
+  for (size_t at = 0; at < all.size();) {
+    size_t end = all.find('\n', at);
+    if (end == std::string::npos) end = all.size();
+    setup(nodes[count], all.substr(at, end - at).c_str(), 5, nullptr);
+    if (cfg[2]) nodes[count].set_flags(count % 2 ? 4 : 0x10);
+    ::zcls::push_back(::zcls::kAllNodes, &nodes[count]);
+    kids[count] = &nodes[count];
+    ++count;
+    at = end + 1;
+  }
+  setup(horizon, "horizon", 5, nullptr);
+  horizon.put<int32_t>(0x5c, count), horizon.children = kids;
+  wd = ::zcls::World{};
+  for (int o = 4; o < 0x34; o += 4) wd.put<uint32_t>(o, 0x3f800000u + o * 0x1000);
+  setup(world, "world1", 13, &wd);
+  cd = ::zcls::Camera{};
+  cd.put<float>(0xb0, 0.5f), cd.put<float>(0xb4, 777.0f);
+  cd.nodes[2] = cfg[2] ? &horizon : nullptr;
+  setup(camera, "camera1", 1, &cd);
+  uint8_t bytes[0x100];
+  for (int i = 0; i < 0x100; i += 4) {
+    const float v = 0.125f + 0.0625f * (i / 4 % 16);
+    std::memcpy(bytes + i, &v, 4);
+  }
+  std::memcpy(bytes + 0xe0, &cfg[3], 4);
+  std::memcpy(light.raw, bytes, 0xb0);
+  std::memcpy(light.pm_colors, bytes + 0xb0, 0x30);
+  std::memcpy(light.raw + 0xb0, bytes + 0xe0, 0x20);
+  setup(sun, "sunlight", 9, &light);
+  sun.set_flags(cfg[1] == 2 ? 0x10 : 0x14);  // 2: starts inactive
+  if (cfg[1]) ::zcls::push_back(::zcls::kAllNodes, &sun);
+  ::zmod::clouds() = {7, 1.0f, 2.0f, 0.25f, 0.125f, 0.5f, 0.75f, 0, 0};
+  ::zcls::frames() = ::zcls::Frames{};
+  ::zcls::frames().update_frame = 0;
+  pm::mech3::world_read_params(&world, &camera, key[0] ? key : nullptr, cfg[0] != 0);
+  int n = 0;
+  for (int o = 0; o < 0x34; o += 4) out[n++] = wd.get<uint32_t>(o);
+  out[n++] = cd.get<uint32_t>(0xb0), out[n++] = cd.get<uint32_t>(0xb4), out[n++] = cd.get<uint32_t>(0xf8);
+  std::memcpy(bytes, light.raw, 0xb0);
+  std::memcpy(bytes + 0xb0, light.pm_colors, 0x30);
+  std::memcpy(bytes + 0xe0, light.raw + 0xb0, 0x20);
+  std::memcpy(out + n, bytes, 0x100), n += 0x40;
+  for (int i = 0; i < count; ++i) out[n++] = nodes[i].flags();
+  out[n++] = sun.flags();
+  const ::zmod::Clouds& c = ::zmod::clouds();
+  out[n++] = static_cast<uint32_t>(c.on);
+  for (float f : {c.speed, c.scale, c.base, c.amplitude, c.heading_sin, c.heading_cos}) std::memcpy(out + n++, &f, 4);
+  out[n++] = ::zcls::frames().update_frame != 0;
+  zrdr::close_archives(true);
+  return n;
 }
 
 }  // extern "C"

@@ -1114,20 +1114,38 @@ functions PM changed, and PM's new ones.
        `--map-light` shot beside them). That script line is the fix; those triangles are gone.
        `world.zrd`: fog (`hwrange`, colour, altitude, `node`), `camera nearfar_clip`, `sun` (orientation,
        diffuse, ambient, `diffuse_color`, `ambient_color`, which turn on PM's own colours), `fluctuate`. PM's
-       light setters keep mixed colours and test static by 0x200 (`test_pm_light_setters.py`). Left for the
-       mission: wind, weather, temperature, jet ceiling, `ai_headlights`, underwater, `cloud_cover`.
+       light setters keep mixed colours and test static by 0x200 (`test_pm_light_setters.py`). 0x495dd0(1)
+       after the blocks: the sun on, then off without its option (0x40b360, a parameter here), the clouds on
+       unless the last `fluctuate` had amplitude 0 (c1's m2 does). `test_pm_world_params.py` runs 0x495ba0
+       and 0x495250 against the port on every block of the four worlds and crafted ones. Left for the
+       mission: wind, weather, temperature, jet ceiling, `ai_headlights`, underwater, `cloud_cover`, the
+       puffers' reset (0x564ac0) and the caller's choice of block (0x495b3x, vt +0x74).
+     - **Day and night.** Only c1 has `night_day.zrd`. `day`: single m1, standalone sa1, sa2, sa3, instant
+       action, multiplayer. `night`: single m2 and m5, standalone sa4; those three are also `world.zrd`'s dim
+       blocks (sun diffuse 0.15, ambient 0.05, against the defaults' 1.0 and 0.2). c2, c3 and c4 call neither
+       and have one block. `--fly` shows `defaults` with `day`, so c1 there is a day mission's light.
        **The black shape is sky:** `horizon` > `hormain` holds `horizon_top` (flat, colour 0, a wall of radius
        1750), `horscrollday` (`sky01`), `horscrollnight`, stars. The camera follows it (`camera_set_horizon`, as
        0x4087f0's call; before, it sat at the world's origin) and `world.zrd`'s `fog node` picks `hormain`. The
-       mission calls `day` or `night` on `horizon` (`night_day.zrd`): `--fly` applies `day`'s list by name.
+       mission calls `day` or `night` on `horizon` (`night_day.zrd`, below): `--fly` applies `day`'s list by name.
        **Not reproduced:** `MipBias -1`: read, not applied; the port's textures have no bias (fixes.md).
        **Stubs left in `--fly`:** a mission's depth-only clear is copied, not reached through the state;
        `horscroll*` scroll words run but with no frame's tick.
-     - **For Owen's PC, with the view:** a gap between terrain and sky in c2 and c4 from height (`mw3pm --fly c2
-       --pos 1536 120 -1792 --look 0 8`, `c4 --pos 2048 130 -2048 --look 0 8`). PM's mission sets the clear
-       colour to 0 (0x45129a) and the colour clear off (0x451282, 0x4838db; 0x488f27 turns it on elsewhere), so
-       the frame starts black and that gap keeps old contents (a new back buffer used to hold undefined memory there, magenta on this Mac, now black in `SdlRender3D`); `--fly` does the same. Compare in the
-       original at those places, as far as a jump jet reaches: a black band, or old frames, or none.
+     - **The sky gap in c2 and c4.** From height, a band between the terrain and the sky that nothing draws.
+       The band's rows at three pitches fit a sky ending about 9.1 degrees below horizontal (a fit, not read from
+       the mesh) while the ground stops at the far clip, 600 in these two worlds (300 in c1 and c3, no gap up to
+       y 500), so it opens about 96 units above the ground 600 away. At (1536, y, -1792), look 0 8, in c2:
+       0 pixels at y 60, 1,687 at y 100, 73,602 at y 150 (at 1280x960); c4 at y 100: 1,079. `jet_ceiling` is 130
+       in c2 and 145 in c4, so the ceiling does not rule it out. Whether a jet reaches it waits for ground
+       queries on PM's models: come back to it then. PM's mission clears colour to 0 (0x45129a) and turns the
+       colour clear off (0x451282, 0x4838db; 0x488f27 turns it on elsewhere), and the port's back buffer starts
+       black (`SdlRender3D`; it used to hold undefined memory, magenta on this Mac), so the gap is black in
+       `--fly`, which stays depth-only like the mission: there it keeps what the last frame left, which is
+       black until something draws there.
+       **For Owen's PC:** what the original shows there, as far as a jet reaches, at `mw3pm --fly c2 --pos
+       1536 150 -1792 --look 0 8` and `c4 --pos 1536 150 -1792 --look 0 8`: a black band, old frames, or none.
+       **Also for Owen:** the brightness of c1 (day: single m1; night: m2) and c3 (`mw3pm --fly c3`, default
+       view) against the original.
      - **Eye check so far.** c1's and c2's edges read as authored transition tiles (`tertrans01`, `tertrans02`, c2's
        with alpha, `mw3pm --fly c2 --pos 1500 135 -1600 --look 0 35`); no original compared.
      - **Eye check, still to do with the game around it:** points meeting blended polygons (batched,
