@@ -907,6 +907,32 @@ radar shown, no blip while the Owens is powered down (not in sight), its
 blip 150 m straight ahead once awake (8 px out of the wanted 7.5), and the
 triangle instead once targeted.
 
+**Pirate's Moon (0x0043f220 for MW3's 0x0043dd00; mapped 2026-11-04, not ported
+yet).** The same groups in the same order: the size and place, the range text
+and the light, the polylines, the contacts, the network player's marker with
+its "OP: %1 [...]" (0x228, 0x229, the same in both), the shots in the air, the
+landmines. Read against the port's `HudRadar::update` and `update_contacts`,
+what differs:
+- **On a change** the marker's text (+0x65c, TEXT2) is placed and shown at
+  once: below the radar at (x - radius, y + 15 + radius) off the map; over the
+  map at x 10 when the map is on the left (+0x5a 1), else the radar's x, and y
+  15 plus the map's height (its +0x3c image's +6). MW3 placed it only with the
+  contacts.
+- **The polylines' clip** is made anew from the radar's square, its centre
+  plus or minus the radius (0x00605860), whenever they move; MW3 kept the
+  rect it was given.
+- **An ally contact with a pilot** (vt+0x58): an object at [0x00629528] is
+  shown, or hidden when the pilot's +0x3d4 or +0x3d8 is under 1; over the map,
+  while it is shown, it is a circle at the ally's place with the radius of the
+  ally's +0x9c on the map. The selected target over the map gets that circle
+  at the radar's radius. To name: what the object, +0x3d4/+0x3d8 and +0x9c are
+  (a lancemate's sensor range, likely).
+- **Distances**: the zoom range kept as its square (+0x34, +0x38); the shots in
+  the air tested by squared distance against the squared radius.
+The rest (colours by team, the triangle on the selected target, the jitter of
+the static, the light by the mech's +0xbc, the "%.1fkm" text) is MW3's with PM's
+offsets.
+
 ## 16. The damage displays and TARGET's text
 
 **A part's image** (0x004475c0, `HudDamagePart::set_level`): five images
