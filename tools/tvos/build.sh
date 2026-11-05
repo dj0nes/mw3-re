@@ -6,23 +6,29 @@
 #   tools/tvos/build.sh --device          build-tvos/, for the Apple TV
 #   tools/tvos/build.sh --device --open   the same, opened in Xcode (pick the
 #                                         Apple TV, press Run)
+#   --data                                every build copies your game into
+#                                         the app (tools/tvos/copy_data.sh)
 #
 # The libraries come from tools/deps/build_deps.sh tvos (or tvos-sim), built
 # first if their prefix is not there. From the environment: MW3_TVOS_TEAM,
 # the team that signs a device build (without it --device builds unsigned,
 # which proves it compiles but cannot be installed), and MW3_TVOS_BUNDLE_ID
-# (default org.mw3rebuild.tv.<team>). docs/tvos.md.
+# (default org.mw3rebuild.tv.<team>), and MW3_TVOS_DATA, the folder --data
+# reads (default the Mac rebuild's, ~/Library/Application Support/
+# MicroProse/MechWarrior 3). docs/tvos.md.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
 TARGET=sim
 OPEN=0
+DATA=""
 for arg in "$@"; do
   case "$arg" in
     --sim) TARGET=sim ;;
     --device) TARGET=device ;;
     --open) OPEN=1 ;;
-    *) echo "usage: $0 [--sim|--device] [--open]" >&2; exit 2 ;;
+    --data) DATA="${MW3_TVOS_DATA:-$HOME/Library/Application Support/MicroProse/MechWarrior 3}" ;;
+    *) echo "usage: $0 [--sim|--device] [--data] [--open]" >&2; exit 2 ;;
   esac
 done
 
@@ -40,7 +46,8 @@ cmake -S . -B "$BUILD" -G Xcode \
   -DCMAKE_SYSTEM_NAME=tvOS -DCMAKE_OSX_SYSROOT="$SYSROOT" -DCMAKE_OSX_ARCHITECTURES=arm64 \
   -DCMAKE_OSX_DEPLOYMENT_TARGET=17.0 \
   -DCMAKE_PREFIX_PATH="$PREFIX" -DCMAKE_FIND_ROOT_PATH="$PREFIX" \
-  -DMW3_TVOS=ON -DMW3_PACKAGE=ON -DMW3_TVOS_TEAM="${MW3_TVOS_TEAM:-}" -DMW3_TVOS_BUNDLE_ID="${MW3_TVOS_BUNDLE_ID:-}"
+  -DMW3_TVOS=ON -DMW3_PACKAGE=ON -DMW3_TVOS_TEAM="${MW3_TVOS_TEAM:-}" -DMW3_TVOS_BUNDLE_ID="${MW3_TVOS_BUNDLE_ID:-}" \
+  -DMW3_TVOS_DATA="$DATA"
 
 if [ "$OPEN" = 1 ]; then
   open "$BUILD/mw3re.xcodeproj"

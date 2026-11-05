@@ -667,7 +667,8 @@ if(SDL3_FOUND)
   find_package(SDL3_ttf CONFIG QUIET)
   if(SDL3_ttf_FOUND)
     add_library(mw3text STATIC src/frontend/sdl/sdl_twod_host.cpp src/frontend/sdl/gdi_font_size.cpp
-                src/frontend/sdl/text_fit.cpp src/frontend/sdl/launcher_notes.cpp src/frontend/sdl/movie_import.cpp)
+                src/frontend/sdl/text_fit.cpp src/frontend/sdl/launcher_notes.cpp src/frontend/sdl/movie_import.cpp
+                src/frontend/sdl/tvos_args.cpp)
     target_link_libraries(mw3text PUBLIC mw3sdl SDL3_ttf::SDL3_ttf)
     add_executable(mw3
       src/frontend/sdl/mw3_main.cpp
@@ -723,6 +724,14 @@ if(SDL3_FOUND)
         XCODE_ATTRIBUTE_DEVELOPMENT_TEAM "${MW3_TVOS_TEAM}"
         XCODE_ATTRIBUTE_CODE_SIGN_STYLE Automatic
         XCODE_ATTRIBUTE_TARGETED_DEVICE_FAMILY 3)
+      # The player's game into the bundle after each build, before Xcode
+      # signs it (tools/tvos/build.sh --data; docs/tvos.md).
+      set(MW3_TVOS_DATA "" CACHE PATH "tvOS: the Mac rebuild's folder whose game goes into the app (empty: none)")
+      if(MW3_TVOS_DATA)
+        add_custom_command(TARGET mw3 POST_BUILD
+                           COMMAND ${CMAKE_SOURCE_DIR}/tools/tvos/copy_data.sh "${MW3_TVOS_DATA}"
+                           VERBATIM)
+      endif()
     endif()
     if(NOT MW3_TVOS)  # the launcher, the tests and their helpers
     # The launcher (docs/launcher.md, The two programs; games-layout.md): the

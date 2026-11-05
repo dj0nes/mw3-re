@@ -413,7 +413,14 @@ SdlTwodHost::Dc* SdlTwodHost::dc(Handle h) {
 // (ascent + descent), 0 a default of 12 pixels.
 TTF_Font* SdlTwodHost::open_ttf(Font& f) {
   if (f.ttf || !ttf_ok_) return f.ttf;
-  const std::string path = zutl::find(font_file(f.face).c_str());
+  std::string path = zutl::find(font_file(f.face).c_str());
+  if (path.empty()) {
+    // Ours: the install's own names (ARIAL.TTF, LUCON.TTF) where names are
+    // case-sensitive (tvOS; the Mac's disk is not).
+    std::string upper = font_file(f.face);
+    for (char& c : upper) c = static_cast<char>(c >= 'a' && c <= 'z' ? c - 32 : c);
+    path = zutl::find(upper.c_str());
+  }
   if (path.empty()) {
     std::fprintf(stderr, "mw3: font %s (%s) not found in the game folder\n", f.face.c_str(),
                  font_file(f.face).c_str());

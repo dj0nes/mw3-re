@@ -28,6 +28,7 @@
 #include "frontend/sdl/sdl_fit.h"
 #include "frontend/sdl/launcher_notes.h"
 #include "frontend/sdl/rgb565.h"
+#include "frontend/sdl/tvos_args.h"
 #include "frontend/sdl/text_fit.h"
 #include <SDL3_ttf/SDL_ttf.h>
 #include "frontend/sdl/sdl_force.h"
@@ -4703,4 +4704,10 @@ TEST(rgb565_as_argb8888_draws_the_same_as_b5g6r5) {
   EXPECT(a.size() == 65536 && b.size() == 65536 && differ == 0);
   SDL_DestroyRenderer(ren);
   SDL_DestroyWindow(win);
+}
+
+// tvOS: no command line; the program's arguments point into the app bundle.
+TEST(tvos_default_args_point_into_the_bundle) {
+  const auto a = sdlfe::tvos_default_args("/b/mw3.app/");
+  EXPECT(a.size() == 5 && a[1] == "/b/mw3.app/game" && a[2] == "--assets" && a[3] == "/b/mw3.app/media" && a[4] == "--no-launcher");
 }

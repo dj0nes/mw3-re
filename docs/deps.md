@@ -92,3 +92,11 @@ only under its find roots, so the script makes the prefix one
 (`CMAKE_FIND_ROOT_PATH`); without it SDL3_ttf does not find SDL3. First
 run 2026-11-05: about 20 seconds each, every object `LC_BUILD_VERSION`
 platform 3 (tvOS) for the device and 8 (tvOS Simulator) for the Simulator.
+
+The Simulator build changes one line of SDL (2026-11-05): SDL_GPU on tvOS
+refuses a Metal device without `MTLGPUFamilyApple3`, and the tvOS
+Simulator's has none, so the game could not start there. For `tvos-sim`
+only, the script sets that check to pass (`hasHardwareSupport = true` in
+`src/gpu/metal/SDL_gpu_metal.m`) and stops if the line is not found. The
+device build is SDL as released; an Apple TV 4K (A12 and later) is
+`MTLGPUFamilyApple5` or newer.

@@ -114,6 +114,12 @@ Simulator. Install and start it with `xcrun simctl install booted <app>` and
 `xcrun simctl launch booted <bundle ID>`, or pick a Simulator as the
 destination in Xcode (`build.sh --sim --open`).
 
+The Simulator's Metal device lacks what SDL's GPU API asks for on tvOS
+(`MTLGPUFamilyApple3`, which every Apple TV 4K has), so
+`build_deps.sh tvos-sim` skips that one check in its copy of SDL. The
+Apple TV build uses SDL unchanged. A Simulator left idle for some minutes
+starts apps behind its screen saver: shut it down and boot it again.
+
 ## Troubleshooting
 
 - **"No account for team" or "Signing requires a development team"**: do
@@ -159,6 +165,17 @@ For developers changing this build:
   instead of leaving the app.
 - The write dir is where `SDL_GetPrefPath` puts it on tvOS, the app's
   `Library/Caches/MicroProse/MechWarrior 3/`.
+- With no command line on tvOS, `main` takes `tvos_default_args`
+  (`tvos_args.h`): the bundle's `game/` as the install, `--assets` the
+  bundle's `media/` (where the movies and music are found through the
+  game's mounts), and `--no-launcher`.
+- `--data` adds `tools/tvos/copy_data.sh` as a build step after linking.
+  Xcode decides whether to sign at the start of a build, so when the copy
+  changes an app Xcode has already signed, the script signs it again with
+  Xcode's identity, keeping its entitlements.
+- The game asks for its fonts as `arial.ttf` and `lucon.ttf`; the install
+  has `ARIAL.TTF` and `LUCON.TTF`. tvOS names are case-sensitive, so the
+  upper-case name is tried next (`sdl_twod_host.cpp`).
 - The launcher's 16-bit canvas is drawn through an ARGB8888 texture on
   every platform (`rgb565.h`): Metal in the tvOS Simulator refuses a
   B5G6R5 texture, and the pixels on screen are the same.

@@ -65,6 +65,7 @@
 #include <vector>
 
 #include "frontend/sdl/campaign_chain.h"
+#include "frontend/sdl/tvos_args.h"
 #include "frontend/sdl/modes_chain.h"
 #include "frontend/sdl/debug_states.h"
 #include "frontend/sdl/first_run_import.h"
@@ -602,6 +603,19 @@ int main(int argc, char** argv) {
   std::setvbuf(stdout, nullptr, _IONBF, 0);
 #else
   std::setvbuf(stdout, nullptr, _IOLBF, 0);
+#endif
+#if defined(SDL_PLATFORM_TVOS)
+  // Ours (tvOS): no command line; the install and the media are in the app
+  // bundle (tvos_args.h, docs/tvos.md).
+  std::vector<std::string> tvos_args;
+  std::vector<char*> tvos_argv;
+  if (argc <= 1) {
+    const char* base = SDL_GetBasePath();
+    tvos_args = sdlfe::tvos_default_args(base ? base : "");
+    for (std::string& s : tvos_args) tvos_argv.push_back(s.data());
+    tvos_argv.push_back(nullptr);
+    argc = static_cast<int>(tvos_args.size()), argv = tvos_argv.data();
+  }
 #endif
   Args a;
   if (!parse(argc, argv, a)) return 2;

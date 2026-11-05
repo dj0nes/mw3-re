@@ -85,6 +85,14 @@ unpack SDL3-3.4.12.tar.gz
 # to configure X11 (docs/linux.md).
 SDL_EXTRA=()
 [ "$PLATFORM" = linux ] && SDL_EXTRA+=(-DSDL_X11_XTEST=OFF)
+# tvOS Simulator (ours): SDL_GPU refuses the Simulator's Metal device (it
+# lacks MTLGPUFamilyApple3, which an Apple TV 4K has); for the Simulator
+# build only, the check is skipped so the app can be tried there (docs/tvos.md).
+if [ "$PLATFORM" = tvos-sim ]; then
+  f="$WORK/src/SDL3-3.4.12/src/gpu/metal/SDL_gpu_metal.m"
+  sed -i.orig 's/hasHardwareSupport = \[device supportsFamily:MTLGPUFamilyApple3\];/hasHardwareSupport = true;  \/\/ mw3: tvOS Simulator/' "$f"
+  grep -q 'mw3: tvOS Simulator' "$f" || { echo "SDL_gpu_metal.m: the Simulator patch did not apply" >&2; exit 1; }
+fi
 SDL_LINK=(-DSDL_SHARED=ON -DSDL_STATIC=OFF)
 [ "$TVOS" = 1 ] && SDL_LINK=(-DSDL_SHARED=OFF -DSDL_STATIC=ON)
 cmake_build "$WORK/src/SDL3-3.4.12" "${SDL_LINK[@]}" -DSDL_TEST_LIBRARY=OFF -DSDL_TESTS=OFF -DSDL_EXAMPLES=OFF \
