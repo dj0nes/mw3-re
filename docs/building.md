@@ -18,7 +18,7 @@ cmake -S . -B build -G Ninja && cmake --build build
 ```
 
 Per platform: [windows.md](windows.md), [macos.md](macos.md),
-[linux.md](linux.md). Cutting a release: [release.md](release.md).
+[linux.md](linux.md), and your own Apple TV: [tvos.md](tvos.md). Cutting a release: [release.md](release.md).
 
 ## Run
 

@@ -284,7 +284,8 @@ tool, as it was in 1999: expect rough edges.
 
 ## Building from source
 
-See [docs/building.md](docs/building.md). How the code is organised (the
+See [docs/building.md](docs/building.md). To build and run it on your own
+Apple TV with a controller: [docs/tvos.md](docs/tvos.md). How the code is organised (the
 shared engine, MechWarrior 3, Pirate's Moon and the launcher):
 [docs/games-layout.md](docs/games-layout.md).
 

@@ -21,6 +21,16 @@ option(MW3_PACKAGE "Build mw3 and mw3import for players: no MW3_GAME_DIR in them
 # processes (tvOS cannot start one). Off for every other build.
 option(MW3_TVOS "Build mw3 as a tvOS app (with the Xcode generator and CMAKE_SYSTEM_NAME=tvOS)" OFF)
 set(MW3_TVOS_TEAM "$ENV{MW3_TVOS_TEAM}" CACHE STRING "tvOS: the Apple development team that signs the app")
+# The app's bundle ID. An App ID belongs to one team, so the default carries
+# the team's ID: two players' builds never clash.
+set(MW3_TVOS_BUNDLE_ID "$ENV{MW3_TVOS_BUNDLE_ID}" CACHE STRING "tvOS: the app's bundle ID (default org.mw3rebuild.tv.<team>)")
+if(MW3_TVOS AND NOT MW3_TVOS_BUNDLE_ID)
+  if(MW3_TVOS_TEAM)
+    set(MW3_TVOS_BUNDLE_ID "org.mw3rebuild.tv.${MW3_TVOS_TEAM}")
+  else()
+    set(MW3_TVOS_BUNDLE_ID "org.mw3rebuild.tv")
+  endif()
+endif()
 # The version mw3 --version and the Windows version resource give: git's
 # describe (a tag, or the commit) and the commit count.
 execute_process(COMMAND git describe --tags --always --dirty WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
@@ -709,7 +719,7 @@ if(SDL3_FOUND)
         MACOSX_BUNDLE ON
         MACOSX_BUNDLE_INFO_PLIST ${CMAKE_BINARY_DIR}/mw3-Info.plist
         XCODE_GENERATE_SCHEME ON
-        XCODE_ATTRIBUTE_PRODUCT_BUNDLE_IDENTIFIER org.mw3rebuild.tv
+        XCODE_ATTRIBUTE_PRODUCT_BUNDLE_IDENTIFIER "${MW3_TVOS_BUNDLE_ID}"
         XCODE_ATTRIBUTE_DEVELOPMENT_TEAM "${MW3_TVOS_TEAM}"
         XCODE_ATTRIBUTE_CODE_SIGN_STYLE Automatic
         XCODE_ATTRIBUTE_TARGETED_DEVICE_FAMILY 3)

@@ -8,9 +8,10 @@
 #                                         Apple TV, press Run)
 #
 # The libraries come from tools/deps/build_deps.sh tvos (or tvos-sim), built
-# first if their prefix is not there. MW3_TVOS_TEAM (the environment) is the
-# team that signs a device build; without it --device builds unsigned, which
-# proves it compiles but cannot be installed.
+# first if their prefix is not there. From the environment: MW3_TVOS_TEAM,
+# the team that signs a device build (without it --device builds unsigned,
+# which proves it compiles but cannot be installed), and MW3_TVOS_BUNDLE_ID
+# (default org.mw3rebuild.tv.<team>). docs/tvos.md.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
@@ -39,7 +40,7 @@ cmake -S . -B "$BUILD" -G Xcode \
   -DCMAKE_SYSTEM_NAME=tvOS -DCMAKE_OSX_SYSROOT="$SYSROOT" -DCMAKE_OSX_ARCHITECTURES=arm64 \
   -DCMAKE_OSX_DEPLOYMENT_TARGET=17.0 \
   -DCMAKE_PREFIX_PATH="$PREFIX" -DCMAKE_FIND_ROOT_PATH="$PREFIX" \
-  -DMW3_TVOS=ON -DMW3_PACKAGE=ON -DMW3_TVOS_TEAM="${MW3_TVOS_TEAM:-}"
+  -DMW3_TVOS=ON -DMW3_PACKAGE=ON -DMW3_TVOS_TEAM="${MW3_TVOS_TEAM:-}" -DMW3_TVOS_BUNDLE_ID="${MW3_TVOS_BUNDLE_ID:-}"
 
 if [ "$OPEN" = 1 ]; then
   open "$BUILD/mw3re.xcodeproj"
@@ -57,4 +58,5 @@ if [ "$TARGET" = device ]; then
   fi
 fi
 cmake --build "$BUILD" --config Release --target mw3 -- ${EXTRA[@]+"${EXTRA[@]}"}
-echo "app: $BUILD/Release-$SYSROOT/mw3.app"
+APP="$BUILD/Release-$SYSROOT/mw3.app"
+echo "app: $APP, bundle ID $(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP/Info.plist")"
