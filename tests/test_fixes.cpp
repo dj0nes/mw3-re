@@ -914,9 +914,9 @@ TEST(fix_hud_timer_past_an_hour) {
   hud->target.hide();  // no tracking
   hud->data_update(0.033f);
   EXPECT(std::strcmp(hud->timer.text, "01:01:40") == 0);
-  zfix::options().bugs = false;
+  zfix::options().bugs = false;  // Pirate's Moon's own split (0x00597c30): no fix needed
   hud->data_update(0.033f);
-  EXPECT(std::strcmp(hud->timer.text, "01:01:3640") == 0);
+  EXPECT(std::strcmp(hud->timer.text, "01:01:40") == 0);
   zfix::options().bugs = true;
   hud->mech = nullptr;
   hud->~Hud();

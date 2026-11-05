@@ -3735,6 +3735,9 @@ The screen after the pilot for INSTANT ACTION, 0x00488bc0 (details:
 - **The mission timer breaks after an hour:** the HUD's clock works out the
   seconds without taking the hours off, so an hour and 40 seconds in it
   reads 01:01:3640 (the rebuild shows 01:01:40).
+- **Pirate's Moon fixed the mission timer:** its HUD clock splits the time
+  into hours, minutes and seconds properly, so past an hour it reads
+  01:01:40 where MechWarrior 3's read 01:01:3640. (From the code: 0x00597c30.)
 - **A hidden debug readout:** the HUD fills five debug texts every frame
   (the mech's gait, speeds and more) while a debug text is shown; a debug
   switch toggles it, and which key or option reaches that switch is not

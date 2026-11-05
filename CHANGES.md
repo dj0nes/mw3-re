@@ -141,7 +141,6 @@ it is clear what the designers meant.
 - **A smoke fade-in typo is fixed:** smoke set to fade in near the camera
   vanished instead.
 - The debriefing's mission time keeps its seconds under 60 past the first hour, as the HUD's timer.
-- The HUD's mission timer keeps its seconds under 60 past the first hour (the original showed an hour and 40 seconds as 01:01:3640).
 - The credits' "Other Voices" heading sits where the other headings do (a typo in the credits file gave it one number of its two, so it hung indented under the line above).
 - TARGET's distance past 1 km reads " (1.23km)" like the " (500m)" below it; the original ran the kilometres straight on after the loadout's name.
 - **The message panel slides up at any frame rate.** The original moved it a whole number of pixels a frame, which above 60 fps is none: on a fast computer the in-mission messages never came into view.

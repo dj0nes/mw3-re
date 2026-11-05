@@ -305,6 +305,9 @@ struct RadarHooks : Hooks {
 };
 }  // namespace
 
+// test_pm_hud_timer.py: PM's time split (0x00597c30).
+extern "C" void probe_pm_time_split(float t, int32_t* out) { mech3::time_split(t, &out[0], &out[1], &out[2]); }
+
 extern "C" uint32_t probe_pm_pack(int r, int g, int b) { return zvid::pack_bytes(r, g, b); }
 
 extern "C" void probe_pm_radar_run(const RadarIn* in, RadarOut* out) {

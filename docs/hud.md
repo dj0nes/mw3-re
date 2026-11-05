@@ -758,8 +758,10 @@ The pieces, ported in order (the lead's plan, 2026-10-20):
    always the mission timer ("%02d:%02d:%02d" of the game time, a network
    game's own), the objectives, TARGET's tracking, the network's. Hooked:
    the gauges' setters, the radar's parts, TARGET's text, the equipment,
-   MFD and objectives updates (items 4, 6, 7, 9 of section 7). FIX (bug):
-   the timer's seconds past an hour (`fix_hud_timer_past_an_hour`). In the
+   MFD and objectives updates (items 4, 6, 7, 9 of section 7). MW3's timer
+   left the hours in the seconds past an hour (01:01:3640); Pirate's Moon
+   (0x0043d440) splits whole seconds through 0x00597c30 instead, so the
+   port's FIX (bug) is PM's own code there (`test_pm_hud_timer.py`). In the
    program the camera update (GameEngine::camera_update) runs it for the
    view's mech; the message panel's slide before it is not ported.
    In the program (`app_hud`) the tracking's and the lead point's outside

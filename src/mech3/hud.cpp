@@ -3462,7 +3462,16 @@ void Hud::draw3d(float dt) {
   }
 }
 
-// Mech3.exe 1.2 @ 0x0043c390: the game's numbers into the pieces each
+// Pirate's Moon 1.0 @ 0x00597c30 (new in PM; zvid_buff.c's neighbour): whole
+// seconds as hours, minutes and seconds.
+void time_split(float t, int32_t* h, int32_t* m, int32_t* s) {
+  const int32_t n = crt::msvc_ftol(t);
+  *s = n % 60;
+  *m = n / 60 % 60;
+  *h = n / 60 / 60;
+}
+
+// Pirate's Moon 1.0 @ 0x0043d440 (MW3's 0x0043c390): the game's numbers into the pieces each
 // frame, from the camera update (0x0040f8d0) for the view's target. With the
 // HUD on: the radar's positions, the compass's heading (the mech's flat
 // forward), the gauges, TARGET's text, the equipment and MFD; always the
@@ -3502,14 +3511,10 @@ void Hud::data_update(float dt) {
   float t = h.mission_time(h.multiplayer_game() != 0);
   const bool negative = t < 0.0f;
   if (negative) t = -t;
-  const float minutes = t * 0.016666668f;  // [0x005c0098]
-  float hours = std::floor(minutes * 0.016666668f);
-  const float mins = std::floor(minutes - hours * 60.0f);  // [0x005c009c]
-  // FIX (bug): the original's seconds are t less the minutes alone, so past
-  // an hour they run on into the thousands ("01:01:3640"); the hours too here.
-  const float secs = zfix::options().bugs ? std::floor(t - mins * 60.0f - hours * 3600.0f) : std::floor(t - mins * 60.0f);
+  int32_t hours, mins, secs;
+  time_split(t, &hours, &mins, &secs);  // PM's 0x00597c30 (MW3 left the hours in the seconds)
   if (negative) hours = -hours;
-  timer.set_text("%02d:%02d:%02d", crt::msvc_ftol(hours), crt::msvc_ftol(mins), crt::msvc_ftol(secs));  // [0x005e3d88]
+  timer.set_text("%02d:%02d:%02d", hours, mins, secs);  // [0x00605c3c]
   objectives.data_update(dt);
   target.track(dt);
   h.network_data(active, dt);

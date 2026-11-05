@@ -531,6 +531,8 @@ struct HudStaticChannel {
 int32_t static_add(HudStaticChannel* statics, float step, int32_t kind, float hold, float most);  // Pirate's Moon 1.0 @ 0x0043d0b0
 bool static_warn(HudStaticChannel* statics, bool on, float health, float dt);  // Pirate's Moon 1.0 @ 0x0043e1f0, its start
 void static_ease(HudStaticChannel* statics, float dt);                        // 0x0043e1f0, its end
+void time_split(float t, int32_t* h, int32_t* m, int32_t* s);  // Pirate's Moon 1.0 @ 0x00597c30
+
 struct HudStaticNoise {
   static constexpr int kSize = 256;
   std::vector<uint16_t> pixels;  // the display's format (0x005983e0)
