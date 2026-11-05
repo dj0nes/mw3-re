@@ -103,6 +103,9 @@ class SdlClock : public platform::Clock {
     if (frame_ms) slept_ += ms;
     else SDL_Delay(ms);
   }
+  void idle(uint32_t ms) override {
+    if (!frame_ms) SDL_Delay(ms);
+  }
   void frame() { ++frames_; }  // a pass of the app's loop
 
   uint32_t frame_ms = 0;

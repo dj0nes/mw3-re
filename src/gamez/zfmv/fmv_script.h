@@ -72,6 +72,8 @@ class Host : public zgame::Unported {
   // The C runtime and Win32.
   virtual int32_t file_stat(const char* path);  // _stat: 0 found, -1 not
   virtual double now();                         // timeGetTime() x 0.001f, seconds
+  // Ours: a step with no new frame to show yields the CPU (platform::Clock::idle).
+  virtual void idle() {}
 
   // Video for Windows (AVIFIL32, MSVFW32), the movie player's (fmv_stream.h).
   // Results are HRESULTs (0 succeeded) unless named otherwise.

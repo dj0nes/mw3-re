@@ -15,6 +15,9 @@ class Clock {
   virtual ~Clock() = default;
   virtual uint32_t ticks_ms() = 0;
   virtual void sleep(uint32_t ms) { (void)ms; }  // Sleep()
+  // Ours: give the CPU back for about ms of real time, the game's clock not
+  // moved by it (a fixed-step clock does nothing).
+  virtual void idle(uint32_t ms) { (void)ms; }
 };
 
 // Stands in for the CD drive behind MCI "cdaudio". Plays one audio file at a time

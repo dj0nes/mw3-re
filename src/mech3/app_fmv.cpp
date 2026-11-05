@@ -256,6 +256,9 @@ class GameFmvHost : public zfmv::Host {
     const uint32_t ms = c ? const_cast<platform::Clock*>(c)->ticks_ms() : 0;
     return static_cast<double>(static_cast<float>(ms) * 0.001f);
   }
+  void idle() override {
+    if (platform::Clock* c = e_->platform_parts().clock) c->idle(1);
+  }
 
  private:
   zimg::Texture* texture(Handle h) const { return static_cast<zimg::Texture*>(e_->object_of(h)); }

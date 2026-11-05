@@ -340,16 +340,19 @@ bool AviAction::step(double t) {
   // section 5). Asked each step, a frame is shown once the sound reaches it.
   // From the clock's frame 1 on: the cursor still at 0 just after the start
   // reads as the end (the stream's quirk).
+  // FIX (A): with no new frame the exe returned at once and its loop came
+  // straight back, so a movie held a CPU core at 100% between its 15 frames a
+  // second; the wait for the next costs 1 ms of real time a step here.
   if (zfix::options().bugs && stream && f >= 1 && frame >= 0) {
     const int32_t s = stream->sound_frame();
     if (s >= 0) {
-      if (s == sound_seen) return going;
+      if (s == sound_seen) return h.idle(), going;
       sound_seen = s;
     } else if (f == frame) {
-      return going;
+      return h.idle(), going;
     }
   } else if (f == frame) {
-    return going;
+    return h.idle(), going;
   }
   const bool trace = movie_trace();
   const double t0 = trace ? now_ms() : 0;
