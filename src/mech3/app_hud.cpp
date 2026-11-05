@@ -219,11 +219,13 @@ struct ProgramHudHooks : HudHooks {
     if (!v.hardware) return;
     if (zcls::Node* c = node(v.camera)) ++view_draws, zcls::render_world(c, 0);
   }
-  // Mech3.exe 1.2 @ 0x00442900: the camera 13 m before the HUD's mech (its
-  // local -z, [0x005e3a08]) at 1.25 times its centroid's height over its
-  // place, turned to the centroid; the mech's node drawn alone (0x004428b0,
-  // its vt+0x68 tint around), its see-through flag (object3d flag 2, the
-  // player's own mech outside) and an attached cockpit model off meanwhile.
+  // Pirate's Moon 1.0 @ 0x004440b0 (MW3's 0x00442900): the camera 13 m before
+  // the HUD's mech (its local -z), 14 m for roster 17 (the Puma) and 4.5 m for
+  // 11 (the Elemental) ([0x006058a8..b0]; MW3 13 for all), at 1.25 times its
+  // centroid's height over its place, turned to the centroid; the mech's node
+  // drawn alone (0x004428b0, its vt+0x68 tint around), its see-through flag
+  // (object3d flag 2, the player's own mech outside), an attached cockpit
+  // model and (PM) the torso's +0x7c attachment off meanwhile.
   void mfd_view(HudMfdView& v) {
     Hud* hud = static_cast<Hud*>(v.source);
     Mech* m = hud ? hud->mech : nullptr;
@@ -231,7 +233,8 @@ struct ProgramHudHooks : HudHooks {
     float c[3], base[3];
     node_world_cached(m->centroid, c);  // 0x00448600, then its data +0x84
     mech_world_position(m, base);       // 0x005a85e0
-    const float h = (c[1] - base[1]) * 1.25f, z = -13.0f;
+    const int32_t roster = pm_roster_index(m);
+    const float h = (c[1] - base[1]) * 1.25f, z = roster == 17 ? -14.0f : roster == 11 ? -4.5f : -13.0f;
     const float* t = m->transform;
     const float cam[3] = {z * t[6] + h * t[3] + 0.0f * t[0] + t[9], z * t[7] + h * t[4] + 0.0f * t[1] + t[10],
                           z * t[8] + h * t[5] + 0.0f * t[2] + t[11]};
@@ -245,14 +248,33 @@ struct ProgramHudHooks : HudHooks {
     auto* cn = cm ? static_cast<zcls::Node*>(cm->node) : nullptr;
     const bool cockpit = cn && (cn->flags() & 4) && cn->parent_count() > 0 && cn->parents && m->torso &&
                          cn->parents[0] == m->torso->node;
+    const bool extra = torso_attachment(m);  // PM: 0x0041f930
     if (see_through) zcls::object3d_use_opacity(n, 0);
     if (cockpit) zcls::node_set_active(cn, 0);
     hud_object_view_tint(m, true);  // vt+0x68
+    if (extra) torso_attachment_show(m, false);  // its +0x20's vt+0xc(0) (0x00479c20)
     view_draw_node(&v, keep(n));
     hud_object_view_tint(m, false);
     if (see_through) zcls::object3d_use_opacity(n, 1);
     if (cockpit) zcls::node_set_active(cn, 1);
+    if (extra) torso_attachment_show(m, true);
   }
+  // PM's roster index (its table 0x00608238, 0x3c bytes each: 25 mechs, the
+  // Elemental 11, the Puma 17) by the mech's name: the port's is still MW3's 19.
+  static int32_t pm_roster_index(Mech* m) {
+    static const char* const kPm[25] = {"annihilator", "atlas", "avatar", "awesome", "blackhawk", "bushwacker",
+                                        "cauldron", "centurion", "champion", "clint", "daishi", "elemental",
+                                        "firefly", "madcat", "masakari", "orion", "owens", "puma", "ryoken",
+                                        "shadowcat", "strider", "sunder", "supernova", "thor", "vulture"};
+    const char* name = m->pilot ? m->pilot->name : nullptr;
+    for (int32_t i = 0; name && i < 25; ++i)
+      if (std::strcmp(name, kPm[i]) == 0) return i;
+    return m->pilot ? m->pilot->roster : -1;
+  }
+  // PM's torso attachment (the torso's +0x7c, 0x0041f930; shown and hidden by
+  // 0x00479c30/0x00479c60): not ported yet, so none.
+  static bool torso_attachment(Mech*) { return false; }
+  static void torso_attachment_show(Mech*, bool) {}
   // Mech3.exe 1.2 @ 0x004428b0: the view's panel (vt+0x24 0), then the node
   // alone through its camera (0x004f73f0) with the world's fog off
   // (0x004f23e0 on [0x00608c84]+4: 0, then 1).
