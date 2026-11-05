@@ -159,3 +159,47 @@ const char* probe_pm_obj_fill(const char* spec) {
 }
 
 }  // extern "C"
+
+// test_pm_hud_static.py: PM's static (0x0043dda0, 0x0043dfa0, 0x0043d0b0, 0x0043e1f0).
+#include "crt/msvc_rand.h"
+extern "C" {
+
+// The noise from `seed`: which green each pixel took (0..2) and its alpha.
+void probe_pm_static_noise(uint32_t seed, uint8_t* pick, uint8_t* alpha) {
+  crt::msvc_srand(seed);
+  mech3::HudStaticNoise* n = mech3::static_noise_make();
+  std::memcpy(pick, n->pick.data(), n->pick.size());
+  std::memcpy(alpha, n->alpha.data(), n->alpha.size());
+  mech3::static_noise_free(n);
+}
+
+// A quad over the rect from `seed`: 4 vertices of 8 floats.
+void probe_pm_static_quad(uint32_t seed, int l, int t, int r, int b, float* out) {
+  crt::msvc_srand(seed);
+  float q[4][8];
+  mech3::static_quad_vertices(ztwod::Rect{l, t, r, b}, q);
+  std::memcpy(out, q, sizeof q);
+}
+
+// `n` frames of the tick's channels (the panels not drawn): the channels in
+// and out (12 floats), per frame on, health and dt; the radar's fade after each
+// frame (as the exe's 0x0043f190 last set it: the add's, then the end's).
+void probe_pm_static_frames(uint32_t seed, int per_second, float* channels, int n, const int* on, const float* health,
+                            const float* dt, float* fade) {
+  crt::msvc_srand(seed);
+  zfix::options().per_second = per_second != 0;
+  mech3::HudStaticChannel c[4];
+  std::memcpy(c, channels, sizeof c);
+  for (int i = 0; i < n; ++i) {
+    if (!mech3::static_warn(c, on[i] != 0, health[i], dt[i])) {
+      fade[i] = 0.0f;
+      continue;
+    }
+    mech3::static_ease(c, dt[i]);
+    fade[i] = c[3].level;
+  }
+  std::memcpy(channels, c, sizeof c);
+  zfix::options().per_second = true;
+}
+
+}  // extern "C"

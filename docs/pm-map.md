@@ -1318,8 +1318,11 @@ functions PM changed, and PM's new ones.
        group's lines with their status, a further line of an objective with a blank score, and PM's command
        numbers for the keys (0x79, 0x44), looked up by command name so they follow the table in use. Test `test_pm_hud_objectives.py` (300 made-up missions; 9 breaks
        caught). The network score list is MW3's. Left: the game's name in the program (PM's game object).
-     - **The damage static: next** (new: 0x43dda0 the 256x256 noise in three greys, 0x43dfa0 drawn over the
-       panels up to 0.9 alpha, 0x43e1f0 by the mech's health, 0x43d710, 0x43df70).
+     - **The damage static: done** (0x0043e1f0 the tick, 0x0043dda0 the noise, 0x0043dfa0 the quad, 0x0043df70;
+       docs/hud.md section 21, Pirate's Moon): the warning by health under 0.2, an easing fall, the noise as a
+       textured quad on the GPU path only. Test `test_pm_hud_static.py`; 12 breaks caught. Left: 0x43d710 (a
+       vtable slot drawing the MFD's and TARGET's 3D views) to read; seeing it on screen waits on mw3pm's
+       missions.
    - **zSound: done** (2026-11-04, `src/gamez/zsound` in place; docs/sound.md, Pirate's Moon):
      - PM's: the load 0x00591840 and the reader 0x00591900 / 0x005920e0 / 0x00592170 (no SYNTAX, no demo,
        sets made by name 0x00590ae0, INCLUDE_SETS, COMPILE_FORMAT, QPRIORITY, a 3-item keyword step);

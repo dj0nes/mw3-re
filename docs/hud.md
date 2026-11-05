@@ -1292,6 +1292,32 @@ Open: 0x00557b30, the set-up's other half, clears GfxFlags bit 2, which the
 software finish reads as MMX (render-tint.md); not traced whether the
 release ever uses the MMX rows.
 
+**Pirate's Moon** (0x0043e1f0 for MW3's 0x0043cd20; 0x0043dda0, 0x0043dfa0,
+0x0043df70 new). The four channels and their add (0x0043d0b0) and raise are
+MW3's; what changed:
+- **The warning**: the HUD's mech's health (vt+0xa4) under 0.2, with the mech
+  not invincible (+0x654) and GameIntensity's flag off: 0.1 on a random channel
+  up to (0.2 - h) x 5, held for the frame. FIX (B), behind per_second: the 0.1
+  is a 30 fps frame's. Off (no mech, invincible or the flag): the radar's fade
+  0 and nothing else.
+- **The fall**: no hold. Each level eases to its floor, (floor - level) x 2 x dt
+  a frame, and snaps to it within 0.01; then the radar's fade is the radar
+  channel's.
+- **The draw, with a device**: the noise is a 256 x 256 texture made in the
+  HUD's constructor (0x0043dda0), each pixel one of MW3's three greens picked
+  by rand in thirds and a random alpha (rand x 256 / 32767). Each shown panel
+  with static gets a quad of it (0x0043dfa0): the rect less half a pixel, z
+  and rhw 0.999, white, a random texture place with half the texture each way,
+  drawn alpha blended (0x0059df40). The level is clamped to 0..0.9 and then
+  not used: any static above 0 draws the whole noise, so on hardware PM's
+  static is on or off where MW3's thickened with the level. Without a device
+  (not ported) MW3's fill. The port draws the quad through zvid's
+  draw_textured.
+Checked by `test_pm_hud_static.py`: 4 noises (262,144 pixels), 200 quads and
+40 runs of 2,787 frames against PM's exe; 12 breaks caught. Not checked: which
+panel's rect is drawn (as MW3's), and the static on screen (mw3pm does not run
+a mission yet).
+
 ## 22. The 3D views in the program (hud-plan item 6c1)
 
 The HUD's three zoom views (0x0043f660: the MFD's, TARGET's, the reticle's

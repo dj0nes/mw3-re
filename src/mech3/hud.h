@@ -520,6 +520,29 @@ class HudReticle : public ztwod::Image {
   void* source = nullptr;            // +0x958 (not set by the constructor)
 };
 
+// PM's static noise (Pirate's Moon 1.0 @ 0x0043dda0, in the HUD's constructor):
+// 256 x 256 pixels, each one of three greens picked by rand in thirds, and a
+// random alpha. Made only with a device in the exe; the port always has one.
+// One of the HUD's four static channels (+0x2310c..+0x23138 in PM, 0x0c bytes each):
+// TARGET's, the MFD's, the weapons' and equipment's, the radar's fade.
+struct HudStaticChannel {
+  float floor = 0.0f, level = 0.0f, hold = 0.0f;
+};
+int32_t static_add(HudStaticChannel* statics, float step, int32_t kind, float hold, float most);  // Pirate's Moon 1.0 @ 0x0043d0b0
+bool static_warn(HudStaticChannel* statics, bool on, float health, float dt);  // Pirate's Moon 1.0 @ 0x0043e1f0, its start
+void static_ease(HudStaticChannel* statics, float dt);                        // 0x0043e1f0, its end
+struct HudStaticNoise {
+  static constexpr int kSize = 256;
+  std::vector<uint16_t> pixels;  // the display's format (0x005983e0)
+  std::vector<uint8_t> alpha;
+  std::vector<uint8_t> pick;     // which green, for the tests
+  void* device = nullptr;        // the device's texture (+0x28), the program's
+  void (*release)(void* device) = nullptr;
+};
+HudStaticNoise* static_noise_make();  // Pirate's Moon 1.0 @ 0x0043dda0
+void static_quad_vertices(const ztwod::Rect& r, float q[4][8]);  // Pirate's Moon 1.0 @ 0x0043dfa0
+void static_noise_free(HudStaticNoise* n);  // Pirate's Moon 1.0 @ 0x0043df70
+
 // What the HUD calls outside it.
 class HudHooks : public zgame::Unported {
  public:
@@ -845,6 +868,17 @@ class HudHooks : public zgame::Unported {
   // and the static itself (0x00558c10: the rect, or null for the target, the
   // level, three colours).
   virtual void* mission_player(void* hud_mech) { return hud_mech; }
+  // PM's static (Pirate's Moon 0x0043e1f0): the HUD's mech's health (its
+  // vt+0xa4) and Invincible flag (its +0x654), and the noise drawn as a quad
+  // (0x0059df40): four transformed vertices x, y, z, rhw, colour, specular, u, v.
+  virtual float mech_health(void* mech) { return zgame::from_bits(unported("mech.vt+0xa4", {id(mech)})); }
+  virtual bool mech_invincible(void* mech) { return (unported("peek32", {id(mech) + 0x654}) & 0xff) != 0; }
+  using StaticNoise = HudStaticNoise;
+  virtual void static_quad(const StaticNoise& noise, const float v[4][8]) {
+    (void)noise;
+    unported("0x0059df40", {zgame::bits(v[0][0]), zgame::bits(v[0][1]), zgame::bits(v[2][0]), zgame::bits(v[2][1]),
+                            zgame::bits(v[0][6]), zgame::bits(v[0][7]), zgame::bits(v[2][6]), zgame::bits(v[2][7])});
+  }
   virtual bool intensity_flag() { return (unported("peek32", {0x608e4c}) & 0xff) != 0; }
   virtual void static_target() { unported("0x00558290", {}); }
   virtual void static_fill(const ztwod::Rect* r, double level, uint16_t lo, uint16_t mid, uint16_t hi) {
@@ -1092,11 +1126,11 @@ class Hud : public ztwod::Layer {
   // The static (0x0043cd20, hud.md section 21): TARGET's (+0x22e08), the
   // MFD's (+0x22e14), the weapons' and equipment's (+0x22e20), the radar's
   // fade (+0x22e2c), each a floor, its level and a hold.
-  struct Static {
-    float floor = 0.0f, level = 0.0f, hold = 0.0f;
-  };
+  using Static = HudStaticChannel;
+  HudStaticNoise* noise = nullptr;  // PM: the static's texture (0x0043dda0), after the channels
+  void static_quad(float level, const ztwod::Rect& r);  // Pirate's Moon 1.0 @ 0x0043dfa0
   Static statics[4];                 // +0x22e08..+0x22e34
-  void static_tick(float dt);        // 0x0043cd20: from the frame's draw paths
+  void static_tick(float dt);        // Pirate's Moon 1.0 @ 0x0043e1f0 (MW3 0x0043cd20): from the frame's draw paths
   void add_static(float step, int32_t kind, float hold, float most);  // 0x0043bfe0
   void raise_static(float level, int32_t kind, float hold);          // 0x0043c1f0
   zrdr::Node* reader = nullptr;      // +0x22e38 hud.zrd's root during the set-up

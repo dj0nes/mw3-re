@@ -4334,3 +4334,9 @@ The screen after the pilot for INSTANT ACTION, 0x00488bc0 (details:
   which mission you are on, but the game hands the number to the wrong slot,
   so the number shown is not the mission's (from the code; not yet seen on
   screen, and only when the objectives have no title of their own).
+- **Pirate's Moon's damage static comes later and is all or nothing.** In
+  MechWarrior 3 the HUD breaks up with green static once your torso or head
+  is under 40%, thicker the worse it gets. Pirate's Moon waits until the mech
+  as a whole is under 20%, and with a 3D card it lays a sheet of the same
+  green noise over each panel at full strength, however hurt you are; it also
+  clears faster. (From the code.)

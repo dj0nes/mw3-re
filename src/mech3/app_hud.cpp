@@ -622,6 +622,31 @@ struct ProgramHudHooks : HudHooks {
     zrndr::static_fill(r ? &r->left : nullptr, level, lo, mid, hi);
   }
   int fills = 0;  // for the reports
+  // PM's static (Pirate's Moon 0x0043e1f0, 0x0043dfa0): the HUD's mech, and the
+  // noise as a textured quad (0x0059df40: alpha blended, the noise's own alpha).
+  float mech_health(void* mech) override { return mech_of(mech)->health(); }
+  bool mech_invincible(void* mech) override { return mech_of(mech)->invincible; }
+  void static_quad(const StaticNoise& n, const float v[4][8]) override {
+    auto& noise = const_cast<StaticNoise&>(n);
+    if (!noise.device) {
+      zimg::Texture img{};
+      img.width = img.height = HudStaticNoise::kSize;
+      img.width_again = img.width;
+      img.pixel_count = HudStaticNoise::kSize * HudStaticNoise::kSize;
+      img.pixels = noise.pixels.data();
+      img.alpha = noise.alpha.data();
+      noise.device = zvid::create_texture("static", img, 1, 0, 0);  // the name 0x00605d4c
+      noise.release = [](void* t) { zvid::release_texture(static_cast<zvid::D3DTexture*>(t)); };
+    }
+    zvid::TLVertex* tl = zvid::draw_buffers().tl;
+    for (int i = 0; i < 4; ++i) {
+      tl[i].sx = v[i][0], tl[i].sy = v[i][1], tl[i].sz = v[i][2], tl[i].rhw = v[i][3];
+      std::memcpy(&tl[i].diffuse, &v[i][4], 4);
+      std::memcpy(&tl[i].specular, &v[i][5], 4);
+      tl[i].tu = v[i][6], tl[i].tv = v[i][7];
+    }
+    zvid::draw_textured(4, static_cast<zvid::D3DTexture*>(noise.device), 1.0f, 0);
+  }
   // The damage displays and TARGET's text (hud.md section 16) on the ported
   // parts, configurations and Mech3Msg.dll's messages.
   float part_internal(void* mech, uint32_t part, int32_t section) override {
