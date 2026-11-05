@@ -95,6 +95,7 @@ class Emulated(test_pm_gamez.Emulated):
                 root = self.call(LOAD, ecx=lib, args=[self.string(name)])
                 roots.append(root)
                 out += struct.pack('<i', self.pool_index(root, *NODE_POOL))
+            self.loaded = list(roots)  # test_pm_shadows.py
             if copies:  # in play: mechs and clones are made with the x87 at 24 bits (Direct3D's)
                 self.cpu.fpu_control(0x7f)
             for i, kind, a, b in copies:  # Pirate's Moon 0x50d7c0 / 0x50d830, cdecl

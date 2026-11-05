@@ -483,8 +483,10 @@ const float* local_matrix(Node* n) {
 // `out` as it was (the exe's stack locals).
 void parent_box(Node* n, float out[6]) {
   if (!n->data || !(n->flags() & 0x100)) return;
-  if (const float* m = local_matrix(n)) zmth::transform_box(m, reinterpret_cast<const float*>(n->raw + 0x74), out);
-  else std::memcpy(out, n->raw + 0x74, 24);
+  // Pirate's Moon (0x004feba0) reads the box its +0x70 points at
+  const float* box = n->pm_box ? n->pm_box : reinterpret_cast<const float*>(n->raw + 0x74);
+  if (const float* m = local_matrix(n)) zmth::transform_box(m, box, out);
+  else std::memcpy(out, box, 24);
 }
 
 // A parent marked changed for its own boxes (+0x2c bit 2), held on list 7.

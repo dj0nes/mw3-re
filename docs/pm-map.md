@@ -1319,6 +1319,24 @@ functions PM changed, and PM's new ones.
      in the view and the target window. Left: a PM model is never released (no 0x559xxx free ported, so a copy
      is kept); the LoD copy's fade fields (0x515c00, PM +0x34..) stay zero, what shipped trees compute, no test
      reaches another value.
+   - **The casters compared with the exe (2026-11-04).** `test_pm_shadows.py` loads mechlib trees over c1 and
+     runs init, new, size, node, enable, colour, position and draw (0x55d740..0x55da40, the walk 0x55de50, PM's
+     model caster 0x55dec0, the filler 0x57eff0, the blur and ramp) on both sides at 24 and 53 bits: every
+     caster field and every drawn image identical. Two fixes: the draw's box is the one PM's +0x70 points at
+     (0x4fd9d0), and a parent's children's box (0x4feba0) takes each child's box through its +0x70 too
+     (`parent_box`); a mech's parts keep theirs in the model slot (+0x8c), so the port's +0x74 gave every
+     mech a zero box and no shadow. PM's record is 0x90 bytes: the texture at +0x64, the list's links at
+     +0x88 / +0x8c (MW3 +0x60, +0x84 / +0x88), the functions cdecl; the draw, its 3x3 pass and ramp are MW3's.
+     The bench clears the filler's stack and sets the level edges as the port's FIX (bug) does (PM's four
+     places 0x57f13d, 0x57f240, 0x57f347, 0x57f44a, EDX the entry, ESI the point), as test_shadow_image.py.
+     Not here: the upload and release (the device's tests), posed or morphed trees. 12 of 16 breaks caught; the
+     rest no shipped mech tree reaches: corner count over 255, a zero-area facing test, a morph, a LoD at the root.
+   - **For the mech step (from dev 2, 2026-11-04).** PM's roster has 25 mechs (0x608238, 0x3c bytes each:
+     annihilator 0 .. vulture 24, MW3's 19 in `mech_names.cpp` still); the HUD's MFD view (0x4440b0) and lock
+     (0x4455e0) ask `HudHooks::mech_pm_roster`, which `app_hud.cpp` answers by name until the roster is ported.
+     A torso attachment: PM's torso +0x7c holds an object (read 0x41f930, shown 0x41b900 via 0x479c30, hidden
+     0x41b930 via 0x479c60, its +0x20 vt+0xc on/off); the MFD view turns it off while drawing the mech, stubbed in
+     `app_hud.cpp` (`torso_attachment` false). The radar's C3 ring reads equipment kinds 6, 7 at PM's mech +0x3bc.
    - **PM's command table is renumbered** (0x411980's 110 commands against MW3's 105): new `CMD_EJECT`,
      `CMD_HEADLIGHT_TOGGLE` 0x3c, `CMD_SNAPSHOT`, `CMD_TARGET_*_L` (lancemates), no `CMD_LOOK_REAR`, and most ids
      moved (`CMD_MISSION_COMPLETE` 0x79 against 0x71). The port on `pm` still has MW3's table, so its ids agree

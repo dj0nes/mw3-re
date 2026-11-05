@@ -23,6 +23,7 @@
 #include "gamez/zclass/camera.h"
 #include "gamez/zmodel/gmod_init.h"
 #include "gamez/zmodel/gmod_cull.h"
+#include "gamez/zrender/zrndr_span.h"
 #include "gamez/zmodel/gmod_light.h"
 #include "gamez/zutil/ztimer.h"
 #include "gamez/zmodel/gmod_fog.h"
@@ -546,6 +547,7 @@ int probe_pm_gamez_stack(const char* paths, int rb, int gb, int bb, int with_mod
 // The tree copies made after the loads: (root, kind, a, b) each, kind 0 tree_copy(a copy models, b own
 // materials), kind 1/2 tree_copy_materials(copy models on/off, a own materials, b shared); root a load's position. Then cleared.
 static std::vector<int32_t> g_pm_copies;
+static std::vector<::zcls::Node*> g_pm_loaded;  // the last probe_pm_mechlib's roots, for test_pm_shadows.py
 void probe_pm_mechlib_copies(const int32_t* v, int n) { g_pm_copies.assign(v, v + n); }
 int probe_pm_mechlib(const char* world, const char* path, const char* names, uint8_t* out, int cap) {
   static std::vector<uint8_t> scratch(1 << 27);
@@ -576,7 +578,8 @@ int probe_pm_mechlib(const char* world, const char* path, const char* names, uin
   const int32_t opened = ::zcls::mechlib_open(*lib, path) ? 1 : 0;
   put(&opened, 4);
   std::string all = names;
-  std::vector<::zcls::Node*> loaded;
+  std::vector<::zcls::Node*>& loaded = g_pm_loaded;
+  loaded.clear();
   for (size_t at = 0; opened && at < all.size();) {
     size_t bar = all.find('|', at);
     if (bar == std::string::npos) bar = all.size();
@@ -611,6 +614,67 @@ int probe_pm_mechlib(const char* world, const char* path, const char* names, uin
   put_tables(b, 1 << 30);
   put_models(b, 1 << 30);
   put_world_nodes(b, 1 << 30, true);
+  if (static_cast<int>(b.size()) > cap) return -1;
+  std::memcpy(out, b.data(), b.size());
+  return static_cast<int>(b.size());
+}
+
+// test_pm_shadows.py: the projected-shadow casters (zmod shadow_*, Pirate's Moon 0x0055d740..0x0055dec0) on
+// the trees probe_pm_mechlib loaded. One call: 0 init, 1 new (its id), 2 size(w, h), 3 node(a: a loaded root,
+// -1 none), 4 enable, 5 colour, 6 position(f), 7 draw(f light, f[3] ground); 8 precision (a: 0 24 bits, 1 53).
+static std::vector<::zmod::ShadowCaster*> g_pm_casters;
+static zmth::Mat34 g_pm_shadow_base;
+int probe_pm_shadow_op(int op, int id, int a, int b, const float* f) {
+  ::zmod::ShadowCaster* c = id > 0 && id <= static_cast<int>(g_pm_casters.size()) ? g_pm_casters[id - 1] : nullptr;
+  switch (op) {
+    case 0:
+      zrndr::soft_target() = zrndr::SoftTarget{};
+      ::zmod::caster_list() = nullptr;
+      ::zmod::shadow_state().current = nullptr;
+      zmth::reset_stack();
+      zmth::push(&g_pm_shadow_base);
+      zmth::load_identity();
+      g_pm_casters.clear();
+      ::zmod::shadows_init();
+      return 0;
+    case 1: g_pm_casters.push_back(::zmod::shadow_new()); return static_cast<int>(g_pm_casters.size());
+    case 2: ::zmod::shadow_set_size(c, a, b); return 0;
+    case 3:
+      ::zmod::shadow_set_node(c, a >= 0 && a < static_cast<int>(g_pm_loaded.size()) ? g_pm_loaded[a] : nullptr);
+      return 0;
+    case 4: ::zmod::shadow_enable(c, a); return 0;
+    case 5: ::zmod::shadow_set_color(c, static_cast<uint32_t>(a)); return 0;
+    case 6: ::zmod::shadow_set_position(c, f); return 0;
+    case 7: return ::zmod::shadow_draw(c, f, f[3]);
+    case 8: ::zmod::shadow_state().precision = a ? zrndr::X87::k53 : zrndr::X87::k24; return 0;
+  }
+  return -1;
+}
+// The casters from the head: id, node (a loaded root's position, -1 none, -2 another), +0x04..+0x4c, enabled,
+// the image's size and pixels; then the stack's top and the soft target's winding.
+int probe_pm_shadow_dump(uint8_t* out, int cap) {
+  std::string b;
+  auto put = [&](const void* p, size_t n) { b.append(static_cast<const char*>(p), n); };
+  auto i32 = [&](int32_t v) { put(&v, 4); };
+  int guard = 0;
+  for (const ::zmod::ShadowCaster* c = ::zmod::caster_list(); c && guard < 64; c = c->next, ++guard) {
+    int32_t id = -1, node = c->node ? -2 : -1;
+    for (size_t k = 0; k < g_pm_casters.size(); ++k)
+      if (g_pm_casters[k] == c) id = static_cast<int32_t>(k + 1);
+    for (size_t k = 0; k < g_pm_loaded.size(); ++k)
+      if (c->node && g_pm_loaded[k] == c->node) node = static_cast<int32_t>(k);
+    i32(id), i32(node);
+    put(c->position, 12), put(c->ground_at, 8), put(&c->color, 4), put(&c->ground_y, 4), put(c->slope, 8);
+    put(&c->slope_len, 4), put(c->box_min, 12), put(c->box_max, 12), put(c->scale, 8);
+    i32(c->enabled);
+    const auto* img = static_cast<const ::zimg::Texture*>(c->image);
+    i32(img != nullptr);
+    if (img) {
+      i32(img->width), i32(img->height), i32(img->pixels != nullptr);
+      if (img->pixels) put(img->pixels, 2 * static_cast<size_t>(img->width) * img->height);
+    }
+  }
+  i32(zmth::matrix_stack().top), i32(zrndr::soft_target().winding);
   if (static_cast<int>(b.size()) > cap) return -1;
   std::memcpy(out, b.data(), b.size());
   return static_cast<int>(b.size());

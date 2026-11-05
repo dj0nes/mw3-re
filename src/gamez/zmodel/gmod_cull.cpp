@@ -426,7 +426,9 @@ int32_t shadow_draw(ShadowCaster* c, const float light[3], float ground) {
     return 1;
   }
   float box[6];
-  std::memcpy(box, c->node->raw + 0x74, sizeof box);  // 0x004ebd50, its result unused
+  // 0x004ebd50, its result unused; Pirate's Moon 0x004fd9d0 reads the box its +0x70 points at
+  if (c->node->pm_box) std::memcpy(box, c->node->pm_box, sizeof box);
+  else std::memcpy(box, c->node->raw + 0x74, sizeof box);
   float corners[8][3];
   zmth::box_corners(m.m, box, corners);
   zmth::pop();
