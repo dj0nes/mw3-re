@@ -1,3 +1,6 @@
+#include "gamez/zvideo/zvid_format.h"
+#include "gamez/zmath/zmth_vector.h"
+#include <cmath>
 #include <cstdlib>
 #include <new>
 // Probes for test_pm_hud_objectives.py: PM's objectives box (HudObjectives::fill,
@@ -28,6 +31,10 @@ const char* get_text(int32_t id) {
 // zTwoD's host: a font by its name's index, a fixed glyph size.
 struct Host : ztwod::Host {
   std::vector<std::string> fonts;
+  // The radar test's: the static's noisy circle and lines draw nothing, as the
+  // exe's draws are stubbed there (they take rand; their own tests are zrndr's).
+  void circle_noisy(int32_t, int32_t, int32_t, uint32_t, float, const ztwod::Rect*) override {}
+  void line_noisy(int32_t, int32_t, int32_t, int32_t, uint32_t, float, const ztwod::Rect*) override {}
   ztwod::Handle font_find(const char* name) override {
     for (size_t i = 0; i < fonts.size(); ++i)
       if (fonts[i] == name) return static_cast<ztwod::Handle>(0x100 + i);
@@ -214,33 +221,100 @@ struct RadarIn {
   int32_t bc, light_current, hud_active, hidden;
   float noise, dir[3], cos_half, sin_half, dt;
   int32_t start[3][2];  // text1, text2, the light: where they are
+  // Stage 2: the map, the mech, the contacts, the network marker.
+  int32_t active, map_h, map_rect[4];
+  float map_scale, me[3], q[4];
+  int32_t c3, text2_hidden, seed, target, marker, n;
+  float marker_pos[3];
+  struct Contact {
+    int32_t team, on_radar, blip, has_mech, slave;
+    float sensor, pos[3], dist;
+  } contacts[8];
 };
 struct RadarOut {
   int32_t radius, radius_sq, x, y, text1_x, text1_y, text2_x, text2_y, text2_shown, light_x, light_y, light_current;
   int32_t lines[2][4], changed, hidden;
   char text1[32];
+  int32_t n_events, events[64][5];  // kind, a, b, c, d: 0 ring, 1 triangle, 2 text filled, 3 blip placed, 4 blip drawn
 };
 namespace {
 struct RadarHooks : Hooks {
   RadarIn in{};
-  float mech_sensor_range(mech3::Mech*) override { return in.range; }
+  RadarOut* out = nullptr;
+  ztwod::Rect rect{};
+  char map_obj = 0, marker_obj = 0, target_slot = 0;
+  void event(int32_t k, int32_t a, int32_t b, int32_t c, uint32_t d) {
+    if (out->n_events < 64) {
+      int32_t* e = out->events[out->n_events++];
+      e[0] = k, e[1] = a, e[2] = b, e[3] = c, e[4] = static_cast<int32_t>(d);
+    }
+  }
+  // A contact, its vehicle, its mech and its blip are all the record's address.
+  int index(void* p) const { return static_cast<int>(static_cast<RadarIn::Contact*>(p) - in.contacts); }
+  float mech_sensor_range(mech3::Mech* m) override {
+    void* p = m;
+    return p >= in.contacts && p < in.contacts + 8 ? in.contacts[index(p)].sensor : in.range;
+  }
   uint8_t mech_bc(mech3::Mech*) override { return static_cast<uint8_t>(in.bc); }
-  void mech_orientation(mech3::Mech*, float q[4]) override { q[0] = 1, q[1] = q[2] = q[3] = 0; }
-  void mech_position(mech3::Mech*, float out[3]) override { out[0] = out[1] = out[2] = 0; }
-  void* radar_map() override { return nullptr; }
+  void mech_orientation(mech3::Mech*, float q[4]) override { std::memcpy(q, in.q, sizeof in.q); }
+  void mech_position(mech3::Mech*, float o[3]) override { std::memcpy(o, in.me, sizeof in.me); }
   zrdr::Node* load_hud_zrd() override { return nullptr; }  // no hud.zrd: the pieces keep their own places
-  int32_t mech_contact_count(mech3::Mech*) override { return 0; }
-  void* network_marker() override { return nullptr; }
+  void* radar_map() override { return in.active ? &map_obj : nullptr; }
+  const ztwod::Rect* map_rect(void*) override {
+    rect = {in.map_rect[0], in.map_rect[1], in.map_rect[2], in.map_rect[3]};
+    return &rect;
+  }
+  float map_scale(void*) override { return in.map_scale; }
+  int32_t map_image_height(void*) override { return in.map_h; }
+  bool map_point(void*, const float p[3], int32_t o[2]) override {
+    o[0] = static_cast<int32_t>(static_cast<double>(p[0]) * 0.1) + 100;
+    o[1] = static_cast<int32_t>(static_cast<double>(p[2]) * 0.1) + 200;
+    return true;
+  }
+  void map_update(void*, float) override {}
+  int32_t mech_contact_count(mech3::Mech*) override { return in.n; }
+  void* mech_contact(mech3::Mech*, int32_t i) override { return &in.contacts[i]; }
+  void* contact_vehicle(void* c) override { return c; }
+  void* slot_contact(void*) override { return &in.contacts[in.target]; }
+  bool contact_same(void*, void*) override { return false; }
+  bool contact_on_radar(void* c) override { return in.contacts[index(c)].on_radar != 0; }
+  float contact_distance(void* c) override { return in.contacts[index(c)].dist; }
+  void object_position(void* o, float p[3]) override { std::memcpy(p, in.contacts[index(o)].pos, 12); }
+  uint32_t object_team(void* o) override { return static_cast<uint32_t>(in.contacts[index(o)].team); }
+  uint32_t mech_allies(mech3::Mech*) override { return 1; }
+  uint32_t mech_enemies(mech3::Mech*) override { return 2; }
+  void* object_blip(void* o, int32_t) override { return in.contacts[index(o)].blip ? o : nullptr; }
+  void blip_place(void* b, int32_t x, int32_t y) override { event(3, b == &marker_obj ? 100 : index(b), x, y, 0); }
+  void blip_draw(void* b) override { event(4, b == &marker_obj ? 100 : index(b), 0, 0, 0); }
+  void* vehicle_mech(void* o) override { return in.contacts[index(o)].has_mech ? o : nullptr; }
+  int32_t mech_c3(void*) override { return in.c3; }
+  int32_t mech_c3_slave(void* m) override { return in.contacts[index(m)].slave; }
+  void radar_test(int32_t k, int32_t a, int32_t b, int32_t c, uint32_t d) override { event(k, a, b, c, d); }
+  float normalize(float v[3]) override {
+    zmth::Vec3 d{v[0], v[1], v[2]};  // the program's (app_hud.cpp)
+    const float len = zmth::normalize(d);
+    v[0] = d.x, v[1] = d.y, v[2] = d.z;
+    return len;
+  }
+  void* network_marker() override { return in.marker ? &marker_obj : nullptr; }
+  void* marker_image(void*) override { return &marker_obj; }
+  void marker_position(void*, float o[3]) override { std::memcpy(o, in.marker_pos, 12); }
+  const char* marker_name(void*) override { return "op"; }
   bool radar_shot(int32_t, float*, bool*) override { return false; }
   int32_t mine_count() override { return 0; }
 };
 }  // namespace
+
+extern "C" uint32_t probe_pm_pack(int r, int g, int b) { return zvid::pack_bytes(r, g, b); }
 
 extern "C" void probe_pm_radar_run(const RadarIn* in, RadarOut* out) {
   static Host host;
   ztwod::set_host(&host);
   static RadarHooks hooks;
   hooks.in = *in;
+  hooks.out = out;
+  out->n_events = 0;
+  crt::msvc_srand(static_cast<uint32_t>(in->seed));
   mech3::set_hud_hooks(&hooks);
   // One HUD for every run, in zeroed memory: with fixes off and no hud.zrd,
   // the constructor reads Hud::block unset (the original's, hud.h).
@@ -250,7 +324,8 @@ extern "C" void probe_pm_radar_run(const RadarIn* in, RadarOut* out) {
   hud->active = static_cast<uint8_t>(in->hud_active);
   mech3::HudRadar& r = hud->radar;
   r.changed = static_cast<uint8_t>(in->changed);
-  r.active = 0;
+  r.active = static_cast<uint8_t>(in->active);
+  hud->target.target = in->target >= 0 ? reinterpret_cast<decltype(hud->target.target)>(&hooks.target_slot) : nullptr;
   r.zoomed = static_cast<uint16_t>(in->zoomed);
   for (int i = 0; i < 2; ++i) r.cx[i] = in->cx[i], r.cy[i] = in->cy[i], r.r[i] = in->r[i];
   r.to_r = in->to_r, r.to_x = in->to_x, r.to_y = in->to_y;
@@ -263,7 +338,8 @@ extern "C" void probe_pm_radar_run(const RadarIn* in, RadarOut* out) {
   r.cos_half = in->cos_half, r.sin_half = in->sin_half;
   if (in->hidden) r.flags |= ztwod::kHidden;
   else r.flags &= ~ztwod::kHidden;
-  r.text2.flags |= ztwod::kHidden;
+  if (in->text2_hidden) r.text2.flags |= ztwod::kHidden;
+  else r.text2.flags &= ~ztwod::kHidden;
   r.text1.set_pos(in->start[0][0], in->start[0][1]);
   r.text2.set_pos(in->start[1][0], in->start[1][1]);
   r.light.set_pos(in->start[2][0], in->start[2][1]);

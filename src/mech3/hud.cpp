@@ -2491,6 +2491,7 @@ ztwod::Frame& radar_ring() {
 void HudRadar::update(float dt) {
   HudHooks& h = *g_hooks;
   Hud* hd = static_cast<Hud*>(source);
+  radar_ring().hide();  // 0x005c01c0, at 0x0043f28c
   bool moved = false;
   if (changed) {
     moved = true;
@@ -2711,10 +2712,10 @@ void HudRadar::update_contacts(float dt, float static_px) {
     if (h.object_team(o) & h.mech_allies(m)) {
       blip = h.object_blip(o, 0);
       colour = zvid::pack_bytes(0, 0, 0xff);
-      // PM: an ally mech's ring, its sensor range over the map, unless the
-      // HUD's mech's +0x3d4 or the ally's +0x3d8 is under 1.
+      // PM: the C3 network: with a C3 in the HUD's mech and a C3 slave in the
+      // ally, its ring (its sensor range over the map).
       if ((ally = h.vehicle_mech(o)) != nullptr) {
-        if (h.mech_x3d4(m) < 1 || h.mech_x3d8(ally) < 1) ring.hide();
+        if (h.mech_c3(m) < 1 || h.mech_c3_slave(ally) < 1) ring.hide();
         else ring.show_for(-1.0f);
       }
     } else if (h.object_team(o) & h.mech_enemies(m)) {
@@ -2740,6 +2741,7 @@ void HudRadar::update_contacts(float dt, float static_px) {
         ring.radius = crt::msvc_ftol(std::fabs(static_cast<float>(
             crt::msvc_ftol(h.map_scale(h.radar_map()) * h.mech_sensor_range(static_cast<Mech*>(ally))))));
         ring.radius_sq = ring.radius * ring.radius;
+        h.radar_test(0, pt[0], pt[1], ring.radius, ring.color);
         ring.update(dt);
       }
       h.blip_draw(blip);
@@ -2765,8 +2767,10 @@ void HudRadar::update_contacts(float dt, float static_px) {
       ring.radius = radius;
       ring.radius_sq = radius * radius;
       ring.color = colour;
+      h.radar_test(0, pt[0], pt[1], ring.radius, ring.color);
       ring.update(dt);
     }
+    h.radar_test(1, pt[0], pt[1], 0, tri.color);
     tri.update(dt);
   }
   // Ours: black sheep wall (cheats.h): the mechs and vehicles with no
@@ -2829,6 +2833,7 @@ void HudRadar::update_contacts(float dt, float static_px) {
       }
     }
     if (!(text2.flags & ztwod::kHidden)) {  // PM: shown on a change only
+    h.radar_test(2, len > 1000.0f ? 0x228 : 0x229, 0, 0, 0);
         if (len > 1000.0f) {  // [0x005c00ec]
       char buf[32];
       std::snprintf(buf, sizeof buf, "%.2f", static_cast<double>(len * 0.001f));  // [0x005e3ebc]

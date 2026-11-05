@@ -2342,6 +2342,11 @@ file (docs/assets.md, Data versions):
   sight. A C3 slave alone on your mech does nothing, and an enemy's C3
   never helps the enemy: the game only ever builds the player's network.
   Allies do not otherwise share what they see.
+- **Pirate's Moon shows your C3 network on the map.** With a C3 computer on
+  your own mech, open the mission map over the radar (Shift+R) and each
+  allied mech carrying a C3 slave gets a ring in blue, the reach of its
+  sensors on the map's scale; your selected target gets a ring too.
+  MechWarrior 3 has nothing like it. (From the code: 0x0043f220.)
 - **Sensors see through walls, not through power-downs.** Every vehicle
   senses everything within its range (1000 m in the campaign) whatever is
   in between. A powered-down (or powering-down) mech stays on the list but

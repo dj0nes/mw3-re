@@ -907,8 +907,8 @@ radar shown, no blip while the Owens is powered down (not in sight), its
 blip 150 m straight ahead once awake (8 px out of the wanted 7.5), and the
 triangle instead once targeted.
 
-**Pirate's Moon (0x0043f220 for MW3's 0x0043dd00; mapped and ported 2026-11-04,
-not yet compared with the exe).** The same groups in the same order: the size and place, the range text
+**Pirate's Moon (0x0043f220 for MW3's 0x0043dd00; ported 2026-11-04, compared
+whole with the exe by `test_pm_hud_radar.py`).** The same groups in the same order: the size and place, the range text
 and the light, the polylines, the contacts, the network player's marker with
 its "OP: %1 [...]" (0x228, 0x229, the same in both), the shots in the air, the
 landmines. Read against the port's `HudRadar::update` and `update_contacts`,
@@ -920,14 +920,14 @@ what differs:
   contacts.
 - The marker's text is then filled each frame only while it is shown (MW3
   showed it each frame there was a marker).
-- **The ring** ([0x00629528], a static Frame made on the radar's first call,
-  0x005c4630): hidden at each contact; an ally contact's mech (its vt+0x58,
-  taken as the port's vt+0x50) shows it, unless the HUD's mech's +0x3d4 or the
-  ally's +0x3d8 is under 1. Over the map, while shown, it is drawn round the
-  ally's blip with the ally's sensor range (+0x9c) on the map's scale, in the
-  ally's colour; round the selected target's triangle with the radar's radius.
-  Its clip is the radar's (set on a change). Left: naming +0x3d4 and +0x3d8;
-  the program's hooks for them are unported, so the ring stays hidden in play.
+- **The ring: the C3 network, new in PM** ([0x00629528], a static Frame made on
+  the radar's first call, 0x005c4630). Hidden at each contact; an ally contact's
+  mech (its vt+0x58, MW3's vt+0x50) shows it when the HUD's mech carries a C3 and
+  the ally a C3 slave (equipment kinds 6 and 7: PM indexes `+0x3bc + kind*4`, MW3
+  `+0x3ac`). Over the map, while shown, it is drawn round the ally's blip with
+  the ally's sensor range (+0x9c) on the map's scale, in the ally's colour; round
+  the selected target's triangle with the radar's radius. Its clip is the radar's
+  (set on a change).
 The polylines' clip from the radar's square and the shots' squared distances,
 which the first reading took for PM's, are MW3's too.
 The rest (colours by team, the triangle on the selected target, the jitter of

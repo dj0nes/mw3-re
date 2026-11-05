@@ -420,8 +420,10 @@ struct ProgramHudHooks : HudHooks {
   bool object_a8(void* o) override { return hud_object_hidden(o); }           // vt+0xa8
   bool object_mech(void* o) override { return hud_object_mech(o) != nullptr; }  // vt+0x50
   void* object_mech_ptr(void* o) override { return hud_object_mech(o); }
-  // PM's radar ring (0x0043f220): a contact's mech, its vt+0x58 (the object's mech, as vt+0x50).
+  // PM's radar ring (0x0043f220): a contact's mech (its vt+0x58, MW3's vt+0x50) and the C3 pair.
   void* vehicle_mech(void* o) override { return hud_object_mech(o); }
+  int32_t mech_c3(void* m) override { return static_cast<Mech*>(m)->equipment[6]; }
+  int32_t mech_c3_slave(void* m) override { return static_cast<Mech*>(m)->equipment[7]; }
   const char* object_name(void* o) override { return hud_object_name(o); }   // vt+0xa4
   float contact_size(void* c) override { return hud_contact_size(c); }        // 0x004e7070
   // The centroid node's (+0x14), a mech's too: not its place (+0x04), which
