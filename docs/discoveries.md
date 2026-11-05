@@ -1201,6 +1201,10 @@ From mission.cpp's frame 0x48f470 and its neighbours (details:
   rifle 880, the LB 2-X 870, the Ultra AC/2 810): a mech past 800 m stays
   under a green reticle (and never locks), though your shots still hit it. The rebuild looks out to
   your selected weapons' range (bug fixes on).
+- **Pirate's Moon fixed the 800 m reticle and sharpened it:** its reticle
+  looks as far as your selected weapons reach, and it tests the units near
+  you by their actual shapes rather than their boxes, so aiming past a mech's
+  legs or arms no longer counts as on it. (From the code: 0x00445cf0.)
 - **Buildings you target never show in the TARGET window.** Only their
   name and range appear. The mission files can turn the picture on for a
   building (a `display` flag), but none of the shipped missions do.

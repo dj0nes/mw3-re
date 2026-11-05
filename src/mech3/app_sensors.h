@@ -37,6 +37,7 @@ void* hud_object_blip(const void* o, int32_t kind);
 bool hud_object_is_field_base(const void* o);  // for the HUD's report
 bool hud_object_is_target(const void* o);      // a targets.zrd object (or trap)
 bool hud_object_hidden(const void* o);
+bool hud_object_active(const void* o);  // zEntity's +0x08 (PM's aim ray, 0x00445c60)
 void* hud_object_mech(const void* o);
 const char* hud_object_name(const void* o);
 void hud_object_place(const void* o, float out[3]);

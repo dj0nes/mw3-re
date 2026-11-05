@@ -416,6 +416,14 @@ void hud_object_place(const void* o, float out[3]) { g_entity_facts.place(handle
 void hud_object_centre(const void* o, float out[3]) { entity_centre(handle(o), out); }
 void hud_object_centroid(const void* o, float out[3]) { world_position(g_sensors.node(handle(o), true), out); }
 void* hud_object_node(const void* o) { return g_sensors.node(handle(o), false); }
+bool hud_object_active(const void* o) {
+  const uint32_t h = handle(o);
+  if (const Mech* m = mech(h)) return m->active;
+  if (void* v = vehicle(h)) return program_vehicle_active(v) != 0;
+  if (const tur::Turret* t = program_turret_by_handle(h)) return t->active != 0;
+  if (const ai::CZAiTarget* t = target(h)) return t->active;
+  return false;
+}
 // 0x005a8630: the target node's (+0x10) place; vt+0xc 0x005a82d0: zEntity's
 // velocity (+0x30), the basic vehicles' kept by them, the rest still.
 void hud_object_aim_place(const void* o, float out[3]) {

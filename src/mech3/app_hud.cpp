@@ -368,6 +368,14 @@ struct ProgramHudHooks : HudHooks {
     out[0] = o.x, out[1] = o.y, out[2] = o.z;
   }
   void node_set_intersect(uint32_t, bool) override {}  // handles are 64-bit here: see mech_node
+  // PM's aim ray (0x00445c60): a contact's entity is its object (a mech's
+  // vt+0x48 returns itself; the other classes taken the same), its zEntity flag.
+  float contact_dist_sq(void* c) override { return static_cast<ai::Contact*>(c)->dist2; }
+  void* vehicle_entity(void* v) override { return v; }
+  bool entity_active(void* e) override { return hud_object_active(e); }
+  void node_set_intersect_bbox(uint32_t h, bool on) override {
+    if (zcls::Node* n = node(h)) zcls::node_set_intersect_bbox(n, on ? 1 : 0);
+  }
   uint32_t mech_node(Mech*) override { return 0; }
   int32_t segment_list(uint32_t, const float a[3], const float b[3], zwep::HitList* out) override {
     static zcls::LineHits r;

@@ -430,6 +430,37 @@ extern "C" void probe_pm_lock(const LockIn* in, LockOut* out) {
   ztwod::set_host(nullptr);
 }
 
+// test_pm_hud_lock.py's neighbour, test_pm_hud_aim.py: PM's aim ray's contact
+// pass (0x00445c60). Contacts: squared distance, has a vehicle, active.
+struct AimContact { float dist_sq; int32_t vehicle, active; };
+namespace {
+struct AimHooks : Hooks {
+  const AimContact* cs = nullptr;
+  int32_t n = 0, *log = nullptr, logged = 0;
+  int32_t index(void* p) const { return static_cast<int32_t>(static_cast<const AimContact*>(p) - cs); }
+  int32_t mech_contact_count(mech3::Mech*) override { return n; }
+  void* mech_contact(mech3::Mech*, int32_t i) override { return const_cast<AimContact*>(&cs[i]); }
+  float contact_dist_sq(void* c) override { return static_cast<AimContact*>(c)->dist_sq; }
+  void* contact_vehicle(void* c) override { return static_cast<AimContact*>(c)->vehicle ? c : nullptr; }
+  void* vehicle_entity(void* v) override { return v; }
+  bool entity_active(void* e) override { return static_cast<AimContact*>(e)->active != 0; }
+  uint32_t object_node(void* o) override { return static_cast<uint32_t>(index(o)); }
+  void node_set_intersect_bbox(uint32_t node, bool on) override { log[logged++] = static_cast<int32_t>(node) * 2 + on; }
+};
+}  // namespace
+
+extern "C" uint32_t probe_pm_contacts_mesh(const AimContact* cs, int32_t n, int32_t on, float reach_sq, int32_t* log,
+                                           int32_t* logged) {
+  static AimHooks hooks;
+  hooks.cs = cs, hooks.n = n, hooks.log = log, hooks.logged = 0;
+  mech3::set_hud_hooks(&hooks);
+  static mech3::HudReticle* r = new mech3::HudReticle("ret_on", "ret_off");
+  const uint32_t seen = r->contacts_by_mesh(nullptr, on != 0, reach_sq);
+  *logged = hooks.logged;
+  mech3::set_hud_hooks(nullptr);
+  return seen;
+}
+
 // test_pm_hud_timer.py: PM's time split (0x00597c30).
 extern "C" void probe_pm_time_split(float t, int32_t* out) { mech3::time_split(t, &out[0], &out[1], &out[2]); }
 

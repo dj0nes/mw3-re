@@ -1599,10 +1599,32 @@ void HudReticle::place(float fx, float fy) {
   zoom.follow(get_x(), get_y());
 }
 
-// Mech3.exe 1.2 @ 0x00444350: the reticle's point unprojected at the player
-// camera's near and far planes, the segment between queried with the mech
-// left out; the nearest hit counts unless its ground is soil kind 1 (one
-// hit alone: kept unless so). No hit: the far point (hud.md section 10).
+// Pirate's Moon 1.0 @ 0x00445c60: the mech's contacts nearer than `reach_sq`
+// (the list is nearest first), each active one's node set to be hit by its
+// mesh (`on` false: its box test off, 0x004fd2c0) or back; the count seen.
+uint32_t HudReticle::contacts_by_mesh(Mech* m, bool on, float reach_sq) {
+  HudHooks& k = *g_hooks;
+  const int32_t n = k.mech_contact_count(m);
+  if (n <= 0) return 0;
+  uint32_t i = 0;
+  for (; static_cast<int32_t>(i) < n; ++i) {
+    void* c = k.mech_contact(m, static_cast<int32_t>(i));
+    if (k.contact_dist_sq(c) > reach_sq) break;
+    if (void* v = k.contact_vehicle(c)) {
+      void* e = k.vehicle_entity(v);  // vt+0x48
+      if (e && k.entity_active(e)) k.node_set_intersect_bbox(k.object_node(e), on);
+    }
+  }
+  return i;
+}
+
+// Pirate's Moon 1.0 @ 0x00445cf0 (MW3's 0x00444350): the reticle's point
+// unprojected at the player camera's near plane and at the farther of its far
+// clip and the selected group's range (PM's; MW3 stopped at the far clip, W33),
+// the segment between queried with the mech left out and the contacts in that
+// reach tested by their meshes (PM's: 0x00445c60); the nearest hit counts
+// unless its ground is soil kind 1 (one hit alone: kept unless so). No hit:
+// the far point (hud.md section 10).
 void HudReticle::aim() {
   HudHooks& k = *g_hooks;
   float s[3] = {static_cast<float>(get_x()), static_cast<float>(get_y()), 0.0f};
@@ -1612,22 +1634,17 @@ void HudReticle::aim() {
   hits = zwep::HitList{};
   float near_z = 0.0f, far_z = 0.0f;
   k.player_camera_clip(&near_z, &far_z);
+  const float range = k.group_range(k.mech_weapons(m));  // 0x004b5a20
+  if (far_z <= range) far_z = range;
+  const float reach_sq = far_z * far_z;
+  contacts_by_mesh(m, false, reach_sq);
   k.view_prepare();
   float a[3], b[3];
-  s[2] = 1.0f / near_z;  // 0x005c0074
+  s[2] = 1.0f / near_z;
   k.unproject_world(s, a);
   s[2] = 1.0f / far_z;
   k.unproject_world(s, b);
-  // FIX (bug): the pick ended at the far clip (800 m), short of an ER large
-  // laser's 1000 m: in range, the reticle stayed green (W33; fixes.md).
-  float e[3] = {b[0], b[1], b[2]};
-  if (zfix::options().bugs) {
-    const float range = k.group_range(k.mech_weapons(m));
-    const float d[3] = {b[0] - a[0], b[1] - a[1], b[2] - a[2]};
-    const float len = std::sqrt(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
-    if (len > 0.0f && range > len)
-      for (int i = 0; i < 3; ++i) e[i] = a[i] + d[i] * (range / len);
-  }
+  const float* e = b;
   const uint32_t node = k.mech_node(m);
   k.node_set_intersect(node, false);
   int32_t best = -1;
@@ -1651,6 +1668,7 @@ void HudReticle::aim() {
     if (best >= 0) missed = false;
   }
   k.node_set_intersect(node, true);
+  contacts_by_mesh(m, true, reach_sq);
   const float* p;
   if (!missed) {
     const zwep::HitRecord& h = hits.rec[hits.count];

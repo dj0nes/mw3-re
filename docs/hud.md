@@ -453,6 +453,16 @@ torso until the reticle's ray ends on the Owens 80 m away and checks the
 weapons, with no other aim, take its armor down. Breaking the aim: 10 of 10
 caught.
 
+**Pirate's Moon (0x00445cf0 for MW3's 0x00444350).** Two changes:
+- The far point is unprojected at the farther of the far clip and the
+  selected group's longest range (0x004b5a20): PM's own answer to W33, so the
+  port's FIX (bug) is PM's code on `pm`. It differs from the fix in where the
+  end lies (at that depth through the reticle, not that distance along the ray).
+- Around the query, the mech's contacts nearer than that reach (nearest
+  first) are tested by their meshes: each active one's node loses its box test
+  (0x00445c60, 0x004fd2c0 flag 0x20 off, then on). A contact's entity is its
+  vt+0x48 (a mech returns itself; the program takes every class the same).
+  `test_pm_hud_aim.py` (the pass; the ray itself is not run in the emulator).
 
 ## 11. The frame (0x0043c820) and the pieces' updates
 

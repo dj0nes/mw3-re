@@ -518,6 +518,7 @@ class HudReticle : public ztwod::Image {
   int32_t lock = 0;                  // +0x950 the missile lock: 0 none, 1 acquiring, 2 waiting, 3 locked, 4 lost
   float lock_timer = 0.0f;           // +0x954 0.6 after a reset ([0x005e3a0c]); counts down in update
   void aim_state(bool over);         // 0x00443d20: the lock and the reticle's image
+  uint32_t contacts_by_mesh(Mech* m, bool on, float reach_sq);  // Pirate's Moon 1.0 @ 0x00445c60
   void* source = nullptr;            // +0x958 (not set by the constructor)
 };
 
@@ -623,6 +624,13 @@ class HudHooks : public zgame::Unported {
   // material's game soil ([0x00608c00]), the mech's node (+4).
   virtual void view_prepare() { unported("0x004b51f0", {}); }
   virtual void unproject_world(const float screen[3], float out[3]);
+  // PM's aim ray (0x00445c60): a contact's squared distance (+0x0c), a
+  // vehicle's entity (vt+0x48: a mech itself), its active flag (+0x08), and a
+  // node's box test (0x004fd2c0, flag 0x20).
+  virtual float contact_dist_sq(void* c) { return zgame::from_bits(unported("peek32", {id(c) + 0xc})); }
+  virtual void* vehicle_entity(void* v) { return ptr(unported("veh.vt+0x48", {id(v)})); }
+  virtual bool entity_active(void* e) { return (unported("peek8", {id(e) + 8}) & 0xff) != 0; }
+  virtual void node_set_intersect_bbox(uint32_t node, bool on) { unported("0x004fd2c0", {node, on ? 1u : 0u}); }
   virtual void node_set_intersect(uint32_t node, bool on) { unported("0x004eb6d0", {node, on ? 1u : 0u}); }
   virtual int32_t segment_list(uint32_t world, const float a[3], const float b[3], zwep::HitList* out);
   virtual uint32_t material_soil(zwep::Handle material);
