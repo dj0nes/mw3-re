@@ -2021,7 +2021,7 @@ struct WiredMissionHooks : MissionHooks {
     zeff::AnimHooks& a = zeff::anim_hooks();
     // 0x004f9b50 with [0x005ebcb4] and [0x005ebcb8] (both 1): a running def's
     // second instance at no node (an impact while the last one plays) copies its tree.
-    a.copy_tree = [](zcls::Node* n) { return zcls::tree_copy_materials(n, 1, 1); };
+    a.copy_tree = [](zcls::Node* n) { return zcls::tree_copy_materials(n, 1, 1, 1); };  // PM [0x0060f384..8c], all 1
     a.create_puffer = []() -> void* { return zmod::puffer_create(); };
     a.find_sound = [](const char* name) -> void* { return zsnd::find(name); };
     a.effect_index = zeff::effect_find;  // 0x0050d9e0

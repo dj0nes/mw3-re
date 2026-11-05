@@ -258,6 +258,8 @@ class Emulated(test_pm_zar.Emulated):
         blocks = ptr(N_BLOCKS)
         for i in range(cap):
             s = ptr(blocks + 4 * (i // 2500)) + 0xd4 * (i % 2500)
+            self.node_marks = getattr(self, 'node_marks', []) if i else []
+            self.node_marks.append((len(out), i))
             r = bytearray(self.read(s, 0xd4))
             cls, data = struct.unpack_from('<iI', r, 0x34)
             np_, nc = struct.unpack_from('<hh', r, 0x54)

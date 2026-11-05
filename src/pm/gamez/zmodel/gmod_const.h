@@ -82,6 +82,8 @@ void sort_by_material(Model& m);
 // read (0x005587e0) with the file's material base. The first one's index, 0
 // for none, -1 on a read error.
 int read_models(std::FILE* f, int32_t material_base);
+int model_changes(const Model& m);                                       // 0x0055b0b0
+Model* model_copy(const Model& m, int32_t own_materials, int32_t shared);  // 0x00559340
 // Pirate's Moon 1.0 @ 0x005587e0: one model's arrays, its material indices
 // offset by `material_base`. The exe checks no read.
 void read_model_data(std::FILE* f, Model& m, int32_t material_base);

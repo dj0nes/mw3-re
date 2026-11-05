@@ -1306,10 +1306,19 @@ functions PM changed, and PM's new ones.
      there. Seen: c1m1 at frame 900 from the cockpit, plain ground where the quad was.
      PM's caster is ported (`shadow_model_with`, 0x55dec0: the PM model's corner count 0x3ff and strip flag
      0x2000), not yet compared with the exe. It casts nothing yet: **a mech's tree copy carries no PM model**.
-     `copy_node_model` (MW3 0x4f90e0, PM 0x50cd10) copies `model` only, so every part of every mech made from
-     mechlib (the player's checked: hip, feet, toes, torso, arms, head) has neither `model` nor `pm_model`.
-     The mechs are not drawn either. That copy goes first in the mech step (with the command table); the
-     caster's differential goes with it, once a mech has models to cast.
+     `copy_node_model` (MW3 0x4f90e0, PM 0x50cd10) copied `model` only, so every part of every mech made from
+     mechlib had neither `model` nor `pm_model`, and the mechs were not drawn.
+   - **The tree copy (2026-11-04): ported, mechs draw.** `test_pm_mechlib.py` copies shipped and crafted trees on
+     both sides (0x50d7c0, 0x50d830) and compares every model, node and material. PM's differences from MW3's:
+     the node's model copy and set-model on PM's model (0x50cd10, 0x4fcc60); PM's model copy 0x559340 and
+     model-changes 0x55b0b0 (every material of a polygon; its material copy and test are MW3's in another
+     calling convention); the box selection copied (0x50d061); 0x50d830 takes the model copy as well, and its
+     animation callers pass [0x60f384..8c], all 1, never written; the child link marks the child's subtree moved
+     (0x4ff6d0: bit 25, +0x2c bit 0, an object3d's stale matrix; MW3's has no mark); the model's radius sums z
+     first (0x55b326), which can change its last bit. Seen: `--mech-ahead 40`, c1m1 frame 300, the target Mad Cat
+     in the view and the target window. Left: a PM model is never released (no 0x559xxx free ported, so a copy
+     is kept); the LoD copy's fade fields (0x515c00, PM +0x34..) stay zero, what shipped trees compute, no test
+     reaches another value.
    - **PM's command table is renumbered** (0x411980's 110 commands against MW3's 105): new `CMD_EJECT`,
      `CMD_HEADLIGHT_TOGGLE` 0x3c, `CMD_SNAPSHOT`, `CMD_TARGET_*_L` (lancemates), no `CMD_LOOK_REAR`, and most ids
      moved (`CMD_MISSION_COMPLETE` 0x79 against 0x71). The port on `pm` still has MW3's table, so its ids agree
