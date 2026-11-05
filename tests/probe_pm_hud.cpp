@@ -305,6 +305,59 @@ struct RadarHooks : Hooks {
 };
 }  // namespace
 
+// test_pm_hud_toggle.py: PM's Shift+R (0x0043f090) with its map choice
+// (0x0043ee50). The maps by name: 1 large, 2 small, 3 any (0 for none).
+struct ToggleIn {
+  int32_t active, zoomed, cx, cy, r, to_r, to_x, to_y, large, small, any, map_h, reticle_hidden, map_before;
+};
+struct ToggleOut {
+  int32_t active, radius, radius_sq, x, y, text2_x, text2_y, text2_shown, reticle_shown, changed, map;
+};
+namespace {
+struct ToggleHooks : Hooks {
+  ToggleIn in{};
+  uint32_t map = 0;
+  uint32_t map_find(const char* name) override {
+    if (!name) return static_cast<uint32_t>(in.any);
+    return static_cast<uint32_t>(std::strcmp(name, "large") == 0 ? in.large : in.small);
+  }
+  void set_radar_map(uint32_t m) override { map = m; }
+  void* radar_map() override { return map ? reinterpret_cast<void*>(static_cast<uintptr_t>(map)) : nullptr; }
+  int32_t map_image_height(void*) override { return in.map_h; }
+  zrdr::Node* load_hud_zrd() override { return nullptr; }
+};
+}  // namespace
+
+extern "C" void probe_pm_radar_toggle(const ToggleIn* in, ToggleOut* out) {
+  static Host host;
+  ztwod::set_host(&host);
+  static ToggleHooks hooks;
+  hooks.in = *in;
+  hooks.map = static_cast<uint32_t>(in->map_before);
+  mech3::set_hud_hooks(&hooks);
+  static mech3::Hud* hud = new (std::calloc(1, sizeof(mech3::Hud))) mech3::Hud(nullptr);
+  mech3::HudRadar& r = hud->radar;
+  r.active = static_cast<uint8_t>(in->active);
+  r.zoomed = static_cast<uint16_t>(in->zoomed);
+  r.cx[0] = in->cx, r.cy[0] = in->cy, r.r[0] = in->r;
+  r.to_r = in->to_r, r.to_x = in->to_x, r.to_y = in->to_y;
+  r.radius = 7, r.radius_sq = 49;
+  r.set_pos(3, 4);
+  r.changed = 0;
+  r.text2.set_pos(-1, -1);
+  r.text2.flags |= ztwod::kHidden;
+  if (in->reticle_hidden) hud->reticle.flags |= ztwod::kHidden;
+  else hud->reticle.flags &= ~ztwod::kHidden;
+  r.toggle_map();
+  out->active = r.active, out->radius = r.radius, out->radius_sq = r.radius_sq, out->x = r.get_x(), out->y = r.get_y();
+  out->text2_x = r.text2.get_x(), out->text2_y = r.text2.get_y();
+  out->text2_shown = (r.text2.flags & ztwod::kHidden) ? 0 : 1;
+  out->reticle_shown = (hud->reticle.flags & ztwod::kHidden) ? 0 : 1;
+  out->changed = r.changed, out->map = static_cast<int32_t>(hooks.map);
+  mech3::set_hud_hooks(nullptr);
+  ztwod::set_host(nullptr);
+}
+
 // test_pm_hud_timer.py: PM's time split (0x00597c30).
 extern "C" void probe_pm_time_split(float t, int32_t* out) { mech3::time_split(t, &out[0], &out[1], &out[2]); }
 

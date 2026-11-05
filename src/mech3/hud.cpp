@@ -836,12 +836,19 @@ void HudRadar::hide() {
   changed = 1;
 }
 
-// Mech3.exe 1.2 @ 0x0043da00: over the mission map, the map named for the
-// size ("large" zoomed, else "small"), else any.
+// Pirate's Moon 1.0 @ 0x0043ee50 (MW3's 0x0043da00): over the mission map,
+// the map named for the size ("large" zoomed, else "small", the reticle then
+// shown again: PM's), else any.
 uint32_t HudRadar::select_map() {
   if (!active) return 0;
   HudHooks& k = *g_hooks;
-  uint32_t m = k.map_find(zoomed == 1 ? "large" : "small");
+  uint32_t m;
+  if (zoomed == 1) {
+    m = k.map_find("large");
+  } else {
+    m = k.map_find("small");
+    static_cast<Hud*>(source)->reticle.show_for(-1.0f);  // its +0x1464, vt+0x60
+  }
   if (!m) m = k.map_find(nullptr);
   k.set_radar_map(m);
   return m;
@@ -850,17 +857,36 @@ uint32_t HudRadar::select_map() {
 // Mech3.exe 1.2 @ 0x0043da40
 void HudRadar::toggle_zoom() { set_zoom(zoomed == 0); }
 
-// Mech3.exe 1.2 @ 0x0043dc10: turned back off when no map is found; off,
-// straight to the size and place it steps toward.
+// Pirate's Moon 1.0 @ 0x0043f090 (MW3's 0x0043dc10): turned back off when no
+// map is found; off, the reticle shown again and straight to the size and
+// place it steps toward; either way the marker's text placed (PM's).
 void HudRadar::toggle_map() {
   active = !active;
   if (active && !select_map()) active = !active;
   if (!active) {
+    static_cast<Hud*>(source)->reticle.show_for(-1.0f);  // the HUD's +0x1464
     radius = to_r;
     radius_sq = to_r * to_r;
     set_pos(to_x, to_y);
   }
+  place_marker_text();
   changed = 1;
+}
+
+// Pirate's Moon 1.0's (inlined in 0x0043f090 and 0x0043f220): the network
+// marker's text (TEXT2) placed and shown: below the radar off the map; over
+// it, by the map's top edge (x 10 with the map on the left).
+void HudRadar::place_marker_text() {
+  if (active) {
+    void* map = g_hooks->radar_map();
+    int32_t tx = cx[0], ty = 15;
+    if (zoomed == 1) tx = 10;
+    else ty = (map ? g_hooks->map_image_height(map) : 0) + 15;
+    text2.set_pos(tx, ty);  // vt+0x0c
+  } else {
+    text2.set_pos(cx[0] - r[0], cy[0] + 15 + r[0]);
+  }
+  text2.show_for(-1.0f);
 }
 
 // Mech3.exe 1.2 @ 0x0043da50: the size to move to and the steps there.
@@ -2514,20 +2540,14 @@ void HudRadar::update(float dt) {
     const ztwod::Rect* rect = nullptr;
     // PM (0x0043f220): the marker's text placed and shown here, below the
     // radar, or over the map by its top edge (x 10 with the map on the left).
+    place_marker_text();
     if (active) {
       void* map = h.radar_map();
-      int32_t tx = cx[0], ty = 15;
-      if (zoomed == 1) tx = 10;
-      else ty = (map ? h.map_image_height(map) : 0) + 15;
-      text2.set_pos(tx, ty);  // vt+0x0c
-      text2.show_for(-1.0f);
       rect = map ? h.map_rect(map) : nullptr;
       mapped = rect != nullptr;
       polys[0].hide();
       polys[1].hide();
     } else {
-      text2.set_pos(cx[0] - r[0], cy[0] + 15 + r[0]);
-      text2.show_for(-1.0f);
       if (xbd4 > 3) polys[0].show_for(-1.0f);
       if (xbd8 > 3) polys[1].show_for(-1.0f);
     }

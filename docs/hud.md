@@ -930,6 +930,10 @@ what differs:
   the ally's sensor range (+0x9c) on the map's scale, in the ally's colour; round
   the selected target's triangle with the radar's radius. Its clip is the radar's
   (set on a change).
+- **Shift+R and the map choice** (0x0043f090, 0x0043ee50; MW3's 0x0043dc10,
+  0x0043da00): the marker's text is placed and shown on every toggle, as on a
+  change; turning the map off, and choosing the "small" map, show the reticle
+  again. `test_pm_hud_toggle.py`.
 The polylines' clip from the radar's square and the shots' squared distances,
 which the first reading took for PM's, are MW3's too.
 The rest (colours by team, the triangle on the selected target, the jitter of

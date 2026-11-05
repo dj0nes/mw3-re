@@ -287,6 +287,7 @@ class HudRadar : public ztwod::FilledBox {
   void set_zoom(bool zoomed);        // 0x0043da50
   void toggle_zoom();                // 0x0043da40: R, small or large
   void toggle_map();                 // 0x0043dc10: Shift+R, over the mission map when there is one
+  void place_marker_text();          // PM's, inlined in 0x0043f090 and 0x0043f220
   void reset_boundary();             // 0x0043d920: the mission boundary's two outlines for the polylines
   uint32_t select_map();             // 0x0043da00: the mission map for the size, kept at [0x0060998c]
   void set_fov(float radians);       // 0x0043f0c0
