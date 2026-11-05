@@ -1338,8 +1338,9 @@ MW3's; what changed:
   drawn alpha blended (0x0059df40). The level is clamped to 0..0.9 and then
   not used: any static above 0 draws the whole noise, so on hardware PM's
   static is on or off where MW3's thickened with the level. Without a device
-  (not ported) MW3's fill. The port draws the quad through zvid's
-  draw_textured.
+  (not ported) MW3's fill. The port draws the quad through zvid's draw_quad;
+  with `bugs` on (FIX (bug), Owen 2026-11-04) its alpha is the clamped level,
+  so the static thickens with damage as MW3's did (fixes.md).
 Checked by `test_pm_hud_static.py`: 4 noises (262,144 pixels), 200 quads and
 40 runs of 2,787 frames against PM's exe; 12 breaks caught. Not checked: which
 panel's rect is drawn (as MW3's), and the static on screen (mw3pm does not run

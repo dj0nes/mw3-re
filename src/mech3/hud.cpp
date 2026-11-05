@@ -1861,7 +1861,7 @@ void static_noise_free(HudStaticNoise* n) {
 // texture at a random place (half the texture each way); the four transformed
 // vertices into `q`. The level, clamped to 0..0.9, is not used with a device:
 // any static above 0 draws the whole noise (MW3 drew its pixels by the level;
-// docs/hud.md section 21).
+// docs/hud.md section 21). Hud::static_quad's FIX (bug) uses it.
 void static_quad_vertices(const ztwod::Rect& r, float q[4][8]) {
   const float u = static_cast<float>(crt::msvc_rand()) * 3.0518509e-05f;  // 0x005e28b0
   const float v = static_cast<float>(crt::msvc_rand()) * 3.0518509e-05f;
@@ -1880,10 +1880,21 @@ void static_quad_vertices(const ztwod::Rect& r, float q[4][8]) {
 }
 
 void Hud::static_quad(float level, const ztwod::Rect& r) {
-  (void)level;
   if (!noise) return;
   float q[4][8];
   static_quad_vertices(r, q);
+  // FIX (bug): the exe clamps the level to 0..0.9 and then draws the noise at
+  // full strength however hurt; its alpha scaled by that level, it thickens
+  // with damage as MW3's static did (fixes.md).
+  if (zfix::options().bugs) {
+    if (level > 0.9f) level = 0.9f;  // 0x005dfcd4
+    else if (level < 0.0f) level = 0.0f;
+    const uint32_t a = static_cast<uint32_t>(level * 255.0f + 0.5f);
+    for (auto& v : q) {
+      const uint32_t c = (a << 24) | 0x00ffffffu;
+      std::memcpy(&v[4], &c, 4);
+    }
+  }
   g_hooks->static_quad(*noise, q);
 }
 
