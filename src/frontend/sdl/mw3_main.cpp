@@ -1593,6 +1593,13 @@ int run(const Args& a, platform::VideoForWindows* vfw) {
       if (chain) pump.should_quit = [&] { return chain->done(); };
       if (modes) pump.should_quit = [&] { return modes->done(); };
       pump.stays_active = a.frames > 0 || !a.shot.empty() || chain || modes;  // a check: no pause for focus
+      // Ours (tvOS): Home on the remote, then back (SdlPump): the clock held
+      // and the sound devices paused while away.
+      pump.clock = &clock;
+      pump.backgrounded = [&](bool away) {
+        if (auto* so = dynamic_cast<sdlfe::SdlSoundOutput*>(sound.get())) so->pause_device(away);
+        music.pause_device(away);
+      };
       // MW3_FOCUS_LOST_AT=N (checks): the window's focus lost at the pump's
       // Nth pass, as when another app is in front.
       int focus_lost_at = 0, passes = 0;

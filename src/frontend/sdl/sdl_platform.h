@@ -97,7 +97,15 @@ class SdlClock : public platform::Clock {
   SdlClock() : start_(SDL_GetTicks()) {}
   uint32_t ticks_ms() override {
     if (frame_ms) return static_cast<uint32_t>(frames_ * frame_ms + slept_);
-    return static_cast<uint32_t>(SDL_GetTicks() - start_);
+    return static_cast<uint32_t>((held_ ? held_at_ : SDL_GetTicks()) - start_);
+  }
+  // Ours (tvOS): held, the clock stands still; let go, it goes on from there
+  // (the app in the background, SdlPump).
+  void hold(bool on) {
+    if (on == held_) return;
+    if (on) held_at_ = SDL_GetTicks();
+    else start_ += SDL_GetTicks() - held_at_;
+    held_ = on;
   }
   void sleep(uint32_t ms) override {
     if (frame_ms) slept_ += ms;
@@ -111,7 +119,8 @@ class SdlClock : public platform::Clock {
   uint32_t frame_ms = 0;
 
  private:
-  Uint64 start_;
+  Uint64 start_, held_at_ = 0;
+  bool held_ = false;
   uint64_t frames_ = 0, slept_ = 0;
 };
 
@@ -133,7 +142,10 @@ class SdlAlert : public platform::Alert {
 // (0x00590740), the window's close WM_CLOSE -> PostQuitMessage.
 class SdlPump : public platform::MessagePump {
  public:
-  SdlPump(SdlInput* input, zgame::App* app) : input_(input), app_(app) {}
+  SdlPump(SdlInput* input, zgame::App* app);
+  ~SdlPump() override;
+  SdlPump(const SdlPump&) = delete;
+  SdlPump& operator=(const SdlPump&) = delete;
   bool peek() override;
   bool pump() override;
   void wait(uint32_t ms) override;
@@ -153,6 +165,13 @@ class SdlPump : public platform::MessagePump {
   // (0x00590c00) is for play. A check started behind another app, or on a
   // window the launcher handed over unfocused, idled for good otherwise.
   bool stays_active = false;
+  // Ours (tvOS): the app sent to the background (Home) and brought back.
+  // Away, the clock is held and `backgrounded(true)` pauses the sound
+  // devices, from an SDL event watch: iOS and tvOS suspend the app as soon
+  // as SDL's handler returns, before the queue is read. The game pauses
+  // from the queue, as for a lost focus. The events never come on the Mac.
+  SdlClock* clock = nullptr;
+  std::function<void(bool)> backgrounded;
   // Ours: Alt+Enter, swallowed before the game sees the Enter.
   std::function<void()> toggle_fullscreen;
 
@@ -163,6 +182,9 @@ class SdlPump : public platform::MessagePump {
   zgame::App* app_;
   bool quit_ = false;
   bool enter_swallowed_ = false;  // Alt+Enter's Enter is down: its release goes too
+  bool away_ = false;             // in the background (tvOS)
+  static bool SDLCALL watch(void* self, SDL_Event* e);
+  void away(bool on);
 };
 
 }  // namespace sdlfe

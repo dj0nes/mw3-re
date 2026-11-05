@@ -25,6 +25,10 @@ class SdlMusicOutput : public platform::MusicOutput {
   void resume() override;
   void set_volume(uint16_t left, uint16_t right) override;
 
+  // Ours (tvOS): the device paused while the app is in the background,
+  // apart from the game's own pause (MCI's).
+  void pause_device(bool on);
+
   static bool decodes(const std::string& ext);  // what this build can play
   bool playing() const { return stream_ != nullptr && !paused_; }
 
@@ -37,6 +41,7 @@ class SdlMusicOutput : public platform::MusicOutput {
   size_t wav_at_ = 0;
   std::atomic<bool> ended_{false}, drained_{false};
   bool paused_ = false;
+  bool device_paused_ = false;
   float gain_ = 1.0f;
 };
 

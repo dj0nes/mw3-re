@@ -130,7 +130,7 @@ bool SdlMusicOutput::play(const std::string& path) {
     return false;
   }
   SDL_SetAudioStreamGain(stream_, gain_);
-  SDL_ResumeAudioStreamDevice(stream_);
+  if (!device_paused_) SDL_ResumeAudioStreamDevice(stream_);
   return true;
 }
 
@@ -141,8 +141,14 @@ void SdlMusicOutput::pause() {
   paused_ = true;
 }
 void SdlMusicOutput::resume() {
-  if (stream_) SDL_ResumeAudioStreamDevice(stream_);
+  if (stream_ && !device_paused_) SDL_ResumeAudioStreamDevice(stream_);
   paused_ = false;
+}
+void SdlMusicOutput::pause_device(bool on) {
+  device_paused_ = on;
+  if (!stream_) return;
+  if (on) SDL_PauseAudioStreamDevice(stream_);
+  else if (!paused_) SDL_ResumeAudioStreamDevice(stream_);
 }
 
 // auxSetVolume's two channels, 0..0xffff each; the stream has one gain.

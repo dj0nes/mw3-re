@@ -53,6 +53,9 @@ class SdlSoundOutput : public platform::SoundOutput {
   // DSBCAPS_GLOBALFOCUS (0x8000; the game asks it of none) plays on silent, as
   // DirectSound's did (FIX (A): the pump tells it).
   void set_focused(bool on) { focused_ = on; }
+  // Ours (tvOS): the device itself paused while the app is in the background.
+  void pause_device(bool on);
+  bool device_paused() const;
   // The device's callback mixes through this (the tests call it): every
   // playing buffer into `frames` stereo floats, added to what is there.
   void mix(float* out, int frames);

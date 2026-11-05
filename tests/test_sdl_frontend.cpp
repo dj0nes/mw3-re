@@ -4711,3 +4711,46 @@ TEST(tvos_default_args_point_into_the_bundle) {
   const auto a = sdlfe::tvos_default_args("/b/mw3.app/");
   EXPECT(a.size() == 5 && a[1] == "/b/mw3.app/game" && a[2] == "--assets" && a[3] == "/b/mw3.app/media" && a[4] == "--no-launcher");
 }
+
+// tvOS (Home on the remote): the app sent to the background pauses the game
+// as a lost focus does, holds its clock and pauses the sound device, at once
+// (an event watch: iOS and tvOS suspend the app before the queue is read).
+// The events never come on the Mac; here they are pushed by hand.
+TEST(tvos_lifecycle_background_pauses_and_holds_clock) {
+  if (!SDL_InitSubSystem(SDL_INIT_EVENTS)) return;
+  sdlfe::SdlInput in;
+  sdlfe::SdlClock clock;
+  sdlfe::SdlSoundOutput sound;
+  const bool have_sound = sound.create() == 0;
+  sdlfe::SdlPump pump(&in, nullptr);
+  pump.clock = &clock;
+  bool focused = true;
+  pump.focus_changed = [&](bool on) { focused = on; };
+  pump.backgrounded = [&](bool away) { sound.pause_device(away); };
+  SDL_FlushEvents(SDL_EVENT_FIRST, SDL_EVENT_LAST);
+  SDL_Event e{};
+  e.type = SDL_EVENT_WILL_ENTER_BACKGROUND;
+  SDL_PushEvent(&e);  // the watch runs now, as UIKit's callback would
+  const uint32_t before = clock.ticks_ms();
+  const bool paused_now = !have_sound || sound.device_paused();
+  SDL_Delay(200);
+  const uint32_t after = clock.ticks_ms();
+  while (pump.pump()) {
+    if (!SDL_PeepEvents(nullptr, 0, SDL_PEEKEVENT, SDL_EVENT_FIRST, SDL_EVENT_LAST)) break;
+  }
+  const bool focus_lost = !focused;
+  e.type = SDL_EVENT_DID_ENTER_FOREGROUND;
+  SDL_PushEvent(&e);
+  while (pump.pump()) {
+    if (!SDL_PeepEvents(nullptr, 0, SDL_PEEKEVENT, SDL_EVENT_FIRST, SDL_EVENT_LAST)) break;
+  }
+  const uint32_t back = clock.ticks_ms();
+  SDL_Delay(30);
+  std::printf("away 200 ms: the clock moved %u ms (then %u); sound %s, paused %d then %d; focus lost %d, back %d\n",
+              after - before, back - before, have_sound ? "on" : "none", paused_now,
+              have_sound ? sound.device_paused() : 0, focus_lost, focused);
+  EXPECT(after - before < 50 && back - before < 50);
+  EXPECT(clock.ticks_ms() > back);  // running again
+  EXPECT(paused_now && (!have_sound || !sound.device_paused()));
+  EXPECT(focus_lost && focused);
+}

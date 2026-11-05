@@ -262,6 +262,22 @@ Uint32 SdlPump::music_event() {
   return e;
 }
 
+SdlPump::SdlPump(SdlInput* input, zgame::App* app) : input_(input), app_(app) { SDL_AddEventWatch(watch, this); }
+SdlPump::~SdlPump() { SDL_RemoveEventWatch(watch, this); }
+
+bool SDLCALL SdlPump::watch(void* self, SDL_Event* e) {
+  if (e->type == SDL_EVENT_WILL_ENTER_BACKGROUND) static_cast<SdlPump*>(self)->away(true);
+  if (e->type == SDL_EVENT_DID_ENTER_FOREGROUND) static_cast<SdlPump*>(self)->away(false);
+  return true;
+}
+
+void SdlPump::away(bool on) {
+  if (on == away_) return;
+  away_ = on;
+  if (clock) clock->hold(on);
+  if (backgrounded) backgrounded(on);
+}
+
 bool SdlPump::peek() {
   // Only a pass that runs the game (no message waiting: the loop's idle
   // branch) is one of --frame-ms's steps. A pass that only takes a window
@@ -307,6 +323,18 @@ void SdlPump::handle(const SDL_Event& e) {
     case SDL_EVENT_WINDOW_FOCUS_LOST:
       if (focus_changed) focus_changed(false);
       if (app_ && app_->active() && !stays_active) app_->on_window_activate(0);
+      break;
+    // Ours (tvOS): Home, then back. The watch held the clock and paused the
+    // sound already; the game pauses as for a lost focus (WA_INACTIVE).
+    case SDL_EVENT_WILL_ENTER_BACKGROUND:
+      away(true);
+      if (focus_changed) focus_changed(false);
+      if (app_ && app_->active() && !stays_active) app_->on_window_activate(0);
+      break;
+    case SDL_EVENT_DID_ENTER_FOREGROUND:
+      away(false);
+      if (focus_changed) focus_changed(true);
+      if (app_ && !app_->active()) app_->on_window_activate(1);
       break;
     default:
       if (e.type == music_event() && app_) {

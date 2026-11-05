@@ -36,6 +36,13 @@ int32_t SdlSoundOutput::create() {
   return 0;
 }
 
+void SdlSoundOutput::pause_device(bool on) {
+  if (!stream_) return;
+  if (on) SDL_PauseAudioStreamDevice(stream_);
+  else SDL_ResumeAudioStreamDevice(stream_);
+}
+bool SdlSoundOutput::device_paused() const { return stream_ && SDL_AudioStreamDevicePaused(stream_); }
+
 void SdlSoundOutput::release_device() {
   if (stream_) SDL_DestroyAudioStream(stream_);  // stops the callback first
   stream_ = nullptr;
