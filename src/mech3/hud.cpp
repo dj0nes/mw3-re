@@ -1289,7 +1289,9 @@ void HudTarget::data_text() {
     a += buf;
   }
   texts[1].set_text_plain(a.c_str());
-  void* sc = h.saved_or_ally(me);
+  // PM (0x004e76e0): none in a network game; the saved target, else the
+  // selected one if it is a lancemate under orders (MW3: the last ally chosen).
+  void* sc = h.multiplayer_game() == 0 ? h.saved_or_lancemate(me) : nullptr;
   void* sm = sc ? h.contact_mech(sc) : nullptr;
   const char* sn = sm ? h.mech_object_name(sm) : nullptr;
   const char* t2 = sn ? h.message_arg(0xdd4, sn) : nullptr;

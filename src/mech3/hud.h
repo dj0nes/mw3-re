@@ -874,6 +874,7 @@ class HudHooks : public zgame::Unported {
     return nullptr;
   }
   virtual void* saved_or_ally(Mech* m) { return ptr(unported("0x004d7240", {id(m)})); }
+  virtual void* saved_or_lancemate(Mech* m) { return ptr(unported("0x004e76e0", {id(m)})); }  // PM's
   virtual const char* message_arg(int32_t msg, const char* arg) {
     unported("0x00575fd0", {static_cast<uint32_t>(msg)});
     (void)arg;

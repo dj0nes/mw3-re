@@ -743,6 +743,14 @@ struct ProgramHudHooks : HudHooks {
         part, [](void* c, int32_t id) { return static_cast<decltype(this)>(c)->message(id); }, this);
   }
   void* saved_or_ally(Mech* m) override { return m->saved_or_ally(); }
+  // PM's 0x004e76e0: the saved target, else the selected one when its vehicle's
+  // +0xbc has 0x10 (a lancemate under orders; only mechs carry it here).
+  void* saved_or_lancemate(Mech* m) override {
+    if (m->saved_target) return m->saved_target;
+    ai::Contact* t = m->target;
+    const Mech* tm = t ? static_cast<const Mech*>(hud_object_mech(hud_contact_vehicle(t))) : nullptr;
+    return tm && (tm->xbc & 0x10) ? t : nullptr;
+  }
   const char* message_arg(int32_t msg, const char* arg) override {  // 0x00575fd0
     formatted = zutl::format_message(msg, arg);
     return formatted.c_str();

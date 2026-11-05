@@ -1009,6 +1009,9 @@ Else shown, then:
   part aimed at (+0xf8, 0x0041d510; its name 0x00484d70).
 - The third text: message 0xdd4 with the name of the mech the player's
   saved or ally contact holds (0x004d7240), else empty.
+  Pirate's Moon (0x00442fd0, 0x004e76e0): empty in a network game; else the
+  saved target, or the selected target when it is a lancemate under orders
+  (its +0xbc bit 0x10), not the last ally chosen.
 - By the target's side (its team +0xc0 against the player's allies +0xc4,
   enemies +0xc8): the 3D view's box blue, red or the HUD green (none: a
   yellow-brown 0xc3, 0xad, 3); the texts all blue for an ally; red, red, blue
