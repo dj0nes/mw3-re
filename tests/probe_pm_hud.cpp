@@ -1,3 +1,5 @@
+#include <cstdlib>
+#include <new>
 // Probes for test_pm_hud_objectives.py: PM's objectives box (HudObjectives::fill,
 // src/mech3/hud.cpp on the pm branch) on a made-up mission, its lines read back.
 #include <cstdint>
@@ -203,3 +205,81 @@ void probe_pm_static_frames(uint32_t seed, int per_second, float* channels, int 
 }
 
 }  // extern "C"
+
+// test_pm_hud_radar.py: PM's radar (0x0043f220) on one frame, off the map and
+// without contacts (stage 1). In: the radar's state; out: what it left.
+struct RadarIn {
+  int32_t changed, zoomed, cx[2], cy[2], r[2], to_r, to_x, to_y, r_steps, x_steps, y_steps, radius, x, y;
+  float range;
+  int32_t bc, light_current, hud_active, hidden;
+  float noise, dir[3], cos_half, sin_half, dt;
+  int32_t start[3][2];  // text1, text2, the light: where they are
+};
+struct RadarOut {
+  int32_t radius, radius_sq, x, y, text1_x, text1_y, text2_x, text2_y, text2_shown, light_x, light_y, light_current;
+  int32_t lines[2][4], changed, hidden;
+  char text1[32];
+};
+namespace {
+struct RadarHooks : Hooks {
+  RadarIn in{};
+  float mech_sensor_range(mech3::Mech*) override { return in.range; }
+  uint8_t mech_bc(mech3::Mech*) override { return static_cast<uint8_t>(in.bc); }
+  void mech_orientation(mech3::Mech*, float q[4]) override { q[0] = 1, q[1] = q[2] = q[3] = 0; }
+  void mech_position(mech3::Mech*, float out[3]) override { out[0] = out[1] = out[2] = 0; }
+  void* radar_map() override { return nullptr; }
+  zrdr::Node* load_hud_zrd() override { return nullptr; }  // no hud.zrd: the pieces keep their own places
+  int32_t mech_contact_count(mech3::Mech*) override { return 0; }
+  void* network_marker() override { return nullptr; }
+  bool radar_shot(int32_t, float*, bool*) override { return false; }
+  int32_t mine_count() override { return 0; }
+};
+}  // namespace
+
+extern "C" void probe_pm_radar_run(const RadarIn* in, RadarOut* out) {
+  static Host host;
+  ztwod::set_host(&host);
+  static RadarHooks hooks;
+  hooks.in = *in;
+  mech3::set_hud_hooks(&hooks);
+  // One HUD for every run, in zeroed memory: with fixes off and no hud.zrd,
+  // the constructor reads Hud::block unset (the original's, hud.h).
+  static mech3::Hud* hud = new (std::calloc(1, sizeof(mech3::Hud))) mech3::Hud(nullptr);
+  static char fake_mech[0x800];
+  hud->mech = reinterpret_cast<mech3::Mech*>(fake_mech);
+  hud->active = static_cast<uint8_t>(in->hud_active);
+  mech3::HudRadar& r = hud->radar;
+  r.changed = static_cast<uint8_t>(in->changed);
+  r.active = 0;
+  r.zoomed = static_cast<uint16_t>(in->zoomed);
+  for (int i = 0; i < 2; ++i) r.cx[i] = in->cx[i], r.cy[i] = in->cy[i], r.r[i] = in->r[i];
+  r.to_r = in->to_r, r.to_x = in->to_x, r.to_y = in->to_y;
+  r.r_steps = in->r_steps, r.x_steps = in->x_steps, r.y_steps = in->y_steps;
+  r.radius = in->radius, r.radius_sq = in->radius * in->radius;
+  r.x = in->x, r.y = in->y;
+  r.light.current = in->light_current;
+  r.noise = in->noise;
+  for (int i = 0; i < 3; ++i) r.dir[i] = in->dir[i];
+  r.cos_half = in->cos_half, r.sin_half = in->sin_half;
+  if (in->hidden) r.flags |= ztwod::kHidden;
+  else r.flags &= ~ztwod::kHidden;
+  r.text2.flags |= ztwod::kHidden;
+  r.text1.set_pos(in->start[0][0], in->start[0][1]);
+  r.text2.set_pos(in->start[1][0], in->start[1][1]);
+  r.light.set_pos(in->start[2][0], in->start[2][1]);
+  for (int i = 0; i < 2; ++i) r.lines[i].x = r.lines[i].y = r.lines[i].end_x = r.lines[i].end_y = 0;  // the reused HUD's last run
+  r.text1.set_text("%s", "");
+  r.update(in->dt);
+  out->radius = r.radius, out->radius_sq = r.radius_sq, out->x = r.get_x(), out->y = r.get_y();
+  out->text1_x = r.text1.get_x(), out->text1_y = r.text1.get_y();
+  out->text2_x = r.text2.get_x(), out->text2_y = r.text2.get_y();
+  out->text2_shown = (r.text2.flags & ztwod::kHidden) ? 0 : 1;
+  out->light_x = r.light.get_x(), out->light_y = r.light.get_y(), out->light_current = r.light.current;
+  for (int i = 0; i < 2; ++i)
+    out->lines[i][0] = r.lines[i].x, out->lines[i][1] = r.lines[i].y, out->lines[i][2] = r.lines[i].end_x,
+    out->lines[i][3] = r.lines[i].end_y;
+  out->changed = r.changed, out->hidden = (r.flags & ztwod::kHidden) ? 1 : 0;
+  std::snprintf(out->text1, sizeof out->text1, "%s", r.text1.text);
+  mech3::set_hud_hooks(nullptr);
+  ztwod::set_host(nullptr);
+}
