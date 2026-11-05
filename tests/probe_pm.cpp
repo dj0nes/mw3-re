@@ -17,6 +17,7 @@
 #include "pm/gamez/zvideo/zvid_tl.h"
 #include "pm/gamez/zclass/cls_clutter.h"
 #include "pm/gamez/zclass/light.h"
+#include "gamez/zclass/cls_util.h"
 #include "mech3/mission_world.h"
 #include "gamez/zclass/class.h"
 #include "gamez/zclass/camera.h"
@@ -542,6 +543,10 @@ int probe_pm_gamez_stack(const char* paths, int rb, int gb, int bb, int with_mod
 // `names` ('|'-separated) loaded in order. Out: the open's result, each
 // load's root, the library's materials and trees, then the tables, models
 // and nodes.
+// The tree copies made after the loads: (root, kind, a, b) each, kind 0 tree_copy(a copy models, b own
+// materials), kind 1/2 tree_copy_materials(copy models on/off, a own materials, b shared); root a load's position. Then cleared.
+static std::vector<int32_t> g_pm_copies;
+void probe_pm_mechlib_copies(const int32_t* v, int n) { g_pm_copies.assign(v, v + n); }
 int probe_pm_mechlib(const char* world, const char* path, const char* names, uint8_t* out, int cap) {
   static std::vector<uint8_t> scratch(1 << 27);
   if (world && *world) {
@@ -571,13 +576,25 @@ int probe_pm_mechlib(const char* world, const char* path, const char* names, uin
   const int32_t opened = ::zcls::mechlib_open(*lib, path) ? 1 : 0;
   put(&opened, 4);
   std::string all = names;
+  std::vector<::zcls::Node*> loaded;
   for (size_t at = 0; opened && at < all.size();) {
     size_t bar = all.find('|', at);
     if (bar == std::string::npos) bar = all.size();
-    const int32_t root = node_index(::zcls::mechlib_load(*lib, all.substr(at, bar - at).c_str()));
+    ::zcls::Node* r = ::zcls::mechlib_load(*lib, all.substr(at, bar - at).c_str());
+    loaded.push_back(r);
+    const int32_t root = node_index(r);
     put(&root, 4);
     at = bar + 1;
   }
+  for (size_t k = 0; k + 3 < g_pm_copies.size(); k += 4) {
+    const auto i = static_cast<size_t>(g_pm_copies[k]);
+    ::zcls::Node* src = i < loaded.size() ? loaded[i] : nullptr;
+    ::zcls::Node* c = g_pm_copies[k + 1] == 0 ? ::zcls::tree_copy(src, g_pm_copies[k + 2], g_pm_copies[k + 3])
+                                              : ::zcls::tree_copy_materials(src, g_pm_copies[k + 1] == 1, g_pm_copies[k + 2], g_pm_copies[k + 3]);
+    const int32_t ci = node_index(c);
+    put(&ci, 4);
+  }
+  g_pm_copies.clear();
   const int32_t nm = static_cast<int32_t>(lib->materials.size());
   put(&nm, 4);
   for (const ::zcls::Material* m : lib->materials) {

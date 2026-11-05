@@ -445,7 +445,7 @@ void model_box(uint8_t* h, const float* vertices, const Light* lights, const flo
   hdr_f(h, 0x48, hx + box[0]);
   hdr_f(h, 0x4c, hy + box[1]);
   hdr_f(h, 0x50, hz + box[2]);
-  const float r2 = (hx * hx + hy * hy) + hz * hz;
+  const float r2 = (hz * hz + hy * hy) + hx * hx;  // Pirate's Moon 0x0055b326: z first (MW3 sums x first)
   uint32_t bits;
   std::memcpy(&bits, &r2, 4);
   bits = static_cast<uint32_t>((static_cast<int32_t>(bits) >> 1) + 0x1fc00000);

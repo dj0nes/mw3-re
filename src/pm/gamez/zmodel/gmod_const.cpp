@@ -2,9 +2,12 @@
 
 #include <algorithm>
 #include <cstdlib>
+#include <vector>
+#include <cstring>
 
 #include "crt/msvc_math.h"
 #include "gamez/zerror/zerr.h"
+#include "gamez/zmodel/gmod_matl.h"
 #include "gamez/zvideo/zvid_format.h"
 
 namespace pm::zmod {
@@ -239,6 +242,107 @@ int read_models(std::FILE* f, int32_t material_base) {
     read_model_data(f, m, material_base);
   }
   return base;
+}
+
+}  // namespace pm::zmod
+
+namespace pm::zmod {
+namespace {
+template <typename T>
+T* dup_array(const T* src, size_t n) {
+  if (!src || n == 0) return nullptr;
+  T* p = static_cast<T*>(std::malloc(n * sizeof(T)));
+  std::memcpy(p, src, n * sizeof(T));
+  return p;
+}
+}  // namespace
+
+// Pirate's Moon 1.0 @ 0x0055b0b0: MW3's 0x0053b3c0 over every material of every polygon.
+int model_changes(const Model& m) {
+  if (m.count(8) & 0x1c) return 1;
+  for (int32_t i = 0; i < m.count(0x10); ++i) {
+    const Polygon& q = m.polygons[i];
+    for (int32_t j = 0; j < q.material_count; ++j)
+      if (::zmod::material_changes(*q.materials[j])) return 1;  // 0x00556520
+  }
+  return 0;
+}
+
+// Pirate's Moon 1.0 @ 0x00559340: MW3's 0x005396c0 on PM's model. The flags' low five bits, +0, +4 and
+// +0x24..+0x33 are copied; a material is copied (once a model) when `own_materials` and, with
+// `shared`, it changes; the refs point into the copy's polygons.
+Model* model_copy(const Model& m, int32_t own_materials, int32_t shared) {
+  Model* c = model_alloc();
+  if (!c) return nullptr;
+  std::memcpy(c->header, m.header, 8);
+  const auto put = [&](int off, int32_t v) { std::memcpy(c->header + off, &v, 4); };
+  put(0xc, 0);
+  put(8, static_cast<int32_t>((m.count(8) & 0x1f) | (c->count(8) & ~0x1f)));  // bit by bit in the exe
+  std::memcpy(c->header + 0x24, m.header + 0x24, 0x10);
+  if (const int32_t n = m.count(0x20); n != 0) {
+    c->lights = static_cast<::zmod::Light*>(std::malloc(static_cast<size_t>(n) * sizeof(::zmod::Light)));
+    for (int32_t i = 0; i < n; ++i) {
+      c->lights[i] = m.lights[i];
+      int32_t k;
+      std::memcpy(&k, c->lights[i].raw + 0xc, 4);
+      c->lights[i].vertices = dup_array(m.lights[i].vertices, k > 0 ? 3 * static_cast<size_t>(k) : 0);
+    }
+  }
+  put(0x20, m.count(0x20));
+  if (m.count(0x1c) > 0) c->morphs = dup_array(m.morphs, 3 * static_cast<size_t>(m.count(0x1c)));
+  put(0x1c, m.count(0x1c));
+  if (m.count(0x14) > 0) c->vertices = dup_array(m.vertices, 3 * static_cast<size_t>(m.count(0x14)));
+  put(0x14, m.count(0x14));
+  if (m.count(0x18) > 0) c->normals = dup_array(m.normals, 3 * static_cast<size_t>(m.count(0x18)));
+  put(0x18, m.count(0x18));
+  const int32_t polys = m.count(0x10);
+  if (polys > 0) c->polygons = new Polygon[static_cast<size_t>(polys)]{};
+  put(0x10, polys);
+  std::vector<std::pair<::zmod::Material*, ::zmod::Material*>> made;
+  for (int32_t i = 0; i < polys; ++i) {
+    const Polygon& s = m.polygons[i];
+    Polygon& d = c->polygons[i];
+    d.priority = s.priority;
+    d.flags = s.flags & 0x3400;  // back face, normals, strip
+    d.zone_set = s.zone_set;
+    d.file_uvs = s.file_uvs;
+    d.material_count = s.material_count;
+    d.materials = static_cast<::zmod::Material**>(std::malloc(static_cast<size_t>(s.material_count > 0 ? s.material_count : 1) * sizeof(void*)));
+    for (int32_t j = 0; j < s.material_count; ++j) {
+      ::zmod::Material* mat = s.materials[j];
+      if (own_materials && (!shared || ::zmod::material_changes(*mat))) {
+        ::zmod::Material* copy = nullptr;
+        for (const auto& p : made)
+          if (p.first == mat) copy = p.second;
+        if (!copy) made.emplace_back(mat, copy = ::zmod::material_copy(*mat));  // 0x00557290
+        mat = copy;
+      }
+      d.materials[j] = mat;
+    }
+    const uint32_t k = s.flags & 0x3ff;
+    if (k) {
+      d.vertex_indices = dup_array(s.vertex_indices, k);
+      if ((s.flags & 0x1000) && s.normal_indices) d.normal_indices = dup_array(s.normal_indices, k);
+    }
+    d.flags = (d.flags & ~0x3ffu) | k;
+    if (s.uvs) {
+      d.uvs = static_cast<float**>(std::malloc(static_cast<size_t>(d.material_count > 0 ? d.material_count : 1) * sizeof(float*)));
+      for (int32_t j = 0; j < d.material_count; ++j) d.uvs[j] = dup_array(s.uvs[j], 2 * static_cast<size_t>(k));
+    }
+    if (s.colors) d.colors = dup_array(s.colors, 3 * static_cast<size_t>(k));
+    d.scratch = static_cast<uint32_t*>(std::malloc((k ? k : 1) * 4));
+  }
+  const int32_t refs = m.count(0x5c);
+  put(0x5c, refs);
+  if (refs > 0) {
+    c->refs = new MaterialRef[static_cast<size_t>(refs)]{};
+    Polygon* at = c->polygons;
+    for (int32_t i = 0; i < refs; ++i) {
+      c->refs[i] = MaterialRef{at && at->material_count > 0 ? at->materials[0] : nullptr, m.refs[i].usage_count, at};
+      at += m.refs[i].usage_count;
+    }
+  }
+  return c;
 }
 
 }  // namespace pm::zmod

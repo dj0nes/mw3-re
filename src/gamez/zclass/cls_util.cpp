@@ -1,4 +1,5 @@
 #include "gamez/zclass/cls_util.h"
+#include "pm/gamez/zmodel/gmod_const.h"
 
 #include <cstdint>
 #include <cstring>
@@ -69,6 +70,15 @@ CopyState& copy_state() { return g_copy; }
 // Mech3.exe 1.2 @ 0x004f90e0. A copied model replaces the shared one unless
 // `shared` is set and the model does not change (0x0053b3c0).
 int copy_node_model(Node* src, Node* dst) {
+  if (src->pm_model) {  // Pirate's Moon 0x0050cd10: the same on PM's model
+    pm::zmod::Model* p = src->pm_model;
+    if (g_copy.copy_models && (!g_copy.shared || pm::zmod::model_changes(*p))) {
+      pm::zmod::Model* c = pm::zmod::model_copy(*p, g_copy.own_materials, g_copy.shared);
+      if (!c) return 1;
+      return node_set_pm_model(dst, c);
+    }
+    return node_set_pm_model(dst, p);
+  }
   zmod::Model* m = src->model;
   if (!m) return 0;
   if (g_copy.copy_models && (!g_copy.shared || zmod::model_changes(*m))) {
@@ -95,6 +105,10 @@ int copy_node_base(Node* src, Node* dst) {
   if (int r = node_set_clip_to(dst, bit(17))) return copy_error(0x400, 0x453, "clip_to flag", r);
   if (int r = node_set_zone_check(dst, bit(24))) return copy_error(0x400, 0x45e, "DI zone check flag", r);
   if (int r = node_set_overwrite(dst, bit(23))) return copy_error(0x400, 0x469, "overwrite flag", r);
+  // Pirate's Moon 0x0050d061: the same of the three boxes as the source's (+0x70); any other stays.
+  for (int off : {0x74, 0x8c, 0xa4})
+    if (src->pm_box == reinterpret_cast<const float*>(src->raw + off))
+      dst->pm_box = reinterpret_cast<const float*>(dst->raw + off);
   dst->set_flags(dst->flags() | (f & 0x70000000));
   dst->put<uint32_t>(0x28, src->get<uint32_t>(0x28));
   node_set_draw_bits(dst, node_draw_bits(src));
@@ -224,13 +238,13 @@ Node* tree_copy(Node* node, int32_t copy_models, int32_t own_materials) {
   return c;
 }
 
-// Mech3.exe 1.2 @ 0x004f9b50
-Node* tree_copy_materials(Node* node, int32_t own_materials, int32_t shared) {
-  if (!node) return refuse(0x400, 0x6fa, "Null node pointer.");
+// Pirate's Moon 1.0 @ 0x0050d830 (MW3's 0x004f9b50 with the model copy as well)
+Node* tree_copy_materials(Node* node, int32_t copy_models, int32_t own_materials, int32_t shared) {
+  if (!node) return refuse(0x400, 0x778, "Null node pointer.");
   const CopyState saved = g_copy;
-  g_copy.own_materials = own_materials, g_copy.shared = shared;
+  g_copy.copy_models = copy_models, g_copy.own_materials = own_materials, g_copy.shared = shared;
   Node* c = node_copy(node);
-  g_copy.own_materials = saved.own_materials, g_copy.shared = saved.shared;
+  g_copy = saved;
   return c;
 }
 

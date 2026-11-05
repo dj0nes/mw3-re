@@ -1292,8 +1292,33 @@ functions PM changed, and PM's new ones.
      node's turn is its world matrix (0x4ff360). Kept from MW3, same values: each particle's own copy of
      the colour and growth tracks (PM shares one block, dropped by every colour or growth setter). Seen
      only in the test: a timed puffer with no textures reads through a null iterator at the draw (exe and
-     port alike); whether shipped data makes one is not checked. Not covered by the test: the tick of
+     port alike). Shipped data makes none (2026-11-04): every compiled PUFFER_STATE event in both games'
+     `anim.zbd` (844 MW3, 688 PM, found by type 42 and size) is untimed or names a texture, and no
+     text source's TEXTURES / TEXTURE_SEQUENCE is empty (76 MW3, 104 PM). Not a crash in either game. Not covered by the test: the tick of
      every particle (0x564710, read but not compared line by line with MW3's) and the sprite itself (0x588c50, the shared draw).
+   - **Shadows (2026-11-04): the dark quad in front of the player was a port fault, fixed.** A shadow set
+     (kind 1, PM 0x005a04bb..) draws through `draw_primitive` with COLOROP SELECTARG1; the SDL backend honoured
+     that only in `draw_multi` (MW3's shadow pass), so it modulated the caster's image by the vertex colour
+     (the night's dim light) and the multiply blend made the caster's whole box a flat dark quad. The backend's
+     `draw` now takes the texture alone too (`sdl_render_shadow_set_takes_the_texture_alone`, with a break).
+     The exe has no guard for an empty image and needs none: an image with nothing cast is white (the ramp's
+     first grey), and white under SELECTARG1 and the multiply changes nothing, so the exe draws no dark quad
+     there. Seen: c1m1 at frame 900 from the cockpit, plain ground where the quad was.
+     PM's caster is ported (`shadow_model_with`, 0x55dec0: the PM model's corner count 0x3ff and strip flag
+     0x2000), not yet compared with the exe. It casts nothing yet: **a mech's tree copy carries no PM model**.
+     `copy_node_model` (MW3 0x4f90e0, PM 0x50cd10) copied `model` only, so every part of every mech made from
+     mechlib had neither `model` nor `pm_model`, and the mechs were not drawn.
+   - **The tree copy (2026-11-04): ported, mechs draw.** `test_pm_mechlib.py` copies shipped and crafted trees on
+     both sides (0x50d7c0, 0x50d830) and compares every model, node and material. PM's differences from MW3's:
+     the node's model copy and set-model on PM's model (0x50cd10, 0x4fcc60); PM's model copy 0x559340 and
+     model-changes 0x55b0b0 (every material of a polygon; its material copy and test are MW3's in another
+     calling convention); the box selection copied (0x50d061); 0x50d830 takes the model copy as well, and its
+     animation callers pass [0x60f384..8c], all 1, never written; the child link marks the child's subtree moved
+     (0x4ff6d0: bit 25, +0x2c bit 0, an object3d's stale matrix; MW3's has no mark); the model's radius sums z
+     first (0x55b326), which can change its last bit. Seen: `--mech-ahead 40`, c1m1 frame 300, the target Mad Cat
+     in the view and the target window. Left: a PM model is never released (no 0x559xxx free ported, so a copy
+     is kept); the LoD copy's fade fields (0x515c00, PM +0x34..) stay zero, what shipped trees compute, no test
+     reaches another value.
    - **PM's command table is renumbered** (0x411980's 110 commands against MW3's 105): new `CMD_EJECT`,
      `CMD_HEADLIGHT_TOGGLE` 0x3c, `CMD_SNAPSHOT`, `CMD_TARGET_*_L` (lancemates), no `CMD_LOOK_REAR`, and most ids
      moved (`CMD_MISSION_COMPLETE` 0x79 against 0x71). The port on `pm` still has MW3's table, so its ids agree

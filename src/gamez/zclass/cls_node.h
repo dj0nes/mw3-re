@@ -132,7 +132,8 @@ uint8_t* mw3_node_model_header(const Node* node);
 // 0x004eb370: the old model's use count down, the new one's up and its box
 // into +0x8c (flag 0x200), the node marked changed (+0x2c bit 2). Null
 // drops the model (the use count is the caller's to act on).
-int node_set_model(Node* node, zmod::Model* model);       // 0x004eb370
+int node_set_model(Node* node, zmod::Model* model);
+int node_set_pm_model(Node* node, pm::zmod::Model* model);  // Pirate's Moon 0x004fcc60       // 0x004eb370
 // The node lets its model go; one no node uses any more is freed (0x00539150).
 // Inline in 0x004f84b0 and 0x004f9050.
 int node_drop_model(Node* node);

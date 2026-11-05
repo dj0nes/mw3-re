@@ -1,4 +1,6 @@
 #include "gamez/zclass/cls_node.h"
+#include "pm/gamez/zclass/cls_node.h"
+#include "pm/gamez/zmodel/gmod_const.h"
 
 #include <cstdio>
 #include <cstdlib>
@@ -164,6 +166,20 @@ Node* node_root(Node* node) {
 }
 
 // Mech3.exe 1.2 @ 0x004eba90. No duplicate check. FIX (A): new arrays for realloc.
+namespace {
+// Pirate's Moon 1.0 @ 0x004ff6d0: a node and what is below it have moved (an object3d's world matrix is stale).
+void mark_moved(Node* node) {
+  if (node->cls() == 5) {
+    auto* d = static_cast<Object3d*>(node->data);
+    d->put<uint32_t>(0, d->get<uint32_t>(0) | 0x20);
+  }
+  node->put<uint32_t>(0x2c, node->get<uint32_t>(0x2c) | 1);
+  node->set_flags(node->flags() | 0x2000000);
+  for (int32_t i = 0; i < node->child_count(); ++i)
+    if (!(node->children[i]->flags() & 0x2000000)) mark_moved(node->children[i]);
+}
+}  // namespace
+
 int node_link(Node* parent, Node* child) {
   parent->children = append(parent->children, parent->child_count(), child);
   parent->put<int32_t>(0x5c, parent->child_count() + 1);
@@ -177,6 +193,7 @@ int node_link(Node* parent, Node* child) {
   }
   parent->set_flags(parent->flags() | 2);
   if (parent->changed) parent->changed->removable = 0;
+  mark_moved(child);  // Pirate's Moon 0x004fd6f0
   return 0;
 }
 
@@ -476,6 +493,28 @@ int node_set_model(Node* node, zmod::Model* model) {
   if (model) {
     add_uses(model->header, 1);  // 0x00539d50
     node_model_box(node);        // 0x0053b4e0 into +0x8c, flag 0x200
+  } else {
+    node->set_flags(node->flags() & ~0x200u);
+  }
+  node->put<uint32_t>(0x2c, node->get<uint32_t>(0x2c) | 4);
+  if ((node->flags() & 1) == 0) {
+    push_front(kChanged, node);
+    node->set_flags(node->flags() | 1);
+  }
+  node->set_flags(node->flags() | 2);
+  if (node->changed) node->changed->removable = 0;
+  return 0;
+}
+
+// Pirate's Moon 1.0 @ 0x004fcc60: MW3's on PM's model (its uses at the model's +0xc, 0x005599a0 / 0x005599b0;
+// its box by 0x0055b1c0).
+int node_set_pm_model(Node* node, pm::zmod::Model* model) {
+  if (!node) return zerr::report(0x400, kClassFile, 0x56a, "Null node pointer."), 5;
+  if (node->pm_model) add_uses(node->pm_model->header, -1);
+  node->pm_model = model;
+  if (model) {
+    add_uses(model->header, 1);
+    pm::zcls::node_model_box(node);  // into +0x8c, flag 0x200
   } else {
     node->set_flags(node->flags() & ~0x200u);
   }
