@@ -162,6 +162,7 @@ void draw_flat(uint32_t color, int32_t alpha, int32_t count, int32_t priority, i
 void draw_point(const float screen[3], uint32_t color, int32_t alpha);  // 0x0057dba0
 void draw_lit(uint32_t color, const float rgb[3], uint32_t flags, int32_t alpha, int32_t count,
               int32_t priority, int32_t overlay);                                       // 0x0057c700
+void draw_quad(const D3DTexture* texture, const TLVertex* verts);  // Pirate's Moon 1.0 @ 0x0059df40
 void draw_textured(int32_t count, const D3DTexture* texture, float opacity, int32_t overlay);  // 0x0057ce20
 // Textured with white vertices (puffers without colours, weather); priority unused.
 void draw_textured_white(int32_t count, const D3DTexture* texture, int32_t priority, float opacity,

@@ -477,6 +477,28 @@ void draw_lit(uint32_t, const float rgb[3], uint32_t flags, int32_t alpha, int32
 // Mech3.exe 1.2 @ 0x0057ce20. Textured, unlit: the vertex colours, rounded,
 // with the node opacity as alpha. Transparent when the texture is type 4 or
 // the opacity is below 1. FIX (A): the device calls go to Render3D.
+// Pirate's Moon 1.0 @ 0x0059df40: a quad of the caller's transformed vertices
+// with the texture, now: blended when the texture has alpha (type 4), no depth
+// write, flat shading, the texture's alpha modulated (type 2: selected), its
+// address modes; a fan. The HUD's static (0x0043dfa0). FIX (A): the states put
+// back after, as the port's other passes take them as they left them.
+void draw_quad(const D3DTexture* texture, const TLVertex* verts) {
+  DeviceState& s = g_state;
+  const DeviceState kept = s;
+  const platform::DrawState kept_draw = g_draw;
+  const int32_t blend = texture->type == 4 ? 1 : 0;
+  if (s.alpha_blend != blend) set_render_state(27, blend), s.alpha_blend = blend;
+  if (s.z_write != 0) set_render_state(14, 0), s.z_write = 0;
+  set_shade(1);
+  const int32_t op = texture->type == 2 ? 2 : 4;
+  if (s.alpha_op != op) s.alpha_op = op, set_texture_stage_state(4, op);
+  set_texture(texture);
+  set_address(texture);
+  draw_primitive(6, verts, 4);
+  s = kept;
+  g_draw = kept_draw;
+}
+
 void draw_textured(int32_t count, const D3DTexture* texture, float opacity, int32_t overlay) {
   TLVertex* tl = g_buffers.tl;
   const WorkRecord* w = g_buffers.work;
