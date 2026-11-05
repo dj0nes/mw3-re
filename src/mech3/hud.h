@@ -1138,6 +1138,7 @@ class Hud : public ztwod::Layer {
   using Static = HudStaticChannel;
   HudStaticNoise* noise = nullptr;  // PM: the static's texture (0x0043dda0), after the channels
   void static_quad(float level, const ztwod::Rect& r);  // Pirate's Moon 1.0 @ 0x0043dfa0
+  float static_top = 0.0f;  // ours: (0.2 - health) x 5 this frame, static_quad's FIX (bug)
   Static statics[4];                 // +0x22e08..+0x22e34
   void static_tick(float dt);        // Pirate's Moon 1.0 @ 0x0043e1f0 (MW3 0x0043cd20): from the frame's draw paths
   void add_static(float step, int32_t kind, float hold, float most);  // 0x0043bfe0

@@ -1339,8 +1339,12 @@ MW3's; what changed:
   not used: any static above 0 draws the whole noise, so on hardware PM's
   static is on or off where MW3's thickened with the level. Without a device
   (not ported) MW3's fill. The port draws the quad through zvid's draw_quad;
-  with `bugs` on (FIX (bug), Owen 2026-11-04) its alpha is the clamped level,
-  so the static thickens with damage as MW3's did (fixes.md).
+  with `bugs` on (FIX (bug), Owen 2026-11-04) its alpha is the add's ceiling
+  for the health, (0.2 - h) x 5 clamped to 0..0.9, so the static grades with
+  damage as MW3's does. The channels' eased level would not: +0.1 to one of
+  four a frame against a fall of 2 x level a second settles near 0.375 at any
+  health under 0.1, where MW3's slow fall (0.3 a second) kept its level at its
+  ceiling (fixes.md).
 Checked by `test_pm_hud_static.py`: 4 noises (262,144 pixels), 200 quads and
 40 runs of 2,787 frames against PM's exe; 12 breaks caught. Not checked: which
 panel's rect is drawn (as MW3's), and the static on screen (mw3pm does not run

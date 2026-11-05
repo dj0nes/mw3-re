@@ -1884,9 +1884,11 @@ void Hud::static_quad(float level, const ztwod::Rect& r) {
   float q[4][8];
   static_quad_vertices(r, q);
   // FIX (bug): the exe clamps the level to 0..0.9 and then draws the noise at
-  // full strength however hurt; its alpha scaled by that level, it thickens
-  // with damage as MW3's static did (fixes.md).
+  // full strength however hurt. Drawn at the add's ceiling for the health
+  // instead (the eased level settles near 0.375 at any health; MW3's sat at
+  // its ceiling), it grades with damage as MW3's static did (fixes.md).
   if (zfix::options().bugs) {
+    level = static_top;
     if (level > 0.9f) level = 0.9f;  // 0x005dfcd4
     else if (level < 0.0f) level = 0.0f;
     const uint32_t a = static_cast<uint32_t>(level * 255.0f + 0.5f);
@@ -1931,7 +1933,9 @@ void static_ease(HudStaticChannel* statics, float dt) {
 void Hud::static_tick(float dt) {
   HudHooks& k = *g_hooks;
   const bool on = mech && !k.mech_invincible(mech) && !k.intensity_flag();
-  if (!static_warn(statics, on, on ? k.mech_health(mech) : 1.0f, dt)) {
+  const float health = on ? k.mech_health(mech) : 1.0f;
+  static_top = (0.2f - health) * 5.0f;  // the add's ceiling (0x005df000), for static_quad's FIX (bug)
+  if (!static_warn(statics, on, health, dt)) {
     radar.set_fade(0.0f);  // 0x0043f190
     return;
   }
