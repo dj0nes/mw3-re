@@ -420,6 +420,8 @@ struct ProgramHudHooks : HudHooks {
   bool object_a8(void* o) override { return hud_object_hidden(o); }           // vt+0xa8
   bool object_mech(void* o) override { return hud_object_mech(o) != nullptr; }  // vt+0x50
   void* object_mech_ptr(void* o) override { return hud_object_mech(o); }
+  // PM's radar ring (0x0043f220): a contact's mech, its vt+0x58 (the object's mech, as vt+0x50).
+  void* vehicle_mech(void* o) override { return hud_object_mech(o); }
   const char* object_name(void* o) override { return hud_object_name(o); }   // vt+0xa4
   float contact_size(void* c) override { return hud_contact_size(c); }        // 0x004e7070
   // The centroid node's (+0x14), a mech's too: not its place (+0x04), which
@@ -520,6 +522,10 @@ struct ProgramHudHooks : HudHooks {
   void set_radar_map(uint32_t m) override { mission_map_set(m); }
   const ztwod::Rect* map_rect(void* map) override { return map ? static_cast<MissionMap*>(map)->rect : nullptr; }
   float map_scale(void* map) override { return map ? static_cast<MissionMap*>(map)->inv_mpp : 0.0f; }
+  int32_t map_image_height(void* map) override {  // PM's radar: its image's height (+0x3c, +0x06)
+    const zimg::Texture* t = map ? static_cast<MissionMap*>(map)->image : nullptr;
+    return t ? t->height : 0;
+  }
   bool map_point(void* map, const float p[3], int32_t out[2]) override {
     return map && static_cast<MissionMap*>(map)->point(p, out);
   }

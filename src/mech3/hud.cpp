@@ -2475,6 +2475,14 @@ ztwod::Rect g_radar_rect{1, 1, 639, 479};  // [0x005e39c8] the polylines' clip: 
 }  // namespace
 ztwod::Rect& radar_rect() { return g_radar_rect; }
 
+// Pirate's Moon 1.0 @ 0x0043f220's ring ([0x00629528], made on the radar's first
+// call, 0x005c4630; its destructor at exit): an ally mech's sensor range or the
+// selected target over the map.
+ztwod::Frame& radar_ring() {
+  static ztwod::Frame f;
+  return f;
+}
+
 // Mech3.exe 1.2 @ 0x0043dd00: the radar each frame (hud.md section 15).
 // Its size and place step toward the zoomed or small ones, or over the
 // mission map follow the mech; the range text, the mech's light (green,
@@ -2488,17 +2496,29 @@ void HudRadar::update(float dt) {
     moved = true;
     bool mapped = false;
     const ztwod::Rect* rect = nullptr;
+    // PM (0x0043f220): the marker's text placed and shown here, below the
+    // radar, or over the map by its top edge (x 10 with the map on the left).
     if (active) {
-      rect = h.map_rect(h.radar_map());
+      void* map = h.radar_map();
+      int32_t tx = cx[0], ty = 15;
+      if (zoomed == 1) tx = 10;
+      else ty = (map ? h.map_image_height(map) : 0) + 15;
+      text2.set_pos(tx, ty);  // vt+0x0c
+      text2.show_for(-1.0f);
+      rect = map ? h.map_rect(map) : nullptr;
       mapped = rect != nullptr;
       polys[0].hide();
       polys[1].hide();
     } else {
+      text2.set_pos(cx[0] - r[0], cy[0] + 15 + r[0]);
+      text2.show_for(-1.0f);
       if (xbd4 > 3) polys[0].show_for(-1.0f);
       if (xbd8 > 3) polys[1].show_for(-1.0f);
     }
     clipped = mapped;
     set_clip(rect);  // vt+0x70
+    radar_ring().clipped = mapped;  // the ring's clip is the radar's ([0x00629568], [0x0062956c])
+    radar_ring().set_clip(rect);
     for (ztwod::ClipLine2D& l : lines) {
       l.clipped = mapped;
       l.clip = rect;
@@ -2685,9 +2705,18 @@ void HudRadar::update_contacts(float dt, float static_px) {
     }
     void* blip;
     uint16_t colour;
+    ztwod::Frame& ring = radar_ring();
+    ring.hide();  // PM: each contact's ring starts hidden (0x005c01c0)
+    void* ally = nullptr;
     if (h.object_team(o) & h.mech_allies(m)) {
       blip = h.object_blip(o, 0);
       colour = zvid::pack_bytes(0, 0, 0xff);
+      // PM: an ally mech's ring, its sensor range over the map, unless the
+      // HUD's mech's +0x3d4 or the ally's +0x3d8 is under 1.
+      if ((ally = h.vehicle_mech(o)) != nullptr) {
+        if (h.mech_x3d4(m) < 1 || h.mech_x3d8(ally) < 1) ring.hide();
+        else ring.show_for(-1.0f);
+      }
     } else if (h.object_team(o) & h.mech_enemies(m)) {
       blip = h.object_blip(o, 1);
       colour = zvid::pack_bytes(0xff, 0, 0);
@@ -2705,6 +2734,14 @@ void HudRadar::update_contacts(float dt, float static_px) {
         pt[0] = radar_px(get_x(), v[0]);
       }
       h.blip_place(blip, pt[0], pt[1]);
+      if (active && ally && !(ring.flags & ztwod::kHidden)) {  // its sensor range on the map
+        ring.set_pos(pt[0], pt[1]);
+        ring.color = colour;
+        ring.radius = crt::msvc_ftol(std::fabs(static_cast<float>(
+            crt::msvc_ftol(h.map_scale(h.radar_map()) * h.mech_sensor_range(static_cast<Mech*>(ally))))));
+        ring.radius_sq = ring.radius * ring.radius;
+        ring.update(dt);
+      }
       h.blip_draw(blip);
       continue;
     }
@@ -2723,6 +2760,13 @@ void HudRadar::update_contacts(float dt, float static_px) {
     target_at[0] = pt[0], target_at[1] = pt[1], ++target_draws;
     tri.color = colour;
     tri.set_scale(5.773503f);  // 0x40b8c08e
+    if (active && !(ring.flags & ztwod::kHidden)) {  // PM: over the map, the radar's radius round it
+      ring.set_pos(pt[0], pt[1]);
+      ring.radius = radius;
+      ring.radius_sq = radius * radius;
+      ring.color = colour;
+      ring.update(dt);
+    }
     tri.update(dt);
   }
   // Ours: black sheep wall (cheats.h): the mechs and vehicles with no
@@ -2784,15 +2828,16 @@ void HudRadar::update_contacts(float dt, float static_px) {
         h.blip_draw(img);
       }
     }
-    if (len > 1000.0f) {  // [0x005c00ec]
+    if (!(text2.flags & ztwod::kHidden)) {  // PM: shown on a change only
+        if (len > 1000.0f) {  // [0x005c00ec]
       char buf[32];
       std::snprintf(buf, sizeof buf, "%.2f", static_cast<double>(len * 0.001f));  // [0x005e3ebc]
       text2.set_text_id(0x228, h.marker_name(e), buf);
     } else {
       text2.set_text_id(0x229, h.marker_name(e), crt::msvc_ftol(std::ceil(static_cast<double>(len))));
     }
-    text2.show_for(-1.0f);
     text2.update(dt);
+    }
   }
   // The shots in the air: a pixel each, red those hostile to the player.
   float p[3];
