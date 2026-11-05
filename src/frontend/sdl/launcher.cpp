@@ -1,6 +1,7 @@
 #include "frontend/sdl/launcher.h"
 #include "frontend/sdl/launcher_notes.h"
 #include "frontend/sdl/movie_import.h"
+#include "frontend/sdl/rgb565.h"
 #include "frontend/sdl/text_fit.h"
 
 #include <SDL3/SDL.h>
@@ -882,7 +883,14 @@ void Launcher::draw(float dt) {
 }
 
 void Launcher::present() {
-  SDL_UpdateTexture(tex_, nullptr, canvas_->pixels, canvas_->pitch);
+  // Ours: the 565 canvas goes up as ARGB8888, the same pixels on screen
+  // (rgb565.h; Metal in the tvOS Simulator refuses a B5G6R5 texture).
+  void* px = nullptr;
+  int pitch = 0;
+  if (SDL_LockTexture(tex_, nullptr, &px, &pitch)) {
+    rgb565_to_argb8888(static_cast<const uint16_t*>(canvas_->pixels), canvas_->pitch, static_cast<uint32_t*>(px), pitch, W, H);
+    SDL_UnlockTexture(tex_);
+  }
   SDL_SetRenderDrawColor(ren_, 0, 0, 0, 255);
   SDL_RenderClear(ren_);
   SDL_RenderTexture(ren_, tex_, nullptr, nullptr);
@@ -1332,7 +1340,7 @@ LauncherChoice Launcher::run() {
   // 16 to 31 ms on Windows' 15.6 ms timer, and no vsync let frames tear.
   // MW3_LAUNCHER_NOVSYNC (checks): the timed sleep instead, to compare.
   vsync_ = !SDL_getenv("MW3_LAUNCHER_NOVSYNC") && SDL_SetRenderVSync(ren_, 1);
-  tex_ = SDL_CreateTexture(ren_, SDL_PIXELFORMAT_RGB565, SDL_TEXTUREACCESS_STREAMING, W, H);
+  tex_ = SDL_CreateTexture(ren_, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, W, H);
   SDL_SetTextureScaleMode(tex_, SDL_SCALEMODE_LINEAR);
   Uint64 last = SDL_GetTicks();
   SDL_InitSubSystem(SDL_INIT_GAMEPAD);  // a pad steps through the plates too (nav)

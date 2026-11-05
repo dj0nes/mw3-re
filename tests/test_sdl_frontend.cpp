@@ -27,6 +27,7 @@
 #include "frontend/sdl/gdi_font_size.h"
 #include "frontend/sdl/sdl_fit.h"
 #include "frontend/sdl/launcher_notes.h"
+#include "frontend/sdl/rgb565.h"
 #include "frontend/sdl/text_fit.h"
 #include <SDL3_ttf/SDL_ttf.h>
 #include "frontend/sdl/sdl_force.h"
@@ -4639,3 +4640,67 @@ TEST(sdl_program_movies_keep_their_shape_on_a_wide_screen) {
 }
 #endif
 #endif
+
+// The launcher's 16-bit canvas goes up as ARGB8888 (tvOS Simulator: Metal
+// there refuses B5G6R5). Each 565 value expands as a GPU's unorm does:
+// v * 255 / max, rounded.
+TEST(rgb565_to_argb8888_rounds_as_a_gpu) {
+  EXPECT(sdlfe::argb_of_565(0x0000) == 0xff000000u);
+  EXPECT(sdlfe::argb_of_565(0xffff) == 0xffffffffu);
+  // r 3 (25, not bit replication's 24), g 11 (45, not 44), b 24 (197, not 198)
+  EXPECT(sdlfe::argb_of_565(static_cast<uint16_t>(3 << 11 | 11 << 5 | 24)) == 0xff192dc5u);
+  const uint16_t src[4] = {0x0000, 0xf800, 0x07e0, 0x001f};
+  uint32_t dst[6] = {};
+  sdlfe::rgb565_to_argb8888(src, 4, dst, 12, 2, 2);  // 2x2, the destination's rows 3 pixels apart
+  EXPECT(dst[0] == 0xff000000u && dst[1] == 0xffff0000u && dst[2] == 0 && dst[3] == 0xff00ff00u && dst[4] == 0xff0000ffu);
+}
+
+// The same pixels on screen as the B5G6R5 texture the launcher used before:
+// every 565 value drawn 1:1 both ways through this machine's SDL renderer
+// (Metal on the Mac), read back and compared. Hidden window.
+TEST(rgb565_as_argb8888_draws_the_same_as_b5g6r5) {
+  if (!SDL_InitSubSystem(SDL_INIT_VIDEO)) return;
+  SDL_Window* win = SDL_CreateWindow("mw3 565 test", 256, 256, SDL_WINDOW_HIDDEN);
+  SDL_Renderer* ren = win ? SDL_CreateRenderer(win, nullptr) : nullptr;
+  if (!ren) {
+    if (win) SDL_DestroyWindow(win);
+    return;
+  }
+  std::vector<uint16_t> px(256 * 256);
+  for (size_t i = 0; i < px.size(); ++i) px[i] = static_cast<uint16_t>(i);
+  std::vector<uint32_t> argb(px.size());
+  sdlfe::rgb565_to_argb8888(px.data(), 512, argb.data(), 1024, 256, 256);
+  auto draw = [&](SDL_PixelFormat f, const void* data, int pitch) {
+    SDL_Texture* target = SDL_CreateTexture(ren, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_TARGET, 256, 256);
+    SDL_Texture* t = SDL_CreateTexture(ren, f, SDL_TEXTUREACCESS_STREAMING, 256, 256);
+    std::vector<uint32_t> out;
+    if (target && t) {
+      SDL_SetTextureScaleMode(t, SDL_SCALEMODE_NEAREST);
+      SDL_UpdateTexture(t, nullptr, data, pitch);
+      SDL_SetRenderTarget(ren, target);
+      SDL_RenderTexture(ren, t, nullptr, nullptr);
+      if (SDL_Surface* s = SDL_RenderReadPixels(ren, nullptr)) {
+        if (SDL_Surface* c = SDL_ConvertSurface(s, SDL_PIXELFORMAT_ARGB8888)) {
+          for (int y = 0; y < 256; ++y) {
+            const auto* row = reinterpret_cast<const uint32_t*>(static_cast<const uint8_t*>(c->pixels) + y * c->pitch);
+            out.insert(out.end(), row, row + 256);
+          }
+          SDL_DestroySurface(c);
+        }
+        SDL_DestroySurface(s);
+      }
+      SDL_SetRenderTarget(ren, nullptr);
+    }
+    if (t) SDL_DestroyTexture(t);
+    if (target) SDL_DestroyTexture(target);
+    return out;
+  };
+  const std::vector<uint32_t> a = draw(SDL_PIXELFORMAT_RGB565, px.data(), 512);
+  const std::vector<uint32_t> b = draw(SDL_PIXELFORMAT_ARGB8888, argb.data(), 1024);
+  size_t differ = 0;
+  for (size_t i = 0; i < a.size() && i < b.size(); ++i) differ += a[i] != b[i];
+  std::printf("565 as ARGB8888 through %s: %zu of %zu pixels differ\n", SDL_GetRendererName(ren), differ, a.size());
+  EXPECT(a.size() == 65536 && b.size() == 65536 && differ == 0);
+  SDL_DestroyRenderer(ren);
+  SDL_DestroyWindow(win);
+}
