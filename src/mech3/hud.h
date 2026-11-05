@@ -670,6 +670,15 @@ class HudHooks : public zgame::Unported {
   // TARGET's texts (0x00441660): the object's mech (vt+0x50) and name
   // (vt+0xa4, a C string); a mech's NARC timer (+0x570, 0x00440a30).
   virtual void* object_mech_ptr(void* o) { return ptr(unported("obj.vt+0x50", {id(o)})); }
+  // PM's radar (Pirate's Moon 0x0043f220): a contact's mech (its vt+0x58, MW3's
+  // vt+0x50), a mech's C3 and C3 slave installed (equipment kinds 6 and 7, PM's
+  // +0x3d4, +0x3d8), and the mission map's image's height (its +0x3c, +0x06).
+  virtual void* vehicle_mech(void* o) { return ptr(unported("obj.vt+0x58", {id(o)})); }
+  // For the tests: the radar's ring (0) and triangle (1) as drawn, its text filled (2, a).
+  virtual void radar_test(int32_t kind, int32_t a, int32_t b, int32_t c, uint32_t d) { (void)kind, (void)a, (void)b, (void)c, (void)d; }
+  virtual int32_t mech_c3(void* m) { return static_cast<int32_t>(unported("peek32", {id(m) + 0x3d4})); }
+  virtual int32_t mech_c3_slave(void* m) { return static_cast<int32_t>(unported("peek32", {id(m) + 0x3d8})); }
+  virtual int32_t map_image_height(void* map) { return static_cast<int32_t>(unported("map+0x3c+6", {id(map)})); }
   virtual const char* object_name(void* o) {
     unported("obj.vt+0xa4", {id(o)});
     return nullptr;
@@ -1129,6 +1138,7 @@ class Hud : public ztwod::Layer {
   using Static = HudStaticChannel;
   HudStaticNoise* noise = nullptr;  // PM: the static's texture (0x0043dda0), after the channels
   void static_quad(float level, const ztwod::Rect& r);  // Pirate's Moon 1.0 @ 0x0043dfa0
+  float static_top = 0.0f;  // ours: (0.2 - health) x 5 this frame, static_quad's FIX (bug)
   Static statics[4];                 // +0x22e08..+0x22e34
   void static_tick(float dt);        // Pirate's Moon 1.0 @ 0x0043e1f0 (MW3 0x0043cd20): from the frame's draw paths
   void add_static(float step, int32_t kind, float hold, float most);  // 0x0043bfe0
