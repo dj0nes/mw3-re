@@ -1339,6 +1339,38 @@ functions PM changed, and PM's new ones.
 6. **The front end**: the load/save screens and saved games
    (`%s%02d.mw3`), the saved configurations (`.m3c`), the pilot and
    briefing screens; no movies (zFMV's 21 ported functions are gone).
+   **The pilot and save files: mapped** (2026-11-04, read-only, not ported; checked against one real save):
+   - **Files.** `pilots\<name>.mw3` the pilot; `pilots//games//<name>%02d.mw3` (0x60559c) a saved world, by the
+     mission alone (MW3: `%02d%02d`, operation and mission). `.m3c` is not a campaign file: `configs\<mech>\*.m3c`
+     are the mech lab's saved configurations (0x428000).
+   - **Header** (0x47af50): 1, version, 0, the version 0x10 + 0x2e = 0x3e (0x479d80; MW3's 0x2f). Only the first
+     two words are compared. On a mismatch or a short read the file is reopened **CREATE_ALWAYS** and the header
+     written: the pilot is wiped (MW3 used OPEN_ALWAYS and kept the rest).
+   - **No checksum** on the pilot: the readers walked (0x47b2f0, 0x435820, 0x473930, 0x474c30, 0x434a20, 0x434b70)
+     only ReadFile fields. A saved world is a zSave archive: its header entry's kind must be 2, else the load
+     answers false (0x5cbf30, 0x5cbcc0).
+   - **The record** (0x47b2f0, MW3's 0x4790d0): five games' reads (+0x78, +0x74, +0x70, +0x80, +0x7c; MW3 four), a
+     count, then the campaigns. PM's count includes the first record, read into the first place with no check
+     (MW3 saved count - 1). Later records are kept only if vt+0x1c (0x435d80) holds.
+   - **A campaign** (read 0x435820, write 0x4356f0, ctor 0x4351b0, 0xe0 bytes): the slot and a store, then
+     +0xa0 **the mission, 1..10** (4 bytes; there is no operation), +0x38 a byte, +0xa4 and +0xa8 (3 and 3 new;
+     +0xa4 is set from +0xa8 on reading), +0xc0, +0xb0 (16 bytes), four stores, the lancemates (0x434b70: a
+     count, then slots), a count and that many strings (0x597280: length, bytes; +0xc4). To name: +0x38, +0xa4,
+     +0xc0, +0xb0, the strings.
+   - **Mission to world**: 0x435de0: 1, 2, 5 -> c1; 3, 4, 8 -> c2; 6, 7 -> c3; 9, 10 -> c4 (zbd\c<n>). Name `m%d`
+     (0x4355d0). Last mission 10 (0x435db0).
+   - **Which need a saved world**: 0x435e40 is true for 1, 3, 5, 6, 8, 9 (a world entered fresh). Only 2, 4, 7,
+     10 carry on from the mission before: they are written on winning (0x4359e0) and such a record is kept only
+     while its file exists (`_access`, 0x596ea0).
+   - **Loading a world**: vt+0x24 (0x435d30) when the file exists; the mission load (0x493ca0) only logs the answer,
+     so a false starts the mission on the unmodified world.
+   - **Checked on Owen's save** (7,322 + 12,388 bytes): header 1, 0x3e, 0; records parse at 0x58e (mission 1), 0xe01
+     (mission 2, with `<name>02.mw3` on disk) and 0x17c2 (mission 3, no file), each followed by four stores that
+     parse; the saved world starts 8, 2 (kind 2). The stores' strict parse found these three and only small false
+     hits with empty stores; the walk from the file's start through the configurations (0x426000) was not done.
+   - **To start mission N by editing**: with the game closed and a backup kept, change a record's 4-byte mission
+     field, no length change. N in 1, 3, 5, 6, 8, 9 needs nothing else. N in 2, 4, 7, 10 needs `<name>%02d.mw3` to
+     exist, from having won N - 1. Not traced: how the pilot screen picks among the records. Not tried in the game.
    **Headlights go with the mech step (4), as the expansion's headline feature** (traced 2026-11-04, not ported).
    The light map's real user: a light from `0x50e470` starts with flags 0x8b3, so 0x10 and 0x80 are on by default.
    The headlight's builder `0x479780` sets 0x10 again (`0x50ea00`), clears 0x20 (`0x50ea80`), sets 0x40 from
