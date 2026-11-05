@@ -461,6 +461,57 @@ extern "C" uint32_t probe_pm_contacts_mesh(const AimContact* cs, int32_t n, int3
   return seen;
 }
 
+// test_pm_hud_looks.py: PM's weapon list looks (0x004480c0). Lines: a weapon
+// (1-based id, 0 none), hidden, its group, can fire.
+struct LooksLine { int32_t weapon, hidden, group, ready; };
+namespace {
+struct LooksHooks : Hooks {
+  const LooksLine* ls = nullptr;
+  int32_t gi = 0, mode = 0, current = 0, has_group = 1;
+  char wm = 0, group = 0;
+  static intptr_t id_of(void* w) { return reinterpret_cast<intptr_t>(w); }
+  const LooksLine* line(void* w) const {
+    for (int i = 0; i < 16; ++i) if (ls[i].weapon == id_of(w)) return &ls[i];
+    return nullptr;
+  }
+  int32_t wm_mode(void*) override { return mode; }
+  int32_t wm_group_index(void*) override { return gi; }
+  void* wm_group(void*, int32_t) override { return has_group ? &group : nullptr; }
+  void* wm_current(void*) override { return reinterpret_cast<void*>(static_cast<intptr_t>(current)); }
+  int32_t weapon_group(void* w) override { return line(w) ? line(w)->group : -1; }
+  bool weapon_can_fire(void* w) override { return line(w) && line(w)->ready; }
+  float weapon_recycle(void*) override { return 1.0f; }
+};
+}  // namespace
+
+extern "C" void probe_pm_looks(const LooksLine* ls, int32_t gi, int32_t mode, int32_t current, int32_t has_group,
+                               int32_t* next, int32_t* marks) {
+  static Host host;
+  ztwod::set_host(&host);
+  static LooksHooks hooks;
+  hooks.ls = ls, hooks.gi = gi, hooks.mode = mode, hooks.current = current, hooks.has_group = has_group;
+  mech3::set_hud_hooks(&hooks);
+  static mech3::HudWeapons* w = new (std::calloc(1, sizeof(mech3::HudWeapons))) mech3::HudWeapons();
+  static zimg::Texture sel, chn;
+  w->select = &sel, w->chain = &chn;
+  w->weapons = &hooks.wm;
+  for (int i = 0; i < 16; ++i) {
+    mech3::HudWeaponLine& l = w->lines[i];
+    l.weapon = reinterpret_cast<void*>(static_cast<intptr_t>(ls[i].weapon));
+    if (ls[i].hidden) l.flags |= ztwod::kHidden;
+    else l.flags &= ~ztwod::kHidden;
+    l.mark.image = reinterpret_cast<zimg::Texture*>(1);
+  }
+  w->looks();
+  *next = static_cast<int32_t>(reinterpret_cast<intptr_t>(w->next_weapon));
+  for (int i = 0; i < 16; ++i) {
+    const zimg::Texture* m = w->lines[i].mark.image;
+    marks[i] = ls[i].hidden || !ls[i].weapon ? -1 : m == &sel ? 1 : m == &chn ? 2 : m == nullptr ? 0 : 9;
+  }
+  mech3::set_hud_hooks(nullptr);
+  ztwod::set_host(nullptr);
+}
+
 // test_pm_hud_timer.py: PM's time split (0x00597c30).
 extern "C" void probe_pm_time_split(float t, int32_t* out) { mech3::time_split(t, &out[0], &out[1], &out[2]); }
 
