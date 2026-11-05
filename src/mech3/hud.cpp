@@ -2330,9 +2330,11 @@ void HudWeaponLine::set_weapon(void* w, zimg::Texture* mark) {
   refresh_line(mark);
 }
 
-// Mech3.exe 1.2 @ 0x00445dc0: the bar the recycle fraction (clamped to 0..1;
-// +0x111b set when it drops from full), the light by damage (green, yellow
-// over 0.5, red over 0.8), the count the ammo, grey when destroyed.
+// Pirate's Moon 1.0 @ 0x004478f0 (MW3's 0x00445dc0): the bar the recycle
+// fraction (clamped to 0..1; +0x111b set when it drops from full), shown at
+// 0.87 of it while recharging (PM's, [0x006058c0]); the light by damage (green,
+// yellow over 0.5 or while recharging (PM's), red over 0.8), the count the
+// ammo, grey when destroyed.
 bool HudWeaponLine::refresh_line(zimg::Texture* mark_image) {
   HudHooks& h = *g_hooks;
   if (!weapon) {
@@ -2346,10 +2348,11 @@ bool HudWeaponLine::refresh_line(zimg::Texture* mark_image) {
   else if (f < 0.0f) f = 0.0f;
   const bool recycling = f != 1.0f;
   x111b = value == 1.0f && f != 1.0f;
+  if (f < 1.0f) f = 0.87f * f;
   set_value(f);  // vt+0x8c
   int32_t light_index = 0;
   if (h.weapon_damage(w) > 0.8f) light_index = 2;
-  else if (h.weapon_damage(w) > 0.5f) light_index = 1;
+  else if (h.weapon_damage(w) > 0.5f || recycling) light_index = 1;
   const bool destroyed = h.weapon_damage(w) == 1.0f;
   const bool live = !destroyed && h.weapon_enabled(w);
   mark.set_image(mark_image);

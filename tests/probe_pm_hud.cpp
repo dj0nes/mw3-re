@@ -512,6 +512,49 @@ extern "C" void probe_pm_looks(const LooksLine* ls, int32_t gi, int32_t mode, in
   ztwod::set_host(nullptr);
 }
 
+// test_pm_hud_refresh.py: PM's weapon line refresh (0x004478f0).
+struct RefreshIn {
+  float recycle, damage, value;
+  int32_t enabled, ammo, count;
+};
+struct RefreshOut {
+  int32_t ret;
+  float value;
+  int32_t x111b, light, count, look_r, look_g;
+};
+namespace {
+struct RefreshHooks : Hooks {
+  RefreshIn in{};
+  float weapon_recycle(void*) override { return in.recycle; }
+  float weapon_damage(void*) override { return in.damage; }
+  bool weapon_enabled(void*) override { return in.enabled != 0; }
+  int32_t weapon_ammo(void*) override { return in.ammo; }
+};
+}  // namespace
+
+extern "C" void probe_pm_refresh(const RefreshIn* in, RefreshOut* out) {
+  static Host host;
+  ztwod::set_host(&host);
+  static RefreshHooks hooks;
+  hooks.in = *in;
+  mech3::set_hud_hooks(&hooks);
+  static mech3::HudWeaponLine* l = new (std::calloc(1, sizeof(mech3::HudWeaponLine))) mech3::HudWeaponLine();
+  static zimg::Texture lights[3];
+  for (int i = 0; i < 3; ++i) mech3::weapon_set().light[i] = &lights[i];
+  static char weapon = 0;
+  l->weapon = &weapon;
+  l->value = in->value, l->count = in->count;
+  l->red = 2, l->grey = 2;  // neither: set_look always applies the new pair
+  out->ret = l->refresh_line(nullptr) ? 1 : 0;
+  out->value = l->value, out->x111b = l->x111b, out->count = l->count;
+  out->light = -1;
+  for (int i = 0; i < 3; ++i)
+    if (l->light.image == &lights[i]) out->light = i;
+  out->look_r = l->red, out->look_g = l->grey;
+  mech3::set_hud_hooks(nullptr);
+  ztwod::set_host(nullptr);
+}
+
 // test_pm_hud_timer.py: PM's time split (0x00597c30).
 extern "C" void probe_pm_time_split(float t, int32_t* out) { mech3::time_split(t, &out[0], &out[1], &out[2]); }
 

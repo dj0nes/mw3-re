@@ -660,6 +660,9 @@ weapons and the camera's look from outside (hud.md section 1).
   that can fire (0x004b7bd0, MW3's 0x004b3a20), else the first that can, else
   none; so the NEXT_WEAPON key (0x27) skips weapons that are out of ammo or
   destroyed, and does nothing when none can fire.
+- **Refresh, Pirate's Moon** (0x004478f0, `test_pm_hud_refresh.py`): a
+  recharging weapon's bar shows 0.87 of its fraction, so it jumps to full when
+  ready, and its light is yellow while it recharges, as well as over 0.5 damage.
 - **Refresh** (0x00445dc0): the weapon's vt+8, then the bar at its recycle
   fraction (vt+0x34, clamped to 0..1; +0x111b when it drops from full), the
   light by damage (0x004b3010: green, yellow over 0.5, red over 0.8), the

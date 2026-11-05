@@ -3712,6 +3712,9 @@ The screen after the pilot for INSTANT ACTION, 0x00488bc0 (details:
   lock is on and the reticle lights up. It holds for 3.5 seconds after the
   reticle leaves the target. Either the target or the aim point has to be
   within the group's longest range.
+- **Pirate's Moon's weapon list shows what's charging:** a recharging weapon's
+  light turns yellow, and its bar stops at 87% until it snaps full when ready,
+  so a full bar always means it can fire. (From the code: 0x004478f0.)
 - **Pirate's Moon's next-weapon key skips dead weapons:** it jumps to the
   next weapon that can fire (not empty, not destroyed), where MechWarrior 3's
   went to the next line whatever its state. (From the code: 0x004480c0.)
