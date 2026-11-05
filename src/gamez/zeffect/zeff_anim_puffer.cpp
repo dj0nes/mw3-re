@@ -63,8 +63,11 @@ int32_t anim_puffer_index(AnimDef& def, const char* name) {
 
 // Mech3.exe 1.2 @ 0x005035b0 (ECX def, EDX event). Each flag calls one setter
 // (docs/puffers.md has the table); the node is set last.
+// Pirate's Moon 1.0 @ 0x0051bbf0: nothing when the def has no puffers (PM makes them at load), the
+// priority, and node ref -200 moves the translation by the def's start offset (+0x78 here).
 int32_t anim_puffer_state(AnimDef& def, uint8_t* ev, Node* def_node) {
   using E = PufferStateEvent;
+  if (def.count(0x10c) == 0) return 2;
   int32_t index = get<int32_t>(ev, E::kIndex);
   if (index < 1) {
     index = anim_puffer_index(def, reinterpret_cast<const char*>(ev + E::kName));
@@ -74,7 +77,6 @@ int32_t anim_puffer_state(AnimDef& def, uint8_t* ev, Node* def_node) {
   auto* p = static_cast<zmod::Puffer*>(def.puffers[index].made);
   const uint32_t f = get<uint32_t>(ev, E::kFlags);
   if (f & kPuffActive) zmod::puffer_set_active(p, get<int32_t>(ev, E::kActive));
-  if (f & kPuffTranslate) zmod::puffer_set_translate(p, vec(ev, E::kTranslate));
   if (f & kPuffLocalVelocity) zmod::puffer_set_local_velocity(p, vec(ev, 0x48));
   if (f & kPuffWorldVelocity) zmod::puffer_set_world_velocity(p, vec(ev, 0x54));
   if (f & kPuffMinRandom) zmod::puffer_set_min_random(p, vec(ev, 0x60));
@@ -92,7 +94,8 @@ int32_t anim_puffer_state(AnimDef& def, uint8_t* ev, Node* def_node) {
   if (f & kPuffFarFade) zmod::puffer_set_far_fade(p, get<float>(ev, 0xb0), get<float>(ev, 0xb4));
   if (f & kPuffFriction) zmod::puffer_set_friction(p, get<float>(ev, 0xb8));
   if (f & kPuffWindFactor) zmod::puffer_set_wind_factor(p, get<float>(ev, 0xbc));
-  if (f & kPuffNumber) zmod::puffer_set_number(p, get<int32_t>(ev, 0xc0));
+  if (f & kPuffPriority) zmod::puffer_set_priority(p, get<float>(ev, E::kPriority));
+  if (f & kPuffNumber) zmod::puffer_set_number(p, get<int32_t>(ev, E::kNumber));
   if (f & kPuffTextures) {
     zmod::puffer_clear_textures(p);
     const bool timed = get<int32_t>(ev, E::kTextures) != 0;
@@ -126,12 +129,20 @@ int32_t anim_puffer_state(AnimDef& def, uint8_t* ev, Node* def_node) {
       zmod::puffer_add_growth(p, g[0], g[1]);
     }
   }
+  float translate[3] = {0.0f, 0.0f, 0.0f};
+  bool moved = (f & kPuffTranslate) != 0;
+  if (moved) std::memcpy(translate, vec(ev, E::kTranslate), 12);
   if (f & kPuffAtNode) {
     const int32_t ni = get<int32_t>(ev, E::kNode);
     Node* n = ni > 0 ? def.nodes[ni].node : nullptr;
-    if (!n) n = ni == -200 ? def_node : nullptr;
+    if (!n && ni == -200) {
+      n = def_node;
+      for (int i = 0; i < 3; ++i) translate[i] += def.get<float>(0x78 + 4 * i);
+      moved = true;
+    }
     zmod::puffer_set_node(p, n);
   }
+  if (moved) zmod::puffer_set_translate(p, translate);  // after the node, in Pirate's Moon
   return 2;
 }
 

@@ -11,6 +11,7 @@
 #include "gamez/zmath/zmth_matrix.h"
 #include "gamez/zmodel/gmod_clip2d.h"
 #include "gamez/zmodel/gmod_cull.h"
+#include "gamez/zmodel/gmod_draw.h"
 #include "gamez/zrender/zrndr_draw.h"
 #include "gamez/zutil/zfix.h"
 #include "gamez/zutil/ztimer.h"
@@ -33,12 +34,6 @@ float rand_unit() { return static_cast<float>(crt::msvc_rand()) * kRandUnit; }
 // (r * k) * (hi - lo) + lo: the ranges' draw.
 float rand_range(float lo, float hi) { return rand_unit() * (hi - lo) + lo; }
 
-int32_t node_euler(zcls::Node* n, float out[3]) {
-  return g_hooks.node_euler ? g_hooks.node_euler(g_hooks.ctx, n, out) : zcls::node_world_euler(n, out);
-}
-int32_t node_position(zcls::Node* n, float out[3]) {
-  return g_hooks.node_position ? g_hooks.node_position(g_hooks.ctx, n, out) : zcls::node_world_position(n, out);
-}
 
 // v * m (rows m[0..2], m[3..5], m[6..8], translation m[9..11]); the x87 sums
 // (x + y) + z, then the translation.
@@ -47,6 +42,20 @@ void rotate(const float v[3], const float m[12], float out[3]) {
 }
 void transform(const float v[3], const float m[12], float out[3]) {
   for (int c = 0; c < 3; ++c) out[c] = v[0] * m[c] + v[1] * m[3 + c] + v[2] * m[6 + c] + m[9 + c];
+}
+
+// Pirate's Moon 1.0 @ 0x004ff360: the node's world matrix into out (identity for no node).
+void node_world_matrix(zcls::Node* n, float out[12]) {
+  if (n->cls() == 5 && (n->flags() & 0x80000) && !(static_cast<zcls::Object3d*>(n->data)->get<uint32_t>(0) & 0x20)) {
+    std::memcpy(out, static_cast<zcls::Object3d*>(n->data)->floats(0x60), 48);
+    return;
+  }
+  zmth::Mat34 m;
+  zmth::push(&m);
+  zmth::load_identity();
+  zcls::node_to_world(n, 1);
+  zmth::pop();
+  std::memcpy(out, &m, 48);
 }
 
 // The keyframe walks of 0x005489a0: on from `at` while the next key's time
@@ -69,6 +78,7 @@ PuffHooks& puff_hooks() { return g_hooks; }
 
 // Mech3.exe 1.2 @ 0x0054a710
 Puffer* puffer_create() {
+  if (!g_state.on) return nullptr;  // Pirate's Moon 0x00565ad0
   g_state.puffers.emplace_back();
   return &g_state.puffers.back();
 }
@@ -125,6 +135,8 @@ void puffer_set_far_fade(Puffer* p, float start, float end) {
 // Mech3.exe 1.2 @ 0x0054ad80 .. 0x0054ada0
 void puffer_set_friction(Puffer* p, float v) { p->friction = v; }
 void puffer_set_wind_factor(Puffer* p, float v) { p->wind_factor = v; }
+// Pirate's Moon 1.0 @ 0x00566150
+void puffer_set_priority(Puffer* p, float v) { p->priority = v; }
 void puffer_set_number(Puffer* p, int32_t n) { p->number = n; }
 
 // Mech3.exe 1.2 @ 0x0054adb0. Also back to one random texture per particle.
@@ -164,6 +176,7 @@ void wind_set_random_angvel(float radians) { g_state.wind.angular_velocity = rad
 // were (a new mission starts with the last one's wandering wind).
 void puff_tick_reset() {
   PuffState& s = g_state;
+  s.on = true;  // Pirate's Moon 0x00564ac0
   if (!s.tick_node) {
     s.tick_node = g_hooks.create_node ? g_hooks.create_node(g_hooks.ctx) : nullptr;
     if (!s.tick_node) {
@@ -198,12 +211,9 @@ void puffer_update(Puffer& p, float dt) {
   float m[12];
   float cur[3];
   if (p.node) {
-    // World euler -> quaternion -> 3x3, the node's world position as row 3.
-    float e[3], q[4];
-    node_euler(p.node, e);
-    zmth::euler_to_quat(e[1], e[0], e[2], q);
-    zmth::quat_matrix(q, m);
-    node_position(p.node, m + 9);
+    // Pirate's Moon 0x004ff360: the node's world matrix (a clean object3d's cached one), not MW3's
+    // euler -> quaternion -> 3x3 with the position.
+    node_world_matrix(p.node, m);
     transform(p.translate, m, cur);
   } else {
     copy3(cur, p.translate);
@@ -254,6 +264,7 @@ void puffer_update(Puffer& p, float dt) {
         q.far_start = p.far_start, q.far_end = p.far_end, q.far_inv = p.far_inv;
         q.friction = p.friction;
         q.wind_factor = p.wind_factor;
+        q.priority = p.priority;
         q.colors = p.colors;
         q.growth = p.growth;
         q.texture_at = q.color_at = q.growth_at = 0;
@@ -335,7 +346,8 @@ void particle_draw(Particle& p, const float m[12], float near_z, float fx_near) 
     }
   }
   uint32_t mask = 0x30;  // near and far only
-  if (cull_sphere(p.pos, &mask, growth * p.size)) return;
+  if (g_hooks.cull ? g_hooks.cull(g_hooks.ctx, p.pos, &mask, growth * p.size) : cull_sphere(p.pos, &mask, growth * p.size))
+    return;
   float v[3];
   transform(p.pos, m, v);
   const float d = v[2] * near_z;
@@ -355,8 +367,11 @@ void particle_draw(Particle& p, const float m[12], float near_z, float fx_near) 
     fade = (d - (zfix::options().bugs ? p.near_start : p.far_start)) * p.near_inv;
   if (!(fade > 0.0f)) return;
   const float inv = 1.0f / v[2];
-  const float screen[3] = {inv * v[0] + zmth::projection().cx, inv * v[1] + zmth::projection().cy, inv};
-  const float size = inv * fx_near * p.size;
+  // Pirate's Moon 0x00563f10: the depth and the size by the priority (priority * the inverse-Z
+  // tolerance + 1), the position not.
+  const float biased = (draw_state().priority_scale * p.priority + 1.0f) * inv;
+  const float screen[3] = {inv * v[0] + zmth::projection().cx, inv * v[1] + zmth::projection().cy, biased};
+  const float size = biased * fx_near * p.size;
   const float t2 = life_fraction(p);
   float alpha;
   if (p.colors.empty()) {
@@ -377,13 +392,16 @@ void particle_draw(Particle& p, const float m[12], float near_z, float fx_near) 
     alpha = c[3] * fade;
   }
   advance(p.textures, p.texture_at, t2);
-  zrndr::draw_sprite(screen, p.textures[p.texture_at].texture, size * growth, alpha, !p.colors.empty());
+  if (g_hooks.sprite)
+    g_hooks.sprite(g_hooks.ctx, screen, p.textures[p.texture_at].texture, size * growth, alpha, !p.colors.empty());
+  else
+    zrndr::draw_sprite(screen, p.textures[p.texture_at].texture, size * growth, alpha, !p.colors.empty());
 }
 
 // Mech3.exe 1.2 @ 0x005496c0. The view matrix with the projection's x, y and
 // depth factors folded in, then every particle.
 void puff_draw() {
-  if (g_state.particles.empty()) return;
+  if (g_state.particles.empty() || !g_state.on) return;  // Pirate's Moon 0x00564ce0
   const float* view = zmth::view().view.m;
   const zmth::Projection& pr = zmth::projection();
   float m[12];

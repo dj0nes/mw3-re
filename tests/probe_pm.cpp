@@ -2540,3 +2540,202 @@ void probe_pm_world_fields(uint32_t* out) {
 }
 
 }  // extern "C"
+
+// --- Pirate's Moon's puffers (test_pm_puffers.py): gmod_puff and the PUFFER_STATE event ---
+#include "crt/msvc_rand.h"
+#include "gamez/zeffect/zeff_anim_puffer.h"
+#include "gamez/zimage/zimg_texture.h"
+#include "gamez/zmath/zmth_matrix.h"
+#include "gamez/zmodel/gmod_clip2d.h"
+#include "gamez/zmodel/gmod_draw.h"
+#include "gamez/zmodel/gmod_puff.h"
+#include "gamez/zutil/ztimer.h"
+
+namespace {
+std::vector<uint32_t> g_pf_log;
+std::vector<::zmod::Puffer*> g_pf;
+::zcls::Node g_pf_nodes[8];
+::zcls::Object3d g_pf_obj[8];
+uint32_t pf_bits(float f) { uint32_t u; std::memcpy(&u, &f, 4); return u; }
+float pf_float(uint32_t u) { float f; std::memcpy(&f, &u, 4); return f; }
+uint32_t pf_tex(const ::zimg::TextureEntry* t) {
+  if (!t) return 0xffffffffu;
+  if (t == ::zimg::default_entry()) return 0xfffffffeu;
+  return static_cast<uint32_t>(t - ::zimg::textures().entries);
+}
+uint32_t pf_node(const ::zcls::Node* n) {
+  for (int i = 0; i < 8; ++i) if (n == &g_pf_nodes[i]) return static_cast<uint32_t>(i + 1);
+  return n ? 0xffffffffu : 0;
+}
+}  // namespace
+
+extern "C" {
+
+void pmpf_reset(uint32_t seed, int32_t ntex, int32_t nnodes, const float* matrices) {
+  ::zmod::puff_state() = ::zmod::PuffState{};
+  ::zmod::PuffHooks& h = ::zmod::puff_hooks();
+  h = ::zmod::PuffHooks{};
+  h.cull = [](void*, const float*, uint32_t*, float radius) -> uint32_t {
+    g_pf_log.push_back(1), g_pf_log.push_back(pf_bits(radius));
+    return 0;
+  };
+  h.sprite = [](void*, const float* s, const ::zimg::TextureEntry* t, float half, float alpha, int32_t colored) {
+    for (uint32_t v : {2u, pf_bits(s[0]), pf_bits(s[1]), pf_bits(s[2]), pf_bits(half), pf_tex(t), pf_bits(alpha),
+                       static_cast<uint32_t>(colored)})
+      g_pf_log.push_back(v);
+    if (colored) for (int i = 0; i < 3; ++i) g_pf_log.push_back(pf_bits(::zmod::clip2d().work[0].color[i]));
+  };
+  ::zmod::puff_tick_reset();
+  ::zimg::TextureTable& tt = ::zimg::textures();
+  tt.count = ntex;
+  for (int i = 0; i < ntex; ++i) {
+    tt.entries[i] = ::zimg::TextureEntry{};
+    std::snprintf(tt.entries[i].name, sizeof tt.entries[i].name, "tex%d", i);
+    tt.entries[i].state = 1;
+  }
+  for (int i = 0; i < nnodes && i < 8; ++i) {
+    g_pf_nodes[i] = ::zcls::Node{};
+    g_pf_obj[i] = ::zcls::Object3d{};
+    g_pf_nodes[i].put<int32_t>(0x34, 5);
+    g_pf_nodes[i].set_flags(0x80000);
+    g_pf_nodes[i].data = &g_pf_obj[i];
+    std::memcpy(g_pf_obj[i].floats(0x60), matrices + 12 * i, 48);
+  }
+  g_pf.clear();
+  g_pf_log.clear();
+  crt::msvc_srand(seed);
+}
+
+// A puffer from PM's layout: 59 words (vectors and the share ignored), then the textures (n, then
+// time and id each), the colours (n, then r g b a time) and the growth (n, then time growth).
+int32_t pmpf_puffer(const uint32_t* w) {
+  ::zmod::Puffer* p = ::zmod::puffer_create();
+  if (!p) return -1;
+  const auto f = [&](int off) { return pf_float(w[off / 4]); };
+  p->active = (w[0] & 0xff) != 0, p->number = static_cast<int32_t>(w[1]), p->timed_textures = (w[2] & 0xff) != 0;
+  p->by_distance = (w[0x3c / 4] & 0xff) != 0;
+  p->interval = f(0x40), p->inv_interval = f(0x44), p->accum = f(0x48);
+  p->size_min = f(0x4c), p->size_max = f(0x50), p->life_min = f(0x54), p->life_max = f(0x58);
+  p->age_min = f(0x5c), p->age_max = f(0x60), p->deviation = f(0x64), p->friction = f(0x68);
+  p->wind_factor = f(0x6c), p->priority = f(0x70);
+  p->node = w[0x74 / 4] ? &g_pf_nodes[w[0x74 / 4] - 1] : nullptr;
+  for (int i = 0; i < 3; ++i) {
+    p->prev[i] = f(0x78 + 4 * i), p->translate[i] = f(0x88 + 4 * i), p->local_velocity[i] = f(0x94 + 4 * i);
+    p->world_velocity[i] = f(0xa0 + 4 * i), p->min_random[i] = f(0xac + 4 * i), p->max_random[i] = f(0xb8 + 4 * i);
+    p->accel[i] = f(0xc4 + 4 * i);
+  }
+  p->has_prev = (w[0x84 / 4] & 0xff) != 0;
+  p->near_start = f(0xd0), p->near_end = f(0xd4), p->near_inv = f(0xd8);
+  p->far_start = f(0xdc), p->far_end = f(0xe0), p->far_inv = f(0xe4);
+  const uint32_t* v = w + 59;
+  for (uint32_t i = 0, n = *v++; i < n; ++i, v += 2)
+    p->textures.push_back({pf_float(v[0]), v[1] == 0xfffffffeu ? ::zimg::default_entry() : &::zimg::textures().entries[v[1]]});
+  for (uint32_t i = 0, n = *v++; i < n; ++i, v += 5)
+    p->colors.push_back({pf_float(v[0]), pf_float(v[1]), pf_float(v[2]), pf_float(v[3]), pf_float(v[4])});
+  for (uint32_t i = 0, n = *v++; i < n; ++i, v += 2) p->growth.push_back({pf_float(v[0]), pf_float(v[1])});
+  g_pf.push_back(p);
+  return static_cast<int32_t>(g_pf.size() - 1);
+}
+
+void pmpf_tick(int32_t i, float dt, float frame_dt) {
+  ::ztimer::state().dt = frame_dt;
+  ::zmod::puffer_update(*g_pf[static_cast<size_t>(i)], dt);
+}
+
+// The puffer as PM's words (the vector slots and the share 0), then its three tracks.
+int32_t pmpf_dump_puffer(int32_t i, uint32_t* out) {
+  const ::zmod::Puffer& p = *g_pf[static_cast<size_t>(i)];
+  std::memset(out, 0, 59 * 4);
+  const auto f = [&](int off, float v) { out[off / 4] = pf_bits(v); };
+  out[0] = p.active, out[1] = static_cast<uint32_t>(p.number), out[2] = p.timed_textures, out[0x3c / 4] = p.by_distance;
+  f(0x40, p.interval), f(0x44, p.inv_interval), f(0x48, p.accum), f(0x4c, p.size_min), f(0x50, p.size_max);
+  f(0x54, p.life_min), f(0x58, p.life_max), f(0x5c, p.age_min), f(0x60, p.age_max), f(0x64, p.deviation);
+  f(0x68, p.friction), f(0x6c, p.wind_factor), f(0x70, p.priority);
+  out[0x74 / 4] = pf_node(p.node);
+  for (int k = 0; k < 3; ++k) {
+    f(0x78 + 4 * k, p.prev[k]), f(0x88 + 4 * k, p.translate[k]), f(0x94 + 4 * k, p.local_velocity[k]);
+    f(0xa0 + 4 * k, p.world_velocity[k]), f(0xac + 4 * k, p.min_random[k]), f(0xb8 + 4 * k, p.max_random[k]);
+    f(0xc4 + 4 * k, p.accel[k]);
+  }
+  out[0x84 / 4] = p.has_prev;
+  f(0xd0, p.near_start), f(0xd4, p.near_end), f(0xd8, p.near_inv), f(0xdc, p.far_start), f(0xe0, p.far_end);
+  f(0xe4, p.far_inv);
+  int n = 59;
+  out[n++] = static_cast<uint32_t>(p.textures.size());
+  for (const auto& k : p.textures) out[n++] = pf_bits(k.time), out[n++] = pf_tex(k.texture);
+  out[n++] = static_cast<uint32_t>(p.colors.size());
+  for (const auto& k : p.colors)
+    for (float x : {k.r, k.g, k.b, k.a, k.time}) out[n++] = pf_bits(x);
+  out[n++] = static_cast<uint32_t>(p.growth.size());
+  for (const auto& k : p.growth) out[n++] = pf_bits(k.time), out[n++] = pf_bits(k.growth);
+  return n;
+}
+
+// Every particle: 22 words (PM's +0x00..+0x54), the three iterators, then the tracks.
+int32_t pmpf_dump_particles(uint32_t* out, int32_t cap) {
+  int n = 0;
+  for (const ::zmod::Particle& q : ::zmod::puff_state().particles) {
+    if (n + 600 > cap) break;
+    for (int k = 0; k < 3; ++k) out[n++] = pf_bits(q.pos[k]);
+    for (int k = 0; k < 3; ++k) out[n++] = pf_bits(q.vel[k]);
+    for (int k = 0; k < 3; ++k) out[n++] = pf_bits(q.accel[k]);
+    for (float x : {q.size, q.age, q.life, q.inv_life, q.near_start, q.near_end, q.far_start, q.far_end, q.near_inv,
+                    q.far_inv, q.friction, q.wind_factor, q.priority})
+      out[n++] = pf_bits(x);
+    out[n++] = static_cast<uint32_t>(q.texture_at), out[n++] = static_cast<uint32_t>(q.color_at);
+    out[n++] = static_cast<uint32_t>(q.growth_at);
+    out[n++] = static_cast<uint32_t>(q.textures.size());
+    for (const auto& k : q.textures) out[n++] = pf_bits(k.time), out[n++] = pf_tex(k.texture);
+    out[n++] = static_cast<uint32_t>(q.colors.size());
+    for (const auto& k : q.colors)
+      for (float x : {k.r, k.g, k.b, k.a, k.time}) out[n++] = pf_bits(x);
+    out[n++] = static_cast<uint32_t>(q.growth.size());
+    for (const auto& k : q.growth) out[n++] = pf_bits(k.time), out[n++] = pf_bits(k.growth);
+  }
+  return n;
+}
+
+// Every particle drawn (0x00563f10) through m; the log: cull (1, radius) and sprite records.
+int32_t pmpf_draw(const float* m, float near_z, float fx_near, float cx, float cy, float scale, uint32_t* out,
+                  int32_t cap) {
+  ::zmth::projection().cx = cx, ::zmth::projection().cy = cy;
+  ::zmod::draw_state().priority_scale = scale;
+  g_pf_log.clear();
+  for (::zmod::Particle& q : ::zmod::puff_state().particles) ::zmod::particle_draw(q, m, near_z, fx_near);
+  const int n = static_cast<int>(std::min<size_t>(g_pf_log.size(), static_cast<size_t>(cap)));
+  std::memcpy(out, g_pf_log.data(), static_cast<size_t>(n) * 4);
+  return n;
+}
+
+// A def with `refs` puffer refs (1..refs the puffers made so far, named pufN; 0 the unused entry),
+// node refs 1..nodes (the test's nodes), def node and its offset; then the event.
+void pmpf_event(int32_t refs, int32_t nodes, int32_t def_node, const float* offset, uint8_t* ev) {
+  static ::zeff::AnimDef def;
+  static ::zeff::CreatedRef puffers[16];
+  static ::zeff::NodeRef40 noderefs[16];
+  def = ::zeff::AnimDef{};
+  for (int i = 0; i < 16; ++i) puffers[i] = ::zeff::CreatedRef{}, noderefs[i] = ::zeff::NodeRef40{};
+  for (int i = 1; i <= refs; ++i) {
+    std::snprintf(reinterpret_cast<char*>(puffers[i].raw), 0x24, "puf%d", i);
+    puffers[i].made = g_pf[static_cast<size_t>(i - 1)];
+  }
+  for (int i = 1; i <= nodes; ++i) noderefs[i].node = &g_pf_nodes[i - 1];
+  def.puffers = refs ? puffers : nullptr;
+  def.raw[0x10c] = static_cast<uint8_t>(refs ? refs + 1 : 0);
+  def.nodes = noderefs;
+  def.raw[0x10a] = static_cast<uint8_t>(nodes + 1);
+  for (int i = 0; i < 3; ++i) def.put<float>(0x78 + 4 * i, offset[i]);
+  ::zeff::anim_puffer_state(def, ev, def_node ? &g_pf_nodes[def_node - 1] : nullptr);
+}
+
+}  // extern "C"
+
+extern "C" {
+// Before any reset (PM [0x00612eb0] clear): puffer_create makes nothing (0x00565ad0). 1 if one was made.
+int32_t pmpf_create_before_reset() {
+  ::zmod::puff_state() = ::zmod::PuffState{};
+  const int32_t made = ::zmod::puffer_create() ? 1 : 0;
+  ::zmod::puff_state() = ::zmod::PuffState{};
+  return made;
+}
+}  // extern "C"

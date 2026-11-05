@@ -29,7 +29,9 @@ struct PuffGrowthKey {             // 8 bytes
   float growth;                    // +4  size factor
 };
 
-// A puffer, 0xe4 bytes (0x0054a710).
+// A puffer, 0xe4 bytes (0x0054a710); Pirate's Moon's is 0xec (0x00565ad0): its draw priority at
+// +0x70, MW3's +0x70.. at +0x74.., the particles' shared colour and growth at +0xe8 (kept per
+// particle here: every colour or growth setter drops the share, so the values are the same).
 struct Puffer {
   bool active = false;             // +0x00
   int32_t number = 1;              // +0x04  particles per emission
@@ -47,6 +49,7 @@ struct Puffer {
   float deviation = 0.0f;          // +0x64  random offset per axis
   float friction = 0.0f;           // +0x68  drag toward the wind; 0: no drag, no wind
   float wind_factor = 1.0f;        // +0x6c
+  float priority = 0.0f;           // PM +0x70  the sprites' depth bias, in steps of the inverse-Z tolerance
   zcls::Node* node = nullptr;      // +0x70  emits at this node, turned with it
   float prev[3] = {};              // +0x74  last frame's position
   bool has_prev = false;           // +0x80
@@ -74,6 +77,7 @@ struct Particle {
   float near_inv, far_inv;         // +0x44, +0x48
   float friction;                  // +0x4c
   float wind_factor;               // +0x50
+  float priority;                  // PM +0x54 (PM's particle is 0x78 bytes, 0x00565320)
   size_t texture_at;               // +0x54  iterator into textures
   std::vector<PuffTextureKey> textures;  // +0x58
   size_t color_at;                 // +0x68
@@ -101,13 +105,14 @@ struct PuffState {
   std::list<Particle> particles;   // 0x0072be14
   Wind wind;
   zcls::Node* tick_node = nullptr; // 0x0072be58
+  bool on = false;                 // PM [0x00612eb0]: set by the first reset; no puffer is made, none drawn, before
 };
 PuffState& puff_state();
 
 // The zClass calls for the tick node, not ported (0x004eb5b0, 0x004eb450,
 // 0x004eaea0), and the node's world rotation and position (ported in zcls;
-// the tests stand in for them). Null create_node makes no node; null
-// node_euler / node_position call zcls::node_world_euler / _position.
+// the tests stand in for them). Null create_node makes no node. Pirate's Moon takes the
+// node's world matrix instead (0x004ff360); node_euler / node_position are MW3's, unused here.
 struct PuffHooks {
   void* ctx = nullptr;
   zcls::Node* (*create_node)(void* ctx) = nullptr;                                 // 0x004fb740
@@ -117,6 +122,11 @@ struct PuffHooks {
   void (*destroy_node)(void* ctx, zcls::Node* node) = nullptr;                     // 0x004eaea0
   int32_t (*node_euler)(void* ctx, zcls::Node* node, float out[3]) = nullptr;      // 0x004ed5d0
   int32_t (*node_position)(void* ctx, zcls::Node* node, float out[3]) = nullptr;   // 0x004ed530
+  // Ours, for the tests: a sprite's cull (Pirate's Moon's [0x00611354]) and draw; null: cull_sphere and
+  // zrndr::draw_sprite.
+  uint32_t (*cull)(void* ctx, const float centre[3], uint32_t* mask, float radius) = nullptr;
+  void (*sprite)(void* ctx, const float screen[3], const zimg::TextureEntry* t, float half_size, float alpha,
+                 int32_t colored) = nullptr;
 };
 PuffHooks& puff_hooks();
 
@@ -144,6 +154,7 @@ void puffer_set_far_fade(Puffer* p, float start, float end);   // 0x0054ad30
 void puffer_set_friction(Puffer* p, float v);              // 0x0054ad80
 void puffer_set_wind_factor(Puffer* p, float v);           // 0x0054ad90
 void puffer_set_number(Puffer* p, int32_t n);              // 0x0054ada0
+void puffer_set_priority(Puffer* p, float v);              // Pirate's Moon 0x00566150
 void puffer_clear_textures(Puffer* p);                     // 0x0054adb0
 void puffer_add_texture(Puffer* p, zimg::TextureEntry* t);  // 0x0054adf0  untimed
 void puffer_add_timed_texture(Puffer* p, zimg::TextureEntry* t, float time);  // 0x0054afc0
