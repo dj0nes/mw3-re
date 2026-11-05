@@ -609,10 +609,11 @@ void HudWeapons::layout() {
     if (n == 0) continue;
     if (current == i) {
       poly.show_for(-1.0f);
-      poly.set_point(0, px + kWeaponBracket, py);
-      poly.set_point(1, px - kWeaponBracket, py);
-      poly.set_point(2, px - kWeaponBracket, n * kWeaponLine + py);
-      poly.set_point(3, px + kWeaponBracket, n * kWeaponLine + py);
+      // PM: the bracket 2 lower ([0x006058cc]) and the panel 3 taller, below.
+      poly.set_point(0, px + kWeaponBracket, py + 2);
+      poly.set_point(1, px - kWeaponBracket, py + 2);
+      poly.set_point(2, px - kWeaponBracket, n * kWeaponLine + 2 + py);
+      poly.set_point(3, px + kWeaponBracket, n * kWeaponLine + 2 + py);
     }
     for (int32_t k = 0; k < n; ++k) {
       void* w = k < h.group_count(g) ? h.group_weapon(g, k) : nullptr;
@@ -621,7 +622,7 @@ void HudWeapons::layout() {
     }
     total += n;
   }
-  const int32_t height = kWeaponLine * total;
+  const int32_t height = kWeaponLine * total + (total > 0 ? 3 : 0);
   for (int32_t i = total; i < 16; ++i) lines[i].hide();
   panel.set_pos(get_x(), get_y());
   panel.set_size(column, height);

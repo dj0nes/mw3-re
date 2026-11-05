@@ -555,6 +555,42 @@ extern "C" void probe_pm_refresh(const RefreshIn* in, RefreshOut* out) {
   ztwod::set_host(nullptr);
 }
 
+// test_pm_hud_layout.py: PM's weapon list layout (0x00447da0). The five groups'
+// counts, the current one and the list's place; out: the bracket and the height.
+namespace {
+struct LayoutHooks : Hooks {
+  const int32_t* counts = nullptr;
+  int32_t current = 0;
+  char wm = 0;
+  int32_t wm_group_index(void*) override { return current; }
+  void* wm_group(void*, int32_t i) override { return counts[i] >= 0 ? const_cast<int32_t*>(&counts[i]) : nullptr; }
+  int32_t group_count(void* g) override { return *static_cast<int32_t*>(g); }
+  void* group_weapon(void*, int32_t) override { return nullptr; }
+};
+}  // namespace
+
+extern "C" void probe_pm_layout(const int32_t* counts, int32_t current, int32_t x, int32_t y, int32_t* pts,
+                                int32_t* height, int32_t* poly_shown) {
+  static Host host;
+  ztwod::set_host(&host);
+  static LayoutHooks hooks;
+  hooks.counts = counts, hooks.current = current;
+  mech3::set_hud_hooks(&hooks);
+  static mech3::HudWeapons* w = new (std::calloc(1, sizeof(mech3::HudWeapons))) mech3::HudWeapons();
+  w->weapons = &hooks.wm;
+  w->hud = nullptr;
+  w->x = x, w->y = y;
+  w->panel.image = nullptr;
+  w->poly.flags |= ztwod::kHidden;
+  for (int i = 0; i < 4; ++i) w->poly.set_point(i, -1, -1);
+  w->layout();
+  *height = static_cast<int32_t>(w->panel.corners[1][1] - w->panel.corners[0][1]);
+  *poly_shown = (w->poly.flags & ztwod::kHidden) ? 0 : 1;
+  for (int i = 0; i < 4; ++i) pts[i * 2] = w->poly.pts[i][0], pts[i * 2 + 1] = w->poly.pts[i][1];
+  mech3::set_hud_hooks(nullptr);
+  ztwod::set_host(nullptr);
+}
+
 // test_pm_hud_timer.py: PM's time split (0x00597c30).
 extern "C" void probe_pm_time_split(float t, int32_t* out) { mech3::time_split(t, &out[0], &out[1], &out[2]); }
 
