@@ -1373,10 +1373,24 @@ functions PM changed, and PM's new ones.
        textured quad on the GPU path only. Test `test_pm_hud_static.py`; 12 breaks caught. Seen on screen (c1m1, health forced low).
      - **0x43d710: MW3's** (the HUD's vt+0x04, vtable 0x5e28a0): MW3's 0x43c6b0 (`Hud::draw3d`) with PM's offsets,
        the same rects, panels, message panel, objectives and 3D views in the same order. Nothing to port.
-     - **The radar (0x43dd00 -> 0x43f220): changed**, pseudocode 73% alike: placed and shown anew each frame
-       (vt+0x0c, vt+0x60) with a map-dependent offset, the zoom range kept squared (+0x34, +0x38), other
-       distance arithmetic, a contact's pick through vt+0x44 with a fresh colour, and more. Next: mapped
-       line by line before porting.
+     - **The radar (0x43dd00 -> 0x43f220): ported** (hud.md section 15). MW3's groups in MW3's order, with
+       two changes: the marker's text placed and shown on a change, and the C3 network's ring on the map.
+       Test `test_pm_hud_radar.py` (the whole function), `test_pm_hud_toggle.py` (Shift+R, 0x43f090, 0x43ee50).
+     - **The rest of the HUD pairs: done** (2026-11-04). Every changed pair in 0x43a900..0x449000 compared:
+       normalised pseudocode with integers blanked (125 left of 166), then call arguments stripped, then each
+       pair's numeric constants resolved through the globals (8 differ, all explained), and the unpaired
+       MW3 and PM functions matched by hand. Real changes, each ported:
+       the mission timer 0x597c30 (`test_pm_hud_timer.py`), the missile lock 0x4455e0 (`_lock`), the aim ray
+       0x445cf0 and 0x445c60 (`_aim`; the ray itself not run in the emulator), the reticle update 0x445a50
+       (`_reticle`), the weapon list's next weapon 0x4480c0 (`_looks`), layout 0x447da0 (`_layout`) and line
+       refresh 0x4478f0 (`_refresh`); no exe test: the MFD's camera 0x4440b0 and TARGET's third line 0x442fd0.
+       Not ported: the debug readout's two more texts (unported in MW3 too). Compass draw3d 0x440e30 has no
+       effect. The largest pairs (0x440b00, 0x442f50, 0x444760) were checked by calls, constants and branch
+       counts, not read line by line.
+       Waiting on the mech side: PM's roster of 25 (the HUD asks `mech_pm_roster`, by name for now), the torso
+       attachment (stubbed in the MFD view). The weapon line's name is PM's table message; the port keeps DESC,
+       the same message by name. In this address range, not the HUD: the mech lab (0x448a80, 0x448a20, 0x448e20,
+       0x448960, 0x4488b0, 0x448f10 -> 0x44a320), not done.
    - **zSound: done** (2026-11-04, `src/gamez/zsound` in place; docs/sound.md, Pirate's Moon):
      - PM's: the load 0x00591840 and the reader 0x00591900 / 0x005920e0 / 0x00592170 (no SYNTAX, no demo,
        sets made by name 0x00590ae0, INCLUDE_SETS, COMPILE_FORMAT, QPRIORITY, a 3-item keyword step);
