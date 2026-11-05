@@ -172,6 +172,11 @@ struct Args {
   std::string patch;          // --patch PATH (ours, patch_import.h): the official 1.2 patch into the write dir's overlay
   std::string install_from, install_to;  // --install-from PATH, --install-to DIR (ours, disc_install.h)
   bool windowed = false;      // --windowed (or windowed=1 in mw3.cfg): not fullscreen
+#if defined(SDL_PLATFORM_TVOS)
+  bool pad_bridge = true;     // ours: a controller as mouse and keys (pad_bridge.h); always on tvOS
+#else
+  bool pad_bridge = false;    // ours: pad_bridge=1 in mw3.cfg (pad_bridge.h)
+#endif
   bool window_given = false;  // --window: kept, the frame pillarboxed in it (else the frame's shape)
   std::string chain;          // --campaign-chain new:N / resume:N (ours, campaign_chain.h)
   std::string modes;          // --action-chain all / c2 / c2:4 (ours, modes_chain.h)
@@ -401,6 +406,7 @@ void read_config(const std::string& dir, Args& a) {
     else if (line.rfind("joystick=", 0) == 0) a.cfg_joystick = line.substr(9);
     else if (line.rfind("joystick_axes=", 0) == 0) a.cfg_joystick_axes = line.substr(14);
     else if (line == "windowed=1") a.windowed = true;
+    else if (line == "pad_bridge=1") a.pad_bridge = true;
     else if (line == "bugfixes=0") a.cfg_bugfixes = 0;
     else if (line == "bugfixes=1") a.cfg_bugfixes = 1;
     else if (line == "widemenus=0") a.cfg_wide_menus = 0;
@@ -624,6 +630,9 @@ int main(int argc, char** argv) {
   // Ours (tvOS): the pad's Menu button is the game's Escape, not the way out
   // to the home screen (docs/tvos.md).
   SDL_SetHint(SDL_HINT_APPLE_TV_CONTROLLER_UI_EVENTS, "0");
+  // The Siri Remote is not a joystick: the game's pad is the controller
+  // (SdlInput's late_pad takes the first gamepad to connect).
+  SDL_SetHint(SDL_HINT_TV_REMOTE_AS_JOYSTICK, "0");
 #endif
   if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_JOYSTICK)) {
     std::fprintf(stderr, "mw3: SDL_Init: %s\n", SDL_GetError());
@@ -984,6 +993,18 @@ int run(const Args& a, platform::VideoForWindows* vfw) {
     input.absolute_cursor = [](float x, float y) {
       zin::mouse_from_cursor(static_cast<int32_t>(std::lround(x)), static_cast<int32_t>(std::lround(y)));
     };
+    // Ours (pad_bridge.h): the bridge's cursor is a window point, so the menus
+    // take it as a window's free cursor at any size; a pad that connects late
+    // is still the game's joystick.
+    sdlfe::PadBridge bridge;
+    if (a.pad_bridge) {
+      SDL_InitSubSystem(SDL_INIT_GAMEPAD);
+      input.windowed = [] { return true; };
+      input.late_pad = true;
+      bridge.window = window.sdl();
+      bridge.open_present();
+      std::printf("mw3: pad bridge on (docs/pad-bridge.md)\n");
+    }
 
     std::unique_ptr<mech3::State> debug;
     std::unique_ptr<mech3::ActionGame> ia_game;  // --mission ia<N>: the launch's game
@@ -1596,6 +1617,7 @@ int run(const Args& a, platform::VideoForWindows* vfw) {
       // Ours (tvOS): Home on the remote, then back (SdlPump): the clock held
       // and the sound devices paused while away.
       pump.clock = &clock;
+      if (a.pad_bridge) pump.bridge = &bridge;
       pump.backgrounded = [&](bool away) {
         if (auto* so = dynamic_cast<sdlfe::SdlSoundOutput*>(sound.get())) so->pause_device(away);
         music.pause_device(away);

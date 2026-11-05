@@ -29,6 +29,7 @@
 #include "frontend/sdl/launcher_notes.h"
 #include "frontend/sdl/rgb565.h"
 #include "frontend/sdl/tvos_args.h"
+#include "frontend/sdl/pad_bridge.h"
 #include "frontend/sdl/text_fit.h"
 #include <SDL3_ttf/SDL_ttf.h>
 #include "frontend/sdl/sdl_force.h"
@@ -4753,4 +4754,162 @@ TEST(tvos_lifecycle_background_pauses_and_holds_clock) {
   EXPECT(clock.ticks_ms() > back);  // running again
   EXPECT(paused_now && (!have_sound || !sound.device_paused()));
   EXPECT(focus_lost && focused);
+}
+
+// PadBridge (docs/pad-bridge.md): a controller as the menus' mouse and the
+// mission's missing keys. Synthetic gamepad events, no device.
+namespace {
+SDL_Event pad_button(SDL_GamepadButton b, bool down) {
+  SDL_Event e{};
+  e.type = down ? SDL_EVENT_GAMEPAD_BUTTON_DOWN : SDL_EVENT_GAMEPAD_BUTTON_UP;
+  e.gbutton.which = 1, e.gbutton.button = static_cast<Uint8>(b), e.gbutton.down = down;
+  return e;
+}
+// "+E" a key down, "-E" up, by scancode name; "M+1"/"M-1" a mouse button.
+std::string pad_events(const std::vector<SDL_Event>& v) {
+  std::string s;
+  for (const SDL_Event& e : v) {
+    if (!s.empty()) s += ' ';
+    if (e.type == SDL_EVENT_KEY_DOWN || e.type == SDL_EVENT_KEY_UP)
+      s += std::string(e.type == SDL_EVENT_KEY_DOWN ? "+" : "-") + SDL_GetScancodeName(e.key.scancode);
+    else if (e.type == SDL_EVENT_MOUSE_BUTTON_DOWN || e.type == SDL_EVENT_MOUSE_BUTTON_UP)
+      s += std::string(e.type == SDL_EVENT_MOUSE_BUTTON_DOWN ? "M+" : "M-") + std::to_string(e.button.button);
+    else if (e.type == SDL_EVENT_MOUSE_MOTION)
+      s += "move";
+    else
+      s += "?";
+  }
+  return s;
+}
+}  // namespace
+
+TEST(pad_bridge_stick_moves_cursor_in_menus) {
+  sdlfe::PadBridge b;
+  const float x0 = b.cursor_x();
+  const std::vector<SDL_Event> out = b.tick(0.5, false, 1.0f, 0.0f);
+  EXPECT(out.size() == 1 && out[0].type == SDL_EVENT_MOUSE_MOTION && std::fabs(out[0].motion.xrel - 300.0f) < 0.01f &&
+         out[0].motion.yrel == 0.0f && std::fabs(out[0].motion.x - (x0 + 300.0f)) < 0.01f);
+  EXPECT(b.tick(0.5, false, 0.1f, 0.0f).empty());  // inside the dead zone
+  EXPECT(b.tick(0.5, true, 1.0f, 0.0f).empty());   // a mission: the stick is the game's
+}
+
+TEST(pad_bridge_cursor_clamped_to_frame) {
+  sdlfe::PadBridge b;
+  b.set_frame({240, 0, 1440, 1080});
+  b.tick(10.0, false, -1.0f, 0.0f);
+  EXPECT(b.cursor_x() == 240.0f);
+  b.tick(10.0, false, 1.0f, 1.0f);
+  EXPECT(b.cursor_x() < 1680.0f && b.cursor_x() >= 1679.0f && b.cursor_y() < 1080.0f && b.cursor_y() >= 1079.0f);
+}
+
+TEST(pad_bridge_a_clicks_at_cursor) {
+  sdlfe::PadBridge b;
+  const std::vector<SDL_Event> d = b.on_event(pad_button(SDL_GAMEPAD_BUTTON_SOUTH, true), false);
+  const std::vector<SDL_Event> u = b.on_event(pad_button(SDL_GAMEPAD_BUTTON_SOUTH, false), false);
+  EXPECT(d.size() == 1 && d[0].type == SDL_EVENT_MOUSE_BUTTON_DOWN && d[0].button.button == SDL_BUTTON_LEFT &&
+         d[0].button.x == b.cursor_x() && d[0].button.y == b.cursor_y());
+  EXPECT(u.size() == 1 && u[0].type == SDL_EVENT_MOUSE_BUTTON_UP && u[0].button.button == SDL_BUTTON_LEFT);
+  EXPECT(pad_events(b.on_event(pad_button(SDL_GAMEPAD_BUTTON_EAST, true), false)) == "+Escape");
+  EXPECT(pad_events(b.on_event(pad_button(SDL_GAMEPAD_BUTTON_EAST, false), false)) == "-Escape");
+}
+
+TEST(pad_bridge_layer_ctrl_e) {
+  sdlfe::PadBridge b;
+  EXPECT(b.on_event(pad_button(SDL_GAMEPAD_BUTTON_LEFT_SHOULDER, true), true).empty());
+  EXPECT(pad_events(b.on_event(pad_button(SDL_GAMEPAD_BUTTON_SOUTH, true), true)) == "+Left Ctrl +E");
+  EXPECT(pad_events(b.on_event(pad_button(SDL_GAMEPAD_BUTTON_SOUTH, false), true)) == "-E -Left Ctrl");
+  // Start: Escape alone, S in the layer.
+  EXPECT(pad_events(b.on_event(pad_button(SDL_GAMEPAD_BUTTON_START, true), true)) == "+S");
+  b.on_event(pad_button(SDL_GAMEPAD_BUTTON_START, false), true);
+  b.on_event(pad_button(SDL_GAMEPAD_BUTTON_LEFT_SHOULDER, false), true);
+  EXPECT(pad_events(b.on_event(pad_button(SDL_GAMEPAD_BUTTON_START, true), true)) == "+Escape");
+  // Without LB a face button is the joystick's: no keys.
+  EXPECT(b.on_event(pad_button(SDL_GAMEPAD_BUTTON_SOUTH, true), true).empty());
+}
+
+TEST(pad_bridge_lb_released_first_still_releases_key) {
+  sdlfe::PadBridge b;
+  b.on_event(pad_button(SDL_GAMEPAD_BUTTON_LEFT_SHOULDER, true), true);
+  EXPECT(pad_events(b.on_event(pad_button(SDL_GAMEPAD_BUTTON_EAST, true), true)) == "+Z");
+  EXPECT(b.on_event(pad_button(SDL_GAMEPAD_BUTTON_LEFT_SHOULDER, false), true).empty());
+  EXPECT((b.joystick_mask(true) & 2u) != 0);  // B still held for the key: not the joystick's
+  EXPECT(pad_events(b.on_event(pad_button(SDL_GAMEPAD_BUTTON_EAST, false), true)) == "-Z");
+  EXPECT((b.joystick_mask(true) & 2u) == 0);
+}
+
+TEST(pad_bridge_pad_removed_releases_layer_keys) {
+  sdlfe::PadBridge b;
+  b.on_event(pad_button(SDL_GAMEPAD_BUTTON_LEFT_SHOULDER, true), true);
+  EXPECT(pad_events(b.on_event(pad_button(SDL_GAMEPAD_BUTTON_WEST, true), true)) == "+Q");
+  SDL_Event r{};
+  r.type = SDL_EVENT_GAMEPAD_REMOVED, r.gdevice.which = 1;
+  EXPECT(pad_events(b.on_event(r, true)) == "-Q");
+  EXPECT(b.joystick_mask(true) == ((1u << 4) | (1u << 7)));  // LB let go with the pad
+}
+
+// SDL's tvOS keyboard already sends each character as key presses (with
+// Shift) besides the text: the bridge adds none (each letter would be typed
+// twice).
+TEST(pad_bridge_text_input_makes_no_keys) {
+  sdlfe::PadBridge b;
+  SDL_Event t{};
+  t.type = SDL_EVENT_TEXT_INPUT;
+  t.text.text = "Ab1";
+  EXPECT(b.on_event(t, false).empty());
+}
+
+TEST(pad_bridge_masks) {
+  sdlfe::PadBridge b;
+  EXPECT(b.joystick_mask(false) == 0x800003ffu);
+  EXPECT(b.joystick_mask(true) == ((1u << 4) | (1u << 7)));
+  b.on_event(pad_button(SDL_GAMEPAD_BUTTON_LEFT_SHOULDER, true), true);
+  EXPECT(b.joystick_mask(true) == 0x800003ffu);
+}
+
+// tvOS: the pad connects after zInput opened the joystick. It reads centred
+// until then, the first gamepad is taken, and PadBridge's mask reads its
+// buttons up. An SDL virtual gamepad stands in (no window, no device).
+TEST(sdl_input_takes_a_late_pad_and_masks_its_buttons) {
+  if (!SDL_InitSubSystem(SDL_INIT_GAMEPAD)) return;
+  int n = 0;
+  SDL_free(SDL_GetJoysticks(&n));
+  if (n > 0) {
+    std::printf("a joystick is attached: not checked\n");
+    return;
+  }
+  sdlfe::SdlInput in;
+  in.late_pad = true;
+  EXPECT(in.open(platform::Input::kJoystick));
+  EXPECT(in.acquire(platform::Input::kJoystick) == 0);
+  platform::JoyState js;
+  EXPECT(in.joystick_state(&js) == 0 && js.buttons[0] == 0 && in.unplugged());
+  uint32_t flags = 0, axes = 0;
+  in.joystick_caps(&flags, &axes);
+  EXPECT(axes == 5);
+  SDL_VirtualJoystickDesc d;
+  SDL_INIT_INTERFACE(&d);
+  d.type = SDL_JOYSTICK_TYPE_GAMEPAD;
+  d.naxes = SDL_GAMEPAD_AXIS_COUNT;
+  d.nbuttons = SDL_GAMEPAD_BUTTON_COUNT;
+  d.name = "mw3 test pad";
+  const SDL_JoystickID id = SDL_AttachVirtualJoystick(&d);
+  EXPECT(id != 0);
+  // The device's events as the pump hands them on (SDL's own queue may be
+  // another test's to read).
+  SDL_Event e{};
+  e.type = SDL_EVENT_JOYSTICK_ADDED, e.jdevice.which = id;
+  in.on_event(e);
+  EXPECT(!in.unplugged() && in.joystick() != nullptr);
+  if (SDL_Joystick* j = SDL_GetJoystickFromID(id)) {
+    SDL_SetJoystickVirtualButton(j, SDL_GAMEPAD_BUTTON_SOUTH, true);
+    SDL_SetJoystickVirtualButton(j, SDL_GAMEPAD_BUTTON_DPAD_UP, true);
+    EXPECT(in.joystick_state(&js) == 0 && js.buttons[0] == 0x80 && js.pov[0] == 0);
+    in.pad_button_mask = 0x80000001u;
+    EXPECT(in.joystick_state(&js) == 0 && js.buttons[0] == 0 && js.pov[0] == 0xffffffffu);
+  }
+  SDL_DetachVirtualJoystick(id);
+  e.type = SDL_EVENT_JOYSTICK_REMOVED, e.jdevice.which = id;
+  in.on_event(e);
+  EXPECT(in.unplugged());
+  in.close(platform::Input::kJoystick);
 }

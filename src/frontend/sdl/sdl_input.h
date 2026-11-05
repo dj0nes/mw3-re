@@ -63,6 +63,14 @@ class SdlInput : public platform::Input {
   const char* axis_source() const { return axis_source_; }
   const int* axis_slots() const { return slot_; }
   bool unplugged() const { return unplugged_; }
+  // Ours (PadBridge, docs/pad-bridge.md): the joystick buttons that read up
+  // (bit i = DirectInput button i; bit 31 = the hat, read centred), the ones
+  // the bridge has made keys or clicks of.
+  uint32_t pad_button_mask = 0;
+  // Ours (tvOS): a pad connects after the start. With no joystick at
+  // zInput's open, a gamepad is opened as one taken out (it reads centred,
+  // W54) and the first gamepad to connect is taken.
+  bool late_pad = false;
   int32_t joystick_caps(uint32_t* flags, uint32_t* axes) override;
   bool joystick_gamepad() const override { return pad_ != nullptr || (unplugged_ && pad_was_); }
   SDL_Joystick* joystick() const { return joy_; }  // the force feedback's device (sdl_force.h)

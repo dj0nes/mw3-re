@@ -597,6 +597,7 @@ if(SDL3_FOUND)
     src/frontend/sdl/sdl_vfw.cpp
     src/frontend/sdl/net_enet.cpp
     src/frontend/sdl/net_upnp.cpp
+    src/frontend/sdl/pad_bridge.cpp
   )
   # tvOS cannot start a process: there each child fails to start.
   if(MW3_TVOS)

@@ -317,7 +317,14 @@ void SdlInput::map_axes() {
 bool SdlInput::open(Device d) {
   if (d == kJoystick) {
     tried_ = true;
-    if (!joy_ && !open_joystick()) return false;
+    if (!joy_ && !open_joystick()) {
+      if (!late_pad) return false;
+      // Ours (tvOS): a gamepad to come, read as one taken out until then.
+      unplugged_ = true, pad_was_ = true, guid_ = SDL_GUID{};
+      for (int i = 0; i < 8; ++i) slot_[i] = i < 5 ? i : -1;
+      axis_source_ = "gamepad";
+      std::printf("mw3: no joystick yet: the first gamepad to connect is taken\n");
+    }
   }
   opened_[d] = true;
   return true;
@@ -524,6 +531,10 @@ int32_t SdlInput::joystick_state(platform::JoyState* out) {
     const int nb = SDL_GetNumJoystickButtons(joy_);
     for (int i = 0; i < 128 && i < nb; ++i) out->buttons[i] = SDL_GetJoystickButton(joy_, i) ? 0x80 : 0;
   }
+  // Ours (PadBridge): the buttons it has taken read up, the hat centred.
+  for (int i = 0; i < 31; ++i)
+    if (pad_button_mask & (1u << i)) out->buttons[i] = 0;
+  if (pad_button_mask & 0x80000000u) out->pov[0] = 0xffffffffu;
   last_ = *out;
   return acquired_[kJoystick] ? 0 : kNotAcquired;
 }
@@ -557,7 +568,7 @@ int32_t SdlInput::joystick_caps(uint32_t* flags, uint32_t* axes) {
   *flags = joy_ && SDL_GetBooleanProperty(SDL_GetJoystickProperties(joy_), SDL_PROP_JOYSTICK_CAP_RUMBLE_BOOLEAN, false)
                ? 0x100u
                : 0u;
-  *axes = joy_ ? static_cast<uint32_t>(axis_count()) : 0;
+  *axes = joy_ || (unplugged_ && late_pad) ? static_cast<uint32_t>(axis_count()) : 0;
   return 0;
 }
 
@@ -566,7 +577,7 @@ int32_t SdlInput::joystick_object_name(uint32_t ofs, char* name, uint32_t n) {
   static const char* kNames[8] = {"X Axis", "Y Axis", "Z Axis", "X Rotation", "Y Rotation", "Z Rotation",
                                   "Slider", "Slider"};
   const uint32_t i = ofs / 4;
-  if (!joy_ || i >= 8 || slot_[i] < 0) {
+  if ((!joy_ && !(unplugged_ && late_pad)) || i >= 8 || slot_[i] < 0) {
     if (n) name[0] = 0;
     return kObjectNotFound;
   }
@@ -602,10 +613,11 @@ void SdlInput::on_event(const SDL_Event& e) {
     case SDL_EVENT_JOYSTICK_ADDED:  // the same device back: read again, its map kept
       if (unplugged_) {
         const SDL_GUID g = SDL_GetJoystickGUIDForID(e.jdevice.which);
-        if (std::memcmp(&g, &guid_, sizeof g) == 0) {
+        // late_pad (tvOS): any gamepad stands in for the one taken out.
+        if (std::memcmp(&g, &guid_, sizeof g) == 0 || (late_pad && SDL_IsGamepad(e.jdevice.which))) {
           if (pad_was_ && SDL_IsGamepad(e.jdevice.which)) pad_ = SDL_OpenGamepad(e.jdevice.which);
           joy_ = pad_ ? SDL_GetGamepadJoystick(pad_) : SDL_OpenJoystick(e.jdevice.which);
-          if (joy_) id_ = e.jdevice.which, unplugged_ = false, std::printf("mw3: joystick back\n");
+          if (joy_) id_ = e.jdevice.which, guid_ = g, unplugged_ = false, std::printf("mw3: joystick back\n");
         }
       } else if (!joy_ && tried_) {  // none at the start: zInput set up without one
         std::printf("mw3: a joystick was plugged in: the game takes it at its next start\n");

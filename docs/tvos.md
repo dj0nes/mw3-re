@@ -92,9 +92,15 @@ pilots, and tvOS may clear them if the Apple TV runs very short of space.
 
 ## Playing
 
-The app starts the game straight away. The controller drives it; the
-buttons are in docs/pad-bridge.md. The Siri Remote's Back (Menu) button
-leaves the app.
+The app starts the game straight away. Turn the controller on before or
+after starting it: the first gamepad to connect is the game's. In the menus
+the left stick moves the cursor and A clicks; in a mission the sticks,
+triggers and buttons are the game's joystick, and holding LB gives the
+keyboard's actions. The full list is in [pad-bridge.md](pad-bridge.md).
+
+The controller's Menu (Start) button opens the game's pause menu. To leave
+the app, press the TV button on the Siri Remote; the remote is not a game
+controller here.
 
 ## Re-signing every 7 days (free Apple ID)
 

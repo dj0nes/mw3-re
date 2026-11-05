@@ -278,12 +278,32 @@ void SdlPump::away(bool on) {
   if (backgrounded) backgrounded(on);
 }
 
+void SdlPump::bridge_tick() {
+  if (!bridge || !input_) return;
+  const uint64_t now = SDL_GetTicksNS();
+  const double dt = bridge_ns_ ? static_cast<double>(now - bridge_ns_) / 1e9 : 0.0;
+  bridge_ns_ = now;
+  if (input_->window) {  // the cursor stays on the game's frame, not the bars
+    int w = 0, h = 0;
+    SDL_GetWindowSize(input_->window, &w, &h);
+    const FitRect r = input_->shape ? fit_rect(static_cast<float>(w), static_cast<float>(h), *input_->shape)
+                                    : FitRect{0, 0, static_cast<float>(w), static_cast<float>(h)};
+    bridge->set_frame({r.x, r.y, r.w, r.h});
+  }
+  const bool mission = input_->in_mission && input_->in_mission();
+  float lx = 0, ly = 0;
+  bridge->left_stick(&lx, &ly);
+  for (const SDL_Event& o : bridge->tick(dt, mission, lx, ly)) input_->on_event(o);
+  input_->pad_button_mask = bridge->joystick_mask(mission);
+}
+
 bool SdlPump::peek() {
   // Only a pass that runs the game (no message waiting: the loop's idle
   // branch) is one of --frame-ms's steps. A pass that only takes a window
   // or SDL event counted too once, and as those come with the host's timing,
   // the game's clock (and a seeded run) differed with the machine's load.
   SDL_PumpEvents();
+  bridge_tick();
   const bool waiting = !quit_ && SDL_PeepEvents(nullptr, 0, SDL_PEEKEVENT, SDL_EVENT_FIRST, SDL_EVENT_LAST) > 0;
   if (each_pass && !waiting) each_pass();
   if (!quit_ && should_quit && should_quit()) post_quit();
@@ -307,6 +327,11 @@ void SdlPump::handle(const SDL_Event& e) {
     enter_swallowed_ = e.type == SDL_EVENT_KEY_DOWN;
     if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat && toggle_fullscreen) toggle_fullscreen();
     return;
+  }
+  if (bridge && input_) {
+    const bool mission = input_->in_mission && input_->in_mission();
+    for (const SDL_Event& o : bridge->on_event(e, mission)) input_->on_event(o);
+    input_->pad_button_mask = bridge->joystick_mask(mission);
   }
   if (input_) input_->on_event(e);
   switch (e.type) {

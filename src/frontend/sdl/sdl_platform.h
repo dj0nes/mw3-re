@@ -5,6 +5,7 @@
 #include <memory>
 #include <vector>
 
+#include "frontend/sdl/pad_bridge.h"
 #include "frontend/sdl/sdl_fit.h"
 #include "frontend/sdl/sdl_render3d.h"
 #include "platform/platform.h"
@@ -172,6 +173,10 @@ class SdlPump : public platform::MessagePump {
   // from the queue, as for a lost focus. The events never come on the Mac.
   SdlClock* clock = nullptr;
   std::function<void(bool)> backgrounded;
+  // Ours (docs/pad-bridge.md): a controller as the menus' mouse and the
+  // mission's missing keys. Each event goes through it first, its keys and
+  // clicks on to the input; its cursor moves at each look at the queue.
+  PadBridge* bridge = nullptr;
   // Ours: Alt+Enter, swallowed before the game sees the Enter.
   std::function<void()> toggle_fullscreen;
 
@@ -183,6 +188,8 @@ class SdlPump : public platform::MessagePump {
   bool quit_ = false;
   bool enter_swallowed_ = false;  // Alt+Enter's Enter is down: its release goes too
   bool away_ = false;             // in the background (tvOS)
+  uint64_t bridge_ns_ = 0;        // the bridge's last tick
+  void bridge_tick();
   static bool SDLCALL watch(void* self, SDL_Event* e);
   void away(bool on);
 };
