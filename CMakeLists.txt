@@ -16,6 +16,11 @@ set(MW3_GAME_DIR "${CMAKE_SOURCE_DIR}/game/mw3-1.2" CACHE PATH "The MechWarrior 
 # A build for other players (tools/windows/package.cmd): mw3 and mw3import
 # get no development copy to fall back on, only the player's own install.
 option(MW3_PACKAGE "Build mw3 and mw3import for players: no MW3_GAME_DIR in them" OFF)
+# Ours: a personal Apple TV build (docs/tvos.md; tools/tvos/build.sh). Only
+# the game, mw3, as an app bundle: no tests, launcher or tools, and no child
+# processes (tvOS cannot start one). Off for every other build.
+option(MW3_TVOS "Build mw3 as a tvOS app (with the Xcode generator and CMAKE_SYSTEM_NAME=tvOS)" OFF)
+set(MW3_TVOS_TEAM "$ENV{MW3_TVOS_TEAM}" CACHE STRING "tvOS: the Apple development team that signs the app")
 # The version mw3 --version and the Windows version resource give: git's
 # describe (a tag, or the commit) and the commit count.
 execute_process(COMMAND git describe --tags --always --dirty WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
@@ -355,10 +360,12 @@ endif()
 # tools/windows/build_deps_archive.cmd into deps\archive); a development
 # Mac may use Homebrew's (brew install libarchive). Without it the game
 # builds and SETUP takes folders, drives, .iso and .cue only.
-find_path(LIBARCHIVE_INCLUDE archive.h
-          HINTS "${CMAKE_SOURCE_DIR}/deps/archive/include" /opt/homebrew/opt/libarchive/include /usr/local/opt/libarchive/include)
-find_library(LIBARCHIVE_LIB NAMES archive archive_static
-             HINTS "${CMAKE_SOURCE_DIR}/deps/archive/lib" /opt/homebrew/opt/libarchive/lib /usr/local/opt/libarchive/lib)
+if(NOT MW3_TVOS)  # tvOS: no SETUP, the app carries a ready install
+  find_path(LIBARCHIVE_INCLUDE archive.h
+            HINTS "${CMAKE_SOURCE_DIR}/deps/archive/include" /opt/homebrew/opt/libarchive/include /usr/local/opt/libarchive/include)
+  find_library(LIBARCHIVE_LIB NAMES archive archive_static
+               HINTS "${CMAKE_SOURCE_DIR}/deps/archive/lib" /opt/homebrew/opt/libarchive/lib /usr/local/opt/libarchive/lib)
+endif()
 if(LIBARCHIVE_INCLUDE AND LIBARCHIVE_LIB)
   target_include_directories(mw3core PUBLIC "${LIBARCHIVE_INCLUDE}")
   target_link_libraries(mw3core PUBLIC "${LIBARCHIVE_LIB}")
@@ -390,6 +397,7 @@ endif()
 # GCC on Linux needs it asked for, docs/linux.md).
 set_target_properties(mw3core PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
+if(NOT MW3_TVOS)  # the tests and the probe: Mac, Windows and Linux only
 # A C interface over a few ported functions, for the differential tests that run
 # the original x86 code in an emulator and compare (tests/differential).
 add_library(mw3probe SHARED
@@ -560,6 +568,7 @@ target_compile_definitions(mw3tests PRIVATE MW3_GAME_DIR="${MW3_GAME_DIR}"
                                           MW3_TEST_TMP_ROOT="${CMAKE_BINARY_DIR}"
                                           MW3_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
 add_test(NAME mw3tests COMMAND mw3tests)
+endif()  # NOT MW3_TVOS
 
 # The SDL3 front end and the programs on it.
 find_package(SDL3 CONFIG QUIET)
@@ -578,8 +587,13 @@ if(SDL3_FOUND)
     src/frontend/sdl/sdl_vfw.cpp
     src/frontend/sdl/net_enet.cpp
     src/frontend/sdl/net_upnp.cpp
-    src/frontend/sdl/sdl_child.cpp
   )
+  # tvOS cannot start a process: there each child fails to start.
+  if(MW3_TVOS)
+    target_sources(mw3sdl PRIVATE src/frontend/sdl/sdl_child_tvos.cpp)
+  else()
+    target_sources(mw3sdl PRIVATE src/frontend/sdl/sdl_child.cpp)
+  endif()
   target_link_libraries(mw3sdl PUBLIC mw3core SDL3::SDL3 enet miniupnpc)
   # Windows: the Direct3D 12 shaders (sdl_render3d.hlsl), DXIL by the
   # Windows SDK's dxc, as headers the renderer includes.
@@ -687,6 +701,20 @@ if(SDL3_FOUND)
                          COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_RUNTIME_DLLS:mw3> $<TARGET_FILE_DIR:mw3>
                          COMMAND_EXPAND_LISTS)
     endif()
+    # tvOS: mw3 is the app (tools/tvos/Info.plist.in), signed by the
+    # player's own team (docs/tvos.md).
+    if(MW3_TVOS)
+      configure_file(tools/tvos/Info.plist.in ${CMAKE_BINARY_DIR}/mw3-Info.plist @ONLY)
+      set_target_properties(mw3 PROPERTIES
+        MACOSX_BUNDLE ON
+        MACOSX_BUNDLE_INFO_PLIST ${CMAKE_BINARY_DIR}/mw3-Info.plist
+        XCODE_GENERATE_SCHEME ON
+        XCODE_ATTRIBUTE_PRODUCT_BUNDLE_IDENTIFIER org.mw3rebuild.tv
+        XCODE_ATTRIBUTE_DEVELOPMENT_TEAM "${MW3_TVOS_TEAM}"
+        XCODE_ATTRIBUTE_CODE_SIGN_STYLE Automatic
+        XCODE_ATTRIBUTE_TARGETED_DEVICE_FAMILY 3)
+    endif()
+    if(NOT MW3_TVOS)  # the launcher, the tests and their helpers
     # The launcher (docs/launcher.md, The two programs; games-layout.md): the
     # main icon, its own program; MECHWARRIOR 3 starts mw3 beside it.
     add_executable(mw3launcher
@@ -741,9 +769,11 @@ if(SDL3_FOUND)
     add_dependencies(mw3sdltests mw3)
     add_dependencies(mw3sdltests mw3launcher)
     add_test(NAME mw3sdltests COMMAND mw3sdltests)
+    endif()  # NOT MW3_TVOS
   else()
     message(STATUS "SDL3_ttf not found: mw3 is not built (brew install sdl3_ttf)")
   endif()
+  if(NOT MW3_TVOS)  # the tools: not in the Apple TV app
   # Development tools (not part of the port): the world viewer.
   add_executable(mw3view tools/viewer/viewer.cpp tools/viewer/scene.cpp)
   target_link_libraries(mw3view PRIVATE mw3core mw3sdl SDL3::SDL3)
@@ -806,4 +836,5 @@ if(SDL3_FOUND)
   add_executable(mw3soundcheck tools/soundcheck/soundcheck.cpp)
   target_link_libraries(mw3soundcheck PRIVATE mw3core mw3sdl SDL3::SDL3)
   target_compile_definitions(mw3soundcheck PRIVATE MW3_GAME_DIR="${MW3_GAME_DIR}")
+  endif()  # NOT MW3_TVOS
 endif()

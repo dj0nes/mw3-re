@@ -45,6 +45,9 @@
 //   --verbose            list every unported function reached at exit
 #include "crt/msvc_rand.h"
 #include <SDL3/SDL.h>
+#if defined(SDL_PLATFORM_TVOS)
+#include <SDL3/SDL_main.h>  // Ours (tvOS): SDL runs main inside the app's UIKit start
+#endif
 
 #include <algorithm>
 #include <chrono>
@@ -603,6 +606,11 @@ int main(int argc, char** argv) {
   Args a;
   if (!parse(argc, argv, a)) return 2;
   if (!a.shot.empty()) a.hidden = true;
+#if defined(SDL_PLATFORM_TVOS)
+  // Ours (tvOS): the pad's Menu button is the game's Escape, not the way out
+  // to the home screen (docs/tvos.md).
+  SDL_SetHint(SDL_HINT_APPLE_TV_CONTROLLER_UI_EVENTS, "0");
+#endif
   if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_JOYSTICK)) {
     std::fprintf(stderr, "mw3: SDL_Init: %s\n", SDL_GetError());
     return 1;
