@@ -3057,11 +3057,19 @@ void HudZoomWindow::update(float dt) {
   else box.update(dt);
 }
 
-// Mech3.exe 1.2 @ 0x004441a0: the reticle itself only while the zoom window
-// is away; nothing more once the HUD is off and its mech dead.
+// Pirate's Moon 1.0 @ 0x00445a50 (MW3's 0x004441a0): PM's first: with the radar
+// over the large map the zoom window (reset, 0x00445110) and reticle are hidden,
+// and a hidden reticle whose image is kept is shown. Then the reticle itself only
+// while the zoom window is away; nothing more once the HUD is off and its mech dead.
 void HudReticle::update(float dt) {
-  zoom.update(dt);
   Hud* h = static_cast<Hud*>(source);
+  if (h && h->radar.active && h->radar.zoomed == 1) {
+    zoom.hide();
+    zoom.zoom = 0.0f;
+    hide();
+  }
+  if ((flags & ztwod::kHidden) && locked) show_for(-1.0f);
+  zoom.update(dt);
   if (h && h->mech && hud_hooks().mech_dead(h->mech) && h->active == 0) return;
   if (zoom.flags & ztwod::kHidden) Image::update(dt);
   lock_timer -= dt;

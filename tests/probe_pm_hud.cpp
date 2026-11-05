@@ -591,6 +591,42 @@ extern "C" void probe_pm_layout(const int32_t* counts, int32_t current, int32_t 
   ztwod::set_host(nullptr);
 }
 
+// test_pm_hud_reticle.py: PM's reticle update (0x00445a50).
+struct ReticleIn { int32_t map, zoomed, hidden, locked, dead, hud_active; float timer, dt, scale; };
+struct ReticleOut { int32_t hidden, zoom_hidden; float timer, scale; };
+namespace {
+struct ReticleHooks : Hooks {
+  int32_t dead = 0;
+  bool mech_dead(mech3::Mech*) override { return dead != 0; }
+};
+}  // namespace
+
+extern "C" void probe_pm_reticle(const ReticleIn* in, ReticleOut* out) {
+  static Host host;
+  ztwod::set_host(&host);
+  static ReticleHooks hooks;
+  hooks.dead = in->dead;
+  mech3::set_hud_hooks(&hooks);
+  static mech3::Hud* hud = new (std::calloc(1, sizeof(mech3::Hud))) mech3::Hud(nullptr);
+  static char fake_mech[0x800];
+  hud->mech = reinterpret_cast<mech3::Mech*>(fake_mech);
+  hud->active = static_cast<uint8_t>(in->hud_active);
+  hud->radar.active = static_cast<uint8_t>(in->map), hud->radar.zoomed = static_cast<uint16_t>(in->zoomed);
+  mech3::HudReticle& r = hud->reticle;
+  r.source = hud;
+  r.locked = static_cast<uint8_t>(in->locked), r.lock_timer = in->timer;
+  if (in->hidden) r.flags |= ztwod::kHidden;
+  else r.flags &= ~ztwod::kHidden;
+  r.zoom.flags |= ztwod::kHidden;
+  r.zoom.zoom = in->scale;
+  r.update(in->dt);
+  out->hidden = (r.flags & ztwod::kHidden) ? 1 : 0, out->zoom_hidden = (r.zoom.flags & ztwod::kHidden) ? 1 : 0;
+  out->timer = r.lock_timer, out->scale = r.zoom.zoom;
+  hud->mech = nullptr;
+  mech3::set_hud_hooks(nullptr);
+  ztwod::set_host(nullptr);
+}
+
 // test_pm_hud_timer.py: PM's time split (0x00597c30).
 extern "C" void probe_pm_time_split(float t, int32_t* out) { mech3::time_split(t, &out[0], &out[1], &out[2]); }
 

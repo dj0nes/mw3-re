@@ -621,6 +621,11 @@ stubbed (the range and distance on the x87 stack), the hits' nodes real
 blocks with +0xbc; the weapon manager's +0x88 compared after. Breaking it:
 12 of 12 caught.
 
+**Pirate's Moon's reticle update (0x00445a50 for MW3's 0x004441a0;
+`test_pm_hud_reticle.py`).** With the radar over the large map the zoom window
+is hidden and its scale reset (0x00445110) and the reticle hidden; a hidden
+reticle whose image is kept is shown again (and Shift+R back, section 15).
+
 **Pirate's Moon (0x004455e0 for MW3's 0x00443d20; `test_pm_hud_lock.py`).** The
 same states, tones and timings (0.6 s, 1.2 with ECM, now the target's +0x3dc;
 3.5 s held), with the reticle's fields 8 bytes on. What changed:
