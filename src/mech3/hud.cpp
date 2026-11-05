@@ -1,4 +1,5 @@
 #include "mech3/hud.h"
+#include "mech3/controls_cfg.h"
 
 #include <cmath>
 #include <cstdarg>
@@ -294,37 +295,53 @@ std::string objective_text(const Objective& o) {
 }
 }  // namespace
 
-// Mech3.exe 1.2 @ 0x00446970. The exe hands the text to the line as its
-// format; here as the format's argument (a '%' in it would read the stack).
-void HudObjectives::add_objective(uint8_t done, const char* text) {
-  TextBox::set_text("%s", text);  // vt+0xa0, no blank score
-  scores.set_text("%s", g_hooks->message(done ? 0x22f : 0x230));  // "Completed" : "In Progress"
-  const ztwod::Handle f = done ? font_complete : font_incomplete;
-  line().set_font(f);
-  scores.line().set_font(f);
-}
-
-// Mech3.exe 1.2 @ 0x00446a20: the text's further lines.
-void HudObjectives::add_more(uint8_t done, const char* score, const char* text) {
+// Pirate's Moon 1.0 @ 0x00448680 (the status message, the text, the font): a
+// line with its status beside it, both in the font. The exe hands the text to
+// the line as its format; here as the format's argument (a '%' would read the stack).
+void HudObjectives::add_objective(int32_t status, const char* text, ztwod::Handle font) {
   TextBox::set_text("%s", text);
-  if (score) scores.set_text("%s", score);
-  const ztwod::Handle f = done ? font_complete : font_incomplete;
-  line().set_font(f);
-  scores.line().set_font(f);
+  scores.set_text("%s", g_hooks->message(status));
+  line().set_font(font);
+  scores.line().set_font(font);
 }
 
-// Mech3.exe 1.2 @ 0x00446ad0: the mission's header, then each group's title
-// and its visible objectives (each line of the text a line), the failed
-// ones, the mission's end and how to close it; the panel sized to the lines
-// (docs/hud.md, The objectives box).
+// Pirate's Moon 1.0 @ 0x00448520 (the objective, the all-done flag or null):
+// its lines (strtok on '\n') if it has a text and is visible, the first with its
+// status: "Completed", "Failed" (done by failing, +0x09) or "In Progress". The
+// lines it added. MW3 did this inline (0x00446ad0) with add_more for the rest.
+int32_t HudObjectives::add_item(const Objective& it, bool* all_done) {
+  const bool failed = it.done && it.failed;
+  if (all_done) *all_done = *all_done && it.done;
+  const std::string text = objective_text(it);
+  if (text.empty() || !it.visible) return 0;
+  const ztwod::Handle font = it.done ? font_complete : font_incomplete;
+  const int32_t status = !it.done ? 0x230 : failed ? 0x1008 : 0x22f;
+  std::string copy = text;
+  char* t = std::strtok(&copy[0], "\n");
+  if (!t) t = &copy[0];  // the exe skips the split without a '\n'
+  add_objective(status, t, font);
+  int32_t lines = 1;
+  if (text.find('\n') == std::string::npos) return lines;
+  for (t = std::strtok(nullptr, "\n"); t; t = std::strtok(nullptr, "\n")) {
+    set_text("%s", t);  // vt+0x7c: a blank score beside it
+    ++lines;
+    line().set_font(font);
+  }
+  return lines;
+}
+
+// Pirate's Moon 1.0 @ 0x004486e0 (MW3's 0x00446ad0): the mission's header (game
+// types 1, 2 and 5 the game's name), then each group's title and its visible
+// objectives, the failed ones (with their status), the mission's end and how to
+// close it; the panel sized to the lines (docs/hud.md, The objectives box).
 void HudObjectives::fill() {
   HudHooks& k = *g_hooks;
   const HudHooks::ObjectivesSource src = k.objectives_source();
   const Objectives* o = src.objectives;
   const ObjectiveGroup* primary = o ? o->primary.get() : nullptr;
   const ObjectiveGroup* secondary = o ? o->secondary.get() : nullptr;
-  const ObjectiveGroup* final = primary && primary->done ? o->final.get() : nullptr;  // 0x0048fab0
-  const ObjectiveGroup* fail = o && o->fail && o->fail->done ? o->fail.get() : nullptr;  // 0x0048fad0
+  const ObjectiveGroup* final = primary && primary->done ? o->final.get() : nullptr;  // 0x004927f0
+  const ObjectiveGroup* fail = o && o->fail && o->fail->done ? o->fail.get() : nullptr;  // 0x00492810
   bool all_done = true;
   const int32_t height = text_height();
   int32_t lines = 0;
@@ -332,26 +349,18 @@ void HudObjectives::fill() {
   scores.clear();
   auto put = [&](const std::string& s) { set_text("%s", s.c_str()); };  // vt+0x7c
   auto msg = [&](int32_t id) { return std::string(k.message(id)); };
+  const char* name = src.game_name ? src.game_name : "";
   if (o && o->desc) {
     put(*o->desc);
     lines = 1;
   } else {
     switch (src.game_type) {
-      case 1:  // "Operation %1!d!, Mission %2!d!"
-        put(zutl::format_message_ints(0x177, {src.operation, src.mission}));
+      case 1:
+      case 2:
+      case 5:
+        put(name);
         lines = 1;
         break;
-      case 2: {
-        std::string s;
-        if (src.action_name) {
-          s = zutl::format_message(0x231, {std::to_string(src.operation).c_str(), src.action_name});
-        } else {
-          s = zutl::format_message_ints(0x232, {src.operation});
-        }
-        if (!s.empty()) put(s);
-        lines = 1;
-        break;
-      }
       case 3:  // "Network Game Scores", its columns
         set_font(font_scores);
         put(msg(0xdd5));
@@ -359,31 +368,13 @@ void HudObjectives::fill() {
         lines = 2;
         break;
       case 4:  // "T R A I N I N G   %1"
-        put(zutl::format_message(0x233, src.training_name ? src.training_name : ""));
+        put(zutl::format_message(0x233, name));
         lines = 1;
         break;
       default:
         break;
     }
   }
-  // Each visible objective with a text: its lines (strtok on '\n').
-  auto items = [&](const ObjectiveGroup& g, bool count_done) {
-    for (const std::unique_ptr<Objective>& it : g.items) {
-      const uint8_t done = it->done;
-      if (count_done) all_done = all_done && done;
-      if (!it->visible) continue;
-      const std::string text = objective_text(*it);
-      if (text.empty()) continue;
-      std::string copy = text;
-      bool first = true;
-      for (char* t = std::strtok(&copy[0], "\n"); t; t = std::strtok(nullptr, "\n")) {
-        if (first) add_objective(done, t);
-        else add_more(done, "", t);
-        first = false;
-        ++lines;
-      }
-    }
-  };
   if (primary && !primary->items.empty()) {
     line();
     if (!objective_text(*primary).empty()) {
@@ -393,38 +384,37 @@ void HudObjectives::fill() {
       put(msg(0x235));  // "P R I M A R Y  O B J E C T I V E S"
       ++lines;
     } else if (src.game_type != 2) {
-      put(zutl::format_message_ints(0x236, {src.operation, src.mission}));
+      // FIX (bug): PM's text is "Mission %2!d! ..." and the exe passes only the
+      // mission (vt+0x48), so %2 read what followed on the stack.
+      const int32_t m = zfix::options().bugs ? src.mission : 0;
+      put(zutl::format_message_ints(0x236, {m, m}));
       ++lines;
     }
-    items(*primary, true);
+    for (const std::unique_ptr<Objective>& it : primary->items) lines += add_item(*it, &all_done);
   }
   if (secondary && !secondary->items.empty()) {
     line();
     if (!objective_text(*secondary).empty()) put(objective_text(*secondary));
     else put(msg(0x237));  // "S E C O N D A R Y  O B J E C T I V E S"
     ++lines;
-    items(*secondary, false);
+    for (const std::unique_ptr<Objective>& it : secondary->items) lines += add_item(*it, nullptr);
   }
   if (final && !final->items.empty()) {
     put(objective_text(*final));  // "" without a text
     ++lines;
-    items(*final, true);
+    for (const std::unique_ptr<Objective>& it : final->items) lines += add_item(*it, &all_done);
   }
   if (!k.multiplayer_game() && fail && !fail->items.empty()) {
     put("");
-    ++lines;
     if (!objective_text(*fail).empty()) put(objective_text(*fail));
     else put(msg(0x238));  // "F A I L E D  O B J E C T I V E S"
-    ++lines;
-    for (const std::unique_ptr<Objective>& it : fail->items) {
-      if (!it->done || !it->visible) continue;
-      const std::string text = objective_text(*it);
-      if (text.empty()) continue;
-      add_more(1, nullptr, text.c_str());
-      ++lines;
-    }
+    lines += 2;
+    for (const std::unique_ptr<Objective>& it : fail->items)
+      if (it->done) lines += add_item(*it, nullptr);
   }
-  const std::string exit_key = k.command_key(0x71);  // Exit Mission
+  // The commands by name, so the numbers follow the table in use: PM's are 0x79
+  // and 0x44 (pushed at 0x00448b25, 0x00448bdc), MW3's 0x71 and 0x43.
+  const std::string exit_key = k.command_key(controls_command("CMD_MISSION_COMPLETE"));
   if (k.multiplayer_game()) {
     set_font(font_scores);
     for (const std::string& s : k.multiplayer_scores()) {
@@ -442,7 +432,7 @@ void HudObjectives::fill() {
     put(zutl::format_message(0x23a, exit_key.c_str()));
     lines += 3;
   }
-  put(zutl::format_message(0x23c, k.command_key(0x43).c_str()));  // "Press %1 To Close Objectives Display"
+  put(zutl::format_message(0x23c, k.command_key(controls_command("CMD_OBJECTIVES")).c_str()));  // "Press %1 To Close Objectives Display"
   ++lines;
   panel.set_size(0x140, lines * height);
 }
@@ -1795,27 +1785,31 @@ void Hud::reset() {
   radar.set_fade(0.0f);
 }
 
-// Mech3.exe 1.2 @ 0x0043bfe0. Kind 0 the radar's fade (set at once), 1 the
-// MFD's static, 2 TARGET's, 3 the weapons' and equipment's; 4 all four, 5 a
-// random one. The level grows by `step` up to `most`, the hold to `hold`.
-void Hud::add_static(float step, int32_t kind, float hold, float most) {
-  static constexpr int kChannel[4] = {3, 1, 0, 2};  // the kind's +0x22e08 slot
+// Pirate's Moon 1.0 @ 0x0043d0b0 (MW3's 0x0043bfe0) on the channels alone: kind 0
+// the radar's fade, 1 the MFD's static, 2 TARGET's, 3 the weapons' and
+// equipment's; 4 all four, 5 a random one. The level grows by `step` up to
+// `most`, the hold to `hold`. The channel last touched, -1 none.
+int32_t static_add(HudStaticChannel* statics, float step, int32_t kind, float hold, float most) {
+  static constexpr int kChannel[4] = {3, 1, 0, 2};  // the kind's slot
   if (kind == 4) {
-    for (int32_t k = 0; k < 4; ++k) add_static(step, k, hold, most);
-    return;
+    int32_t last = -1;
+    for (int32_t k = 0; k < 4; ++k) last = static_add(statics, step, k, hold, most);
+    return last;
   }
-  if (kind == 5) {
-    add_static(step, crt::msvc_rand() & 3, hold, most);
-    return;
-  }
-  if (kind < 0 || kind > 3) return;
-  Static& s = statics[kChannel[kind]];
+  if (kind == 5) return static_add(statics, step, crt::msvc_rand() & 3, hold, most);
+  if (kind < 0 || kind > 3) return -1;
+  HudStaticChannel& s = statics[kChannel[kind]];
   if (s.level < most) {
     s.level = step + s.level;
     if (most < s.level) s.level = most;
   }
   if (s.hold < hold) s.hold = hold;
-  if (kind == 0) radar.set_fade(s.level);
+  return kChannel[kind];
+}
+
+void Hud::add_static(float step, int32_t kind, float hold, float most) {
+  // The radar's channel sets its fade at once (0x0043f190), also when kinds 4 and 5 reach it.
+  if (static_add(statics, step, kind, hold, most) == 3 || kind == 4) radar.set_fade(statics[3].level);
 }
 
 // Mech3.exe 1.2 @ 0x0043c1f0: the channel (kinds as add_static's) at least
@@ -1838,68 +1832,118 @@ void Hud::raise_static(float level, int32_t kind, float hold) {
   if (kind == 0) radar.set_fade(s.level);
 }
 
-// Mech3.exe 1.2 @ 0x0043cd20 (the frame's draw paths, after the HUD). Below
-// 0.4 of the internal structure of the player's torso (any of its three
-// sections) or head, a random panel gets static (GameIntensity's flag off):
-// 0.1 a frame up to (5 - 20 x) / 4 under 0.2, (0.4 - x) x 5 / 4 above; then
-// each shown panel's static is drawn and every level falls 0.3 a second after
-// its hold, to its floor. FIX (B), behind per_second: the 0.1 is a 30 fps
-// frame's.
+// Pirate's Moon 1.0 @ 0x0043dda0: the static's texture, 256 x 256: per pixel a
+// rand picks one of three greens by thirds, a second its alpha (rand x 256 /
+// 32767, so 32767 wraps to 0).
+HudStaticNoise* static_noise_make() {
+  auto* n = new HudStaticNoise;
+  const int32_t count = HudStaticNoise::kSize * HudStaticNoise::kSize;
+  n->pixels.resize(count), n->alpha.resize(count), n->pick.resize(count);
+  const uint16_t green[3] = {zvid::pack_bytes(0x20, 0x40, 0x20), zvid::pack_bytes(0x40, 0x80, 0x40),
+                             zvid::pack_bytes(0x60, 0xc0, 0x60)};  // 0x005983e0
+  for (int32_t i = 0; i < count; ++i) {
+    const int32_t c = crt::msvc_rand() * 0x100 / 0x7fff;
+    const int32_t a = crt::msvc_rand() * 0x100 / 0x7fff;
+    n->alpha[i] = static_cast<uint8_t>(a);
+    n->pick[i] = static_cast<uint8_t>(c < 0x55 ? 0 : c < 0xab ? 1 : 2);
+    n->pixels[i] = green[n->pick[i]];
+  }
+  return n;
+}
+
+// Pirate's Moon 1.0 @ 0x0043df70: the device's texture released, then the noise.
+void static_noise_free(HudStaticNoise* n) {
+  if (n && n->device && n->release) n->release(n->device);
+  delete n;
+}
+
+// Pirate's Moon 1.0 @ 0x0043dfa0: the noise over the rect, as a quad with its
+// texture at a random place (half the texture each way); the four transformed
+// vertices into `q`. The level, clamped to 0..0.9, is not used with a device:
+// any static above 0 draws the whole noise (MW3 drew its pixels by the level;
+// docs/hud.md section 21).
+void static_quad_vertices(const ztwod::Rect& r, float q[4][8]) {
+  const float u = static_cast<float>(crt::msvc_rand()) * 3.0518509e-05f;  // 0x005e28b0
+  const float v = static_cast<float>(crt::msvc_rand()) * 3.0518509e-05f;
+  const float du = u < 0.5f ? 0.5f : -0.5f, dv = v < 0.5f ? 0.5f : -0.5f;  // 0x005de838, 0x005dfa10
+  const float l = static_cast<float>(r.left) + -0.5f, t = static_cast<float>(r.top) + -0.5f;  // 0x00618448
+  const float rt = static_cast<float>(r.right) + -0.5f, b = static_cast<float>(r.bottom) + -0.5f;
+  const float pos[4][4] = {{l, b, u, v + dv}, {rt, b, du + u, v + dv}, {rt, t, du + u, v}, {l, t, u, v}};
+  for (int i = 0; i < 4; ++i) {
+    const uint32_t white = 0xffffffffu, black = 0xff000000u;
+    q[i][0] = pos[i][0], q[i][1] = pos[i][1];
+    q[i][2] = q[i][3] = 0.999f;  // 0x3f7fbe77
+    std::memcpy(&q[i][4], &white, 4);
+    std::memcpy(&q[i][5], &black, 4);
+    q[i][6] = pos[i][2], q[i][7] = pos[i][3];
+  }
+}
+
+void Hud::static_quad(float level, const ztwod::Rect& r) {
+  (void)level;
+  if (!noise) return;
+  float q[4][8];
+  static_quad_vertices(r, q);
+  g_hooks->static_quad(*noise, q);
+}
+
+// Pirate's Moon 1.0 @ 0x0043e1f0's start and end on the channels alone: with
+// the mech there, not invincible and GameIntensity's flag off, under 0.2 health
+// a random channel gets 0.1 up to (0.2 - h) x 5 (MW3: the torso's and head's
+// internal under 0.4); then (`draw` between) each level eases to its floor at 2
+// a second (MW3 held, then fell 0.3 a second). False when off: the radar's fade
+// is then 0 and nothing else runs. FIX (B), behind per_second: the 0.1 is a 30
+// fps frame's.
+bool static_warn(HudStaticChannel* statics, bool on, float health, float dt) {
+  if (!on) return false;
+  if (health < 0.2f) {  // 0x005deffc
+    const float step = zfix::options().per_second ? 0.1f * zfix::frame_steps(dt) : 0.1f;
+    static_add(statics, step, 5, dt, (0.2f - health) * 5.0f);  // 0x005df000
+  }
+  return true;
+}
+void static_ease(HudStaticChannel* statics, float dt) {
+  for (int i = 0; i < 4; ++i) {
+    HudStaticChannel& c = statics[i];
+    const float floor = c.floor;
+    c.level = (floor - c.level) * 2.0f * dt + c.level;  // 0x00605850
+    if (std::fabs(floor - c.level) < 0.01f) c.level = floor;  // 0x00605854
+  }
+}
+
+// Pirate's Moon 1.0 @ 0x0043e1f0 (MW3's 0x0043cd20; the frame's draw paths,
+// after the HUD). With the HUD's mech not invincible and GameIntensity's flag
+// off: under 0.2 health a random panel gets 0.1 of static up to (0.2 - h) x 5
+// (MW3: the torso's and head's internal under 0.4). Each shown panel's static
+// drawn; each level eases to its floor at 2 a second (MW3 held, then fell 0.3
+// a second). FIX (B), behind per_second: the 0.1 is a 30 fps frame's.
 void Hud::static_tick(float dt) {
   HudHooks& k = *g_hooks;
-  const float fall = dt * 0.3f;  // 0x005c00a4
-  if (void* p = k.mission_player(mech)) {
-    float least = k.part_internal(p, 0x39c, 0);
-    float v = k.part_internal(p, 0x39c, 1);
-    if (v < least) least = k.part_internal(p, 0x39c, 1);
-    v = k.part_internal(p, 0x39c, 2);
-    if (v < least) least = k.part_internal(p, 0x39c, 2);
-    v = k.part_internal(p, 0x3a4, 0);
-    if (v < least) least = k.part_internal(p, 0x3a4, 0);
-    if (least < 0.4f && !k.intensity_flag()) {  // 0x005c00a8
-      const float most = (least > 0.2f ? (0.2f - (least - 0.2f)) * 5.0f : 5.0f - least * 20.0f) * 0.25f;
-      const float step = zfix::options().per_second ? 0.1f * zfix::frame_steps(dt) : 0.1f;
-      add_static(step, 5, dt, most);
-    }
+  const bool on = mech && !k.mech_invincible(mech) && !k.intensity_flag();
+  if (!static_warn(statics, on, on ? k.mech_health(mech) : 1.0f, dt)) {
+    radar.set_fade(0.0f);  // 0x0043f190
+    return;
   }
   // Not while the radar shows zoomed over the mission map.
   if (active && ((radar.flags & ztwod::kHidden) || !radar.zoomed || !radar.active)) {
-    k.static_target();
-    auto draw = [&](const ztwod::Rect* r, float level) {  // 0x0043cca0
-      if (level > 0.9f) level = 0.9f;  // 0x005c00a0
-      else if (level < 0.0f) level = 0.0f;
-      k.static_fill(r, level, zvid::pack_bytes(0x20, 0x40, 0x20), zvid::pack_bytes(0x40, 0x80, 0x40),
-                    zvid::pack_bytes(0x60, 0xc0, 0x60));
-    };
+    k.static_target();  // 0x0057a240
     if (target.shown_mode() != 0 && statics[0].level > 0.0f) {
       // FIX (bug): a mode without a rect (the nav list unmade) would be read
       // through null in the exe; nothing is drawn.
       if (const ztwod::Rect* q = target.shown_rect()) {
         ztwod::Rect r = *q;
         r.right += 1, r.bottom += 1;
-        draw(&r, statics[0].level);
+        static_quad(statics[0].level, r);
       }
     }
-    if (!(mfd.flags & ztwod::kHidden) && statics[1].level > 0.0f) draw(mfd.shown_rect(), statics[1].level);
-    if (!(weapons.flags & ztwod::kHidden) && statics[2].level > 0.0f) draw(&weapons.panel.rect, statics[2].level);
+    if (!(mfd.flags & ztwod::kHidden) && statics[1].level > 0.0f)
+      if (const ztwod::Rect* q = mfd.shown_rect()) static_quad(statics[1].level, *q);
+    if (!(weapons.flags & ztwod::kHidden) && statics[2].level > 0.0f) static_quad(statics[2].level, weapons.panel.rect);
     if (!(weapons.flags & ztwod::kHidden) && !(equipment.flags & ztwod::kHidden) && statics[2].level > 0.0f)
-      draw(&equipment.panel.rect, statics[2].level);
+      static_quad(statics[2].level, equipment.panel.rect);
   }
-  for (int i = 0; i < 4; ++i) {
-    Static& s = statics[i];
-    if (s.level > s.floor) {
-      if (s.hold > 0.01f) {  // 0x005c00c0
-        s.hold = s.hold - dt;
-        continue;
-      }
-      s.hold = 0.0f;
-      s.level = s.level - fall;
-      if (s.level < s.floor) s.level = s.floor;
-      if (i == 3) radar.set_fade(s.level);
-    } else if (s.level < s.floor) {
-      s.level = s.floor;
-    }
-  }
+  static_ease(statics, dt);
+  radar.set_fade(statics[3].level);  // 0x0043f190
 }
 
 // Mech3.exe 1.2 @ 0x0043dc70
@@ -2329,11 +2373,15 @@ int32_t Hud::setups() { return g_hud_setups; }
 int32_t Hud::live() { return g_huds; }
 
 // Mech3.exe 1.2 @ 0x0043b860: the members' destructors do the rest.
-Hud::~Hud() { --g_huds; }
+Hud::~Hud() {
+  --g_huds;
+  static_noise_free(noise);  // 0x0043df70
+}
 
 // Mech3.exe 1.2 @ 0x0043b190. The pieces are made in the members' order.
 Hud::Hud(Mech* m) {
   ++g_huds;
+  noise = static_noise_make();  // 0x0043dda0, after the static's channels are cleared
   if (zfix::options().bugs) block = nullptr;
   load_damage_set();
   mech = nullptr;

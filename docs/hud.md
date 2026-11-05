@@ -907,6 +907,32 @@ radar shown, no blip while the Owens is powered down (not in sight), its
 blip 150 m straight ahead once awake (8 px out of the wanted 7.5), and the
 triangle instead once targeted.
 
+**Pirate's Moon (0x0043f220 for MW3's 0x0043dd00; mapped 2026-11-04, not ported
+yet).** The same groups in the same order: the size and place, the range text
+and the light, the polylines, the contacts, the network player's marker with
+its "OP: %1 [...]" (0x228, 0x229, the same in both), the shots in the air, the
+landmines. Read against the port's `HudRadar::update` and `update_contacts`,
+what differs:
+- **On a change** the marker's text (+0x65c, TEXT2) is placed and shown at
+  once: below the radar at (x - radius, y + 15 + radius) off the map; over the
+  map at x 10 when the map is on the left (+0x5a 1), else the radar's x, and y
+  15 plus the map's height (its +0x3c image's +6). MW3 placed it only with the
+  contacts.
+- **The polylines' clip** is made anew from the radar's square, its centre
+  plus or minus the radius (0x00605860), whenever they move; MW3 kept the
+  rect it was given.
+- **An ally contact with a pilot** (vt+0x58): an object at [0x00629528] is
+  shown, or hidden when the pilot's +0x3d4 or +0x3d8 is under 1; over the map,
+  while it is shown, it is a circle at the ally's place with the radius of the
+  ally's +0x9c on the map. The selected target over the map gets that circle
+  at the radar's radius. To name: what the object, +0x3d4/+0x3d8 and +0x9c are
+  (a lancemate's sensor range, likely).
+- **Distances**: the zoom range kept as its square (+0x34, +0x38); the shots in
+  the air tested by squared distance against the squared radius.
+The rest (colours by team, the triangle on the selected target, the jitter of
+the static, the light by the mech's +0xbc, the "%.1fkm" text) is MW3's with PM's
+offsets.
+
 ## 16. The damage displays and TARGET's text
 
 **A part's image** (0x004475c0, `HudDamagePart::set_level`): five images
@@ -1292,6 +1318,32 @@ Open: 0x00557b30, the set-up's other half, clears GfxFlags bit 2, which the
 software finish reads as MMX (render-tint.md); not traced whether the
 release ever uses the MMX rows.
 
+**Pirate's Moon** (0x0043e1f0 for MW3's 0x0043cd20; 0x0043dda0, 0x0043dfa0,
+0x0043df70 new). The four channels and their add (0x0043d0b0) and raise are
+MW3's; what changed:
+- **The warning**: the HUD's mech's health (vt+0xa4) under 0.2, with the mech
+  not invincible (+0x654) and GameIntensity's flag off: 0.1 on a random channel
+  up to (0.2 - h) x 5, held for the frame. FIX (B), behind per_second: the 0.1
+  is a 30 fps frame's. Off (no mech, invincible or the flag): the radar's fade
+  0 and nothing else.
+- **The fall**: no hold. Each level eases to its floor, (floor - level) x 2 x dt
+  a frame, and snaps to it within 0.01; then the radar's fade is the radar
+  channel's.
+- **The draw, with a device**: the noise is a 256 x 256 texture made in the
+  HUD's constructor (0x0043dda0), each pixel one of MW3's three greens picked
+  by rand in thirds and a random alpha (rand x 256 / 32767). Each shown panel
+  with static gets a quad of it (0x0043dfa0): the rect less half a pixel, z
+  and rhw 0.999, white, a random texture place with half the texture each way,
+  drawn alpha blended (0x0059df40). The level is clamped to 0..0.9 and then
+  not used: any static above 0 draws the whole noise, so on hardware PM's
+  static is on or off where MW3's thickened with the level. Without a device
+  (not ported) MW3's fill. The port draws the quad through zvid's
+  draw_textured.
+Checked by `test_pm_hud_static.py`: 4 noises (262,144 pixels), 200 quads and
+40 runs of 2,787 frames against PM's exe; 12 breaks caught. Not checked: which
+panel's rect is drawn (as MW3's), and the static on screen (mw3pm does not run
+a mission yet).
+
 ## 22. The 3D views in the program (hud-plan item 6c1)
 
 The HUD's three zoom views (0x0043f660: the MFD's, TARGET's, the reticle's
@@ -1495,6 +1547,27 @@ Completed while the box is open; F12 again hides it). Break: without the
 fill no line; without 0x00446930's blank score the columns differ.
 `build/mw3 --mission c1m1 --objectives N` (ours) opens the box from the
 N-th frame, for a screenshot.
+
+**Pirate's Moon** (0x004486e0, with 0x00448520 a line of an objective and
+0x00448680 a line with its status). The same box, with:
+- game types 1, 2 and 5 headed by the game's name (its vt+0x08), training
+  (4) by "T R A I N I N G   %1" with that name; MW3 formatted the operation
+  and mission;
+- an objective done by failing (+0x09) shows "Failed" (message 0x1008);
+- the failed group lists its done objectives with their status (MW3: no
+  status);
+- an objective's further lines go through the box's own set_text, so the
+  scores column gets a blank line beside each (MW3 left it);
+- the keys named are PM's commands 0x79 (exit) and 0x44 (close); the port
+  asks for them by name (`CMD_MISSION_COMPLETE`, `CMD_OBJECTIVES`), so they follow
+  the command table in use (MW3's on `pm` until PM's is ported);
+- PM's 0x236 reads "Mission %2!d! P R I M A R Y  O B J E C T I V E S" but is
+  passed the mission alone: %2 reads what follows on the stack. FIX (bug):
+  the mission there. MW3's 0x236 ("Operation %1!d! Mission %2!d!") is passed both
+  (0x00446d6e, 0x00446d76): PM's alone.
+Checked by `test_pm_hud_objectives.py`. Its line height comes from the box's
+own text (0x005a1380 in MW3, as the port's), which nothing here sets: whether
+the panel is sized right in play is not checked.
 
 ## 24b. The player's death and a network kill's scores (2026-11-01)
 

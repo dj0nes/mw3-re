@@ -1329,9 +1329,29 @@ functions PM changed, and PM's new ones.
    of a mech's synced flags (0x4705e0 compares 0x41f920, on through 0x465df0, and sets it by 0x41f8d0); PM's
    HUD never reads it. The toggle: `CMD_HEADLIGHT_TOGGLE` to `0x465dc0`, which flips it by `0x479940` and `0x4799b0`; fading
    through `0x479a40`, whose +0x34 scales the light's ambient and diffuse. The AI's: `ai_headlights` of world.zrd
-   is read into the mission's +0x30 (`mission_world`); its reader is still to trace. Then the HUD's lamp in step 7.
+   is read into the mission's +0x30 (`mission_world`); its reader is still to trace. The HUD never shows it (2026-11-04: no HUD code reads it; its only on/off query, 0x465df0 via 0x41f920, is the network sync's, 0x4705e0 bit 31).
 7. **Sound and the HUD**: the sound syntax reader (rewritten smaller), the
    HUD objectives, spot and headlights.
+   - **The HUD: mapped** (2026-11-04; MW3 0x43a800..0x448800 against PM 0x43bb00..0x44a000). 159 pairs
+     changed, 136 of them ported (`hud.cpp`, `mech_hud.cpp`, `app_hud.cpp`), most by small amounts (offsets or
+     the compiler, not read one by one); 10 MW3-only; 16 new in PM. No HUD headlight or "spot" (the
+     headlight's `spotlight` node): dev 1's mech step. The order: the objectives box, the damage static, the
+     radar's read (0x43dd00 -> 0x43f220, the largest pair difference), the rest by offsets.
+     - **The objectives box: done** (`HudObjectives::fill`, 0x004486e0 with 0x00448520 and 0x00448680;
+       docs/hud.md section 24, Pirate's Moon): MW3's structure, with game types 1, 2 and 5 headed by the
+       game's name (vt+0x08), an objective done by failing (PM's +0x09) shown "Failed" (0x1008), the failed
+       group's lines with their status, a further line of an objective with a blank score, and PM's command
+       numbers for the keys (0x79, 0x44), looked up by command name so they follow the table in use. Test `test_pm_hud_objectives.py` (300 made-up missions; 9 breaks
+       caught). The network score list is MW3's. Left: the game's name in the program (PM's game object).
+     - **The damage static: done** (0x0043e1f0 the tick, 0x0043dda0 the noise, 0x0043dfa0 the quad, 0x0043df70;
+       docs/hud.md section 21, Pirate's Moon): the warning by health under 0.2, an easing fall, the noise as a
+       textured quad on the GPU path only. Test `test_pm_hud_static.py`; 12 breaks caught. Seen on screen (c1m1, health forced low).
+     - **0x43d710: MW3's** (the HUD's vt+0x04, vtable 0x5e28a0): MW3's 0x43c6b0 (`Hud::draw3d`) with PM's offsets,
+       the same rects, panels, message panel, objectives and 3D views in the same order. Nothing to port.
+     - **The radar (0x43dd00 -> 0x43f220): changed**, pseudocode 73% alike: placed and shown anew each frame
+       (vt+0x0c, vt+0x60) with a map-dependent offset, the zoom range kept squared (+0x34, +0x38), other
+       distance arithmetic, a contact's pick through vt+0x44 with a fresh colour, and more. Next: mapped
+       line by line before porting.
    - **zSound: done** (2026-11-04, `src/gamez/zsound` in place; docs/sound.md, Pirate's Moon):
      - PM's: the load 0x00591840 and the reader 0x00591900 / 0x005920e0 / 0x00592170 (no SYNTAX, no demo,
        sets made by name 0x00590ae0, INCLUDE_SETS, COMPILE_FORMAT, QPRIORITY, a 3-item keyword step);
