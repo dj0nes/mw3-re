@@ -350,6 +350,10 @@ void SdlRender3D::draw(platform::Primitive type, const platform::TLVertex* v, in
   }
   const auto n = static_cast<uint32_t>(vertices_.size()) - first;
   if (n == 0) return;
+  // COLOROP SELECTARG1 (Pirate's Moon's shadow sets draw this way): the texture's colour alone, as
+  // draw_multi gives it; modulated by the diffuse, a shadow's white is the lighting's grey, a dark quad.
+  if (state.color_select)
+    for (uint32_t i = first; i < first + n; ++i) vertices_[i].diffuse |= 0x00ffffffu;
   const bool same_fog = !runs_.empty() && runs_.back().fog[0] == fog_rgb_[0] && runs_.back().fog[1] == fog_rgb_[1] &&
                         runs_.back().fog[2] == fog_rgb_[2];
   if (same_fog && runs_.back().map < 0 && same(runs_.back().state, state) && runs_.back().first + runs_.back().count == first)

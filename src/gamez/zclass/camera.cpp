@@ -1,4 +1,5 @@
 #include "gamez/zclass/camera.h"
+#include "pm/gamez/zmodel/gmod_const.h"
 
 #include <cmath>
 #include <cstdio>
@@ -1332,7 +1333,7 @@ int render_world(Node* camera_node, int32_t after) {
 namespace {
 // The node's model takes the morph of a morphing LoD, then casts.
 void shadow_model_morphed(Node* node) {
-  uint8_t* h = node->model ? node->model->header : nullptr;
+  uint8_t* h = node->model ? node->model->header : node->pm_model ? node->pm_model->header : nullptr;
   if (!h) return;
   if (g_walk.morph) {
     uint32_t f;

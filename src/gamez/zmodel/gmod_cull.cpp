@@ -18,6 +18,7 @@
 #include "gamez/zrender/zrndr_fog.h"
 #include "gamez/zvideo/zvid_ddd3d.h"
 #include "gamez/zvideo/zvid_format.h"
+#include "pm/gamez/zmodel/gmod_const.h"
 
 namespace zmod {
 
@@ -223,7 +224,10 @@ T header(const uint8_t* h, int off) {
 }
 
 // 0x00543330's body.
-void shadow_model_of(const Model& m) {
+// Pirate's Moon 1.0 @ 0x0055dec0 does the same with its own model (the node's +0x3c): a polygon's
+// corner count in bits 0-9 and its strip flag 0x2000 (MW3: 0-7 and 0x400). `count` and `strip` give them.
+template <class M, class Count, class Strip>
+void shadow_model_with(const M& m, Count count, Strip strip) {
   const uint8_t* h = m.header;
   if (header<uint32_t>(h, 0x10) == 0) return;
   float (*cam)[3] = draw_buffers().cam;  // [0x0074639c]
@@ -265,8 +269,8 @@ void shadow_model_of(const Model& m) {
   for (uint32_t p = 0; p < npolys; ++p) {
     const auto& pg = m.polygons[p];
     const uint32_t* idx = pg.vertex_indices;
-    const int32_t k = static_cast<int32_t>(pg.flags & 0xff);
-    if (pg.flags & 0x400) {
+    const int32_t k = count(pg);
+    if (strip(pg)) {
       // A strip, last triangle first: (i, (i + 1) | 1, (i + 2) & ~1) keeps
       // every triangle's winding.
       for (int32_t i = k - 3; i >= 0; --i) {
@@ -281,6 +285,15 @@ void shadow_model_of(const Model& m) {
       if (facing()) zrndr::fill_polygon(&poly[0][0], k, 1, g_shadow.precision);
     }
   }
+}
+
+void shadow_model_of(const Model& m) {
+  shadow_model_with(m, [](const auto& pg) { return static_cast<int32_t>(pg.flags & 0xff); },
+                    [](const auto& pg) { return (pg.flags & 0x400) != 0; });
+}
+void shadow_model_of(const pm::zmod::Model& m) {
+  shadow_model_with(m, [](const auto& pg) { return static_cast<int32_t>(pg.flags & 0x3ff); },
+                    [](const auto& pg) { return (pg.flags & 0x2000) != 0; });
 }
 }  // namespace
 
@@ -490,6 +503,7 @@ void shadow_node(zcls::Node* node) {
 // Mech3.exe 1.2 @ 0x00543330
 void shadow_model(zcls::Node* node) {
   if (node->model) shadow_model_of(*node->model);
+  else if (node->pm_model) shadow_model_of(*node->pm_model);  // Pirate's Moon 0x0055dec0
 }
 
 }  // namespace zmod

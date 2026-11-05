@@ -990,6 +990,48 @@ TEST(sdl_render3d_fog_colour_is_per_draw) {
   std::printf("fogged quads: left %08x, right %08x\n", left, right);
   EXPECT((left & 0xffffff) == 0xff0000u && (right & 0xffffff) == 0x0000ffu);
 }
+// A shadow set as Pirate's Moon draws it (0x005a04bb..): the multiply blend with COLOROP SELECTARG1
+// through draw(), so the texture's colour alone darkens what is there. A white texture under a dark
+// diffuse leaves the ground as it was; a black one makes it black. (Through draw() the backend once
+// modulated by the diffuse, and an empty shadow became a dark quad.)
+TEST(sdl_render_shadow_set_takes_the_texture_alone) {
+  if (!SDL_InitSubSystem(SDL_INIT_VIDEO)) return;
+  sdlfe::SdlWindow w;
+  EXPECT(w.init(true));
+  w.create("mw3 shadow set test", 640, 480);
+  sdlfe::SdlRender3D* r = w.render();
+  r->set_viewport(0, 0, 640, 480);
+  r->clear(true, 200, 160, 120);
+  std::vector<uint8_t> white(8 * 8 * 4, 0xff), black(8 * 8 * 4, 0);
+  for (size_t i = 3; i < black.size(); i += 4) black[i] = 0xff;
+  const int32_t tw = r->create_texture(8, 8, white.data(), 1), tb = r->create_texture(8, 8, black.data(), 1);
+  r->begin_scene();
+  platform::DrawState s;
+  s.multiply = true, s.color_select = true, s.depth_write = false, s.depth_always = true;
+  auto quad = [&](float x0, float x1, int32_t tex) {
+    const uint32_t dim = 0xff202020u, spec = 0xff000000u;
+    const platform::TLVertex v[4] = {{x0, 100, 0.5f, 1, dim, spec, 0, 0}, {x1, 100, 0.5f, 1, dim, spec, 1, 0},
+                                     {x1, 380, 0.5f, 1, dim, spec, 1, 1}, {x0, 380, 0.5f, 1, dim, spec, 0, 1}};
+    s.texture = tex;
+    r->draw(platform::Primitive::kFan, v, 4, s);
+  };
+  quad(40, 280, tw);
+  quad(360, 600, tb);
+  r->end_scene();
+  r->present();
+  std::vector<uint32_t> f;
+  int fw = 0, fh = 0;
+  if (!r->read_back(&f, &fw, &fh)) return;  // no GPU on this runner
+  const uint32_t lit = f[240 * fw + fw / 4], shadowed = f[240 * fw + fw * 3 / 4];
+  std::printf("under white %08x, under black %08x\n", lit, shadowed);
+  const auto near = [](uint32_t c, uint32_t want) {
+    for (int k = 0; k < 24; k += 8)
+      if (std::abs(static_cast<int>((c >> k) & 0xff) - static_cast<int>((want >> k) & 0xff)) > 2) return false;
+    return true;
+  };
+  EXPECT(near(lit, 0xc8a078u) || near(lit, 0x78a0c8u));  // the clear colour, either byte order
+  EXPECT((shadowed & 0xffffff) == 0);
+}
 // Pirate's Moon's draws: a triangle list, and a blend that adds (DESTBLEND ONE, 0x0059f76d)
 // beside the plain blend, which must keep its own pipeline.
 TEST(sdl_render_adds_and_takes_triangle_lists) {
