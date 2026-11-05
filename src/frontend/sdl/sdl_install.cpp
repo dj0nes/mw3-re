@@ -155,7 +155,11 @@ std::vector<std::string> install_candidates() {
 }
 
 bool save_install(const std::string& write_dir, const std::string& install) {
-  return save_config_value(write_dir, "install", install);
+  // Absolute: a relative folder (mw3 --install-to game/x from the repo) means
+  // nothing to the app, which starts in another directory. Ours, FIX (A).
+  std::error_code ec;
+  const fs::path abs = install.empty() ? fs::path() : fs::absolute(install, ec);
+  return save_config_value(write_dir, "install", ec || abs.empty() ? install : abs.lexically_normal().string());
 }
 
 bool save_config_value(const std::string& write_dir, const std::string& key, const std::string& value) {

@@ -44,6 +44,23 @@ The game's files, settings and saves go to the write dir,
 development build; with no console, nothing else changes on the Mac (the
 terminal shows the output when it is started from one).
 
+## Building it yourself
+
+`tools/macos/install_app.sh` builds the app from source and puts it in
+`/Applications` (`~/Applications` when that is not writable; `--to DIR` for
+another folder) in one step: it installs whatever Homebrew formulae are
+missing (cmake, ninja, sdl3, sdl3_ttf, sdl3_sound, libarchive), runs
+`make_app.sh`, and replaces an earlier copy. With the game installed
+(mw3.cfg's `install=`, or `--exe path/to/Mech3.exe`), the app's icon is the
+player's own Mech3.exe's, read by `tools/macos/exe_icon.py` (its 32x32 image
+scaled by nearest neighbour) and the bundle signed ad hoc again; without one
+it keeps the placeholder. No game art is in the repo.
+
+Homebrew's libraries can name each other `@rpath/<file>` (libbrotlidec
+names libbrotlicommon so): `make_app.sh` finds those beside the library that
+loads them, or in Homebrew's lib, and bundles them too. Before that, the app
+stopped at launch with "Library not loaded: @rpath/libbrotlicommon.1.dylib".
+
 ## The first open
 
 An app without a Developer ID signature and notarization is blocked by

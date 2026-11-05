@@ -108,19 +108,32 @@ def licences(real, name):
     for n in os.listdir(keg):
         if n.upper().startswith(('LICEN', 'COPYING')):
             shutil.copy2(os.path.join(keg, n), lic)
+# Homebrew's own libraries can name each other @rpath/<file> (brotli does):
+# found beside the library that loads them, or in Homebrew's lib.
+origin = {}
+def brew_rpath(f, d):
+    if prefix or not d.startswith('@rpath/'):
+        return None
+    for lib in (origin.get(f, ''), '/opt/homebrew/lib', '/usr/local/lib'):
+        c = os.path.join(lib, os.path.basename(d)) if lib else ''
+        if c and os.path.exists(c):
+            return c
+    return None
 copied, todo = {}, list(exes)
 while todo:
     f = todo.pop()
     for d in deps(f):
-        if foreign(d) and d not in copied:
+        found = brew_rpath(f, d)
+        if (foreign(d) or found) and d not in copied:
             name = os.path.basename(d)
             dst = os.path.join(fw, name)
             if not os.path.exists(dst):
-                src = os.path.join(prefix, 'lib', name) if d.startswith('@rpath/') else d
+                src = found or (os.path.join(prefix, 'lib', name) if d.startswith('@rpath/') else d)
                 if not os.path.exists(src):
                     sys.exit(f'{d}: not in {prefix}/lib')
                 real = os.path.realpath(src)
                 shutil.copy2(real, dst)
+                origin[dst] = os.path.dirname(real)
                 os.chmod(dst, 0o644)
                 licences(real, name)
             copied[d] = name
