@@ -876,6 +876,7 @@ class HudHooks : public zgame::Unported {
     unported("0x00484d70", {static_cast<uint32_t>(part)});
     return nullptr;
   }
+  virtual bool weapon_can_fire(void* w) { return (unported("0x004b3a20", {id(w)}) & 0xff) != 0; }  // PM's 0x004b7bd0
   virtual void* saved_or_ally(Mech* m) { return ptr(unported("0x004d7240", {id(m)})); }
   virtual void* saved_or_lancemate(Mech* m) { return ptr(unported("0x004e76e0", {id(m)})); }  // PM's
   virtual const char* message_arg(int32_t msg, const char* arg) {

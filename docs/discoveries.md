@@ -3712,6 +3712,9 @@ The screen after the pilot for INSTANT ACTION, 0x00488bc0 (details:
   lock is on and the reticle lights up. It holds for 3.5 seconds after the
   reticle leaves the target. Either the target or the aim point has to be
   within the group's longest range.
+- **Pirate's Moon's next-weapon key skips dead weapons:** it jumps to the
+  next weapon that can fire (not empty, not destroyed), where MechWarrior 3's
+  went to the next line whatever its state. (From the code: 0x004480c0.)
 - **Pirate's Moon tightened the missile lock:** the target itself must be in
   range (in MechWarrior 3, aiming at closer ground let a far target lock), and
   a powered-down mech cannot be locked at all; Elementals still cannot. The

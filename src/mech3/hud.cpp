@@ -634,21 +634,28 @@ void HudWeapons::layout() {
   shown = 1;
 }
 
-// Mech3.exe 1.2 @ 0x00446540: the current group's lines get the select mark
-// (or chain for the others in chain fire), the rest none.
+// Pirate's Moon 1.0 @ 0x004480c0 (MW3's 0x00446540): the current group's
+// lines get the select mark (or chain for the others in chain fire), the rest
+// none; the next weapon is the first after the current that can fire, else
+// the first that can (PM's; MW3 the line after the current, else the first).
 void HudWeapons::looks() {
   HudHooks& h = *g_hooks;
   const int32_t gi = h.wm_group_index(weapons);
   void* group = gi == -1 ? nullptr : h.wm_group(weapons, gi);
   shown = 0;
   next_weapon = 0;
+  void* first_ready = nullptr;
+  bool past_current = false;
   bool after_current = false;
   for (HudWeaponLine& l : lines) {
     if (l.flags & ztwod::kHidden) continue;
     void* w = l.weapon;
     zimg::Texture* mark = nullptr;
-    if (after_current) next_weapon = w;
+    const bool ready = w && h.weapon_can_fire(w);  // 0x004b7bd0
+    if (ready && !first_ready) first_ready = w;
+    if (past_current && !next_weapon && ready) next_weapon = w;
     after_current = w == h.wm_current(weapons);
+    if (after_current) past_current = true;
     if (w && group && h.weapon_group(w) == gi) {
       const int32_t mode = h.wm_mode(weapons);
       if (mode == 0) mark = after_current ? select : chain;
@@ -657,7 +664,7 @@ void HudWeapons::looks() {
     const bool recycling = l.refresh_line(mark);
     shown = shown || recycling;
   }
-  if (!next_weapon) next_weapon = lines[0].weapon;
+  if (!next_weapon) next_weapon = first_ready;
 }
 
 // Mech3.exe 1.2 @ 0x00446220

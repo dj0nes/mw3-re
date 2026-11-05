@@ -402,6 +402,7 @@ struct ProgramHudHooks : HudHooks {
     return force_over || HudHooks::reticle_over_target(t, x, y);
   }
   static Weapon* wp(void* p) { return static_cast<Weapon*>(p); }
+  bool weapon_can_fire(void* w) override { return wp(w)->can_fire(); }  // PM's 0x004b7bd0 (MW3's 0x004b3a20)
   void* mech_weapons(Mech* m) override { return m ? m->ammo : nullptr; }
   // vt+0xa0 (0x0041cc10): powered down, the HUD then off (its set-up, its frame).
   bool mech_dead(Mech* m) override { return m && mech3::mech_powered_down(m); }

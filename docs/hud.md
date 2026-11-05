@@ -656,6 +656,10 @@ weapons and the camera's look from outside (hud.md section 1).
   the rest (chain fire); none outside the current group. Then the refresh;
   the list keeps refreshing every frame while any line recycles. +0x1143c:
   the weapon after the current one (else the first line's).
+  Pirate's Moon (0x004480c0, +0x115bc): the first weapon after the current
+  that can fire (0x004b7bd0, MW3's 0x004b3a20), else the first that can, else
+  none; so the NEXT_WEAPON key (0x27) skips weapons that are out of ammo or
+  destroyed, and does nothing when none can fire.
 - **Refresh** (0x00445dc0): the weapon's vt+8, then the bar at its recycle
   fraction (vt+0x34, clamped to 0..1; +0x111b when it drops from full), the
   light by damage (0x004b3010: green, yellow over 0.5, red over 0.8), the
