@@ -3708,6 +3708,11 @@ The screen after the pilot for INSTANT ACTION, 0x00488bc0 (details:
   lock is on and the reticle lights up. It holds for 3.5 seconds after the
   reticle leaves the target. Either the target or the aim point has to be
   within the group's longest range.
+- **Pirate's Moon tightened the missile lock:** the target itself must be in
+  range (in MechWarrior 3, aiming at closer ground let a far target lock), and
+  a powered-down mech cannot be locked at all; Elementals still cannot. The
+  reticle shows "can't" whenever what you aim at is out of range. (From the
+  code: 0x004455e0.)
 - **Elementals can't be missile-locked:** the lock skips any target whose
   pilot is an Elemental.
 - **A NARCed target locks without aiming at it:** while a NARC beacon is on

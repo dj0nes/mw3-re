@@ -1,3 +1,4 @@
+#include "gamez/zimage/zimg_library.h"
 #include "gamez/zvideo/zvid_format.h"
 #include "gamez/zmath/zmth_vector.h"
 #include <cmath>
@@ -354,6 +355,77 @@ extern "C" void probe_pm_radar_toggle(const ToggleIn* in, ToggleOut* out) {
   out->text2_shown = (r.text2.flags & ztwod::kHidden) ? 0 : 1;
   out->reticle_shown = (hud->reticle.flags & ztwod::kHidden) ? 0 : 1;
   out->changed = r.changed, out->map = static_cast<int32_t>(hooks.map);
+  mech3::set_hud_hooks(nullptr);
+  ztwod::set_host(nullptr);
+}
+
+// test_pm_hud_lock.py: PM's missile lock and reticle image (0x004455e0).
+struct LockIn {
+  int32_t over, locks, b20, has_contact, has_mech, roster, down, ecm;
+  float range, dist, aim;
+  int32_t lock;
+  float timer;
+  int32_t state, locked, has_node, node_obj, obj_b8, node_bc, playing_c, playing_0;
+};
+struct LockOut {
+  int32_t lock;
+  float timer;
+  int32_t state, image, lock_shown, n, events[8][2];  // events: 1 play, 2 stop (channel)
+};
+namespace {
+struct LockHooks : Hooks {
+  LockIn in{};
+  LockOut* out = nullptr;
+  char wm = 0, contact = 0, mech = 0, node = 0, object = 0, slot = 0;
+  void ev(int32_t k, int32_t c) {
+    if (out->n < 8) out->events[out->n][0] = k, out->events[out->n][1] = c, ++out->n;
+  }
+  void* mech_weapons(mech3::Mech*) override { return &wm; }
+  float group_range(void*) override { return in.range; }
+  bool group_locks(void*) override { return in.locks != 0; }
+  bool group_4b1cd0(void*) override { return in.b20 != 0; }
+  void set_lock_shown(void*, bool on) override { out->lock_shown = on ? 1 : 0; }
+  void* slot_contact(void*) override { return in.has_contact ? &contact : nullptr; }
+  void* contact_mech(void*) override { return in.has_mech ? &mech : nullptr; }
+  float contact_distance(void*) override { return in.dist; }
+  int32_t mech_pm_roster(void*) override { return in.roster; }
+  bool mech_powered_down(void*) override { return in.down != 0; }
+  int32_t mech_3cc(void*) override { return in.ecm; }
+  void* node_object(void*) override { return in.node_obj ? &object : nullptr; }
+  bool object_byte8(void*) override { return in.obj_b8 != 0; }
+  uint32_t node_bc(void*) override { return static_cast<uint32_t>(in.node_bc); }
+  bool hud_sound_playing(int32_t c) override { return c == 0xc ? in.playing_c != 0 : in.playing_0 != 0; }
+  void hud_sound_play(int32_t c) override { ev(1, c); }
+  void hud_sound_stop(int32_t c, int32_t) override { ev(2, c); }
+  zrdr::Node* load_hud_zrd() override { return nullptr; }
+};
+}  // namespace
+
+extern "C" void probe_pm_lock(const LockIn* in, LockOut* out) {
+  static Host host;
+  ztwod::set_host(&host);
+  static LockHooks hooks;
+  hooks.in = *in;
+  hooks.out = out;
+  mech3::set_hud_hooks(&hooks);
+  static mech3::Hud* hud = new (std::calloc(1, sizeof(mech3::Hud))) mech3::Hud(nullptr);
+  out->n = 0, out->lock_shown = -1;  // after the HUD's set-up, which stops the tones
+  static char fake_mech[0x800];
+  hud->mech = reinterpret_cast<mech3::Mech*>(fake_mech);
+  hud->target.target = reinterpret_cast<decltype(hud->target.target)>(&hooks.slot);
+  mech3::HudReticle& r = hud->reticle;
+  static zimg::Texture imgs[4];
+  r.img_off = &imgs[0], r.img_on = &imgs[1], r.img_over = &imgs[2], r.img_cant = &imgs[3];
+  r.image = nullptr;
+  r.source = hud;
+  r.lock = in->lock, r.lock_timer = in->timer, r.state = in->state, r.locked = static_cast<uint8_t>(in->locked);
+  r.aim_distance = in->aim;
+  r.hit.node = in->has_node ? &hooks.node : nullptr;
+  r.aim_state(in->over != 0);
+  out->lock = r.lock, out->timer = r.lock_timer, out->state = r.state;
+  out->image = -1;
+  for (int i = 0; i < 4; ++i)
+    if (r.image == &imgs[i]) out->image = i;
   mech3::set_hud_hooks(nullptr);
   ztwod::set_host(nullptr);
 }

@@ -722,6 +722,10 @@ class HudHooks : public zgame::Unported {
   virtual void* slot_contact(void* slot) { return ptr(unported("peek32", {id(slot)})); }
   virtual void* contact_mech(void* c) { return ptr(unported("0x004e6ff0", {id(c)})); }
   virtual float contact_distance(void* c) { return zgame::from_bits(unported("0x004e7030", {id(c)})); }
+  // PM's lock (0x004455e0): a mech's roster index in PM's roster (its pilot's
+  // +0x0c; the Elemental 11) and its power-down (vt+0xac, MW3's vt+0xa0).
+  virtual int32_t mech_pm_roster(void* m) { return static_cast<int32_t>(unported("pilot+0xc", {id(m)})); }
+  virtual bool mech_powered_down(void* m) { return unported("mech.vt+0xac", {id(m)}) == 1; }
   virtual int32_t mech_kind_of(void* m) {
     return static_cast<int32_t>(unported("peek32", {unported("peek32", {id(m) + 0x684}) + 0xc}));
   }

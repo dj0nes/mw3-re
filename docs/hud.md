@@ -611,6 +611,19 @@ stubbed (the range and distance on the x87 stack), the hits' nodes real
 blocks with +0xbc; the weapon manager's +0x88 compared after. Breaking it:
 12 of 12 caught.
 
+**Pirate's Moon (0x004455e0 for MW3's 0x00443d20; `test_pm_hud_lock.py`).** The
+same states, tones and timings (0.6 s, 1.2 with ECM, now the target's +0x3dc;
+3.5 s held), with the reticle's fields 8 bytes on. What changed:
+- The lock needs the **target itself in range**; MW3 also took the aim point's
+  distance, so aiming at near ground let a far target lock. Lost the same way:
+  out of range and not locked.
+- Elementals still cannot be locked (PM's roster index 11, MW3's 7), and
+  **powered-down mechs** cannot either (the mech's vt+0xac, MW3's vt+0xa0).
+- The image: locked; over while the lock builds; then **beyond the aim range
+  always can't**, and within it over when the aimed node allows it (an object
+  with its +0x08 set, or no object and +0xbc over 1), else off. MW3 set off
+  first every frame and could show over beyond the aim range.
+
 ## 13. The weapon lines (0x00446520, 0x00446240, 0x00446540, 0x00445dc0)
 
 Refreshed (0x00446520: layout, then looks) when the list is shown

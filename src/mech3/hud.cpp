@@ -3035,10 +3035,13 @@ void HudReticle::update(float dt) {
 
 void HudHooks::reticle_aim_state(void* r, bool over) { static_cast<HudReticle*>(r)->aim_state(over); }
 
-// Mech3.exe 1.2 @ 0x00443d20: the missile lock (hud.md section 12). Over a
-// target with a group that locks, in range and not of kind 7, the lock
-// starts (tone 0xc, 0.6 s, 1.2 when the target's +0x3cc is above 0), then
-// holds (tone 0, 3.5 s past the last good frame) or is lost.
+// Pirate's Moon 1.0 @ 0x004455e0 (MW3's 0x00443d20): the missile lock
+// (hud.md section 12). Over a target with a group that locks, the target in
+// range (MW3: or the aim point), not an Elemental (PM's roster 11) and not
+// powered down (PM's: vt+0xac), the lock starts (tone 0xc, 0.6 s, 1.2 with ECM
+// on the target), then holds (tone 0, 3.5 s past the last good frame) or is
+// lost. The image: locked, over while the lock builds; within the aim range
+// over when the aimed node allows it, else off; beyond it, can't.
 void HudReticle::aim_state(bool over) {
   HudHooks& h = hud_hooks();
   Hud* hud = static_cast<Hud*>(source);
@@ -3047,11 +3050,11 @@ void HudReticle::aim_state(bool over) {
   const bool lockable = h.group_locks(wm) && h.group_4b1cd0(wm);
   void* contact = h.slot_contact(hud->target.target);
   void* mech = contact ? h.contact_mech(contact) : nullptr;
-  const bool kind7 = mech && h.mech_kind_of(mech) == 7;
+  const bool elemental = mech && h.mech_pm_roster(mech) == 11;
+  const bool down = mech && h.mech_powered_down(mech);
   const bool in_range = contact && h.contact_distance(contact) < range;
-  const bool aim_close = aim_distance < range;
-  const bool near = in_range || aim_close;
-  const bool good = over && lockable && near && contact && !kind7;
+  const bool aim_close = aim_distance < range;  // 0x00446080
+  const bool good = over && lockable && in_range && contact && !elemental && !down;
   switch (lock) {
     case 0:
     case 4: lock = good ? 1 : 0; break;
@@ -3064,14 +3067,14 @@ void HudReticle::aim_state(bool over) {
     default: break;
   }
   const bool is_locked = lock == 3;
-  if (!near && !is_locked) lock = 4;
+  if (!in_range && !is_locked) lock = 4;
   switch (lock) {
     case 1:
       if (!h.hud_sound_playing(0xc)) h.hud_sound_play(0xc);
-      lock_timer = mech && h.mech_3cc(mech) > 0 ? kLockWait + kLockWait : kLockWait;
+      lock_timer = mech && h.mech_3cc(mech) > 0 ? kLockWait + kLockWait : kLockWait;  // ECM, PM's +0x3dc
       break;
     case 3:
-      if (good) lock_timer = 3.5f;  // [0x005e3a10]
+      if (good) lock_timer = 3.5f;  // [0x006058b8]
       h.hud_sound_stop(0xc, 0);
       if (!h.hud_sound_playing(0)) h.hud_sound_play(0);
       break;
@@ -3086,22 +3089,18 @@ void HudReticle::aim_state(bool over) {
     state = s;
     if (!locked) set_image(img);
   };
-  show(is_locked ? 1 : 0, is_locked ? img_on : img_off);
   h.set_lock_shown(wm, is_locked);
-  if (is_locked) return;
+  if (is_locked) return show(1, img_on);
   if (lock == 2) return show(2, img_over);
-  void* node = hit.node;
-  if (!node) {
-    if (!aim_close) show(3, img_cant);
-    return;
+  if (!aim_close) return show(3, img_cant);
+  if (void* node = hit.node) {
+    if (h.node_object(node)) {  // asked twice, as written
+      if (h.object_byte8(h.node_object(node))) return show(2, img_over);
+    } else if (h.node_bc(node) > 1) {
+      return show(2, img_over);
+    }
   }
-  if (h.node_object(node)) {  // asked twice, as written
-    if (h.object_byte8(h.node_object(node)) && aim_close) show(2, img_over);
-  } else if (h.node_bc(node) > 1) {
-    show(2, img_over);
-  } else if (!aim_close) {
-    show(3, img_cant);
-  }
+  show(0, img_off);
 }
 
 // Mech3.exe 1.2 @ 0x00446680

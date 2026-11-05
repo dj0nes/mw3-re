@@ -396,7 +396,10 @@ struct ProgramHudHooks : HudHooks {
   static Weapon* wp(void* p) { return static_cast<Weapon*>(p); }
   void* mech_weapons(Mech* m) override { return m ? m->ammo : nullptr; }
   // vt+0xa0 (0x0041cc10): powered down, the HUD then off (its set-up, its frame).
-  bool mech_dead(Mech* m) override { return m && mech_powered_down(m); }
+  bool mech_dead(Mech* m) override { return m && mech3::mech_powered_down(m); }
+  // PM's lock (0x004455e0): PM's roster index and the power-down (vt+0xac).
+  int32_t mech_pm_roster(void* m) override { return pm_roster_index(static_cast<Mech*>(m)); }
+  bool mech_powered_down(void* m) override { return mech3::mech_powered_down(m); }
   // 0x0041df10: the mech's tech (0x00484720 on its data's roster entry,
   // +0x684 +0xc); a Clan mech's (2) zoom window is round.
   int32_t mech_kind(Mech* m) override { return m && m->pilot ? mech_tech(m->pilot->roster) : 3; }
