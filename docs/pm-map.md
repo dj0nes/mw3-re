@@ -1337,14 +1337,20 @@ functions PM changed, and PM's new ones.
      A torso attachment: PM's torso +0x7c holds an object (read 0x41f930, shown 0x41b900 via 0x479c30, hidden
      0x41b930 via 0x479c60, its +0x20 vt+0xc on/off); the MFD view turns it off while drawing the mech, stubbed in
      `app_hud.cpp` (`torso_attachment` false). The radar's C3 ring reads equipment kinds 6, 7 at PM's mech +0x3bc.
-   - **PM's command table is renumbered** (0x411980's 110 commands against MW3's 105): new `CMD_EJECT`,
-     `CMD_HEADLIGHT_TOGGLE` 0x3c, `CMD_SNAPSHOT`, `CMD_TARGET_*_L` (lancemates), no `CMD_LOOK_REAR`, and most ids
-     moved (`CMD_MISSION_COMPLETE` 0x79 against 0x71). The port on `pm` still has MW3's table, so its ids agree
-     among themselves; the test maps PM's two binds to MW3's. Porting PM's table (controls_cfg and every
-     handler's ids) goes before any PM command handler, the headlight's toggle first.
-4. **Mechs and weapons**. First, its own small item: **PM's command table** (0x411980's 110
-   commands, renumbered; see the mission setup's note), with the bind files' load, checked against the
-   exe; then the mission test's mapping of PM's binds goes. It comes before any PM command handler.
+   - **PM's command table (2026-11-04): ported.** 0x411a10's 110 commands, against MW3's 105, and 0xb0 entries
+     against 0xa7 (`controls_cfg`; `input_init`): new `CMD_HEADLIGHT_TOGGLE` 0x3c, `CMD_TARGET_NEXT_L` 0x49,
+     `CMD_TARGET_CLOSE_L` 0x4c, `CMD_TARGET_PREV_L` 0x4f; MW3's no-key 0x3e is `CMD_EJECT` 0x3f, its debug 0x7e
+     `CMD_SNAPSHOT` 0x86; no `CMD_LOOK_REAR`; 49 ids moved, everything from MW3's 0x61 up by 8. `test_pm_ctlcfg.py`
+     (test_ctlcfg.py moved to PM's exe) compares the defaults, reads, writes and the mode over 400 random steps.
+     Every user follows PM's numbers, checked against 0x41cad0's switch and 0x536c30's callers: the mech's
+     dispatcher, the HUD's, the key callbacks, the hat, the pockets, the chains' Exit Mission; the mech's 103
+     callbacks are PM's list. PM's reader seeds an entry with no source from the argument's slot (0x412a26),
+     docs/controls.md. **Not done:** PM's new cases in 0x41cad0 (headlight 0x41f900, lancemate target keys
+     0x4e6ca0, 0x4e6fb0, 0x4e6710, eject's extra vtable call): their keys bind and do nothing yet. MW3-exe tests
+     that send MW3's ids through this code (`test_command.py` and others) no longer fit `pm`: 0x41cad0 wants its
+     own differential with the PM mech.
+4. **Mechs and weapons**. The command table is done (above). Dev 2 and the lead's notes: PM's weapon roster has
+   56 entries against the port's 38, and its mech roster 25 against 19.
    Then the definition reader and its new weapons
    (`XPulseLaser_Large`, `HeavyLaser_Large`, `TBOLT5`), the firepoint
    fix-up (`promote1.cpp`, `CZMechFirePoint::CFixup`), `mech.cpp` (130

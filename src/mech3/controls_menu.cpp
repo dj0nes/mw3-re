@@ -37,7 +37,7 @@ std::string file_part(const char* path) {
 
 const CommandEntry& entry_of(int32_t cmd) {
   static const CommandEntry kNone{};
-  return cmd >= 0 && cmd < 0xa7 ? controls_setup().commands[cmd] : kNone;
+  return cmd >= 0 && cmd < 0xb0 ? controls_setup().commands[cmd] : kNone;
 }
 AxisBinding& axis_at(int32_t axis) { return axis_table().axes[axis & 3]; }
 

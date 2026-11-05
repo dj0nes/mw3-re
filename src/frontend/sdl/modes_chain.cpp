@@ -184,7 +184,7 @@ void ModesChain::core() {
       ended_logged_ = true;
       std::printf("mw3: modes %s round %d %s at core frame %d (%d kills, %d hits)\n", case_.c_str(), round_,
                   m.aborting ? "lost" : "won by its objectives", core_frames_, kills_, hits_);
-      if (!m.aborting) m.on_command(0x71);  // Exit Mission
+      if (!m.aborting) m.on_command(0x79);  // Exit Mission
     }
     return;
   }
@@ -203,7 +203,7 @@ void ModesChain::core() {
   if (core_frames_ == 20000) {
     std::printf("mw3: modes %s round %d NOT won by its objectives after 20000 frames: Exit Mission\n", case_.c_str(), round_);
     m.ended = 1;
-    m.on_command(0x71);
+    m.on_command(0x79);
     return;
   }
   if (core_frames_ < 60 || !win) return;
@@ -261,7 +261,7 @@ void ModesChain::training_core() {
       ended_logged_ = true;
       std::printf("mw3: modes training mission %d %s at core frame %d (lesson %d)\n", g ? g->mission : 0,
                   m.aborting ? "LOST" : "won by its lessons", core_frames_, lesson + 1);
-      if (!m.aborting) ++missions_done_, m.on_command(0x71);  // Exit Mission
+      if (!m.aborting) ++missions_done_, m.on_command(0x79);  // Exit Mission
     }
     return;
   }
@@ -276,7 +276,7 @@ void ModesChain::training_core() {
                 lesson + 1);
     ++stuck_;
     m.ended = 1;
-    m.on_command(0x71);
+    m.on_command(0x79);
     return;
   }
   if (core_frames_ > 30 && core_frames_ % 20 == 0) lesson_act();

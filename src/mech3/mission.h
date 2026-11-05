@@ -342,13 +342,13 @@ struct Missions {
   void complete();                         // 0x0048f740
   void lose();                             // 0x0048f9e0
   void end_screen();                       // 0x00491bf0
-  void on_command(int32_t cmd);            // 0x0048f440, bound to 0x71 and 0x72
+  void on_command(int32_t cmd);            // 0x0048f440, bound to 0x79 and 0x7a
   void abort_now();                        // 0x0048fa80: ended now, as a failure
   bool cleanup(bool unload);               // 0x00491780
   bool unload();                           // 0x00490480: the world and all it brought
 };
 
-// The command handler 0x0048f400 binds (MISSION_COMPLETE 0x71 and 0x72).
+// The command handler 0x0048f400 binds (MISSION_COMPLETE 0x79 and 0x7a).
 constexpr uint32_t kMissionCommand = 0x0048f440;
 
 Missions& missions();

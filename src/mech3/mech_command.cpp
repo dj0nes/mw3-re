@@ -120,7 +120,9 @@ void Mech::target_part(int32_t id) {
 // send the vehicle the view looks at (0x00426cb0). A mech not active (+0x08)
 // takes only the second group (the controls' view, the HUD's zoom, the lock
 // cleared). Every command ends in the controls' vtable +0 with it, which
-// does nothing (0x004a5bc0) for each controls class: left out.
+// does nothing (0x004a5bc0) for each controls class: left out. The ids are
+// Pirate's Moon's (0x0041cad0); its new cases are not here yet: the headlight 0x3c
+// (0x0041f900) and the lancemate target keys 0x49, 0x4c, 0x4f (0x004e6ca0, 0x004e6fb0, 0x004e6710).
 void Mech::command(int32_t cmd) {
   HeatCalls& hc = heat_calls();
   const bool viewed = this == world().player;
@@ -140,7 +142,7 @@ void Mech::command(int32_t cmd) {
   auto target_set = [&](ai::Contact* c) {  // vtable +0xc0 (0x0041d890): AiTarget's, then the HUD's
     own(0x41d890, p(c), 0, [&] {
       set_target(c, false);
-      if (screen) hud(screen, 0x49);
+      if (screen) hud(screen, 0x51);
       return uintptr_t{0};
     });
   };
@@ -229,36 +231,36 @@ void Mech::command(int32_t cmd) {
         if (own(0x4b0ae0, p(wm), 0, [&] { return uintptr_t{wm->jettison()}; }) & 0xff)
           if (hc.play_mech_sound) hc.play_mech_sound(kSoundJettison);
         break;
-      case 0x3e:  // no key
+      case 0x3f:  // CMD_EJECT (Pirate's Moon 0x0041de60, unported)
         other(*this, cmd, "0x0041d070");
         break;
-      case 0x3f: {  // power down / up
+      case 0x40: {  // power down / up
         const int32_t pd = down() ? 0 : 1;
         own(0x41cc30, pd, 0, [&] { return power(pd), uintptr_t{0}; });
         break;
       }
-      case 0x40:  // the shutdown override (docs/heat.md)
+      case 0x41:  // the shutdown override (docs/heat.md)
         own(0x419190, 1, 0, [&] { return heat_override(true), uintptr_t{0}; });
         break;
-      case 0x41:  // coolant flush
+      case 0x42:  // coolant flush
         own(0x419e60, 0, 0, [&] { return flush_coolant(), uintptr_t{0}; });
         break;
-      case 0x44:
+      case 0x45:
         own(0x41b840, 0, 0, [&] { return get_up(), uintptr_t{0}; });
         break;
       // The target keys, each for side 0.
-      case 0x46: own(0x4d6710, 0, 0, [&] { return next_enemy(0), uintptr_t{0}; }); break;     // E
+      case 0x48: own(0x4d6710, 0, 0, [&] { return next_enemy(0), uintptr_t{0}; }); break;     // E
       case 0x47: own(0x4d64b0, 0, 0, [&] { return next_ally(0), uintptr_t{0}; }); break;      // W
-      case 0x4b: own(0x4d6970, 0, 0, [&] { return nearest_ally(0), uintptr_t{0}; }); break;   // Ctrl+W
-      case 0x4c: own(0x4d6a80, 0, 0, [&] { return nearest_enemy(0), uintptr_t{0}; }); break;  // Ctrl+E
-      case 0x4d: own(0x4d6260, 0, 0, [&] { return prev_enemy(0), uintptr_t{0}; }); break;     // Shift+E
-      case 0x4e: own(0x4d5ee0, 0, 0, [&] { return prev_ally(0), uintptr_t{0}; }); break;      // Shift+W
-      case 0x48:  // TARGET_CURSOR
+      case 0x4a: own(0x4d6970, 0, 0, [&] { return nearest_ally(0), uintptr_t{0}; }); break;   // Ctrl+W
+      case 0x4b: own(0x4d6a80, 0, 0, [&] { return nearest_enemy(0), uintptr_t{0}; }); break;  // Ctrl+E
+      case 0x4e: own(0x4d6260, 0, 0, [&] { return prev_enemy(0), uintptr_t{0}; }); break;     // Shift+E
+      case 0x4d: own(0x4d5ee0, 0, 0, [&] { return prev_ally(0), uintptr_t{0}; }); break;      // Shift+W
+      case 0x50:  // TARGET_CURSOR
         if (screen) pick_aimed(false);
         break;
-      case 0x4f: case 0x51: case 0x52: case 0x53: case 0x54: case 0x55: case 0x56: {  // lance orders
-        static const int32_t kOrder[8] = {2, 0, 1, 0, 9, 0xa, 0xb, 0xc};  // by cmd - 0x4f (0x50 unused)
-        const int32_t order = kOrder[cmd - 0x4f];
+      case 0x53: case 0x55: case 0x56: case 0x57: case 0x58: case 0x59: case 0x5a: {  // lance orders
+        static const int32_t kOrder[8] = {2, 0, 1, 0, 9, 0xa, 0xb, 0xc};  // by cmd - 0x53 (0x54 unused)
+        const int32_t order = kOrder[cmd - 0x53];
         if (g_calls.lance_order) {
           if (MechControls* c = g_calls.lance_order(*this, order)) controls = c;
         } else if (MechControls* c = lance_dispatch(controls, order)) {  // 0x00469930 -> 0x00469940
@@ -266,24 +268,24 @@ void Mech::command(int32_t cmd) {
         }
         break;
       }
-      case 0x57: saved_target = target; break;   // 0x004d7220 DIRECT_AWAITCMD
-      case 0x58: saved_target = nullptr; break;  // 0x004d7230
-      case 0x59: case 0x5a: case 0x5b: case 0x5c: case 0x5d: case 0x5e: case 0x5f: case 0x60: {  // the target's part
+      case 0x5b: saved_target = target; break;   // 0x004d7220 DIRECT_AWAITCMD
+      case 0x5c: saved_target = nullptr; break;  // 0x004d7230
+      case 0x61: case 0x62: case 0x63: case 0x64: case 0x65: case 0x66: case 0x67: case 0x68: {  // the target's part
         static const int32_t kPart[8] = {6, 1, 7, 8, 2, 3, 0xb, 0xc};
-        if (g_calls.target_part) g_calls.target_part(*this, kPart[cmd - 0x59]);
-        else target_part(kPart[cmd - 0x59]);
+        if (g_calls.target_part) g_calls.target_part(*this, kPart[cmd - 0x61]);
+        else target_part(kPart[cmd - 0x61]);
         break;
       }
-      case 0x62: view_camera(0); break;
-      case 0x63: view_camera(1); break;
-      case 0x64: view_camera(4); break;
-      case 0x65: view_camera(5); break;
-      case 0x66: view_camera(2); break;
-      case 0x67: view_camera(3); break;
-      case 0x68: case 0x74: case 0x75: case 0xa5:
+      case 0x6a: view_camera(0); break;
+      case 0x6b: view_camera(1); break;
+      case 0x6c: view_camera(4); break;
+      case 0x6d: view_camera(5); break;
+      case 0x6e: view_camera(2); break;
+      case 0x6f: view_camera(3); break;
+      case 0x70: case 0x7c: case 0x7d: case 0xad:
         if (screen) hud(screen, cmd);
         break;
-      case 0x69: {  // the radar: its range doubled up to the sensors' reach, then passive, then 500 again
+      case 0x71: {  // the radar: its range doubled up to the sensors' reach, then passive, then 500 again
         const ai::Handle self = g_calls.handle ? g_calls.handle(*this) : 0;
         auto range = [&](float r) {
           own(0x4d6d20, fbits(r), 0, [&] { return set_sensor_range(self, r), uintptr_t{0}; });
@@ -303,19 +305,19 @@ void Mech::command(int32_t cmd) {
         other(*this, cmd, "vtable +0xb8");  // the HUD's passive light (0x0041ded0)
         break;
       }
-      case 0x6b:  // the HUD on or off, while powered up
+      case 0x73:  // the HUD on or off, while powered up
         if (!down() && screen) hud(screen, cmd);
         break;
-      case 0x6e:  // MASC, with the equipment
+      case 0x76:  // MASC, with the equipment
         if (equipment[12] > 0) {
           const bool on = masc_time == 0.0f;  // 0x005bcd3c
           own(0x41df50, on, 0, [&] { return masc(on), uintptr_t{0}; });
         }
         break;
-      case 0x73:  // MCB_COMMAND
+      case 0x7b:  // MCB_COMMAND
         other(*this, cmd, "0x0047a910");
         break;
-      case 0x76: case 0x77:  // CHAT_TEAM, CHAT_ALL: the network game's chat panel (0x0041e4e0)
+      case 0x7e: case 0x7f:  // CHAT_TEAM, CHAT_ALL: the network game's chat panel (0x0041e4e0)
         other(*this, cmd, "0x0041e4e0");
         break;
       default:
@@ -340,13 +342,13 @@ void Mech::command(int32_t cmd) {
       }
       set_view_option(*this);
       break;
-    case 0x43:  // OBJECTIVES
+    case 0x44:  // OBJECTIVES
       if (screen) hud(screen, cmd);
       break;
-    case 0x49:  // TARGET_NONE
+    case 0x51:  // TARGET_NONE
       target_set(nullptr);
       break;
-    case 0xa6:
+    case 0xae:
       other(*this, cmd, "0x0040f070");
       break;
     default:

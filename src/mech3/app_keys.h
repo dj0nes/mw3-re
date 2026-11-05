@@ -18,12 +18,12 @@ struct AppKeyCalls {
 };
 AppKeyCalls& app_key_calls();
 
-// Mech3.exe 1.2 @ 0x0040db60 (from the mission's load): CYCLE_CAM (0x61),
-// MESSAGE_TOGGLE (0x70) and VMODE_TOGGLE (0x6c) to 0x0040dba0, 0x7e to 0x004abbc0.
+// Mech3.exe 1.2 @ 0x0040db60 (from the mission's load): CYCLE_CAM (0x69),
+// MESSAGE_TOGGLE (0x78) and VMODE_TOGGLE (0x74) to 0x0040dba0, CMD_SNAPSHOT (0x86, Pirate's Moon's) to 0x004abbc0.
 void register_app_keys();
 
 // Mech3.exe 1.2 @ 0x0040dba0 (ECX the command): the cases of the commands it
-// is bound to. Its other cases (0x6d, 0x82..0xa4: debug commands no key or
+// is bound to. Its other cases (0x75, 0x8a..0xac: debug commands no key or
 // file can bind) are not ported.
 void app_key(int32_t cmd);
 

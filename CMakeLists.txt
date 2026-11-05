@@ -610,7 +610,7 @@ if(MW3_BUILD_PM)
   add_test(NAME mw3pmtests COMMAND mw3pmtests)
   # PM's ported functions behind a C interface, for the differential tests
   # run against PM's exe (tests/differential/test_pm_*.py).
-  add_library(pmprobe SHARED tests/probe_pm.cpp tests/probe_app.cpp tests/probe_mission.cpp)
+  add_library(pmprobe SHARED tests/probe_pm.cpp tests/probe_app.cpp tests/probe_mission.cpp tests/probe_ctlcfg.cpp)
   target_link_libraries(pmprobe PRIVATE pmcore mw3core)
   # zSound (pm-map step 7): the shared sound probe on PM's zSound (test_pm_sound.py)
   target_sources(pmprobe PRIVATE tests/probe_sound.cpp tests/probe_pm_sound.cpp)

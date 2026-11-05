@@ -426,8 +426,8 @@ bool Missions::begin() {
   h.game_time_set(time);
   abort = 0;
   voice = 0;
-  h.bind_command(0x71, kMissionCommand);
-  h.bind_command(0x72, kMissionCommand);
+  h.bind_command(0x79, kMissionCommand);
+  h.bind_command(0x7a, kMissionCommand);
   check_cheats();
   h.hooks_check();
   return true;
@@ -450,7 +450,7 @@ void Missions::check_cheats() {
 // Mech3.exe 1.2 @ 0x0048f440. Exit Mission (Ctrl+Q) works only once the
 // mission is won or lost; 0x72 is bound to it too but does nothing.
 void Missions::on_command(int32_t cmd) {
-  if (cmd != 0x71) return;
+  if (cmd != 0x79) return;
   if (aborting || ended) end_screen();
 }
 

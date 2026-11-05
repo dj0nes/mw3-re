@@ -217,7 +217,7 @@ void CampaignChain::shoot_hostiles() {
     if (!mech3::missions().aborting) {
       std::printf("mw3: chain won %s by %d kills (%d hits, core frame %d): Exit Mission\n", launched_.c_str(), kills_,
                   hits_, core_frames_);
-      mech3::missions().on_command(0x71);
+      mech3::missions().on_command(0x79);
     }
     return;
   }
@@ -237,7 +237,7 @@ void CampaignChain::shoot_hostiles() {
   if (core_frames_ == 40000) {
     std::printf("mw3: chain %s not won by its kills (%d) after 40000 frames: won as --win\n", launched_.c_str(), kills_);
     mech3::missions().ended = 1;
-    mech3::missions().on_command(0x71);
+    mech3::missions().on_command(0x79);
     return;
   }
   static void* gun = nullptr;
@@ -661,7 +661,7 @@ void CampaignChain::frame() {
     } else if (++core_frames_ == 60) {  // won, as --win: Exit Mission with the objectives met
       std::printf("mw3: chain win %s\n", launched_.c_str());
       mech3::missions().ended = 1;
-      mech3::missions().on_command(0x71);
+      mech3::missions().on_command(0x79);
     }
   } else if (now == &st.end_win) {
     if (frames_in_state_ == 60) {

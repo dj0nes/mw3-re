@@ -61,10 +61,9 @@ SETUP_CALLS = [
     (0x5b8570, '0x005964c0', 's0', 4), (0x4f9930, '0x004f9930', '', 0), (0x536c30, '0x0051d2f0', 's0,s1', 0),
     (0x40aca0, '0x0040cf20', '', 0), (0x40ad00, '0x0040cf80', '', 0), (0x40ad40, '0x0040cfc0', '', 0),
 ]
-# PM's globals and handler to MW3's, as the port passes them. The command ids too: PM's table is
-# renumbered (CMD_MISSION_COMPLETE 0x79 against 0x71) and the port's is still MW3's (docs/pm-map.md).
+# PM's globals and handler to MW3's, as the port passes them.
 TO_MW3 = {0x6297b0: 0x605ae0, 0x628b50: 0x604e48, 0x62f828: 0x60b228, 0x627ca8: 0x604048, 0x627cd8: 0x604078,
-          0x627bf8: 0x603f90, 0x492170: 0x48f440, 0x79: 0x71, 0x7a: 0x72}
+          0x627bf8: 0x603f90, 0x492170: 0x48f440}
 HUD, HUD_STEP = 0x6203f0, 0x4b8
 TURRETS, NETWORK = 0x62cc46, 0x62cc51
 

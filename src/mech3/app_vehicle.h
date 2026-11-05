@@ -33,7 +33,7 @@ int32_t program_campaign_bases();           // app_menus.cpp: the campaign's +0x
 void program_field_bases_mission_start();
 void program_field_bases_frame(float dt);   // 0x0045a270 from the mission's frame
 // The waynets (mech_waynet): the mission's waynet (the missions' +0xb0,
-// app_mission's), the nets' begin for the mcbwaynet, the MFB command (0x73),
+// app_mission's), the nets' begin for the mcbwaynet, the MFB command (0x7b),
 // N / Shift+N / Ctrl+N on the mcbwaynet (false: it is not the mission's),
 // its clear and free at the mission's end.
 void program_waynet_mission(void* (*get)(), void (*set)(void*));

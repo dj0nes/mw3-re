@@ -61,7 +61,7 @@ struct JoyAxis {                       // 0x118 bytes, six at 0x0063c6fc (X, Y, 
 // The command map (0x3f5c bytes, constructor 0x0051bb30).
 struct CmdMap {
   uint8_t owned = 0;                   // +0x00 a pushed copy, deleted when popped
-  int32_t count = 0;                   // +0x04 commands (0xa7 in MW3; 0 is none)
+  int32_t count = 0;                   // +0x04 commands (0xa7 in MW3, 0xb0 in Pirate's Moon; 0 is none)
   uint32_t* bindings = nullptr;        // +0x08 per command: key1 bits 0-10, key2 11-21, joystick button 22-25, mouse button 26-27
   std::vector<uint32_t> own_bindings;  // +0x0c a copy's, or the map's own while the store is not ported
   std::vector<CommandCallback> callbacks;  // +0x10

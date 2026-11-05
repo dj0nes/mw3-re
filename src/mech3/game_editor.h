@@ -94,7 +94,7 @@ void editor_frame();                                           // 0x0040e4b0, ea
 // Ours (docs/editor.md S4): command 0x9a, Shift+F12 under --debug-camera
 // (debugcamera=1): the editor's entry, or its exit when it is up.
 void editor_key(int32_t cmd);
-constexpr int32_t kEditorCommand = 0x9a;
+constexpr int32_t kEditorCommand = 0xa2;
 constexpr uint32_t kEditorKey = 0x458;  // Shift+F12: nothing in the default keys uses it
 
 }  // namespace mech3

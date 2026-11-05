@@ -833,16 +833,16 @@ void hud_command(void* s, int32_t cmd) {
   if (!h) return;
   switch (cmd) {
     case 0x15: h->reticle.zoom.toggle_lock(); break;  // keypad 0
-    case 0x43:  // F12: the objectives' vt+0x60(-1) when hidden, else vt+0x64
+    case 0x44:  // F12: the objectives' vt+0x60(-1) when hidden, else vt+0x64
       if (h->objectives.flags & ztwod::kHidden) h->objectives.show_for(-1.0f);
       else h->objectives.hide();
       break;
-    case 0x49: program_hud_target_set(h->mech); break;  // the target set (0x0041d890's HUD part)
-    case 0x68: h->radar.toggle_zoom(); break;         // R
-    case 0x6b: h->set_active(h->active == 0); break;  // H: vt+4
-    case 0x74: h->mfd.cycle_mode(); break;            // D (0x0043d240)
-    case 0x75: h->target.cycle_mode(); break;         // Ctrl+D (0x0043d250)
-    case 0xa5: h->radar.toggle_map(); break;          // Shift+R
+    case 0x51: program_hud_target_set(h->mech); break;  // the target set (0x0041d890's HUD part)
+    case 0x70: h->radar.toggle_zoom(); break;         // R
+    case 0x73: h->set_active(h->active == 0); break;  // H: vt+4
+    case 0x7c: h->mfd.cycle_mode(); break;            // D (0x0043d240)
+    case 0x7d: h->target.cycle_mode(); break;         // Ctrl+D (0x0043d250)
+    case 0xad: h->radar.toggle_map(); break;          // Shift+R
     default: break;
   }
 }
@@ -979,24 +979,24 @@ void wire_hud() {
   command_calls().stations = [] { return program_mission_waynet(); };  // [0x00609980]
   command_calls().other = [](Mech& m, int32_t cmd) {
     if (cmd >= 0x36 && cmd <= 0x38 && program_mission_waynet_key(cmd, &m)) return;  // vt+0x60 / +0x64 / +0x68
-    if (cmd == 0x73) return program_mcb_command(&m);  // MCB_COMMAND 0x0047a910 on [0x0060b544]
-    if (cmd == 0xa6) {
+    if (cmd == 0x7b) return program_mcb_command(&m);  // MCB_COMMAND 0x0047a910 on [0x0060b544]
+    if (cmd == 0xae) {
       if (message_panel()) message_panel_toggle();  // 0x0040f070, the message panel's key
       return;
     }
-    if (cmd == 0x69) {
+    if (cmd == 0x71) {
       radar_light(m);
       return;
     }
-    if (cmd == 0x76 || cmd == 0x77) {  // CHAT_TEAM / CHAT_ALL
+    if (cmd == 0x7e || cmd == 0x7f) {  // CHAT_TEAM / CHAT_ALL
       if (&m == world().mission_player && cheat_open(m)) return;  // ours: the cheat box in single player (cheats.h)
-      return mech_chat_open(m, cmd == 0x77);  // 0x0041e4e0
+      return mech_chat_open(m, cmd == 0x7f);  // 0x0041e4e0
     }
     // The rest stay unported, recorded as the handler would (docs/keybindings.md).
     const char* key = cmd >= 0x36 && cmd <= 0x38 ? "[0x00609980] vtable +0x60..+0x68"
-                      : cmd == 0x3e              ? "0x0041d070"
-                      : cmd == 0x69              ? "vtable +0xb8"
-                      : cmd == 0x73              ? "0x0047a910"
+                      : cmd == 0x3f              ? "0x0041d070"
+                      : cmd == 0x71              ? "vtable +0xb8"
+                      : cmd == 0x7b              ? "0x0047a910"
                                                  : "mech command (other)";
     if (command_calls().unported) command_calls().unported(key, cmd);
   };

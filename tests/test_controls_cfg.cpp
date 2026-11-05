@@ -46,20 +46,20 @@ std::string parse(const std::string& text) {
 TEST(controls_defaults_save_and_load_round_trip) {
   fresh();
   EXPECT(mech3::controls_set_defaults() == 1);
-  EXPECT(zin::key1_of(0x3d) == 0x39 && zin::joy_of(0x3d) == 1 && zin::mouse_of(0x3d) == 1);  // fire: Space
+  EXPECT(zin::key1_of(0x3e) == 0x39 && zin::joy_of(0x3e) == 1 && zin::mouse_of(0x3e) == 1);  // fire: Space
   EXPECT(zin::key1_of(1) == 0x13e);       // Quick Exit: Alt-F4
-  EXPECT(zin::key1_of(0x71) == 0x210);    // Exit Mission: Ctrl-Q
+  EXPECT(zin::key1_of(0x79) == 0x210);    // Exit Mission: Ctrl-Q
   EXPECT(zin::key2_of(2) == 0xd2 && zin::key2_of(3) == 0xc9);  // Insert, Page Up: also the jets' rotations
   EXPECT(zin::key1_of(0x11) == 0xd2 && zin::key1_of(0x12) == 0xc9);
   EXPECT(mech3::controls_group_count() == 7);
-  EXPECT(mech3::controls_command("CMD_TRIGGER1") == 0x3d);
+  EXPECT(mech3::controls_command("CMD_TRIGGER1") == 0x3e);
   EXPECT(mech3::controls_setup().commands[0x18].axis_key == 1);
   mech3::axis_table().set(1, 9, 1.0f, 0.0f, 0.0f);  // twist on the mouse
   mech3::controls_save("keys\\mine.zrd");
-  zin::bind(0x3d, nullptr, 0x1c, 0, 0, 0);
+  zin::bind(0x3e, nullptr, 0x1c, 0, 0, 0);
   mech3::axis_table() = mech3::AxisTable{};
   mech3::controls_load("keys\\mine.zrd");
-  EXPECT(zin::key1_of(0x3d) == 0x39 && zin::joy_of(0x3d) == 1);
+  EXPECT(zin::key1_of(0x3e) == 0x39 && zin::joy_of(0x3e) == 1);
   EXPECT(zin::key1_of(1) == 0);  // not in the file: unbound, as in the original
   EXPECT(mech3::axis_table().axes[1].source == 9 && mech3::axis_table().axes[0].source == 3);
   EXPECT(mech3::axis_table().ready == 0 && mech3::axis_table().stock == 0);
@@ -72,18 +72,18 @@ TEST(controls_repair_mouse_fire_only_mends_the_quit_boxs_damage) {
   fresh();
   mech3::controls_set_defaults();
   EXPECT(!mech3::controls_repair_mouse_fire());  // the defaults: nothing to mend
-  zin::bind_mouse(0, 0x3d);                       // as the quit box (0x0048e2d0) unbinds it
-  EXPECT(zin::mouse_of(0x3d) == 0 && zin::mouse_command(1) == 0);
+  zin::bind_mouse(0, 0x3e);                       // as the quit box (0x0048e2d0) unbinds it
+  EXPECT(zin::mouse_of(0x3e) == 0 && zin::mouse_command(1) == 0);
   EXPECT(mech3::controls_repair_mouse_fire());
-  EXPECT(zin::mouse_of(0x3d) == 1 && zin::mouse_command(1) == 0x3d);
-  EXPECT(zin::mouse_of(0x17) == 2 && zin::key1_of(0x3d) == 0x39);  // the rest untouched
-  zin::bind_mouse(2, 0x3d);  // fire moved to the right button: button 1 on nothing
+  EXPECT(zin::mouse_of(0x3e) == 1 && zin::mouse_command(1) == 0x3e);
+  EXPECT(zin::mouse_of(0x17) == 2 && zin::key1_of(0x3e) == 0x39);  // the rest untouched
+  zin::bind_mouse(2, 0x3e);  // fire moved to the right button: button 1 on nothing
   EXPECT(!mech3::controls_repair_mouse_fire());
-  EXPECT(zin::mouse_of(0x3d) == 2 && zin::mouse_command(1) == 0);
+  EXPECT(zin::mouse_of(0x3e) == 2 && zin::mouse_command(1) == 0);
   mech3::controls_set_defaults();
   zin::bind_mouse(1, 0x17);  // button 1 on free look: fire has none
   EXPECT(!mech3::controls_repair_mouse_fire());
-  EXPECT(zin::mouse_of(0x3d) == 0 && zin::mouse_command(1) == 0x17);
+  EXPECT(zin::mouse_of(0x3e) == 0 && zin::mouse_command(1) == 0x17);
 }
 
 TEST(controls_stock_axes_and_missing_files) {
@@ -93,7 +93,7 @@ TEST(controls_stock_axes_and_missing_files) {
   mech3::controls_load("keys\\stock.zrd");
   EXPECT(mech3::axis_table().stock == 1);
   mech3::controls_load("keys\\nothing.zrd");  // no file: nothing changes
-  EXPECT(mech3::axis_table().stock == 1 && zin::key1_of(0x3d) == 0x39);
+  EXPECT(mech3::axis_table().stock == 1 && zin::key1_of(0x3e) == 0x39);
 }
 
 TEST(controls_file_fixes_skip_what_crashed_the_original) {

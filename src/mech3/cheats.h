@@ -56,7 +56,7 @@ bool cheat_box_is(const void* panel);  // the chat panel is the cheat box
 
 // Ours: Shift+Enter (Enter alone is NEXT_WEAPON) to command 0x9d, bound at
 // each mission's load when no command has the key.
-constexpr int32_t kCheatCommand = 0x9d;
+constexpr int32_t kCheatCommand = 0xa5;
 constexpr uint32_t kCheatKey = 0x41c;
 void register_cheat_key();
 

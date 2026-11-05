@@ -1786,7 +1786,7 @@ void weapon_list_run(bool d3d, BarRun& out) {
           r += px == red, g += px == green;
         }
       if (frames == 9) green_before = g, red_before = r;
-      if (frames == 10) fire = zin::key1_of(0x3d) & 0xff, keys.key(fire, true);
+      if (frames == 10) fire = zin::key1_of(0x3e) & 0xff, keys.key(fire, true);
       if (frames == 13) keys.key(fire, false);
       if (frames > 10) max_red = std::max(max_red, r), red_frames += r > 0;
       if (frames == 120) red_end = r;

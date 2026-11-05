@@ -1047,7 +1047,7 @@ int run(const Args& a, platform::VideoForWindows* vfw) {
       static bool s_fire = false;
       if (a.fire > 0)
         mech3::controls_calls().command = [](int cmd) {
-          return zin::command(cmd) | (s_fire && cmd == 0x3d ? 1u : 0u);
+          return zin::command(cmd) | (s_fire && cmd == 0x3e ? 1u : 0u);
         };
       // --net-drive SEED (ours, the soak test's): the pilot's commands a pattern
       // from the first Core frame on (app_mech.h).
@@ -1497,7 +1497,7 @@ int run(const Args& a, platform::VideoForWindows* vfw) {
         static int win_frames = 0;
         if (a.win > 0 && app.current() == &mech3::states().core && ++win_frames == a.win) {
           mech3::missions().ended = 1;
-          mech3::missions().on_command(0x71);
+          mech3::missions().on_command(0x79);
         }
         // --verbose (ours, for checking the save): the pilot's game as the
         // Win State saved it, and as a briefing finds it once its mission

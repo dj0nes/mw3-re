@@ -2226,7 +2226,7 @@ struct WiredMissionHooks : MissionHooks {
   // The frame (0x0048f470, docs/mission-frame.md): the valves' timers.
   void valves_tick(float) override { ai::valves_tick(missions().time); }
   Handle player_vehicle() override { return e->pilot() ? e->field32(e->pilot(), 0x14) : 0; }
-  // 0x0051d2f0 with 0x0048f440: Exit Mission (Ctrl+Q) and 0x72 to the missions' handler.
+  // 0x0051d2f0 with 0x0048f440: Exit Mission (Ctrl+Q) and 0x7a to the missions' handler.
   void bind_command(int32_t cmd, uint32_t handler) override {
     if (handler != kMissionCommand) return (void)unported("0x0051d2f0", {cmd, handler});
     zin::set_callback(cmd, [](int32_t c) { missions().on_command(c); });

@@ -1,5 +1,5 @@
 // mech3's controls setup (mech3/controls_cfg.cpp) for
-// tests/differential/test_ctlcfg.py. zInput's command map and the messages
+// tests/differential/test_pm_ctlcfg.py. zInput's command map and the messages
 // are the test's (a callback that logs each call and answers it); the
 // controls file is read from and written to the write dir the test gives.
 #include <cstdarg>
@@ -112,12 +112,12 @@ uint32_t probe_ctl_set_mode(uint32_t flags, uint8_t* held, uint32_t mode) {
   return c.flags;
 }
 
-// Everything the setup keeps, as test_ctlcfg.py's dump() writes the
+// Everything the setup keeps, as test_pm_ctlcfg.py's dump() writes the
 // original's memory.
 int probe_ctl_dump(char* buf, int size) {
   const ControlsSetup& s = controls_setup();
   std::string out = "C";
-  for (int i = 0; i < 0xa7; ++i) {
+  for (int i = 0; i < 0xb0; ++i) {
     const CommandEntry& e = s.commands[i];
     if (e.message || e.name || e.axis_key || e.axis)
       put(out, "%d:%x:%s:%d:%d;", i, e.message, e.name ? e.name : "", e.axis_key, e.axis);

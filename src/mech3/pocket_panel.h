@@ -104,7 +104,7 @@ struct FrameCalls {
   zgame::Handle (*reticle_pick)(zgame::Handle hud) = nullptr;
   uint32_t (*record_node)(zgame::Handle record) = nullptr;
   void (*reticle_place)(zgame::Handle hud, float place[3]) = nullptr;
-  uint32_t (*trigger)() = nullptr;                              // 0x00467480: command 0x3d's state (0x0051d300; 4 released)
+  uint32_t (*trigger)() = nullptr;                              // 0x00467480: command 0x3e's state (0x0051d300; 4 released)
   zgame::Handle (*contact_entity)(void* contact) = nullptr;     // 0x004e6fe0
   uint32_t (*entity_node)(zgame::Handle e) = nullptr;           // its +0x04
   const float* (*entity_place)(zgame::Handle e) = nullptr;      // 0x005a85e0

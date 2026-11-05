@@ -381,7 +381,8 @@ Exit too. AXES: every source is set to 0 and the table is not ready; each
 entry names an axis and a source (`joystick(..)` 1..8, else `mouse(..)`
 9..11, an unknown name 0) and the three floats (defaults 1, 0, 0); an entry
 with neither source keeps the source of the entry before it, for the first
-the list's count (a register left as it was). An entry that is exactly the
+the list's count in MW3 (a register left as it was); in Pirate's Moon the argument's slot, so the last
+`mousebtn` KEYS read, or the path's address with no KEYS (0 in the port, fixes.md). An entry that is exactly the
 joystick's default for its axis marks that axis stock (never unmarked by a
 later entry); stock is set when all four are. The table stays not ready.
 

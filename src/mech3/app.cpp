@@ -188,7 +188,7 @@ bool Mech3App::init_instance() {
   g_globals.class_registered = 1;
   const char* version = e.version_string();
   e.settings_init("MicroProse", e.message(7), version);
-  e.input_init(0xa7, "DefaultCmdMap");
+  e.input_init(0xb0, "DefaultCmdMap");
   e.list_pool_init(0x200);
   e.reader_init("..\\data\\common\\zrdr");
   if (!e.options_load("detail.zrd")) {

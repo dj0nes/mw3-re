@@ -132,7 +132,7 @@ void wire_pocket(const MechWiring* w) {
 
   // The frame's (0x00469d00): the viewed HUD (0x00430aa0) and its radar's
   // map flag (+0x70, the radar's +0x5c); the reticle's aim record (0x00444330,
-  // +0x928: its node +0x24) and spot (+0x8fc); the trigger (command 0x3d).
+  // +0x928: its node +0x24) and spot (+0x8fc); the trigger (command 0x3e).
   fc.view_hud = [](Mech& m) -> zgame::Handle { return handle(view_hud(m)); };
   fc.hud_map_up = [](zgame::Handle h) {
     const Hud* hud = static_cast<const Hud*>(object(h));
@@ -179,7 +179,7 @@ void wire_pocket(const MechWiring* w) {
   };
   fc.trigger = []() -> uint32_t {
     ControlsCalls& k = controls_calls();
-    return k.command ? k.command(0x3d) : zin::command(0x3d);  // 0x00467480
+    return k.command ? k.command(0x3e) : zin::command(0x3e);  // 0x00467480
   };
   fc.contact_entity = [](void* c) -> zgame::Handle {  // 0x004e6fe0
     return ai::brain_hooks().contact_entity(static_cast<ai::Contact*>(c));

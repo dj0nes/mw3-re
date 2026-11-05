@@ -5,7 +5,7 @@
 #include "mech3/zai_target.h"
 
 // The pocket commander (mech_pocket.cpp, docs/ai.md 17.6a): the player's
-// lance command mode, the lance order 2 (key 0x4f). His controls are wrapped
+// lance command mode, the lance order 2 (key 0x53). His controls are wrapped
 // by these, which keep the old ones and give them back; while it is up the
 // number keys pick lancemates, the panel (item L4c2) shows the lance and the
 // target, and the next lance order goes to the lancemates picked.

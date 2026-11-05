@@ -39,7 +39,8 @@ uint32_t binding(int which, int32_t cmd) {
   }
 }
 
-// The defaults 0x00411150 binds, group by group (each group's title a message).
+// The defaults 0x00411150 binds, group by group (each group's title a message): Pirate's Moon's 1.0 @ 0x00411a10,
+// 110 commands, renumbered (0x00411980 adds each; docs/pm-map.md).
 struct Default {
   int32_t cmd, message;
   uint32_t key1, key2, joy, mouse;
@@ -80,13 +81,13 @@ const DefaultGroup kDefaults[] = {
         {0x10, 0x866, 0xd1, 0x0, 0, 0, "CMD_JJ_RIGHT"},
         {0x11, 0x8a8, 0xd2, 0x0, 0, 0, "CMD_JJ_ROTLEFT"},
         {0x12, 0x8a9, 0xc9, 0x0, 0, 0, "CMD_JJ_ROTRIGHT"},
-        {0x44, 0x872, 0x22, 0x0, 0, 0, "CMD_GETUP"},
+        {0x45, 0x872, 0x22, 0x0, 0, 0, "CMD_GETUP"},
         {0x13, 0x867, 0x2e, 0x0, 0, 0, "CMD_CROUCH"},
-        {0x3f, 0x870, 0x1f, 0x0, 0, 0, "CMD_SHUTDOWN"},
-        {0x6e, 0x87f, 0x2f, 0x0, 0, 0, "CMD_MASC"},
+        {0x40, 0x870, 0x1f, 0x0, 0, 0, "CMD_SHUTDOWN"},
+        {0x76, 0x87f, 0x2f, 0x0, 0, 0, "CMD_MASC"},
     }},
     {0x706, {  // Weapon Controls
-        {0x3d, 0x857, 0x39, 0x0, 1, 1, "CMD_TRIGGER1"},
+        {0x3e, 0x857, 0x39, 0x0, 1, 1, "CMD_TRIGGER1"},
         {0x2a, 0x81b, 0x1b, 0x0, 4, 0, "CMD_WEPGRP_NEXT"},
         {0x2b, 0x81c, 0x1a, 0x0, 0, 0, "CMD_WEPGRP_PREV"},
         {0x26, 0x817, 0x21a, 0x0, 0, 0, "CMD_WEP_PREV"},
@@ -104,71 +105,76 @@ const DefaultGroup kDefaults[] = {
         {0x35, 0x82a, 0x43f, 0x0, 0, 0, "CMD_MOVETOWG_5"},
         {0x28, 0x81a, 0x2b, 0x0, 5, 0, "CMD_FIREMODE"},
         {0x39, 0x818, 0x9c, 0x0, 6, 0, "CMD_ALPHASTRIKE"},
-        {0x41, 0x871, 0x21, 0x0, 0, 0, "CMD_COOLANTFLUSH"},
-        {0x40, 0x87b, 0x18, 0x0, 0, 0, "CMD_SHUT_OVER"},
+        {0x42, 0x871, 0x21, 0x0, 0, 0, "CMD_COOLANTFLUSH"},
+        {0x41, 0x87b, 0x18, 0x0, 0, 0, "CMD_SHUT_OVER"},
         {0x3b, 0x896, 0x425, 0x0, 0, 0, "CMD_JETTISON_AMMO"},
     }},
     {0x708, {  // View Controls
-        {0x61, 0x880, 0x2d, 0x0, 0, 0, "CMD_CYCLE_CAM"},
-        {0x62, 0x868, 0x14b, 0x0, 0, 0, "CMD_LOOK_LEFT"},
-        {0x63, 0x869, 0x14d, 0x0, 0, 0, "CMD_LOOK_RIGHT"},
-        {0x64, 0x86a, 0x150, 0x0, 0, 0, "CMD_LOOK_UP"},
-        {0x65, 0x86b, 0x148, 0x0, 0, 0, "CMD_LOOK_DOWN"},
-        {0x67, 0x86d, 0x153, 0x0, 0, 0, "CMD_LOOK_REAR"},
-        {0x66, 0x86c, 0x14c, 0x0, 0, 0, "CMD_LOOK_FRONT"},
-        {0x6c, 0x815, 0x42f, 0x0, 0, 0, "CMD_VMODE_TOGGLE"},
+        {0x69, 0x880, 0x2d, 0x0, 0, 0, "CMD_CYCLE_CAM"},
+        {0x6a, 0x868, 0x14b, 0x0, 0, 0, "CMD_LOOK_LEFT"},
+        {0x6b, 0x869, 0x14d, 0x0, 0, 0, "CMD_LOOK_RIGHT"},
+        {0x6c, 0x86a, 0x150, 0x0, 0, 0, "CMD_LOOK_UP"},
+        {0x6d, 0x86b, 0x148, 0x0, 0, 0, "CMD_LOOK_DOWN"},
+        {0x6e, 0x86c, 0x14c, 0x0, 0, 0, "CMD_LOOK_FRONT"},
+        {0x74, 0x815, 0x42f, 0x0, 0, 0, "CMD_VMODE_TOGGLE"},
+        {0x86, 0x8a5, 0x219, 0x0, 0, 0, "CMD_SNAPSHOT"},
     }},
     {0x710, {  // Targeting Controls
-        {0x46, 0x85a, 0x12, 0x0, 3, 0, "CMD_TARGET_NEXT_E"},
-        {0x4d, 0x892, 0x412, 0x0, 0, 0, "CMD_TARGET_PREV_E"},
-        {0x4c, 0x885, 0x212, 0x0, 0, 0, "CMD_TARGET_CLOSE_E"},
+        {0x48, 0x85a, 0x12, 0x0, 3, 0, "CMD_TARGET_NEXT_E"},
+        {0x4e, 0x892, 0x412, 0x0, 0, 0, "CMD_TARGET_PREV_E"},
+        {0x4b, 0x885, 0x212, 0x0, 0, 0, "CMD_TARGET_CLOSE_E"},
         {0x47, 0x859, 0x11, 0x0, 0, 0, "CMD_TARGET_NEXT_F"},
-        {0x4e, 0x891, 0x411, 0x0, 0, 0, "CMD_TARGET_PREV_F"},
-        {0x4b, 0x886, 0x211, 0x0, 0, 0, "CMD_TARGET_CLOSE_F"},
-        {0x48, 0x85b, 0x10, 0x0, 0, 0, "CMD_TARGET_CURSOR"},
-        {0x49, 0x874, 0x14, 0x0, 0, 0, "CMD_TARGET_NONE"},
-        {0x59, 0x888, 0x48, 0x0, 0, 0, "CMD_TARGET_HEAD"},
-        {0x5d, 0x88c, 0x47, 0x0, 0, 0, "CMD_TARGET_LARM"},
-        {0x5e, 0x88d, 0x49, 0x0, 0, 0, "CMD_TARGET_RARM"},
-        {0x5a, 0x889, 0x4c, 0x0, 0, 0, "CMD_TARGET_TORSO"},
-        {0x5b, 0x88a, 0x4b, 0x0, 0, 0, "CMD_TARGET_LTORSO"},
-        {0x5c, 0x88b, 0x4d, 0x0, 0, 0, "CMD_TARGET_RTORSO"},
-        {0x5f, 0x88e, 0x4f, 0x0, 0, 0, "CMD_TARGET_LLEG"},
-        {0x60, 0x88f, 0x51, 0x0, 0, 0, "CMD_TARGET_RLEG"},
+        {0x4d, 0x891, 0x411, 0x0, 0, 0, "CMD_TARGET_PREV_F"},
+        {0x4a, 0x886, 0x211, 0x0, 0, 0, "CMD_TARGET_CLOSE_F"},
+        {0x49, 0x8ad, 0x15, 0x0, 0, 0, "CMD_TARGET_NEXT_L"},
+        {0x4f, 0x8ac, 0x415, 0x0, 0, 0, "CMD_TARGET_PREV_L"},
+        {0x4c, 0x8ae, 0x215, 0x0, 0, 0, "CMD_TARGET_CLOSE_L"},
+        {0x50, 0x85b, 0x10, 0x0, 0, 0, "CMD_TARGET_CURSOR"},
+        {0x51, 0x874, 0x14, 0x0, 0, 0, "CMD_TARGET_NONE"},
+        {0x61, 0x888, 0x48, 0x0, 0, 0, "CMD_TARGET_HEAD"},
+        {0x65, 0x88c, 0x47, 0x0, 0, 0, "CMD_TARGET_LARM"},
+        {0x66, 0x88d, 0x49, 0x0, 0, 0, "CMD_TARGET_RARM"},
+        {0x62, 0x889, 0x4c, 0x0, 0, 0, "CMD_TARGET_TORSO"},
+        {0x63, 0x88a, 0x4b, 0x0, 0, 0, "CMD_TARGET_LTORSO"},
+        {0x64, 0x88b, 0x4d, 0x0, 0, 0, "CMD_TARGET_RTORSO"},
+        {0x67, 0x88e, 0x4f, 0x0, 0, 0, "CMD_TARGET_LLEG"},
+        {0x68, 0x88f, 0x51, 0x0, 0, 0, "CMD_TARGET_RLEG"},
     }},
     {0x705, {  // Cockpit Controls
         {0x14, 0x873, 0x2c, 0x0, 0, 0, "CMD_RETICULE_ZOOM"},
         {0x15, 0x89f, 0x52, 0x0, 2, 0, "CMD_ZOOM_LOCK"},
         {0x16, 0x8a3, 0x252, 0x0, 0, 0, "CMD_TOGGLE_TMODE"},
         {0x17, 0x8a4, 0x26, 0x0, 0, 2, "CMD_FREELOOK"},
-        {0x74, 0x890, 0x20, 0x0, 0, 0, "CMD_DAMAGE_TOGGLE"},
-        {0x75, 0x8a6, 0x220, 0x0, 0, 0, "CMD_EDAMAGE_TOGGLE"},
-        {0x68, 0x85c, 0x13, 0x0, 0, 0, "CMD_RADAR_TOGGLE"},
-        {0x69, 0x85d, 0x113, 0x0, 0, 0, "CMD_RADAR_RANGE"},
-        {0xa5, 0x883, 0x413, 0x0, 0, 0, "CMD_RADAR_MAP_TOGGLE"},
-        {0x6b, 0x855, 0x23, 0x0, 0, 0, "CMD_HUD_TOGGLE"},
+        {0x7c, 0x890, 0x20, 0x0, 0, 0, "CMD_DAMAGE_TOGGLE"},
+        {0x7d, 0x8a6, 0x220, 0x0, 0, 0, "CMD_EDAMAGE_TOGGLE"},
+        {0x70, 0x85c, 0x13, 0x0, 0, 0, "CMD_RADAR_TOGGLE"},
+        {0x71, 0x85d, 0x113, 0x0, 0, 0, "CMD_RADAR_RANGE"},
+        {0xad, 0x883, 0x413, 0x0, 0, 0, "CMD_RADAR_MAP_TOGGLE"},
+        {0x73, 0x855, 0x23, 0x0, 0, 0, "CMD_HUD_TOGGLE"},
         {0x3a, 0x882, 0x1e, 0x0, 0, 0, "CMD_AMS_TOGGLE"},
+        {0x3c, 0x83a, 0x223, 0x0, 0, 0, "CMD_HEADLIGHT_TOGGLE"},
+        {0x3f, 0x86e, 0x129, 0x0, 0, 0, "CMD_EJECT"},
     }},
     {0x707, {  // Communications Controls
-        {0x54, 0x893, 0x40, 0x0, 0, 0, "CMD_DIRECT_ATTACKT"},
-        {0x55, 0x894, 0x41, 0x0, 0, 0, "CMD_DIRECT_DEFENDT"},
-        {0x52, 0x85e, 0x42, 0x0, 0, 0, "CMD_DIRECT_FOLLOW"},
-        {0x51, 0x85f, 0x43, 0x0, 0, 0, "CMD_DIRECT_PAUSE"},
-        {0x56, 0x895, 0x44, 0x0, 0, 0, "CMD_DIRECT_REFITT"},
-        {0x4f, 0x860, 0x57, 0x0, 0, 0, "CMD_DIRECT_POCKET"},
-        {0x57, 0x897, 0x457, 0x0, 0, 0, "CMD_DIRECT_AWAITCMD"},
-        {0x58, 0x898, 0x257, 0x0, 0, 0, "CMD_DIRECT_AWAITCMDCANCEL"},
-        {0x73, 0x87d, 0x32, 0x0, 0, 0, "CMD_MCB_COMMAND"},
+        {0x58, 0x893, 0x40, 0x0, 0, 0, "CMD_DIRECT_ATTACKT"},
+        {0x59, 0x894, 0x41, 0x0, 0, 0, "CMD_DIRECT_DEFENDT"},
+        {0x56, 0x85e, 0x42, 0x0, 0, 0, "CMD_DIRECT_FOLLOW"},
+        {0x55, 0x85f, 0x43, 0x0, 0, 0, "CMD_DIRECT_PAUSE"},
+        {0x5a, 0x895, 0x44, 0x0, 0, 0, "CMD_DIRECT_REFITT"},
+        {0x53, 0x860, 0x57, 0x0, 0, 0, "CMD_DIRECT_POCKET"},
+        {0x5b, 0x897, 0x457, 0x0, 0, 0, "CMD_DIRECT_AWAITCMD"},
+        {0x5c, 0x898, 0x257, 0x0, 0, 0, "CMD_DIRECT_AWAITCMDCANCEL"},
+        {0x7b, 0x87d, 0x32, 0x0, 0, 0, "CMD_MCB_COMMAND"},
         {0x36, 0x879, 0x31, 0x0, 0, 0, "CMD_NAVPT_NEXT"},
         {0x37, 0x87a, 0x431, 0x0, 0, 0, "CMD_NAVPT_PREV"},
         {0x38, 0x89b, 0x231, 0x0, 0, 0, "CMD_NAVPT_NEAR"},
-        {0x76, 0x899, 0x4a, 0x0, 0, 0, "CMD_CHAT_TEAM"},
-        {0x77, 0x89a, 0x37, 0x0, 0, 0, "CMD_CHAT_ALL"},
+        {0x7e, 0x899, 0x4a, 0x0, 0, 0, "CMD_CHAT_TEAM"},
+        {0x7f, 0x89a, 0x37, 0x0, 0, 0, "CMD_CHAT_ALL"},
     }},
     {0x709, {  // Mission Controls
-        {0x43, 0x878, 0x58, 0x0, 0, 0, "CMD_OBJECTIVES"},
-        {0x71, 0x87c, 0x210, 0x0, 0, 0, "CMD_MISSION_COMPLETE"},
-        {0x70, 0x8a2, 0x29, 0x0, 0, 0, "CMD_MESSAGE_TOGGLE"},
+        {0x44, 0x878, 0x58, 0x0, 0, 0, "CMD_OBJECTIVES"},
+        {0x79, 0x87c, 0x210, 0x0, 0, 0, "CMD_MISSION_COMPLETE"},
+        {0x78, 0x8a2, 0x29, 0x0, 0, 0, "CMD_MESSAGE_TOGGLE"},
     }},
 };
 constexpr int32_t kQuickExit = 1, kQuickExitName = 0x8a1, kAltF4 = 0x13e;  // no group, no CMD_ name
@@ -293,10 +299,12 @@ const char* axis_name(int32_t axis) { return axis >= 0 && axis < 4 ? kAxisNames[
 // cleared first; a command the file leaves out ends up unbound, Alt-F4's
 // Quick Exit too). AXES clears the table's sources, then sets each axis it
 // names; an entry with neither source keeps the one before it (for the first,
-// the list's count). The table is left not ready; it is ready again at start
+// Pirate's Moon's 0x00412a26: the last mousebtn KEYS read; FIX (bug): with no KEYS
+// the exe has the path's address there, 0 here). The table is left not ready; it is ready again at start
 // only when the file's four axes are the joystick's defaults.
 void controls_load(const char* path) {
   bool stock[4] = {};
+  int32_t left = 0;
   zrdr::Node* root = zrdr::load(path);
   if (!root) return;
   zrdr::Node* keys = zrdr::find(root, "KEYS");
@@ -313,6 +321,7 @@ void controls_load(const char* path) {
       const uint32_t keyb = controls_read_binding(e, "keyb");
       const uint32_t mouse = controls_read_binding(e, "mousebtn");
       const uint32_t joy = controls_read_binding(e, "joybtn");
+      left = static_cast<int32_t>(mouse);
       bind(cmd, nullptr, keya, keyb, joy, mouse);
     }
     if (g_calls.map_refresh) g_calls.map_refresh();
@@ -324,7 +333,7 @@ void controls_load(const char* path) {
     for (AxisBinding& a : t.axes) a.source = 0;
     t.ready = 0;
     const int32_t count = axes->list[0].i;
-    int32_t src = count;
+    int32_t src = left;
     for (int32_t i = 1; i < count; ++i) {
       zrdr::Node* e = &axes->list[i];
       const char* name = entry_name(e);
@@ -402,10 +411,10 @@ void controls_save(const char* path) {
 // undone: fire moved to another button, or button 1 given to another
 // command, stays as the player set it.
 bool controls_repair_mouse_fire() {  // after the tables' rebuild (the hook's)
-  constexpr int32_t kTrigger1 = 0x3d;
+  constexpr int32_t kTrigger1 = 0x3e;
   const zin::CmdMap* m = zin::state().map;
-  if (!m || m->count < 0xa7 || zin::mouse_of(kTrigger1) != 0) return false;
-  for (int32_t c = 1; c < 0xa7; ++c)
+  if (!m || m->count < 0xb0 || zin::mouse_of(kTrigger1) != 0) return false;
+  for (int32_t c = 1; c < 0xb0; ++c)
     if (zin::mouse_of(c) == 1) return false;
   zin::bind_mouse(1, kTrigger1);
   std::printf("mw3: controls: mouse button 1 was bound to nothing, put back on fire (TRIGGER1)\n");

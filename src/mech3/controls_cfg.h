@@ -32,7 +32,7 @@ struct AxisTable {
 };
 AxisTable& axis_table();
 
-// A command's entry at 0x00604128 (0x14 bytes, 0xa7 of them).
+// A command's entry at 0x00604128 (0x14 bytes, 0xa7 of them; Pirate's Moon 0xb0 at 0x00627d80).
 struct CommandEntry {
   int32_t message = 0;         // +0x00  its name's message id
   const char* name = nullptr;  // +0x04  CMD_..., the controls file's name for it
@@ -50,7 +50,7 @@ struct ControlsSetup {
   std::map<std::string, int32_t> names;  // 0x006040b8  CMD_ name -> command, a std::map in strcmp order
   int32_t group = 0;                     // 0x006040c8  the group commands are added to
   std::vector<ControlGroup> groups;      // 0x0060411c
-  CommandEntry commands[0xa7];           // 0x00604128
+  CommandEntry commands[0xb0];           // 0x00604128
 };
 ControlsSetup& controls_setup();
 

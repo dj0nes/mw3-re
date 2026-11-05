@@ -96,7 +96,7 @@ class McbWaynet : public Waynet {
   void prev() override;                   // vt+0x64 0x0047a620
   void nearest(const float* pos) override;  // vt+0x68 0x0047a680
   void clear();                           // 0x0047a6b0 (0x0047a720: the dock's marker clear)
-  void command(Handle mech);              // 0x0047a7a0 (0x0047a910, MCB_COMMAND 0x73)
+  void command(Handle mech);              // 0x0047a7a0 (0x0047a910, MCB_COMMAND 0x7b)
   uint8_t frame(Handle) override { return 0; }  // vt+0x6c 0x004cd490: nothing
 
   int32_t passed = 0;                     // +0x30  how often the picked point came round

@@ -1250,7 +1250,7 @@ TEST(campaign_operation_end_and_campaign_end_headless) {
             // operation's reset to 3 shows.
             if (mech3::CampaignGame* c = mech3::current_pilot()->campaign()) c->a8 = 1, bases_before = 1;
             mech3::missions().ended = 1;          // won
-            mech3::missions().on_command(0x71);   // Exit Mission: the end screen, its fade, the Win State
+            mech3::missions().on_command(0x79);   // Exit Mission: the end screen, its fade, the Win State
             stage = 4;
           }
         } else if (stage == 4 && now == &mech3::states().end_win) {
@@ -1383,7 +1383,7 @@ TEST(campaign_lost_or_cheated_mission_is_briefed_again_headless) {
             } else {
               mech3::missions().abort_now();  // the pause's REPLAY: lost (0x0048fa80)
             }
-            mech3::missions().on_command(0x71);
+            mech3::missions().on_command(0x79);
             stage = 4;
           }
         } else if (stage == 4 && now == &mech3::states().end_win) {
@@ -1520,7 +1520,7 @@ TEST(campaign_menus_to_c1m1_through_the_briefing_headless) {
           // fade to the debriefing's Win State.
           mech3::missions().ended = 1;
           zfix::options().bugs = fix;  // the Win State's copy of the scores
-          mech3::missions().on_command(0x71);
+          mech3::missions().on_command(0x79);
           stage = 4;
         }
       } else if (stage == 4 && app.current() == &mech3::states().end_win) {
@@ -7343,7 +7343,7 @@ TEST(mission_c1m1_player_destroys_an_srm_turret_headless) {
         if (on && on_at < 0) on_at = frames;
       }
       const int g = (frames - 60) / 40;
-      const uint32_t fire = zin::key1_of(0x3d) & 0xff;  // CMD_FIRE
+      const uint32_t fire = zin::key1_of(0x3e) & 0xff;  // CMD_FIRE
       if (frames >= 60 && g < 6 && (frames - 60) % 40 == 0 && t->active) {
         mech3::mech_select_group(player, g);
         char line[96];
@@ -8910,7 +8910,7 @@ TEST(mission_c1m1_player_fires_on_the_owens_headless) {
         int32_t made = 0;
         const mech3::AiMechMade* ai = mech3::mission_ai_mechs(&made);
         owens = made == 1 ? ai[0].mech : nullptr;
-        fire = zin::key1_of(0x3d) & 0xff;  // CMD_FIRE
+        fire = zin::key1_of(0x3e) & 0xff;  // CMD_FIRE
         // 40 m west of the Owens, on the ground, facing east (+x: yaw -90). The
         // opening's ramp animation (call_ramp) turns on the valve "bramp",
         // which powers the Owens up (c1m1's valves.zrd, ai.md section 18):
@@ -9143,7 +9143,7 @@ TEST(mission_c1m1_unported_survey_headless) {
       if (app.current() != &mech3::states().core) return;
       ++frames;
       if (frames == 3) {
-        up = zin::key1_of(0x18) & 0xff, fire = zin::key1_of(0x3d) & 0xff;
+        up = zin::key1_of(0x18) & 0xff, fire = zin::key1_of(0x3e) & 0xff;
         keys.key(up, true);
       } else if (frames == 40) {
         keys.key(up, false);
@@ -9250,7 +9250,7 @@ static LrmRun lrm_after_lock(bool turn_away) {
         int32_t made = 0;
         const mech3::AiMechMade* ai = mech3::mission_ai_mechs(&made);
         owens = made == 1 ? ai[0].mech : nullptr;
-        fire = zin::key1_of(0x3d) & 0xff;        // CMD_FIRE
+        fire = zin::key1_of(0x3e) & 0xff;        // CMD_FIRE
         left = zin::key1_of(2) & 0xff;           // turn left
         next_enemy = zin::key1_of(0x46) & 0xff;  // TARGET_NEXT_E
         mech3::describe_mech(owens, &o);
@@ -9391,7 +9391,7 @@ TEST(mission_c1m1_short_clicks_fire_headless) {
       ++frames;
       if (frames == 3) {
         player = engine.object_of(engine.field32(engine.pilot(), 0x14));
-        fire = zin::key1_of(0x3d) & 0xff;  // CMD_FIRE
+        fire = zin::key1_of(0x3e) & 0xff;  // CMD_FIRE
         mech3::mech_select_group(player, 1);
       }
       if (!player || frames < 10 || (clicks >= 10 && clicked_at < 0)) return;
@@ -9506,7 +9506,7 @@ static LaserAim laser_on_the_reticle(bool turning) {
         int32_t made = 0;
         const mech3::AiMechMade* ai = mech3::mission_ai_mechs(&made);
         owens = made == 1 ? ai[0].mech : nullptr;
-        fire = zin::key1_of(0x3d) & 0xff;  // CMD_FIRE
+        fire = zin::key1_of(0x3e) & 0xff;  // CMD_FIRE
         left = zin::key1_of(2) & 0xff;     // turn left
         mech3::LaunchedMech o;  // 25 m west of the Owens, facing it (+x: yaw -90)
         mech3::describe_mech(owens, &o);
@@ -9653,7 +9653,7 @@ TEST(mission_c1m1_arm_weapon_recoils_headless) {
       ++frames;
       if (frames == 3) {
         player = engine.object_of(engine.field32(engine.pilot(), 0x14));
-        fire = zin::key1_of(0x3d) & 0xff;  // CMD_FIRE
+        fire = zin::key1_of(0x3e) & 0xff;  // CMD_FIRE
         for (int g = 0; g < 5; ++g) names[g] = mech3::mech_group_names(player, g);
       }
       if (!player || frames < 5) return;
@@ -9795,7 +9795,7 @@ TEST(mission_c1m1_left_button_fires_after_focus_headless) {
         int32_t made = 0;
         const mech3::AiMechMade* ai = mech3::mission_ai_mechs(&made);
         owens = made == 1 ? ai[0].mech : nullptr;
-        fire = zin::key1_of(0x3d) & 0xff;  // CMD_FIRE
+        fire = zin::key1_of(0x3e) & 0xff;  // CMD_FIRE
         // 80 m west of the Owens, on the ground, facing east (+x: yaw -90).
         mech3::LaunchedMech o;
         mech3::describe_mech(owens, &o);
@@ -9831,7 +9831,7 @@ TEST(mission_c1m1_left_button_fires_after_focus_headless) {
     };
     app.run(pump);
     std::printf("  mouse: %d acquires, %d refused; trigger on the left button: %u\n", keys.acquires, keys.refusals,
-                zin::mouse_of(0x3d));
+                zin::mouse_of(0x3e));
     EXPECT(seen.frames >= 200);
     EXPECT(seen.flying_max > 0);                                // shots in the air
     EXPECT(seen.owens_after.armor < seen.owens_before.armor);  // hit
@@ -11246,7 +11246,7 @@ TEST(instant_action_menus_to_wave1_tallies_headless) {
           if (mech3::program_hud_objectives(&r) && !r.lines.empty()) header = r.lines[0];
           mech3::program_hud_objectives_toggle();
           mech3::missions().ended = 1;  // left: Exit Mission to the debriefing
-          mech3::missions().on_command(0x71);
+          mech3::missions().on_command(0x79);
           stage = 5;
         }
       } else if (stage == 5 && app.current() == &mech3::states().end_win) {
@@ -11390,7 +11390,7 @@ TEST(training_menus_to_lesson3_headless) {
         } else if (lesson3_at < 0 && lesson() == 2) {
           lesson3_at = core_frames;
           mech3::missions().ended = 1;  // won: Exit Mission to the end screen
-          mech3::missions().on_command(0x71);
+          mech3::missions().on_command(0x79);
           stage = 4;
         }
       } else if (stage == 4) {
@@ -14839,13 +14839,13 @@ TEST(mission_c1m1_default_keys_fire_headless) {
       std::vector<uint32_t> held;
       mods(r.key, &held);
       const uint32_t dik = r.key & 0xff;
-      if (!r.key || r.cmd == 0x71 || r.cmd == 1) {  // no key, or one that ends the run
+      if (!r.key || r.cmd == 0x79 || r.cmd == 1) {  // no key, or one that ends the run
         ++next;
         return;
       }
       if (phase == 0) {
         before = engine.unported_counts();
-        if (r.cmd == 0x61) view_before = mech3::program_view_mode_id();
+        if (r.cmd == 0x69) view_before = mech3::program_view_mode_id();
         if (r.cmd == 0x27) mech3::describe_mech(mech3::mech_mission_player(), &enter_before);
         if (r.cmd == 0x16) tmode_before = mech3::mech_controls_view(mech3::mech_mission_player());
         for (uint32_t k : held) keys.key(k, true);
@@ -14861,7 +14861,7 @@ TEST(mission_c1m1_default_keys_fire_headless) {
         r.ran = g_key_ran[r.cmd];
         // Keypad * and -, Shift+Enter: the cheat box (ours, cheats.md) takes the keys after it; closed.
         if (void* me = mech3::mech_mission_player(); mech3::cheat_box_open(me)) mech3::cheat_box_type(me, "\x1b");
-        if (r.cmd == 0x61) view_after_x = mech3::program_view_mode_id();
+        if (r.cmd == 0x69) view_after_x = mech3::program_view_mode_id();
         if (r.cmd == 0x27) mech3::describe_mech(mech3::mech_mission_player(), &enter_after);
         if (r.cmd >= 0x62 && r.cmd <= 0x67) look_after[r.cmd - 0x62] = mech3::program_view_look_state();
         if (r.cmd == 0x16) tmode_after = mech3::mech_controls_view(mech3::mech_mission_player());
@@ -14906,7 +14906,7 @@ TEST(mission_c1m1_default_keys_fire_headless) {
     if (!missing.empty()) std::fprintf(stderr, "keys that fired nothing: %s\n", missing.c_str());
     EXPECT(rows.size() > 90);
     bool exit_bound = false;  // Ctrl+Q: bound by the mission's start (0x0048f400), acts once it is over
-    for (const Row& r : rows) exit_bound |= r.cmd == 0x71 && r.callback;
+    for (const Row& r : rows) exit_bound |= r.cmd == 0x79 && r.callback;
     EXPECT(exit_bound);
     EXPECT(missing.empty());
     EXPECT(view_before == 1 && view_after_x == 2);
@@ -15904,7 +15904,7 @@ TEST(mission_c1m1_player_aims_with_the_reticle_headless) {
         int32_t made = 0;
         const mech3::AiMechMade* ai = mech3::mission_ai_mechs(&made);
         owens = made == 1 ? ai[0].mech : nullptr;
-        fire = zin::key1_of(0x3d) & 0xff;  // CMD_FIRE
+        fire = zin::key1_of(0x3e) & 0xff;  // CMD_FIRE
         pitch = zin::key1_of(5) & 0xff;    // CMD_PITCH_DOWN
         pitch_up = zin::key1_of(4) & 0xff;  // CMD_PITCH_UP
         // 80 m west of the Owens, on the ground, facing east (+x: yaw -90).
@@ -17576,7 +17576,7 @@ TEST(playtest_hud_weapon_bars_recharge_headless) {
       if (app.current() != &mech3::states().core) return;
       ++frames;
       if (frames == 6) keys.key(zin::key1_of(0x2d) & 0xff, true), keys.key(zin::key1_of(0x2d) & 0xff, false);  // F2
-      if (frames == 10) fire = zin::key1_of(0x3d) & 0xff, keys.key(fire, true);
+      if (frames == 10) fire = zin::key1_of(0x3e) & 0xff, keys.key(fire, true);
       if (frames == 13) keys.key(fire, false);
       mech3::HudReport r;
       if (frames < 10 || !mech3::program_hud_report(&r)) return;
@@ -19889,7 +19889,7 @@ TEST(mission_c1m2_cheat_codes_headless) {
     if (f == 25) blips_on = blips();
     // The reload: the selected group fired, its drop a frame, without and with cwal.
     if (f == 30) {
-      const uint32_t fire = zin::key1_of(0x3d) & 0xff;  // CMD_FIRE
+      const uint32_t fire = zin::key1_of(0x3e) & 0xff;  // CMD_FIRE
       k.key(fire, true), k.key(fire, false);
     }
     if (f == 34) mech3::program_pilot_fire_probe(&trigger, &reload_was);
@@ -19904,7 +19904,7 @@ TEST(mission_c1m2_cheat_codes_headless) {
     // largest drop of a frame that left some reload.
     if (f == 37) {
       mech3::cheat_box_type(me, "operation cwal");
-      const uint32_t fire = zin::key1_of(0x3d) & 0xff;
+      const uint32_t fire = zin::key1_of(0x3e) & 0xff;
       k.key(fire, true), k.key(fire, false);
     }
     if (f >= 38 && f <= 41) {
@@ -20014,7 +20014,7 @@ TEST(mission_c1m2_no_cow_level_headless) {
       for (const mech3::ConfigItem* it : mech3::mission_salvage().items)
         if (it->kind() == 0) salvaged[it->id()] += it->count;
       won = mech3::missions().ended == 1 && mech3::missions().aborting == 0;
-      mech3::missions().on_command(0x71);  // Exit Mission
+      mech3::missions().on_command(0x79);  // Exit Mission
     }
     return false;
   }, [&](mech3::GameEngine& engine, mech3::Mech3App& app) {
@@ -20148,7 +20148,7 @@ TEST(mission_c1m1_won_and_lost_by_its_objectives_headless) {
             final_done = group_done(o.final);
             fail_done = group_done(o.fail);
             at_end = objectives_text(engine);
-            if (sc == kWon) mech3::missions().on_command(0x71);  // Exit Mission
+            if (sc == kWon) mech3::missions().on_command(0x79);  // Exit Mission
           }
           if (ended_at >= 0) stage = 4;
         } else if (stage == 4 && app.current() == &mech3::states().end_win) {
@@ -21514,7 +21514,7 @@ WideMenus wide_menus_run(bool wide) {
         stage = 31;
       } else if (stage == 31 && now == &st.core && ++wait > 30) {
         mech3::missions().ended = 1;  // won: Exit Mission, the end screen, the Win State's debriefing
-        mech3::missions().on_command(0x71);
+        mech3::missions().on_command(0x79);
         stage = 32;
       } else if (stage == 32 && now == &st.end_win) {
         auto* d = dynamic_cast<mech3::DebriefScreen*>(engine.screen_of(st.end_win.screen_));
@@ -22478,7 +22478,7 @@ HomingRun homing_run(const char* dir, bool kill, int limit) {
             break;
           }
         r.player_had_target = mech3::mech_target_object(player) != nullptr;
-        fire = zin::key1_of(0x3d) & 0xff;  // CMD_FIRE
+        fire = zin::key1_of(0x3e) & 0xff;  // CMD_FIRE
         keys.key(fire, true);
       }
       if (r.frames == 31) keys.key(fire, false);

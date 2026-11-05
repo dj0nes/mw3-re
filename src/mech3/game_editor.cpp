@@ -105,15 +105,15 @@ void editor_install(int32_t mode, const EditorMenu& m) {
 void editor_main_menu() { editor_install(0, kMainMenu); }
 
 // Mech3.exe 1.2 @ 0x0040e430: a copy of the key map with Space and the left
-// button as 0x9b (pick), 0x439 and the right button as 0x9c (a trace in a
+// button as 0xa3 (pick), 0x439 and the right button as 0xa4 (a trace in a
 // debug build); the view onto the stealth object; the debug lines hidden
 // when they were up; the panel's layer on; the main menu.
 void editor_enter() {
   EditorHooks& h = *g_hooks;
   g_state.active = 1;
   h.push_map();
-  h.bind(0x9b, 0x39, 1);
-  h.bind(0x9c, 0x439, 2);
+  h.bind(0xa3, 0x39, 1);
+  h.bind(0xa4, 0x439, 2);
   h.view_on_stealth();
   g_state.debug_lines = h.debug_lines();
   if (g_state.debug_lines) h.debug_lines_show(false);
@@ -136,10 +136,10 @@ void editor_exit(int32_t) {
 
 // Mech3.exe 1.2 @ 0x0040e4b0, each frame: while the editor is up, the row
 // under the mouse (by its y, 12 apart from 0x5f, and its hit test) lit
-// green, the one before back in the panel's colours; 0x9b pressed on a row
+// green, the one before back in the panel's colours; 0xa3 pressed on a row
 // calls its entry (a hidden row or the title, the menu's first) with the
 // mouse's y, the input's state cleared first for a shown row; the panel's
-// layer updated (drawn); the net editor's step in its modes; 0x9c held
+// layer updated (drawn); the net editor's step in its modes; 0xa4 held
 // calls the trace (empty in the release, 0x005ac5c0). Then the net
 // editor's frame either way.
 void editor_frame() {
@@ -166,7 +166,7 @@ void editor_frame() {
         }
       }
     }
-    const bool pressed = r >= 0 && (h.command(0x9b) & 4) != 0;
+    const bool pressed = r >= 0 && (h.command(0xa3) & 4) != 0;
     const bool shown = r > 0 && !(p.rows[r]->flags & ztwod::kHidden);
     if (pressed && shown) h.input_reset();
     p.layer.update(h.frame_dt());  // 0x0059fd20
@@ -175,7 +175,7 @@ void editor_frame() {
       const EditorEntry& e = g_state.menu->rows[shown ? r : 0];
       if (e.handler) e.handler(m.y);
     }
-    (void)(h.command(0x9c) & 3);  // the trace, 0x005ac5c0: empty
+    (void)(h.command(0xa4) & 3);  // the trace, 0x005ac5c0: empty
   }
   h.net_frame(g_state.active == 1);
 }

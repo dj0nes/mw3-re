@@ -567,7 +567,7 @@ void wire_mech_frame() {
       if (t->self == e) return !(t->desc.flags & (zoom ? 8 : 4));
     return false;
   };
-  // The look keys (0x62..0x67) and FREELOOK: the view's mode vt+0x10, the
+  // The look keys (0x6a..0x6f) and FREELOOK: the view's mode vt+0x10, the
   // free look (playtest #14: wired to the camera switch before).
   k.view_camera = program_view_look;
   // 0x005a8630 on a contact's vehicle (the part aim's fallback): a mech's
@@ -1170,12 +1170,12 @@ uint32_t program_net_drive(int cmd, double t, uint32_t seed) {
   // The throttle up (0x18) held throughout (THROTTLE0's 0x24 is a key's
   // callback, not polled, and with ThrottleConst off a let-go throttle eases
   // back to zero). Turned (left 2, right 3) toward the nearest remote mech in
-  // play, the trigger (TRIGGER1, 0x3d) held while it is ahead within 400 m;
+  // play, the trigger (TRIGGER1, 0x3e) held while it is ahead within 400 m;
   // inside 120 m, or with none, turns of a few seconds by the seed. Walking
   // into something (under 3 m in 3 s): a turn by the seed's side for 1.5 s,
   // then straight on for 3.5 s.
   if (cmd == 0x18) return 1u;
-  if (cmd != 2 && cmd != 3 && cmd != 0x3d) return 0;
+  if (cmd != 2 && cmd != 3 && cmd != 0x3e) return 0;
   Mech* me = launched_mech();
   float p[3] = {}, f[3] = {}, best = 1e30f, to[2] = {};
   if (me) mech_world_position(me, p), mech_forward(me, f);
@@ -1437,7 +1437,7 @@ bool program_net_chat_check(NetChatSeen* out) {
       if (std::strcmp(l.text, t) == 0) return true;
     return false;
   };
-  me->command(0x77);  // CHAT_ALL
+  me->command(0x7f);  // CHAT_ALL
   if (ChatPanel* p = me->chat) {
     out->opened = 1;
     out->prompt_all = has_line(p, "CHAT ALL");
@@ -1462,7 +1462,7 @@ bool program_net_chat_check(NetChatSeen* out) {
   b->send(0, m.data(), m.size(), false, nullptr);
   znet::poll(-1);
   if (!lines.empty()) out->peer = lines.back();
-  me->command(0x76);  // CHAT_TEAM, outside team play: to all
+  me->command(0x7e);  // CHAT_TEAM, outside team play: to all
   if (ChatPanel* p = me->chat) {
     out->team_prompt_all = has_line(p, "CHAT ALL");
     p->key('\r', 0x1c);
@@ -1495,7 +1495,7 @@ bool program_net_chat_respawn_check(NetChatRespawnSeen* out) {
   NetMech* bob = nullptr;
   for (NetMech* m : net_game().mechs)
     if (m->owner == 2) bob = m;
-  me->command(0x77);  // CHAT_ALL
+  me->command(0x7f);  // CHAT_ALL
   if (bob && me->chat) {
     me->chat->key('h', 0);  // part way through a line
     bob->active = 0;        // Bob dead, then his respawn (0x12) at his place
@@ -1511,7 +1511,7 @@ bool program_net_chat_respawn_check(NetChatRespawnSeen* out) {
     out->sent_after_peer = heard("hi");
     out->commands_after_peer = zin::current_map() && zin::current_map()->enabled;
   }
-  me->command(0x77);
+  me->command(0x7f);
   if (me->chat) {
     me->chat->key('x', 0);
     program_pilot_set_mech(me->pilot ? me->pilot->roster : 0);  // ours made again with the panel up
@@ -1519,7 +1519,7 @@ bool program_net_chat_respawn_check(NetChatRespawnSeen* out) {
     out->own_closed = now && now->chat == nullptr;
     out->commands_after_own = zin::current_map() && zin::current_map()->enabled;
     if (now) {
-      now->command(0x77);
+      now->command(0x7f);
       out->reopened = now->chat != nullptr;
       if (now->chat) type(now, "back");
       out->sent_after_own = heard("back");
@@ -1672,7 +1672,7 @@ bool program_net_scores_box_check(NetScoresBoxSeen* out) {
 bool program_chat_open() {
   Mech* me = launched_mech();
   if (!me) return false;
-  if (!me->chat) me->command(0x77);
+  if (!me->chat) me->command(0x7f);
   return me->chat != nullptr;
 }
 std::string program_chat_line() {
