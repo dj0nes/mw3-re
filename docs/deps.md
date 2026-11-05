@@ -76,3 +76,19 @@ What is built:
   Windows' clock (`GetSystemTimeAsFileTime`) and `Sleep`. The script
   refuses a DLL that imports anything else. Replaces BtbN's "latest"
   LGPL v3 build (docs/windows.md).
+
+## tvOS (Apple TV)
+
+`tools/deps/build_deps.sh tvos` builds for the Apple TV (`appletvos`,
+arm64) and `tools/deps/build_deps.sh tvos-sim` for the tvOS Simulator
+(`appletvsimulator`, arm64), both for tvOS 17.0 and later, into
+`build-deps/tvos/prefix` and `build-deps/tvos-sim/prefix`. They build only
+SDL3, FreeType, SDL3_ttf and SDL3_sound, from the same pinned tarballs, all
+static: the app links them in (docs/tvos.md). FreeType stays its own
+`libfreetype.a` beside `libSDL3_ttf.a`, which SDL3_ttf's CMake config
+pulls in. No FFmpeg (mw3import is not part of the app) and no zlib, xz or
+libarchive (the app has no SETUP). When CMake builds for tvOS it searches
+only under its find roots, so the script makes the prefix one
+(`CMAKE_FIND_ROOT_PATH`); without it SDL3_ttf does not find SDL3. First
+run 2026-11-05: about 20 seconds each, every object `LC_BUILD_VERSION`
+platform 3 (tvOS) for the device and 8 (tvOS Simulator) for the Simulator.

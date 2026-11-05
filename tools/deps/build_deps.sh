@@ -12,12 +12,17 @@
 #   tools/deps/build_deps.sh win     FFmpeg only, for Windows x64, cross-built
 #                                    with mingw-w64 (the PC takes the rest
 #                                    from their official Windows releases)
+#   tools/deps/build_deps.sh tvos      Apple TV (appletvos, arm64), static SDL3,
+#   tools/deps/build_deps.sh tvos-sim  SDL3_ttf, SDL3_sound only; the Simulator
+#                                    (appletvsimulator, arm64) for tvos-sim
 #
 # Out: build-deps/<platform>/prefix (include, lib, lib/cmake, lib/pkgconfig),
 # which tools/macos/make_app.sh and the Linux build take as CMAKE_PREFIX_PATH.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
-PLATFORM="${1:?mac, linux or win}"
+PLATFORM="${1:?mac, linux, win, tvos or tvos-sim}"
+case "$PLATFORM" in mac|linux|win|tvos|tvos-sim) ;; *) echo "unknown platform $PLATFORM" >&2; exit 1;; esac
+TVOS=0; case "$PLATFORM" in tvos|tvos-sim) TVOS=1;; esac
 ROOT="$PWD/build-deps"
 DL="$ROOT/downloads"
 PREFIX="$ROOT/$PLATFORM/prefix"
@@ -41,11 +46,13 @@ sha256() { if command -v sha256sum >/dev/null; then sha256sum "$1" | cut -d' ' -
 mkdir -p "$DL"
 for p in "${PINS[@]}"; do
   IFS='|' read -r name url sum <<< "$p"
+  # Ours (tvOS): SDL3, FreeType, SDL3_ttf and SDL3_sound only.
+  if [ "$TVOS" = 1 ]; then case "$name" in SDL3*|freetype*) ;; *) continue;; esac; fi
   [ -f "$DL/$name" ] || curl -sSfL -o "$DL/$name" "$url"
   got="$(sha256 "$DL/$name")"
   if [ "$got" != "$sum" ]; then echo "$name: sha256 $got, pinned $sum: refused" >&2; exit 1; fi
 done
-echo "sources: all ${#PINS[@]} match their pins"
+echo "sources: all match their pins"
 
 rm -rf "$WORK" "$PREFIX"
 mkdir -p "$WORK" "$PREFIX"
@@ -56,6 +63,12 @@ CMAKE_COMMON=(-G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$PREFI
 if [ "$PLATFORM" = mac ]; then
   CMAKE_COMMON+=(-DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" -DCMAKE_OSX_DEPLOYMENT_TARGET=12.0
                  -DCMAKE_INSTALL_NAME_DIR=@rpath)
+elif [ "$TVOS" = 1 ]; then
+  # Static, linked into the app (docs/tvos.md). CMake searches only under
+  # the find roots when it builds for tvOS: the prefix is made one.
+  SYSROOT=appletvos; [ "$PLATFORM" = tvos-sim ] && SYSROOT=appletvsimulator
+  CMAKE_COMMON+=(-DCMAKE_SYSTEM_NAME=tvOS -DCMAKE_OSX_SYSROOT="$SYSROOT" -DCMAKE_OSX_ARCHITECTURES=arm64
+                 -DCMAKE_OSX_DEPLOYMENT_TARGET=17.0 -DBUILD_SHARED_LIBS=OFF -DCMAKE_FIND_ROOT_PATH="$PREFIX")
 else
   CMAKE_COMMON+=(-DCMAKE_INSTALL_RPATH='$ORIGIN')
 fi
@@ -72,7 +85,9 @@ unpack SDL3-3.4.12.tar.gz
 # to configure X11 (docs/linux.md).
 SDL_EXTRA=()
 [ "$PLATFORM" = linux ] && SDL_EXTRA+=(-DSDL_X11_XTEST=OFF)
-cmake_build "$WORK/src/SDL3-3.4.12" -DSDL_SHARED=ON -DSDL_STATIC=OFF -DSDL_TEST_LIBRARY=OFF -DSDL_TESTS=OFF -DSDL_EXAMPLES=OFF \
+SDL_LINK=(-DSDL_SHARED=ON -DSDL_STATIC=OFF)
+[ "$TVOS" = 1 ] && SDL_LINK=(-DSDL_SHARED=OFF -DSDL_STATIC=ON)
+cmake_build "$WORK/src/SDL3-3.4.12" "${SDL_LINK[@]}" -DSDL_TEST_LIBRARY=OFF -DSDL_TESTS=OFF -DSDL_EXAMPLES=OFF \
   ${SDL_EXTRA[@]+"${SDL_EXTRA[@]}"}
 echo "built SDL3"
 
@@ -87,15 +102,20 @@ echo "built FreeType"
 # SDL3_ttf without HarfBuzz (complex-script shaping) or PlutoSVG (SVG fonts):
 # the game draws Latin text in its own TrueType fonts.
 unpack SDL3_ttf-3.2.2.tar.gz
-cmake_build "$WORK/src/SDL3_ttf-3.2.2" -DBUILD_SHARED_LIBS=ON -DSDLTTF_VENDORED=OFF -DSDLTTF_HARFBUZZ=OFF \
+TTF_SHARED=ON; [ "$TVOS" = 1 ] && TTF_SHARED=OFF
+cmake_build "$WORK/src/SDL3_ttf-3.2.2" -DBUILD_SHARED_LIBS=$TTF_SHARED -DSDLTTF_VENDORED=OFF -DSDLTTF_HARFBUZZ=OFF \
   -DSDLTTF_PLUTOSVG=OFF -DSDLTTF_SAMPLES=OFF
 echo "built SDL3_ttf"
 
 unpack SDL3_sound-3.2.0.tar.gz
-cmake_build "$WORK/src/SDL3_sound-3.2.0" -DSDLSOUND_BUILD_SHARED=ON -DSDLSOUND_BUILD_STATIC=OFF \
+SND_LINK=(-DSDLSOUND_BUILD_SHARED=ON -DSDLSOUND_BUILD_STATIC=OFF)
+[ "$TVOS" = 1 ] && SND_LINK=(-DSDLSOUND_BUILD_SHARED=OFF -DSDLSOUND_BUILD_STATIC=ON)
+cmake_build "$WORK/src/SDL3_sound-3.2.0" "${SND_LINK[@]}" \
   -DSDLSOUND_BUILD_TEST=OFF -DSDLSOUND_BUILD_DOCS=OFF
 echo "built SDL3_sound"
 fi
+# tvOS: no FFmpeg (mw3import is not in the app) and no libarchive (no SETUP).
+if [ "$TVOS" = 1 ]; then echo "prefix: $PREFIX"; exit 0; fi
 
 # FFmpeg: only what mw3import uses (the AVI demuxer, the Indeo 5 decoder,
 # the MPEG-1 video encoder and muxer, swscale, the file protocol), LGPL 2.1,
