@@ -1345,9 +1345,13 @@ functions PM changed, and PM's new ones.
        caught). The network score list is MW3's. Left: the game's name in the program (PM's game object).
      - **The damage static: done** (0x0043e1f0 the tick, 0x0043dda0 the noise, 0x0043dfa0 the quad, 0x0043df70;
        docs/hud.md section 21, Pirate's Moon): the warning by health under 0.2, an easing fall, the noise as a
-       textured quad on the GPU path only. Test `test_pm_hud_static.py`; 12 breaks caught. Left: 0x43d710 (a
-       vtable slot drawing the MFD's and TARGET's 3D views) to read; seeing it on screen waits on mw3pm's
-       missions.
+       textured quad on the GPU path only. Test `test_pm_hud_static.py`; 12 breaks caught. Seen on screen (c1m1, health forced low).
+     - **0x43d710: MW3's** (the HUD's vt+0x04, vtable 0x5e28a0): MW3's 0x43c6b0 (`Hud::draw3d`) with PM's offsets,
+       the same rects, panels, message panel, objectives and 3D views in the same order. Nothing to port.
+     - **The radar (0x43dd00 -> 0x43f220): changed**, pseudocode 73% alike: placed and shown anew each frame
+       (vt+0x0c, vt+0x60) with a map-dependent offset, the zoom range kept squared (+0x34, +0x38), other
+       distance arithmetic, a contact's pick through vt+0x44 with a fresh colour, and more. Next: mapped
+       line by line before porting.
    - **zSound: done** (2026-11-04, `src/gamez/zsound` in place; docs/sound.md, Pirate's Moon):
      - PM's: the load 0x00591840 and the reader 0x00591900 / 0x005920e0 / 0x00592170 (no SYNTAX, no demo,
        sets made by name 0x00590ae0, INCLUDE_SETS, COMPILE_FORMAT, QPRIORITY, a 3-item keyword step);
