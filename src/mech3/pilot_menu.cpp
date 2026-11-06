@@ -101,13 +101,17 @@ void RenameBar::on_left_up() {
   set_focus(1);
 }
 
-// Mech3.exe 1.2 @ 0x00487cf0: Enter makes the pilot (none for no name).
+const char* g_default_pilot_name = nullptr;
+
+// Mech3.exe 1.2 @ 0x00487cf0: Enter makes the pilot (none for no name;
+// ours: g_default_pilot_name's, when set).
 void NewPilotBar::on_return() {
   const char* t = get_text();
   active = 0;
   set_focus(0);
+  if ((!t || !*t) && g_default_pilot_name) t = g_default_pilot_name;
   if (!t || !*t) return;
-  Pilot* p = create_pilot(get_text());
+  Pilot* p = create_pilot(t);
   if (PilotScreen* s = screen_of(owner)) s->refresh(true, p);
 }
 

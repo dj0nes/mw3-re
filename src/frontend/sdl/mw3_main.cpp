@@ -91,6 +91,7 @@
 #include "gamez/zutil/zutl_path.h"
 #include "mech3/app.h"
 #include "mech3/mods.h"
+#include "mech3/pilot_menu.h"
 #include "mech3/app_engine.h"
 #include "mech3/app_hud.h"
 #include "mech3/app_keys.h"
@@ -633,6 +634,9 @@ int main(int argc, char** argv) {
   // The Siri Remote is not a joystick: the game's pad is the controller
   // (SdlInput's late_pad takes the first gamepad to connect).
   SDL_SetHint(SDL_HINT_TV_REMOTE_AS_JOYSTICK, "0");
+  // A new pilot left without a name (the system keyboard not to hand) is
+  // "Pilot" instead of none (pilot_menu.h).
+  mech3::g_default_pilot_name = "Pilot";
 #endif
   if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_JOYSTICK)) {
     std::fprintf(stderr, "mw3: SDL_Init: %s\n", SDL_GetError());
@@ -1622,6 +1626,22 @@ int run(const Args& a, platform::VideoForWindows* vfw) {
         if (auto* so = dynamic_cast<sdlfe::SdlSoundOutput*>(sound.get())) so->pause_device(away);
         music.pause_device(away);
       };
+      // MW3_PAD_KEYBOARD=N (checks): the pad's Y at the pump's Nth pass, the
+      // system keyboard up as a player's Y puts it (the tvOS Simulator has no
+      // pad to press).
+      int pad_keyboard_at = 0, keyboard_passes = 0;
+      if (const char* k = SDL_getenv("MW3_PAD_KEYBOARD")) pad_keyboard_at = std::atoi(k);
+      if (pad_keyboard_at > 0 && a.pad_bridge) {
+        auto before = pump.each_pass;
+        pump.each_pass = [&, before] {
+          if (before) before();
+          if (++keyboard_passes != pad_keyboard_at) return;
+          SDL_Event y{};
+          y.type = SDL_EVENT_GAMEPAD_BUTTON_DOWN, y.gbutton.button = SDL_GAMEPAD_BUTTON_NORTH, y.gbutton.down = true;
+          bridge.on_event(y, false);
+          std::printf("mw3: the pad's Y (MW3_PAD_KEYBOARD)\n");
+        };
+      }
       // MW3_FOCUS_LOST_AT=N (checks): the window's focus lost at the pump's
       // Nth pass, as when another app is in front.
       int focus_lost_at = 0, passes = 0;

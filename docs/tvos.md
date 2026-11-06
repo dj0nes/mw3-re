@@ -98,6 +98,18 @@ the left stick moves the cursor and A clicks; in a mission the sticks,
 triggers and buttons are the game's joystick, and holding LB gives the
 keyboard's actions. The full list is in [pad-bridge.md](pad-bridge.md).
 
+### Typing (the pilot's name, save names)
+
+When the game puts the cursor in a text field (the new pilot's name, a save
+name), the Apple TV's keyboard opens by itself. Pick letters with the left
+stick or d-pad and A, then choose Done (or press Enter on the keyboard):
+the name goes into the field and the controller drives the game again. B or
+Menu closes the keyboard without Done; the field keeps the cursor, and Y
+opens the keyboard again. Y in any menu opens it by hand.
+
+If the keyboard does not work for you, leave the pilot's name empty and
+confirm it: on the Apple TV an empty new pilot is named "Pilot".
+
 The controller's Menu (Start) button opens the game's pause menu. To leave
 the app, press the TV button on the Siri Remote; the remote is not a game
 controller here.

@@ -41,6 +41,10 @@ class ScenarioCycle : public CycleButton {
   void select(int32_t i) override;   // +0xa0  0x00487440
 };
 
+// Ours (tvOS, docs/tvos.md): the name Enter gives a new pilot whose name was
+// left empty, for a player with no keyboard; null (the original): none.
+extern const char* g_default_pilot_name;
+
 // EDITBAR (vtable 0x005c5310): a new pilot's name; Enter makes it.
 class NewPilotBar : public ShellEditBar {
  public:

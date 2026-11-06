@@ -16,7 +16,7 @@ it with the same controller.
 | A | Left click at the cursor |
 | B | Escape (back) |
 | Menu (Start) | Escape |
-| Y | Shows the system keyboard, or hides it (for the pilot's name) |
+| Y | Opens the system keyboard (it opens by itself for a text field) |
 
 The cursor's speed is `600 * t^2` window points a second, where `t` is the
 stick's tilt past a dead zone of 0.15, scaled to 0..1: slow near the centre,
@@ -25,10 +25,36 @@ a 4:3 frame on a 16:9 screen. In the menus every joystick button and the
 d-pad are kept from the game (`SdlInput::pad_button_mask`), so a click is
 not also a joystick press.
 
-The system keyboard (tvOS) types into the game as key presses: SDL sends
-each character as a key down and up, with Shift for capitals
-(`SDL_SendKeyboardUnicodeKey`). The bridge adds nothing to that text, or
-every letter would be typed twice.
+## Text fields and the system keyboard
+
+The game's text fields (the pilot's name, save names, the lab's
+configurations, the multiplayer names and chat) are its edit bars. One has
+the focus while zInput's char callback is set, which `zin::text_focus()`
+reports. Each frame the bridge follows it: the field takes the focus, the
+system keyboard opens; the field lets go, it closes. Y opens it by hand.
+
+While it is up:
+
+- SDL's hint `SDL_HINT_APPLE_TV_CONTROLLER_UI_EVENTS` is "1", so the
+  controller drives UIKit's keyboard. It is "0" again when the keyboard
+  closes, so Menu is the game's again and does not leave the app.
+- The bridge gives the game no clicks or keys from the pad.
+- B or Menu, let go, means the keyboard was closed with its Back; Enter
+  (sent by its Done) closes it too.
+
+SDL on tvOS does not watch the keyboard's own show and hide, so the bridge
+keeps that state itself.
+
+The keyboard types into the game as key presses: SDL sends each character
+as a key down and up, with Shift for capitals (`SDL_SendKeyboardUnicodeKey`),
+plus Backspace and Enter. The bridge adds nothing to the text event, or
+every letter would be typed twice. zInput turns a key into its character
+with the key's own Shift (`zin::key_char`, FIX (A)): Windows' keyboard state
+was as of the key's message, the host's is as of the read, by when the
+keyboard's Shift is already up.
+
+On the Apple TV a new pilot confirmed with an empty name is "Pilot"
+(`mech3::g_default_pilot_name`), in case the keyboard cannot be used.
 
 ## Missions
 
@@ -80,5 +106,10 @@ first.
 `MW3_TEST_FILTER=pad_bridge ./build/mw3sdltests` runs the bridge's tests
 with synthetic gamepad events: the stick's cursor, the frame's edges, A's
 click, the LB layer, LB let go first, the pad switched off, the system
-keyboard's text, and the masks. `sdl_input_takes_a_late_pad_and_masks_its_buttons`
+keyboard's text, and the masks.
+`pad_bridge_opens_the_keyboard_for_a_text_field` checks the keyboard
+following the game's focus, Y, B and Done;
+`sdl_system_keyboard_types_into_a_text_field` sends what SDL's keyboard
+sends through SdlInput and zInput into a field: "Ab1", Backspace, Enter,
+each once. `sdl_input_takes_a_late_pad_and_masks_its_buttons`
 checks the late controller and the mask with an SDL virtual gamepad.

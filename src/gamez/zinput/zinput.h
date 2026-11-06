@@ -168,6 +168,9 @@ void kbd_reset();                      // 0x0051a300
 void kbd_age();                        // 0x0051a550
 void kbd_read(bool callbacks);         // 0x0051a5d0
 void set_char_callback(CharCallback cb, uintptr_t ctx);  // 0x0051a9a0
+// Ours: a text field (an edit bar, the console) takes the keys now: the
+// char callback is set (the front end's system keyboard follows it).
+bool text_focus();
 uint32_t key_state(int32_t key);       // 0x0051a9b0
 int32_t set_key_callback(int32_t key, KeyCallback cb);  // 0x0051a9c0: -1 when one is set
 void clear_key_callbacks();            // 0x0051a9e0

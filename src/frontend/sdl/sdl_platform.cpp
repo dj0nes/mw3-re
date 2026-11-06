@@ -291,6 +291,7 @@ void SdlPump::bridge_tick() {
     bridge->set_frame({r.x, r.y, r.w, r.h});
   }
   const bool mission = input_->in_mission && input_->in_mission();
+  bridge->text_focus(zin::text_focus());  // the system keyboard follows the game's text field
   float lx = 0, ly = 0;
   bridge->left_stick(&lx, &ly);
   for (const SDL_Event& o : bridge->tick(dt, mission, lx, ly)) input_->on_event(o);

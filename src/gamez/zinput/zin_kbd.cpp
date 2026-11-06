@@ -211,6 +211,8 @@ void set_char_callback(CharCallback cb, uintptr_t ctx) {
   state().char_ctx = ctx;
 }
 
+bool text_focus() { return state().char_callback != nullptr; }
+
 // Mech3.exe 1.2 @ 0x0051a9b0
 uint32_t key_state(int32_t key) { return state().keys[key].state; }
 
@@ -292,7 +294,13 @@ uint32_t key_char(uint32_t key) {
   const uint32_t vk = g_host->map_virtual_key(scan);
   if (vk != 0) {
     uint16_t out = 0;
-    if (g_host->keyboard_state(kb) && g_host->to_ascii(vk, scan, kb, &out) == 1) ch = out;
+    // FIX (A): Windows' GetKeyboardState was the keyboard as of the message
+    // being read; the host's is as of now. A system keyboard's capital
+    // (tvOS: Shift, the key, Shift up, all before this read) lost its Shift.
+    // The key's own Shift (zInput's code, from the events in order) is kept.
+    const bool state = g_host->keyboard_state(kb);
+    if (key & kShift) kb[0x10] = 0x80;  // VK_SHIFT held
+    if (state && g_host->to_ascii(vk, scan, kb, &out) == 1) ch = out;
     if (ch != 0) return ch;
   }
   const bool num = kb[0x90] != 0;  // VK_NUMLOCK's byte (zero when the state was not read)

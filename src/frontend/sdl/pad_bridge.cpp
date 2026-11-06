@@ -135,9 +135,13 @@ std::vector<SDL_Event> PadBridge::on_event(const SDL_Event& e, bool in_mission) 
       // A pad switched off mid-press: no key or click stays down.
       if (pad_ && e.gdevice.which == pad_id_) SDL_CloseGamepad(pad_), pad_ = nullptr, pad_id_ = 0;
       return release_all();
+    case SDL_EVENT_KEY_DOWN:
+      // The keyboard's Done sends Enter and goes away.
+      if (keyboard_ && e.key.scancode == SDL_SCANCODE_RETURN) keyboard(false);
+      return {};
     case SDL_EVENT_GAMEPAD_BUTTON_DOWN: {
       const int b = e.gbutton.button;
-      if (held_.count(b)) return {};
+      if (held_.count(b) || keyboard_) return {};  // the system keyboard has the pad
       if (b == SDL_GAMEPAD_BUTTON_LEFT_SHOULDER) {
         lb_ = true;
         return {};
@@ -147,11 +151,7 @@ std::vector<SDL_Event> PadBridge::on_event(const SDL_Event& e, bool in_mission) 
       if (!in_mission) {
         if (b == SDL_GAMEPAD_BUTTON_SOUTH) a.click = true;
         else if (b == SDL_GAMEPAD_BUTTON_EAST || b == SDL_GAMEPAD_BUTTON_START) a.keys = {SDL_SCANCODE_ESCAPE};
-        else if (b == SDL_GAMEPAD_BUTTON_NORTH && window) {
-          // The system keyboard; it sends each character as key presses.
-          if (SDL_TextInputActive(window)) SDL_StopTextInput(window);
-          else SDL_StartTextInput(window);
-        }
+        else if (b == SDL_GAMEPAD_BUTTON_NORTH) keyboard(true);  // the system keyboard, by hand
       } else if (lb_) {
         a.keys = layer_keys(b);
       } else if (b == SDL_GAMEPAD_BUTTON_START) {
@@ -163,6 +163,10 @@ std::vector<SDL_Event> PadBridge::on_event(const SDL_Event& e, bool in_mission) 
     }
     case SDL_EVENT_GAMEPAD_BUTTON_UP: {
       const int b = e.gbutton.button;
+      if (keyboard_ && (b == SDL_GAMEPAD_BUTTON_EAST || b == SDL_GAMEPAD_BUTTON_START) && !held_.count(b)) {
+        keyboard(false);  // its Back closed it; the field keeps the focus
+        return {};
+      }
       if (b == SDL_GAMEPAD_BUTTON_LEFT_SHOULDER) {
         lb_ = false;  // a layered button still held keeps its key until let go
         return {};
@@ -196,6 +200,29 @@ std::vector<SDL_Event> PadBridge::tick(double dt_s, bool in_mission, float left_
   e.motion.x = x_, e.motion.y = y_;
   e.motion.xrel = x_ - x0, e.motion.yrel = y_ - y0;
   return {e};
+}
+
+void PadBridge::keyboard(bool on) {
+  if (on == keyboard_) return;
+  keyboard_ = on;
+  if (show_keyboard) {
+    show_keyboard(on);
+    return;
+  }
+  // tvOS: the system's keyboard is UIKit's, which hears the controller only
+  // while SDL lets the system have its input (else Menu would leave the app).
+  SDL_SetHint(SDL_HINT_APPLE_TV_CONTROLLER_UI_EVENTS, on ? "1" : "0");
+  if (window) {
+    if (on) SDL_StartTextInput(window);
+    else SDL_StopTextInput(window);
+  }
+  std::printf("mw3: pad bridge: the system keyboard %s\n", on ? "up" : "down");
+}
+
+void PadBridge::text_focus(bool focused) {
+  if (focused == focus_) return;
+  focus_ = focused;
+  keyboard(focused);
 }
 
 uint32_t PadBridge::joystick_mask(bool in_mission) const {

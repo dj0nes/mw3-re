@@ -8,6 +8,7 @@
 #include <SDL3/SDL.h>
 
 #include <cstdint>
+#include <functional>
 #include <map>
 #include <vector>
 
@@ -40,7 +41,16 @@ class PadBridge {
   void open_present();
   // The open pad's left stick, -1..1 (0, 0 without one).
   void left_stick(float* x, float* y) const;
-  // Y in the menus shows the system keyboard for this window (tvOS).
+  // The system keyboard (tvOS): up while the game's text field has the focus
+  // (zin::text_focus, given each frame), or by Y in the menus. While it is
+  // up the pad drives it, not the game; its Back (B or Menu) or its Done
+  // (Enter) closes it, and a field that keeps the focus gets it back only
+  // by Y or a new focus.
+  void text_focus(bool focused);
+  bool keyboard_open() const { return keyboard_; }
+  // Shows (true) or hides the keyboard; unset: SDL's text input on `window`,
+  // with the controller's input given to the system while it is up.
+  std::function<void(bool)> show_keyboard;
   SDL_Window* window = nullptr;
 
   static constexpr float kDeadZone = 0.15f;
@@ -56,6 +66,8 @@ class PadBridge {
   std::vector<SDL_Event> release(const Action& a) const;
   std::vector<SDL_Event> release_all();
   void clamp();
+  void keyboard(bool on);
+  bool keyboard_ = false, focus_ = false;
   FrameRect frame_{0, 0, 1920, 1080};
   float x_ = 960, y_ = 540;
   bool lb_ = false;

@@ -4913,3 +4913,86 @@ TEST(sdl_input_takes_a_late_pad_and_masks_its_buttons) {
   EXPECT(in.unplugged());
   in.close(platform::Input::kJoystick);
 }
+
+// tvOS: SDL's system keyboard sends each character as key presses, all
+// before the game reads them (SDL_SendKeyboardUnicodeKey: Shift down, the
+// key down and up, Shift up). Through SdlInput and zInput into a text
+// field's char callback: each character once, a capital as a capital,
+// Backspace and Enter as the field's.
+namespace {
+std::string g_typed;
+void type_into(int32_t ch, int32_t, uintptr_t) { g_typed += static_cast<char>(ch); }
+}  // namespace
+TEST(sdl_system_keyboard_types_into_a_text_field) {
+  sdlfe::SdlInput in;
+  sdlfe::SdlZinHost host(&in);
+  zin::set_input(&in);
+  zin::set_host(&host);
+  EXPECT(zin::start(1, 0) == 0);
+  EXPECT(!zin::text_focus());
+  zin::set_char_callback(&type_into, 0);
+  EXPECT(zin::text_focus());
+  g_typed.clear();
+  auto key = [&](SDL_Scancode s, bool down) {
+    SDL_Event e{};
+    e.type = down ? SDL_EVENT_KEY_DOWN : SDL_EVENT_KEY_UP;
+    e.key.scancode = s, e.key.down = down, e.key.timestamp = SDL_GetTicksNS();
+    in.on_event(e);
+  };
+  auto unicode_key = [&](SDL_Scancode s, bool shift) {
+    if (shift) key(SDL_SCANCODE_LSHIFT, true);
+    key(s, true), key(s, false);
+    if (shift) key(SDL_SCANCODE_LSHIFT, false);
+  };
+  unicode_key(SDL_SCANCODE_A, true);
+  unicode_key(SDL_SCANCODE_B, false);
+  unicode_key(SDL_SCANCODE_1, false);
+  unicode_key(SDL_SCANCODE_BACKSPACE, false);
+  unicode_key(SDL_SCANCODE_RETURN, false);
+  zin::kbd_read(true);
+  std::string shown;
+  for (char c : g_typed) shown += c >= 0x20 ? std::string(1, c) : "\\x" + std::to_string(c);
+  std::printf("typed: \"%s\"\n", shown.c_str());
+  EXPECT(g_typed == "Ab1\b\r");
+  zin::set_char_callback(nullptr, 0);
+  EXPECT(!zin::text_focus());
+  zin::stop();
+  zin::set_host(nullptr);
+  zin::set_input(nullptr);
+}
+
+// The bridge opens the system keyboard when the game's text field takes the
+// focus and closes it when the field lets go; Y opens or closes it by hand.
+// While it is up the pad drives the keyboard, not the game; its Back (B or
+// Menu) closes it, and the field keeps the focus without the keyboard
+// coming back until the focus changes or Y.
+TEST(pad_bridge_opens_the_keyboard_for_a_text_field) {
+  sdlfe::PadBridge b;
+  std::string log;
+  b.show_keyboard = [&](bool on) { log += on ? "1" : "0"; };
+  b.text_focus(false);
+  b.text_focus(true);
+  b.text_focus(true);
+  EXPECT(log == "1" && b.keyboard_open());
+  EXPECT(b.on_event(pad_button(SDL_GAMEPAD_BUTTON_SOUTH, true), false).empty());  // the keyboard's, not a click
+  EXPECT(b.on_event(pad_button(SDL_GAMEPAD_BUTTON_SOUTH, false), false).empty());
+  b.on_event(pad_button(SDL_GAMEPAD_BUTTON_EAST, true), false);
+  EXPECT(b.on_event(pad_button(SDL_GAMEPAD_BUTTON_EAST, false), false).empty());  // closed it, no Escape
+  EXPECT(log == "10" && !b.keyboard_open());
+  b.text_focus(true);
+  EXPECT(log == "10");  // dismissed: not back by itself
+  b.on_event(pad_button(SDL_GAMEPAD_BUTTON_NORTH, true), false);  // Y
+  b.on_event(pad_button(SDL_GAMEPAD_BUTTON_NORTH, false), false);
+  EXPECT(log == "101" && b.keyboard_open());
+  SDL_Event enter{};
+  enter.type = SDL_EVENT_KEY_DOWN, enter.key.scancode = SDL_SCANCODE_RETURN, enter.key.down = true;
+  EXPECT(b.on_event(enter, false).empty());  // Done: the keyboard is gone
+  EXPECT(log == "1010" && !b.keyboard_open());
+  b.text_focus(false);
+  b.text_focus(true);  // a new focus: up again
+  EXPECT(log == "10101");
+  b.text_focus(false);
+  EXPECT(log == "101010");
+  // Closed, A clicks again.
+  EXPECT(pad_events(b.on_event(pad_button(SDL_GAMEPAD_BUTTON_SOUTH, true), false)) == "M+1");
+}
