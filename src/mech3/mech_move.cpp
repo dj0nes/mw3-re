@@ -44,7 +44,7 @@ constexpr float kLandingSideways = 20.0f;  // 0x005e1f88
 constexpr int kStateStand = 1, kDead = 10, kFalling = 11, kFallenBack = 12, kFallenFront = 13;
 constexpr int kNetAction = 0x17;  // docs/network-messages.md
 constexpr int kKnockSound = 0x18;  // cockpit table 0x00605598
-constexpr uint32_t kBlendFrames = 20;  // 0x005e1fac
+// The exe's pose blend length, 20 frames (0x005e1fac), is not read here.
 constexpr int kMasc = 12, kMascSound = 0x1b;  // equipment kind; the cockpit sound (table 0x00605598)
 constexpr int kJumpJet = 11, kElementalRoster = 7, kJetSound = 3, kSoundJumpJet = 3, kJumpPose = 12;
 constexpr int kStandUpSound = 0xb, kStandUpSlot = 11;  // mech +0x5e4

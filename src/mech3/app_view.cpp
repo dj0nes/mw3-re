@@ -32,6 +32,8 @@
 
 namespace mech3 {
 
+int32_t mw2_jump_jets();  // options.h, 0x0040d1e0 (as mech_move.cpp declares it)
+
 namespace {
 ViewProgram g_p;
 bool g_wired = false;
@@ -256,10 +258,7 @@ void wire_view(const ViewProgram* p) {
   k.view_mode = p ? +[]() -> CameraMode* { return g_view ? g_view->mode : nullptr; } : nullptr;
   // [0x005f4c8c] +0x58 +0x40: the view's camera's look (0 and 1 the side views).
   k.camera_view = p ? +[]() -> int { return g_view && g_view->mode ? g_view->mode->look_ : 0; } : nullptr;
-  k.mw2_jets = p ? +[]() {
-    int32_t mw2_jump_jets();  // options.cpp
-    return mw2_jump_jets() != 0;
-  } : nullptr;  // 0x0040d1e0, the MW2JJets option
+  k.mw2_jets = p ? +[]() { return mw2_jump_jets() != 0; } : nullptr;  // 0x0040d1e0, the MW2JJets option
 }
 PlayerView* program_view() { return g_view.get(); }
 int32_t program_view_mode_id() { return g_view && g_view->mode ? g_view->mode->id : -1; }

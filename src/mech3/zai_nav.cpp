@@ -728,7 +728,7 @@ bool on_for(bool ally) {
   return ally ? o.nav_allies : o.nav_enemies;
 }
 
-bool Follower::step(const float pos[3], const float to[3], float now, float dt, float out[3], bool must_find, float reach) {
+bool Follower::step(const float pos[3], const float to[3], float now, float /*dt*/, float out[3], bool must_find, float reach) {
   Grid& g = grid();
   if (now < fallback_until) return false;
   const float flat = std::hypot(to[0] - pos[0], to[2] - pos[2]);
