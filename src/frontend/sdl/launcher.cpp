@@ -428,7 +428,7 @@ class Launcher {
   std::vector<std::string> notes_;  // the first start's (launcher_notes)
   std::vector<Button> buttons_;
   int hot_ = -1, focus_ = -1;
-  float hot_t_ = 0, phase_ = 0, scroll_ = 0;
+  float hot_t_ = 0, scroll_ = 0;
   // The ripple (mech3::menu_ripple_step's state) and the button it is for.
   int frames_ = 0;                    // frames shown, and their draw and present times (the log)
   bool vsync_ = false;

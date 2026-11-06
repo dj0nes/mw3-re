@@ -124,6 +124,7 @@ class LabLoadoutList : public FileList {
   bool can_choose(int32_t) override { return false; }  // +0x94  0x0044f4e0
   // 0x0044b230: the weapons (with their ammunition), a blank, the heat
   // sinks, then the equipment but armour and sinks; none for no loadout.
+  using FileList::refresh;  // the base's refresh() stays (ours: not hidden)
   void refresh(Handle cfg);
 };
 
@@ -332,6 +333,7 @@ class LabEngineTable : public LabTable {
   bool read_control(zrdr::Node*, ztwod::Dialog*) override;  // +0x84  0x0044b830
   void show_for(float seconds) override;  // +0x60  0x0044b770
   void hide() override;              // +0x64  0x0044b7e0
+  using LabTable::refresh;  // the base's refresh() stays (ours: not hidden)
   void refresh(Handle config);       // 0x0044b4b0
   Engine& e_;
   LabButton faster;                  // +0x188  id 0x13, TOGGLE_RIGHT
@@ -358,6 +360,7 @@ class LabMechData : public LabTable {
   bool read_control(zrdr::Node* node, ztwod::Dialog* dialog) override;  // +0x84  0x004570a0
   void show_for(float seconds) override;  // +0x60  0x004572e0
   void hide() override;              // +0x64  0x00457310
+  using LabTable::refresh;  // the base's refresh() stays (ours: not hidden)
   void refresh(Handle config);       // 0x00457330
   Engine& e_;
   LabEndoCycle endo;                 // +0x188
@@ -369,6 +372,7 @@ class LabChassisData : public LabTable {
  public:
   explicit LabChassisData(Engine& e);
   void set_pos(int32_t px, int32_t py) override;  // +0x0c  0x00457e80: half a row before the last two
+  using LabTable::refresh;  // the base's refresh() stays (ours: not hidden)
   void refresh(Handle config);       // 0x00457940
   Engine& e_;
 };
@@ -390,6 +394,7 @@ class LabArmorToggle : public CycleButton {
   void step(int32_t by) override;    // +0xa4  0x004509b0 (step 8b3)
   // 0x00450840: bound to ARMOR_TOGGLE and placed.
   void place(ztwod::Dialog* dialog, int32_t section, ztwod::Text* most, int32_t px, int32_t py);
+  using CycleButton::refresh;  // the base's refresh() stays (ours: not hidden)
   void refresh(Handle config);       // 0x00450880: its one choice the points
   int32_t section = 0;               // +0x424  a part (0..10; 3..5 the rear torsos)
   ztwod::Text* most = nullptr;       // +0x428
@@ -411,6 +416,7 @@ class LabArmorTitles : public ztwod::Control {
   void show_for(float seconds) override;  // +0x60  0x00450fb0: the arrows and REMOVE only while editable
   void hide() override;              // +0x64  0x00451050
   bool read_control(zrdr::Node* node, ztwod::Dialog* dialog) override;  // +0x84  0x004510a0
+  using ztwod::Control::refresh;  // the base's refresh() stays (ours: not hidden)
   void refresh(Handle config);       // 0x00450e00
   Engine& e_;
   LabArmorRemove remove;             // +0x14c  ARMOR_REMOVE

@@ -124,8 +124,6 @@ class SdlTwodHost : public ztwod::Host {
   bool load_named_fonts();
 
   mech3::GameEngine* engine_;
-  SdlInput* input_;
-  platform::Window* window_;
   Handle next_ = 0x00300000;
   std::map<Handle, Font> fonts_;
   std::map<Handle, Dc> dcs_;
@@ -141,7 +139,6 @@ class SdlTwodHost : public ztwod::Host {
   std::set<zimg::Texture*> freed_;   // freed through image_release, until the address is reused
   void free_image(zimg::Texture* image);
   zimg::Texture* made(zimg::Texture* image);
-  uint32_t buttons_ = 0;
   bool ttf_ok_ = false;
 };
 

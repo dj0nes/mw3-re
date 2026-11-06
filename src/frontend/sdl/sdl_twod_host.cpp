@@ -75,7 +75,8 @@ zimg::Texture* new_image(int w, int h) {  // 0x00517c10..0x00517c90, as FontText
 }  // namespace
 
 SdlTwodHost::SdlTwodHost(mech3::GameEngine* engine, SdlInput* input, platform::Window* window)
-    : engine_(engine), input_(input), window_(window) {
+    : engine_(engine) {
+  (void)input, (void)window;  // not kept: nothing in the host reads them
   ttf_ok_ = TTF_Init();
   if (!ttf_ok_) std::fprintf(stderr, "mw3: TTF_Init: %s\n", SDL_GetError());
 }

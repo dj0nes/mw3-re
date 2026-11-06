@@ -2007,7 +2007,7 @@ struct WiredMissionHooks : MissionHooks {
     return mem;
   }
   // 0x0040aca0 is PlayerView's constructor (player_view.cpp), the program's.
-  Handle make_view(Handle mem, Handle camera, Handle window, Handle) override {
+  Handle make_view(Handle mem, Handle camera, Handle /*window*/, Handle) override {
     e->set_mission_view(mem, camera);
     program_view_make(mission_node(*e, camera));
     return mem;
