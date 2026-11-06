@@ -1,4 +1,5 @@
 #include "frontend/sdl/sdl_input.h"
+#include "frontend/sdl/pad_bridge.h"
 
 #include "gamez/zutil/zutl_reg.h"
 
@@ -552,6 +553,14 @@ int SdlInput::axis_count() const {
 double SdlInput::pad_axis(int i) const {
   auto ax = [this](SDL_GamepadAxis a) { return (SDL_GetGamepadAxis(pad_, a) + 32768) / 65535.0 * 2.0 - 1.0; };
   auto trig = [this](SDL_GamepadAxis a) { return SDL_GetGamepadAxis(pad_, a) / 32767.0; };
+  if (pad_sticks && i != 2) {  // ours (PadBridge): the sticks shaped, each as a pair
+    const bool left = i < 2;
+    const float x = static_cast<float>(ax(left ? SDL_GAMEPAD_AXIS_LEFTX : SDL_GAMEPAD_AXIS_RIGHTX));
+    const float y = static_cast<float>(ax(left ? SDL_GAMEPAD_AXIS_LEFTY : SDL_GAMEPAD_AXIS_RIGHTY));
+    float sx = 0, sy = 0;
+    shape_stick(x, y, left ? kPadLeftDeadZone : kPadRightDeadZone, left ? 1.0f : kPadRightPower, &sx, &sy);
+    return (i == 0 || i == 3) ? sx : sy;
+  }
   switch (i) {
     case 0: return ax(SDL_GAMEPAD_AXIS_LEFTX);
     case 1: return ax(SDL_GAMEPAD_AXIS_LEFTY);

@@ -1,9 +1,11 @@
 // Ours, not original code: a game controller as the mouse and the keys the
 // game already reads (docs/pad-bridge.md). On tvOS there is no mouse or
 // keyboard: in the menus the left stick moves a cursor and A clicks; in a
-// mission the pad is the game's joystick (SdlInput), and LB held turns the
-// other buttons into the keyboard-only actions. On the Mac, mw3.cfg's
-// pad_bridge=1 turns it on, to tune it with the same pad.
+// mission the sticks are the game's joystick axes (SdlInput, and the axis
+// table's controller defaults, mech3::set_pad_stick_axes), and every button
+// and trigger is a key of the game's own key table, with LB a hold layer
+// for the less common ones. On the Mac, mw3.cfg's pad_bridge=1 turns it on,
+// to tune it with the same pad.
 #pragma once
 #include <SDL3/SDL.h>
 
@@ -17,6 +19,25 @@ namespace sdlfe {
 struct FrameRect {
   float x, y, w, h;  // the game frame inside the window, in window points
 };
+
+// A stick's position shaped (SdlInput's gamepad sticks with the bridge on):
+// a round dead zone `dz`, the rest scaled to 0..1 and raised to `power`
+// (1 straight, 2 fine near the centre), the direction kept.
+void shape_stick(float x, float y, float dz, float power, float* ox, float* oy);
+
+// The triggers, as buttons past SDL's (pressed past half way).
+constexpr int kPadLeftTrigger = SDL_GAMEPAD_BUTTON_COUNT;
+constexpr int kPadRightTrigger = SDL_GAMEPAD_BUTTON_COUNT + 1;
+
+// A mission's button: the game's keys it holds down (pressed in order, let go
+// in reverse), and keys tapped once it is let go (a look's way back).
+struct MissionBinding {
+  int button;  // SDL_GamepadButton or kPad*Trigger
+  bool layer;  // with LB held
+  std::vector<SDL_Scancode> keys, then;
+  const char* action;  // docs/controls.md's name for it
+};
+const std::vector<MissionBinding>& mission_bindings();
 
 class PadBridge {
  public:
@@ -60,8 +81,9 @@ class PadBridge {
   struct Action {
     bool click = false;                // the left mouse button
     std::vector<SDL_Scancode> keys;    // pressed in order, let go in reverse
-    int bit = -1;                      // the joystick bit it keeps masked while held
+    std::vector<SDL_Scancode> then;    // tapped after the release
   };
+  std::vector<SDL_Event> button(int b, bool down, bool in_mission);
   std::vector<SDL_Event> press(const Action& a) const;
   std::vector<SDL_Event> release(const Action& a) const;
   std::vector<SDL_Event> release_all();
@@ -71,6 +93,7 @@ class PadBridge {
   FrameRect frame_{0, 0, 1920, 1080};
   float x_ = 960, y_ = 540;
   bool lb_ = false;
+  bool trigger_[2] = {};  // LT, RT past half way
   std::map<int, Action> held_;  // by SDL_GamepadButton
   SDL_Gamepad* pad_ = nullptr;
   SDL_JoystickID pad_id_ = 0;

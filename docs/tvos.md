@@ -94,9 +94,27 @@ pilots, and tvOS may clear them if the Apple TV runs very short of space.
 
 The app starts the game straight away. Turn the controller on before or
 after starting it: the first gamepad to connect is the game's. In the menus
-the left stick moves the cursor and A clicks; in a mission the sticks,
-triggers and buttons are the game's joystick, and holding LB gives the
-keyboard's actions. The full list is in [pad-bridge.md](pad-bridge.md).
+the left stick moves the cursor, A clicks and B goes back. In a mission:
+
+| Controller | Does | Hold LB + |
+|---|---|---|
+| Left stick | Throttle (up ahead, centred stop, back reverse) and turn | |
+| Right stick | Twist the torso and aim up and down | |
+| RT | Fire the selected weapon group | Toggle fire mode |
+| LT | Alpha strike (every weapon) | Toggle MASC |
+| A | Jump jets (held) | Get up |
+| B | Crouch | Flush coolant |
+| X | Zoom on or off | Cycle camera |
+| Y | Next weapon group | Previous weapon group |
+| RB | Target nearest enemy | Target next enemy |
+| View | Radar map | Lancemate commands |
+| Menu | Pause menu | Startup/shutdown |
+| LS (press) | Centre the torso to the legs | Centre the legs to the torso |
+| RS (press) | Target what the reticle is on | Override thermal shutdown |
+| D-pad up | Next nav point | Previous nav point |
+| D-pad left, right, down | Look left, right, back while held | Clear target, radar size, damage display |
+
+The keys behind each, and why, are in [pad-bridge.md](pad-bridge.md).
 
 ### Typing (the pilot's name, save names)
 

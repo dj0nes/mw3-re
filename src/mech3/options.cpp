@@ -177,14 +177,7 @@ void set_use_joystick(int32_t on) {
   if (on) {
     word() |= kUseJoystick;
     if (t.ready) {
-      t.set3(0, 3, -0.5f, 0.5f);
-      t.axes[0].deadzone = 0.05f;
-      t.ready = 0;
-      t.set3(1, 6, -1.0f, 0.0f);
-      t.axes[1].deadzone = 0.0f;
-      t.ready = 0;
-      t.set(2, 2, 1.0f, 0.0f, 0.0f);
-      t.set(3, 1, -1.0f, 0.0f, 0.0f);
+      joystick_axis_defaults(t);  // the stick's defaults (a controller's, ours)
       t.ready = 1;
     }
   } else {

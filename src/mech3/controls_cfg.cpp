@@ -195,6 +195,28 @@ const char* entry_name(const zrdr::Node* e) {
 }  // namespace
 
 AxisTable& axis_table() { return g_axes; }
+
+namespace {
+bool g_pad_axes = false;
+}  // namespace
+void joystick_axis_defaults(AxisTable& t) {
+  if (g_pad_axes) {
+    t.axes[0] = {2, -1.0f, 0.0f, 0.0f};
+    t.axes[1] = {4, -1.0f, 0.0f, 0.0f};
+    t.axes[2] = {5, -1.0f, 0.0f, 0.0f};
+    t.axes[3] = {1, -1.0f, 0.0f, 0.0f};
+    return;
+  }
+  t.axes[0] = {3, -0.5f, 0.5f, 0.05f};
+  t.axes[1] = {6, -1.0f, 0.0f, 0.0f};
+  t.axes[2] = {2, 1.0f, 0.0f, 0.0f};
+  t.axes[3] = {1, -1.0f, 0.0f, 0.0f};
+}
+void set_pad_stick_axes(bool on) {
+  g_pad_axes = on;
+  joystick_axis_defaults(g_axes);
+}
+bool pad_stick_axes() { return g_pad_axes; }
 ControlsSetup& controls_setup() { return g_setup; }
 ControlsSetupCalls& controls_setup_calls() { return g_calls; }
 

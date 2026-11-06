@@ -91,6 +91,7 @@
 #include "gamez/zutil/zutl_path.h"
 #include "mech3/app.h"
 #include "mech3/mods.h"
+#include "mech3/controls_cfg.h"
 #include "mech3/pilot_menu.h"
 #include "mech3/app_engine.h"
 #include "mech3/app_hud.h"
@@ -1005,6 +1006,8 @@ int run(const Args& a, platform::VideoForWindows* vfw) {
       SDL_InitSubSystem(SDL_INIT_GAMEPAD);
       input.windowed = [] { return true; };
       input.late_pad = true;
+      input.pad_sticks = true;
+      mech3::set_pad_stick_axes(true);  // tank-style sticks (controls_cfg.h)
       bridge.window = window.sdl();
       bridge.open_present();
       std::printf("mw3: pad bridge on (docs/pad-bridge.md)\n");
@@ -1679,6 +1682,12 @@ int run(const Args& a, platform::VideoForWindows* vfw) {
       for (const auto& [k, n] : engine.unported_counts()) gaps += mech3::GameEngine::known_unported(k) ? 0 : 1;
       std::fprintf(stderr, "mw3: %zu original functions reached are not ported (--verbose lists them and %zu known)\n",
                    gaps, engine.unported_counts().size() - gaps);
+    }
+    if (a.pad_bridge) {  // the axes the game read the controller with (mw3.log)
+      const mech3::AxisBinding* ax = mech3::axis_table().axes;
+      std::printf("mw3: pad bridge: axes throttle %d x %.2f, twist %d x %.2f, pitch %d x %.2f, turn %d x %.2f\n",
+                  ax[0].source, ax[0].scale, ax[1].source, ax[1].scale, ax[2].source, ax[2].scale, ax[3].source,
+                  ax[3].scale);
     }
     ztwod::set_host(nullptr);
     mech3::set_app(nullptr);

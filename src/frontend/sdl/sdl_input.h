@@ -71,6 +71,12 @@ class SdlInput : public platform::Input {
   // zInput's open, a gamepad is opened as one taken out (it reads centred,
   // W54) and the first gamepad to connect is taken.
   bool late_pad = false;
+  // Ours (PadBridge): a gamepad's sticks shaped (pad_bridge.h shape_stick):
+  // the left (throttle, turn) a round dead zone of kPadLeftDeadZone and
+  // straight; the right (twist, pitch) kPadRightDeadZone and squared, fine
+  // near the centre.
+  bool pad_sticks = false;
+  static constexpr float kPadLeftDeadZone = 0.15f, kPadRightDeadZone = 0.12f, kPadRightPower = 2.0f;
   int32_t joystick_caps(uint32_t* flags, uint32_t* axes) override;
   bool joystick_gamepad() const override { return pad_ != nullptr || (unplugged_ && pad_was_); }
   SDL_Joystick* joystick() const { return joy_; }  // the force feedback's device (sdl_force.h)

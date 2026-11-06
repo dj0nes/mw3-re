@@ -8,50 +8,7 @@ namespace sdlfe {
 
 namespace {
 
-// The DirectInput button (the XInput layout SdlInput reads, docs/input.md)
-// of an SDL gamepad button; 31 for the d-pad (the hat); -1 for none.
-int joystick_bit(int b) {
-  switch (b) {
-    case SDL_GAMEPAD_BUTTON_SOUTH: return 0;
-    case SDL_GAMEPAD_BUTTON_EAST: return 1;
-    case SDL_GAMEPAD_BUTTON_WEST: return 2;
-    case SDL_GAMEPAD_BUTTON_NORTH: return 3;
-    case SDL_GAMEPAD_BUTTON_LEFT_SHOULDER: return 4;
-    case SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER: return 5;
-    case SDL_GAMEPAD_BUTTON_BACK: return 6;
-    case SDL_GAMEPAD_BUTTON_START: return 7;
-    case SDL_GAMEPAD_BUTTON_LEFT_STICK: return 8;
-    case SDL_GAMEPAD_BUTTON_RIGHT_STICK: return 9;
-    case SDL_GAMEPAD_BUTTON_DPAD_UP:
-    case SDL_GAMEPAD_BUTTON_DPAD_DOWN:
-    case SDL_GAMEPAD_BUTTON_DPAD_LEFT:
-    case SDL_GAMEPAD_BUTTON_DPAD_RIGHT: return 31;
-    default: return -1;
-  }
-}
-
-// Hold LB + a button: the keys of its action (docs/controls.md's defaults).
-std::vector<SDL_Scancode> layer_keys(int b) {
-  switch (b) {
-    case SDL_GAMEPAD_BUTTON_SOUTH: return {SDL_SCANCODE_LCTRL, SDL_SCANCODE_E};  // target nearest enemy
-    case SDL_GAMEPAD_BUTTON_EAST: return {SDL_SCANCODE_Z};                      // zoom reticule
-    case SDL_GAMEPAD_BUTTON_WEST: return {SDL_SCANCODE_Q};                      // target under the reticule
-    case SDL_GAMEPAD_BUTTON_NORTH: return {SDL_SCANCODE_X};                     // cycle camera
-    case SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER: return {SDL_SCANCODE_BACKSLASH};    // fire mode (joystick 5, LB's)
-    case SDL_GAMEPAD_BUTTON_BACK: return {SDL_SCANCODE_LSHIFT, SDL_SCANCODE_R}; // radar map
-    case SDL_GAMEPAD_BUTTON_START: return {SDL_SCANCODE_S};                     // startup/shutdown
-    case SDL_GAMEPAD_BUTTON_LEFT_STICK: return {SDL_SCANCODE_SLASH};            // centre legs (joystick 8, Start's)
-    case SDL_GAMEPAD_BUTTON_RIGHT_STICK: return {SDL_SCANCODE_F11};             // lancemate commands
-    case SDL_GAMEPAD_BUTTON_DPAD_UP: return {SDL_SCANCODE_N};                   // next nav point
-    case SDL_GAMEPAD_BUTTON_DPAD_DOWN: return {SDL_SCANCODE_G};                 // get up
-    case SDL_GAMEPAD_BUTTON_DPAD_LEFT: return {SDL_SCANCODE_F};                 // flush coolant
-    case SDL_GAMEPAD_BUTTON_DPAD_RIGHT: return {SDL_SCANCODE_V};                // MASC
-    default: return {};
-  }
-}
-
-constexpr uint32_t kAll = 0x800003ffu;                     // every button and the hat
-constexpr uint32_t kMissionAlways = (1u << 4) | (1u << 7);  // LB and Start
+constexpr uint32_t kAll = 0x800003ffu;  // every button and the hat: the bridge's keys, not the joystick's
 
 SDL_Event key_event(SDL_Scancode s, bool down) {
   SDL_Event e{};
@@ -64,6 +21,57 @@ SDL_Event key_event(SDL_Scancode s, bool down) {
 }
 
 }  // namespace
+
+// The mission's buttons (docs/pad-bridge.md), each a command of the game's
+// default key table (docs/controls.md). Each action once, base or layer.
+const std::vector<MissionBinding>& mission_bindings() {
+  using B = MissionBinding;
+  static const std::vector<B> k = {
+      {kPadRightTrigger, false, {SDL_SCANCODE_SPACE}, {}, "Fire weapon"},
+      {kPadLeftTrigger, false, {SDL_SCANCODE_KP_ENTER}, {}, "Alpha Strike"},
+      {SDL_GAMEPAD_BUTTON_SOUTH, false, {SDL_SCANCODE_J}, {}, "Jump Jet"},
+      {SDL_GAMEPAD_BUTTON_EAST, false, {SDL_SCANCODE_C}, {}, "Crouch"},
+      {SDL_GAMEPAD_BUTTON_WEST, false, {SDL_SCANCODE_KP_0}, {}, "Lock Zoom reticule"},
+      {SDL_GAMEPAD_BUTTON_NORTH, false, {SDL_SCANCODE_RIGHTBRACKET}, {}, "Next weapon group"},
+      {SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER, false, {SDL_SCANCODE_LCTRL, SDL_SCANCODE_E}, {}, "Target nearest enemy"},
+      {SDL_GAMEPAD_BUTTON_BACK, false, {SDL_SCANCODE_LSHIFT, SDL_SCANCODE_R}, {}, "Toggle Radar map"},
+      {SDL_GAMEPAD_BUTTON_START, false, {SDL_SCANCODE_ESCAPE}, {}, "Pause menu"},
+      {SDL_GAMEPAD_BUTTON_LEFT_STICK, false, {SDL_SCANCODE_LSHIFT, SDL_SCANCODE_SLASH}, {}, "Center torso to legs"},
+      {SDL_GAMEPAD_BUTTON_RIGHT_STICK, false, {SDL_SCANCODE_Q}, {}, "Target object under reticule"},
+      {SDL_GAMEPAD_BUTTON_DPAD_UP, false, {SDL_SCANCODE_N}, {}, "Next Op point"},
+      // The looks while held, then forward again (the hat's looks were toggles).
+      {SDL_GAMEPAD_BUTTON_DPAD_LEFT, false, {SDL_SCANCODE_LALT, SDL_SCANCODE_KP_4}, {SDL_SCANCODE_LALT, SDL_SCANCODE_KP_5}, "Look Left"},
+      {SDL_GAMEPAD_BUTTON_DPAD_RIGHT, false, {SDL_SCANCODE_LALT, SDL_SCANCODE_KP_6}, {SDL_SCANCODE_LALT, SDL_SCANCODE_KP_5}, "Look Right"},
+      {SDL_GAMEPAD_BUTTON_DPAD_DOWN, false, {SDL_SCANCODE_LALT, SDL_SCANCODE_KP_PERIOD}, {SDL_SCANCODE_LALT, SDL_SCANCODE_KP_5}, "Look back"},
+      // Hold LB:
+      {SDL_GAMEPAD_BUTTON_SOUTH, true, {SDL_SCANCODE_G}, {}, "Get up"},
+      {SDL_GAMEPAD_BUTTON_EAST, true, {SDL_SCANCODE_F}, {}, "Flush Coolant"},
+      {SDL_GAMEPAD_BUTTON_WEST, true, {SDL_SCANCODE_X}, {}, "Cycle Camera Mode"},
+      {SDL_GAMEPAD_BUTTON_NORTH, true, {SDL_SCANCODE_LEFTBRACKET}, {}, "Previous weapon group"},
+      {SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER, true, {SDL_SCANCODE_E}, {}, "Target next enemy"},
+      {kPadRightTrigger, true, {SDL_SCANCODE_BACKSLASH}, {}, "Toggle fire mode"},
+      {kPadLeftTrigger, true, {SDL_SCANCODE_V}, {}, "Toggle MASC"},
+      {SDL_GAMEPAD_BUTTON_BACK, true, {SDL_SCANCODE_F11}, {}, "Lancemate command screen"},
+      {SDL_GAMEPAD_BUTTON_START, true, {SDL_SCANCODE_S}, {}, "Startup/Shutdown"},
+      {SDL_GAMEPAD_BUTTON_LEFT_STICK, true, {SDL_SCANCODE_SLASH}, {}, "Center Legs"},
+      {SDL_GAMEPAD_BUTTON_RIGHT_STICK, true, {SDL_SCANCODE_O}, {}, "Override Thermal Shutdown"},
+      {SDL_GAMEPAD_BUTTON_DPAD_UP, true, {SDL_SCANCODE_LSHIFT, SDL_SCANCODE_N}, {}, "Previous Op point"},
+      {SDL_GAMEPAD_BUTTON_DPAD_DOWN, true, {SDL_SCANCODE_D}, {}, "Toggle Damage display"},
+      {SDL_GAMEPAD_BUTTON_DPAD_LEFT, true, {SDL_SCANCODE_T}, {}, "Clear Target Selection"},
+      {SDL_GAMEPAD_BUTTON_DPAD_RIGHT, true, {SDL_SCANCODE_R}, {}, "Toggle Radar size"},
+  };
+  return k;
+}
+
+void shape_stick(float x, float y, float dz, float power, float* ox, float* oy) {
+  const float m = std::sqrt(x * x + y * y);
+  if (m <= dz || m <= 0.0f) {
+    *ox = *oy = 0.0f;
+    return;
+  }
+  const float t = std::pow(std::min(1.0f, (m - dz) / (1.0f - dz)), power);
+  *ox = x / m * t, *oy = y / m * t;
+}
 
 PadBridge::PadBridge() = default;
 PadBridge::~PadBridge() {
@@ -105,6 +113,8 @@ std::vector<SDL_Event> PadBridge::release(const Action& a) const {
     e.button.x = x_, e.button.y = y_;
     out.push_back(e);
   }
+  for (SDL_Scancode s : a.then) out.push_back(key_event(s, true));
+  for (auto it = a.then.rbegin(); it != a.then.rend(); ++it) out.push_back(key_event(*it, false));
   return out;
 }
 
@@ -116,6 +126,7 @@ std::vector<SDL_Event> PadBridge::release_all() {
   }
   held_.clear();
   lb_ = false;
+  trigger_[0] = trigger_[1] = false;
   return out;
 }
 
@@ -139,47 +150,57 @@ std::vector<SDL_Event> PadBridge::on_event(const SDL_Event& e, bool in_mission) 
       // The keyboard's Done sends Enter and goes away.
       if (keyboard_ && e.key.scancode == SDL_SCANCODE_RETURN) keyboard(false);
       return {};
-    case SDL_EVENT_GAMEPAD_BUTTON_DOWN: {
-      const int b = e.gbutton.button;
-      if (held_.count(b) || keyboard_) return {};  // the system keyboard has the pad
-      if (b == SDL_GAMEPAD_BUTTON_LEFT_SHOULDER) {
-        lb_ = true;
-        return {};
-      }
-      Action a;
-      a.bit = joystick_bit(b);
-      if (!in_mission) {
-        if (b == SDL_GAMEPAD_BUTTON_SOUTH) a.click = true;
-        else if (b == SDL_GAMEPAD_BUTTON_EAST || b == SDL_GAMEPAD_BUTTON_START) a.keys = {SDL_SCANCODE_ESCAPE};
-        else if (b == SDL_GAMEPAD_BUTTON_NORTH) keyboard(true);  // the system keyboard, by hand
-      } else if (lb_) {
-        a.keys = layer_keys(b);
-      } else if (b == SDL_GAMEPAD_BUTTON_START) {
-        a.keys = {SDL_SCANCODE_ESCAPE};  // the pause menu
-      }
-      if (!a.click && a.keys.empty()) return {};
-      held_[b] = a;
-      return press(a);
-    }
-    case SDL_EVENT_GAMEPAD_BUTTON_UP: {
-      const int b = e.gbutton.button;
-      if (keyboard_ && (b == SDL_GAMEPAD_BUTTON_EAST || b == SDL_GAMEPAD_BUTTON_START) && !held_.count(b)) {
-        keyboard(false);  // its Back closed it; the field keeps the focus
-        return {};
-      }
-      if (b == SDL_GAMEPAD_BUTTON_LEFT_SHOULDER) {
-        lb_ = false;  // a layered button still held keeps its key until let go
-        return {};
-      }
-      auto it = held_.find(b);
-      if (it == held_.end()) return {};
-      const std::vector<SDL_Event> out = release(it->second);
-      held_.erase(it);
-      return out;
+    case SDL_EVENT_GAMEPAD_BUTTON_DOWN:
+    case SDL_EVENT_GAMEPAD_BUTTON_UP:
+      return button(e.gbutton.button, e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN, in_mission);
+    case SDL_EVENT_GAMEPAD_AXIS_MOTION: {
+      // A trigger is a button past half way, let go under a quarter.
+      const int t = e.gaxis.axis == SDL_GAMEPAD_AXIS_LEFT_TRIGGER ? 0 : e.gaxis.axis == SDL_GAMEPAD_AXIS_RIGHT_TRIGGER ? 1 : -1;
+      if (t < 0) return {};
+      const bool was = trigger_[t];
+      const bool now = was ? e.gaxis.value >= 8192 : e.gaxis.value >= 16384;
+      if (now == was) return {};
+      trigger_[t] = now;
+      return button(t == 0 ? kPadLeftTrigger : kPadRightTrigger, now, in_mission);
     }
     default:
       return {};
   }
+}
+
+std::vector<SDL_Event> PadBridge::button(int b, bool down, bool in_mission) {
+  if (!down) {
+    if (keyboard_ && (b == SDL_GAMEPAD_BUTTON_EAST || b == SDL_GAMEPAD_BUTTON_START) && !held_.count(b)) {
+      keyboard(false);  // its Back closed it; the field keeps the focus
+      return {};
+    }
+    if (b == SDL_GAMEPAD_BUTTON_LEFT_SHOULDER) {
+      lb_ = false;  // a layered button still held keeps its key until let go
+      return {};
+    }
+    auto it = held_.find(b);
+    if (it == held_.end()) return {};
+    const std::vector<SDL_Event> out = release(it->second);
+    held_.erase(it);
+    return out;
+  }
+  if (held_.count(b) || keyboard_) return {};  // the system keyboard has the pad
+  if (b == SDL_GAMEPAD_BUTTON_LEFT_SHOULDER) {
+    lb_ = true;
+    return {};
+  }
+  Action a;
+  if (!in_mission) {
+    if (b == SDL_GAMEPAD_BUTTON_SOUTH) a.click = true;
+    else if (b == SDL_GAMEPAD_BUTTON_EAST || b == SDL_GAMEPAD_BUTTON_START) a.keys = {SDL_SCANCODE_ESCAPE};
+    else if (b == SDL_GAMEPAD_BUTTON_NORTH) keyboard(true);  // the system keyboard, by hand
+  } else {
+    for (const MissionBinding& m : mission_bindings())
+      if (m.button == b && m.layer == lb_) a.keys = m.keys, a.then = m.then;
+  }
+  if (!a.click && a.keys.empty()) return {};
+  held_[b] = a;
+  return press(a);
 }
 
 std::vector<SDL_Event> PadBridge::tick(double dt_s, bool in_mission, float left_x, float left_y) {
@@ -225,13 +246,9 @@ void PadBridge::text_focus(bool focused) {
   keyboard(focused);
 }
 
-uint32_t PadBridge::joystick_mask(bool in_mission) const {
-  if (!in_mission || lb_) return kAll;
-  uint32_t m = kMissionAlways;
-  for (const auto& [b, a] : held_)
-    if (a.bit >= 0) m |= 1u << a.bit;
-  return m;
-}
+// Every button and the hat, in the menus and in a mission alike: the bridge
+// gives their keys; the joystick is the sticks alone.
+uint32_t PadBridge::joystick_mask(bool) const { return kAll; }
 
 void PadBridge::open_present() {
   if (pad_) return;

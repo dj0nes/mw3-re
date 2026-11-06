@@ -30,6 +30,7 @@
 #include "frontend/sdl/rgb565.h"
 #include "frontend/sdl/tvos_args.h"
 #include "frontend/sdl/pad_bridge.h"
+#include "mech3/controls_cfg.h"
 #include "frontend/sdl/text_fit.h"
 #include <SDL3_ttf/SDL_ttf.h>
 #include "frontend/sdl/sdl_force.h"
@@ -4813,38 +4814,43 @@ TEST(pad_bridge_a_clicks_at_cursor) {
   EXPECT(pad_events(b.on_event(pad_button(SDL_GAMEPAD_BUTTON_EAST, false), false)) == "-Escape");
 }
 
+// RB is Ctrl+E: Ctrl first, E let go first. Menu alone pauses; with LB it is
+// startup/shutdown. A is the jump jets.
 TEST(pad_bridge_layer_ctrl_e) {
   sdlfe::PadBridge b;
+  EXPECT(pad_events(b.on_event(pad_button(SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER, true), true)) == "+Left Ctrl +E");
+  EXPECT(pad_events(b.on_event(pad_button(SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER, false), true)) == "-E -Left Ctrl");
+  EXPECT(pad_events(b.on_event(pad_button(SDL_GAMEPAD_BUTTON_START, true), true)) == "+Escape");
+  b.on_event(pad_button(SDL_GAMEPAD_BUTTON_START, false), true);
   EXPECT(b.on_event(pad_button(SDL_GAMEPAD_BUTTON_LEFT_SHOULDER, true), true).empty());
-  EXPECT(pad_events(b.on_event(pad_button(SDL_GAMEPAD_BUTTON_SOUTH, true), true)) == "+Left Ctrl +E");
-  EXPECT(pad_events(b.on_event(pad_button(SDL_GAMEPAD_BUTTON_SOUTH, false), true)) == "-E -Left Ctrl");
-  // Start: Escape alone, S in the layer.
   EXPECT(pad_events(b.on_event(pad_button(SDL_GAMEPAD_BUTTON_START, true), true)) == "+S");
   b.on_event(pad_button(SDL_GAMEPAD_BUTTON_START, false), true);
   b.on_event(pad_button(SDL_GAMEPAD_BUTTON_LEFT_SHOULDER, false), true);
-  EXPECT(pad_events(b.on_event(pad_button(SDL_GAMEPAD_BUTTON_START, true), true)) == "+Escape");
-  // Without LB a face button is the joystick's: no keys.
-  EXPECT(b.on_event(pad_button(SDL_GAMEPAD_BUTTON_SOUTH, true), true).empty());
+  EXPECT(pad_events(b.on_event(pad_button(SDL_GAMEPAD_BUTTON_SOUTH, true), true)) == "+J");
 }
 
 TEST(pad_bridge_lb_released_first_still_releases_key) {
   sdlfe::PadBridge b;
   b.on_event(pad_button(SDL_GAMEPAD_BUTTON_LEFT_SHOULDER, true), true);
-  EXPECT(pad_events(b.on_event(pad_button(SDL_GAMEPAD_BUTTON_EAST, true), true)) == "+Z");
+  EXPECT(pad_events(b.on_event(pad_button(SDL_GAMEPAD_BUTTON_EAST, true), true)) == "+F");
   EXPECT(b.on_event(pad_button(SDL_GAMEPAD_BUTTON_LEFT_SHOULDER, false), true).empty());
-  EXPECT((b.joystick_mask(true) & 2u) != 0);  // B still held for the key: not the joystick's
-  EXPECT(pad_events(b.on_event(pad_button(SDL_GAMEPAD_BUTTON_EAST, false), true)) == "-Z");
-  EXPECT((b.joystick_mask(true) & 2u) == 0);
+  EXPECT(pad_events(b.on_event(pad_button(SDL_GAMEPAD_BUTTON_EAST, false), true)) == "-F");  // not crouch's C
 }
 
 TEST(pad_bridge_pad_removed_releases_layer_keys) {
   sdlfe::PadBridge b;
   b.on_event(pad_button(SDL_GAMEPAD_BUTTON_LEFT_SHOULDER, true), true);
-  EXPECT(pad_events(b.on_event(pad_button(SDL_GAMEPAD_BUTTON_WEST, true), true)) == "+Q");
+  EXPECT(pad_events(b.on_event(pad_button(SDL_GAMEPAD_BUTTON_WEST, true), true)) == "+X");
+  SDL_Event t{};
+  t.type = SDL_EVENT_GAMEPAD_AXIS_MOTION, t.gaxis.axis = SDL_GAMEPAD_AXIS_RIGHT_TRIGGER, t.gaxis.value = 30000;
+  b.on_event(pad_button(SDL_GAMEPAD_BUTTON_LEFT_SHOULDER, false), true);
+  EXPECT(pad_events(b.on_event(t, true)) == "+Space");
   SDL_Event r{};
   r.type = SDL_EVENT_GAMEPAD_REMOVED, r.gdevice.which = 1;
-  EXPECT(pad_events(b.on_event(r, true)) == "-Q");
-  EXPECT(b.joystick_mask(true) == ((1u << 4) | (1u << 7)));  // LB let go with the pad
+  const std::string out = pad_events(b.on_event(r, true));
+  EXPECT(out == "-X -Space" || out == "-Space -X");
+  t.gaxis.value = 0;
+  EXPECT(b.on_event(t, true).empty());  // the trigger let go with the pad
 }
 
 // SDL's tvOS keyboard already sends each character as key presses (with
@@ -4858,12 +4864,107 @@ TEST(pad_bridge_text_input_makes_no_keys) {
   EXPECT(b.on_event(t, false).empty());
 }
 
+// The pad's buttons and hat are the bridge's keys, never the joystick's.
 TEST(pad_bridge_masks) {
   sdlfe::PadBridge b;
   EXPECT(b.joystick_mask(false) == 0x800003ffu);
-  EXPECT(b.joystick_mask(true) == ((1u << 4) | (1u << 7)));
+  EXPECT(b.joystick_mask(true) == 0x800003ffu);
   b.on_event(pad_button(SDL_GAMEPAD_BUTTON_LEFT_SHOULDER, true), true);
   EXPECT(b.joystick_mask(true) == 0x800003ffu);
+}
+
+// RT fires the group, LT the alpha strike; a trigger is down past half way
+// and up under a quarter. In the menus a trigger does nothing.
+TEST(pad_bridge_triggers_fire) {
+  sdlfe::PadBridge b;
+  SDL_Event t{};
+  t.type = SDL_EVENT_GAMEPAD_AXIS_MOTION, t.gaxis.axis = SDL_GAMEPAD_AXIS_RIGHT_TRIGGER;
+  auto at = [&](int16_t v, bool mission) {
+    t.gaxis.value = v;
+    return pad_events(b.on_event(t, mission));
+  };
+  EXPECT(at(10000, true) == "");
+  EXPECT(at(20000, true) == "+Space");
+  EXPECT(at(10000, true) == "");  // still held
+  EXPECT(at(2000, true) == "-Space");
+  t.gaxis.axis = SDL_GAMEPAD_AXIS_LEFT_TRIGGER;
+  EXPECT(at(32767, true) == "+Keypad Enter");
+  EXPECT(at(0, true) == "-Keypad Enter");
+  EXPECT(at(32767, false) == "" && at(0, false) == "");
+}
+
+// The d-pad's looks while held, then forward again.
+TEST(pad_bridge_look_held_then_forward) {
+  sdlfe::PadBridge b;
+  const std::string down = pad_events(b.on_event(pad_button(SDL_GAMEPAD_BUTTON_DPAD_LEFT, true), true));
+  const std::string up = pad_events(b.on_event(pad_button(SDL_GAMEPAD_BUTTON_DPAD_LEFT, false), true));
+  // Left Alt's name is the platform's ("Left Option" on a Mac once video is up).
+  const std::string alt = SDL_GetScancodeName(SDL_SCANCODE_LALT);
+  EXPECT(down == "+" + alt + " +Keypad 4");
+  EXPECT(up == "-Keypad 4 -" + alt + " +" + alt + " +Keypad 5 -Keypad 5 -" + alt);
+}
+
+// Each action once, each key combination once, every button and both
+// triggers bound in the base and the layer (LB is the layer).
+TEST(pad_bridge_every_action_once) {
+  std::set<std::string> actions, keys;
+  std::set<std::pair<int, bool>> buttons;
+  bool ok = true;
+  for (const sdlfe::MissionBinding& m : sdlfe::mission_bindings()) {
+    std::string k;
+    for (SDL_Scancode s : m.keys) k += std::string(SDL_GetScancodeName(s)) + "+";
+    if (m.keys.empty() || !actions.insert(m.action).second || !keys.insert(k).second ||
+        !buttons.insert({m.button, m.layer}).second) {
+      std::printf("twice or empty: %s (%s)\n", m.action, k.c_str());
+      ok = false;
+    }
+  }
+  EXPECT(ok);
+  const int all[] = {SDL_GAMEPAD_BUTTON_SOUTH, SDL_GAMEPAD_BUTTON_EAST, SDL_GAMEPAD_BUTTON_WEST, SDL_GAMEPAD_BUTTON_NORTH,
+                     SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER, SDL_GAMEPAD_BUTTON_BACK, SDL_GAMEPAD_BUTTON_START,
+                     SDL_GAMEPAD_BUTTON_LEFT_STICK, SDL_GAMEPAD_BUTTON_RIGHT_STICK, SDL_GAMEPAD_BUTTON_DPAD_UP,
+                     SDL_GAMEPAD_BUTTON_DPAD_DOWN, SDL_GAMEPAD_BUTTON_DPAD_LEFT, SDL_GAMEPAD_BUTTON_DPAD_RIGHT,
+                     sdlfe::kPadLeftTrigger, sdlfe::kPadRightTrigger};
+  for (int bt : all) EXPECT(buttons.count({bt, false}) && buttons.count({bt, true}));
+  EXPECT(sdlfe::mission_bindings().size() == 30);
+}
+
+// The sticks' shape: a round dead zone, the rest 0..1, the right stick squared.
+TEST(pad_bridge_shapes_the_sticks) {
+  float x = 0, y = 0;
+  sdlfe::shape_stick(0.1f, 0.05f, 0.15f, 1.0f, &x, &y);
+  EXPECT(x == 0 && y == 0);
+  sdlfe::shape_stick(1.0f, 0.0f, 0.12f, 2.0f, &x, &y);
+  EXPECT(std::fabs(x - 1.0f) < 1e-5f && y == 0);
+  sdlfe::shape_stick(0.0f, -0.56f, 0.12f, 2.0f, &x, &y);
+  EXPECT(x == 0 && std::fabs(y + 0.25f) < 1e-4f);  // half way past the dead zone: a quarter
+  sdlfe::shape_stick(0.575f, 0.0f, 0.15f, 1.0f, &x, &y);
+  EXPECT(std::fabs(x - 0.5f) < 1e-4f);
+}
+
+// A controller's axis table (tvOS; pad_bridge=1): tank style. Throttle the
+// left stick's Y, so centred is 0 (the stick's throttle sets the target
+// outright: the mech stops) and back is reverse; turn its X; twist and pitch
+// the right stick. The joystick reset and the UseJoystick option write the
+// same; off, the stock table comes back.
+TEST(pad_stick_axes_are_tank_style) {
+  mech3::AxisTable& t = mech3::axis_table();
+  const mech3::AxisTable before = t;
+  mech3::set_pad_stick_axes(true);
+  EXPECT(t.axes[0].source == 2 && t.axes[0].scale == -1.0f && t.axes[0].offset == 0.0f);  // left Y, centred 0
+  EXPECT(t.axes[3].source == 1 && t.axes[3].scale == -1.0f);                              // left X
+  EXPECT(t.axes[1].source == 4 && t.axes[1].scale == -1.0f);                              // right X
+  EXPECT(t.axes[2].source == 5 && t.axes[2].scale == -1.0f);                              // right Y, up aims up
+  EXPECT(t.axes[0].scale * 0.0f + t.axes[0].offset == 0.0f);        // centred: stop
+  EXPECT(t.axes[0].scale * -1.0f + t.axes[0].offset == 1.0f);       // pushed up: full ahead
+  EXPECT(t.axes[0].scale * 1.0f + t.axes[0].offset == -1.0f);       // pulled back: reverse
+  mech3::AxisTable other;
+  mech3::joystick_axis_defaults(other);
+  EXPECT(other.axes[0].source == 2 && other.axes[1].source == 4);
+  mech3::set_pad_stick_axes(false);
+  EXPECT(t.axes[0].source == 3 && t.axes[0].scale == -0.5f && t.axes[0].offset == 0.5f && t.axes[0].deadzone == 0.05f);
+  EXPECT(t.axes[1].source == 6 && t.axes[2].source == 2 && t.axes[2].scale == 1.0f && t.axes[3].source == 1);
+  t = before;
 }
 
 // tvOS: the pad connects after zInput opened the joystick. It reads centred

@@ -4,7 +4,8 @@ Ours, not the original's. On the Apple TV there is no mouse or keyboard, and
 the game's menus are point-and-click while many mission actions are
 keyboard-only (controls.md). `PadBridge` (`src/frontend/sdl/pad_bridge.cpp`)
 turns an Xbox-style controller into the mouse and key events the game
-already reads, so no game code changes. It is always on for tvOS
+already reads; the one change on the game's side is its joystick axis
+defaults (The sticks, below). It is always on for tvOS
 (docs/tvos.md); on the Mac `pad_bridge=1` in `mw3.cfg` turns it on, to try
 it with the same controller.
 
@@ -58,39 +59,88 @@ On the Apple TV a new pilot confirmed with an empty name is "Pilot"
 
 ## Missions
 
-The sticks, triggers and buttons are the game's joystick, read by `SdlInput`
-in DirectInput's XInput layout (input.md): the left stick is X and Y, the
-triggers one Z axis, the right stick X and Y rotation, and the buttons
-A, B, X, Y, LB, RB, View, Menu, LS, RS are buttons 1 to 10. What each does
-is the game's own joystick setup (controls.md; button 1, A, fires).
+The sticks drive the mech tank style, and every button and both triggers
+give keys of the game's own key table (controls.md). The joystick is the
+sticks alone: its buttons and hat are kept from the game, so the stock
+joystick table (A fires, LB fire mode, Start centre legs) never doubles a
+key.
 
-Menu (Start) is Escape, the pause menu. LB is a hold layer: while it is
-held, these buttons give keys and are kept from the joystick.
-
-| Hold LB + | Action | Key |
+| Controller | Does | Key |
 |---|---|---|
-| A | Target nearest enemy | Ctrl+E |
-| B | Zoom reticule | Z |
-| X | Target object under reticule | Q |
-| Y | Cycle camera | X |
-| RB | Toggle fire mode | Backslash |
+| Left stick up and down | Throttle: centred stops, up ahead, back reverse | (axis) |
+| Left stick left and right | Turn the legs | (axis) |
+| Right stick left and right | Twist the torso | (axis) |
+| Right stick up and down | Aim up and down | (axis) |
+| RT | Fire weapon (the selected group) | Space |
+| LT | Alpha Strike (every weapon) | Keypad Enter |
+| A | Jump jets (held) | J |
+| B | Crouch | C |
+| X | Zoom (lock the zoom reticule, on and off) | Keypad 0 |
+| Y | Next weapon group | ] |
+| RB | Target nearest enemy | Ctrl+E |
 | View (Back) | Radar map | Shift+R |
-| Menu (Start) | Startup/shutdown | S |
-| LS (press) | Centre legs | / |
-| RS (press) | Lancemate command screen | F11 |
+| Menu (Start) | Pause menu | Escape |
+| LS (press) | Centre the torso to the legs | Shift+/ |
+| RS (press) | Target the object under the reticule | Q |
 | D-pad up | Next nav point | N |
-| D-pad down | Get up | G |
-| D-pad left | Flush coolant | F |
-| D-pad right | MASC | V |
+| D-pad left, right, down (held) | Look left, right, back; let go: forward | Alt+Keypad 4, 6, . then Alt+Keypad 5 |
 
-The game's stock joystick table puts fire mode on button 5 (LB) and centre
-legs on button 8 (Start); the bridge needs both, so those two actions are
-in the layer instead. LB and Start are always kept from the joystick in a
-mission.
+Hold LB for the less common actions:
 
-Each layered key's down and up go with its button's press and release, even
-if LB is let go first, so no Ctrl or key stays down. A controller switched
-off mid-press lets go of every key and click it was holding.
+| LB + | Does | Key |
+|---|---|---|
+| A | Get up | G |
+| B | Flush coolant | F |
+| X | Cycle camera | X |
+| Y | Previous weapon group | [ |
+| RB | Target next enemy | E |
+| RT | Toggle fire mode | \ |
+| LT | Toggle MASC | V |
+| View | Lancemate command screen | F11 |
+| Menu | Startup/shutdown | S |
+| LS | Centre the legs to the torso | / |
+| RS | Override thermal shutdown | O |
+| D-pad up | Previous nav point | Shift+N |
+| D-pad down | Damage display | D |
+| D-pad left | Clear target | T |
+| D-pad right | Radar size | R |
+
+Each action is bound once (`pad_bridge_every_action_once` checks the table,
+`mission_bindings()` in pad_bridge.cpp). A trigger is pressed past half way
+and let go under a quarter. Each key's down and up go with its button's
+press and release, even if LB is let go first, so no Ctrl, Alt or key stays
+down. A controller switched off mid-press lets go of every key and click it
+was holding.
+
+### The sticks
+
+The game reads its stick through an axis table: throttle, twist, pitch and
+turn, each an axis, a scale, an offset and a dead zone (controls.md). Its
+stock table is for a 1999 flight stick: throttle on Z as a 0..1 lever
+(centred is half ahead), twist on Rz, which a controller lacks, pitch on Y.
+With the bridge on, `mech3::set_pad_stick_axes` makes the table's joystick
+defaults a controller's, and the UseJoystick option and the controls
+screen's joystick reset then write those:
+
+| Axis | Source | Scale |
+|---|---|---|
+| Throttle | Left stick Y | x -1 (up is ahead) |
+| Turn | Left stick X | x -1, as the stock turn |
+| Twist | Right stick X | x -1, as the stock twist |
+| Pitch | Right stick Y | x -1 (up aims up; `CMD_PITCH_UP` is +1) |
+
+The game's stick throttle sets the throttle target outright once the stick
+moves, so a centred stick is a stop and pulled back is reverse; the mech
+eases to the target at its own rates. `SdlInput` shapes the controller's
+sticks (`pad_sticks`, `shape_stick`): a round dead zone of 0.15 on the left
+stick, straight past it; 0.12 on the right, squared past it, so small moves
+aim finely and a full push twists at full speed. A controls file saved from
+the controls screen still wins, as on any build.
+
+MW3 has no arm lock to turn on: its arm weapons converge on the torso's
+reticle already. The nearest command, Toggle Torso Mode (Ctrl+Keypad 0),
+freezes the reticle over a target's part (look.md), so it is left off the
+controller.
 
 ## A controller that connects late
 

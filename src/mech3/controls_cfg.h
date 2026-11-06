@@ -31,6 +31,17 @@ struct AxisTable {
   void set(int i, int32_t source, float scale, float offset, float deadzone);  // 0x0040db30, not ready
 };
 AxisTable& axis_table();
+// The stick's default axes (0x00410950's, which the UseJoystick option, the
+// controls screen's Cancel and its joystick reset write again): throttle Z x
+// -0.5 + 0.5 (dead zone 0.05), twist Rz x -1, pitch Y, turn X x -1.
+// Ours (docs/pad-bridge.md): with pad_stick_axes on, a game controller's
+// instead: throttle the left stick's Y x -1 (centred: stop; back: reverse),
+// turn its X x -1, twist the right stick's X x -1, pitch its Y x -1 (up aims
+// up). SdlInput gives the sticks their dead zones and curves.
+void joystick_axis_defaults(AxisTable& t);
+// On (tvOS, mw3.cfg's pad_bridge=1): the table takes the controller's axes now.
+void set_pad_stick_axes(bool on);
+bool pad_stick_axes();
 
 // A command's entry at 0x00604128 (0x14 bytes, 0xa7 of them).
 struct CommandEntry {

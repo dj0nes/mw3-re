@@ -188,16 +188,8 @@ void ControlsButton::on_left_up() {
         e_.controls_defaults();
         e_.input_map_refresh();
         if (e_.joystick_present()) {
-          t.set3(0, 3, -0.5f, 0.5f);
-          t.axes[0].deadzone = 0.05f;
+          joystick_axis_defaults(t);  // the stick's defaults (a controller's, ours)
           t.ready = 0;
-          t.set3(1, 6, -1.0f, 0.0f);
-          t.axes[1].deadzone = 0.0f;
-          t.ready = 0;
-          t.set3(2, 2, 1.0f, 0.0f);
-          t.axes[2].deadzone = 0.0f;
-          t.ready = 0;
-          t.set(3, 1, -1.0f, 0.0f, 0.0f);
         } else {
           t.set3(2, 10, 1.0f, 0.0f);
           t.axes[2].deadzone = 0.0f;
@@ -228,10 +220,7 @@ void ControlsButton::on_left_up() {
     case kResetJoy:  // 0x0042d2b0: the stick's defaults (0x00410950's), saved as DefaultCtlConfig
       e_.controls_defaults();
       e_.input_map_refresh();
-      t.axes[0] = {3, -0.5f, 0.5f, 0.05f};
-      t.axes[1] = {6, -1.0f, 0.0f, 0.0f};
-      t.axes[2] = {2, 1.0f, 0.0f, 0.0f};
-      t.axes[3] = {1, -1.0f, 0.0f, 0.0f};
+      joystick_axis_defaults(t);  // the stick's defaults (a controller's, ours)
       t.ready = 1;
       s->load_save(e_.message(0xfc0), true);
       e_.set_use_joystick(1);
